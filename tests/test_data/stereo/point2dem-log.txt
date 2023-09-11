@@ -1,0 +1,57 @@
+ASP 3.4.0-alpha
+Build ID: 491f12c9
+Build date: 2024-02-18
+
+/swbuild/bpurint1/asp/dev/libexec/point2dem --nodata-value -9999 --t_srs EPSG:32604 --threads 24 --propagate-errors --remove-outliers --remove-outliers-params 75.0 3.0 --errorimage --tr 1 -o stereo_ba_50ips_10matches_dg_weight_image__ortho_0.55m_mode_asp_mgm_spm_9_corr_7_rfne_15_cost_4_refdem_COP30/20220419_2321_10300100D12D7400_10300100D0772D00_1m stereo_ba_50ips_10matches_dg_weight_image__ortho_0.55m_mode_asp_mgm_spm_9_corr_7_rfne_15_cost_4_refdem_COP30/20220419_2321_10300100D12D7400_10300100D0772D00-PC.tif 
+
+uname -a
+Linux r585i0n8 4.18.0-477.27.1.1toss.t4.x86_64 #1 SMP Tue Sep 19 15:17:56 PDT 2023 x86_64 x86_64 x86_64 GNU/Linux
+
+cat /proc/meminfo 2>/dev/null | grep MemTotal
+MemTotal:       131461632 kB
+
+cat /proc/cpuinfo 2>/dev/null | tail -n 25
+cpu family	: 6
+model		: 63
+model name	: Intel(R) Xeon(R) CPU E5-2680 v3 @ 2.50GHz
+stepping	: 2
+microcode	: 0x49
+cpu MHz		: 3300.000
+cache size	: 15360 KB
+physical id	: 1
+siblings	: 24
+core id		: 13
+cpu cores	: 12
+apicid		: 59
+initial apicid	: 59
+fpu		: yes
+fpu_exception	: yes
+cpuid level	: 15
+wp		: yes
+flags		: fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush dts acpi mmx fxsr sse sse2 ss ht tm pbe syscall nx pdpe1gb rdtscp lm constant_tsc arch_perfmon pebs bts rep_good nopl xtopology nonstop_tsc cpuid aperfmperf pni pclmulqdq dtes64 monitor ds_cpl vmx smx est tm2 ssse3 sdbg fma cx16 xtpr pdcm pcid dca sse4_1 sse4_2 x2apic movbe popcnt aes xsave avx f16c rdrand lahf_lm abm cpuid_fault epb invpcid_single pti intel_ppin tpr_shadow vnmi flexpriority ept vpid ept_ad fsgsbase tsc_adjust bmi1 avx2 smep bmi2 erms invpcid cqm xsaveopt cqm_llc cqm_occup_llc dtherm ida arat pln pts
+bugs		: cpu_meltdown spectre_v1 spectre_v2 spec_store_bypass l1tf mds swapgs itlb_multihit mmio_stale_data
+bogomips	: 5000.06
+clflush size	: 64
+cache_alignment	: 64
+address sizes	: 46 bits physical, 48 bits virtual
+power management:
+
+
+sysctl -a hw 2>/dev/null | grep -E "ncpu|byteorder|memsize|cpufamily|cachesize|mmx|sse|machine|model" | grep -v ipv6
+
+
+
+Vision Workbench log started at 2024-04-14 22:09:45.
+
+2024-04-14 22:17:51 {0} [ console ] : Collected a sample of 742383627 positive triangulation errors.
+2024-04-14 22:17:51 {0} [ console ] : Error percentiles: Q1 (25%): 0.0363922, Q2 (50%): 0.0782433, Q3 (75%): 0.13829.
+2024-04-14 22:17:51 {0} [ console ] : Computing triangulation error cutoff based on --remove-outliers-params.
+2024-04-14 22:17:51 {0} [ console ] : Triangulation error cutoff is 0.414871 meters.
+2024-04-14 22:17:51 {0} [ console ] : 	Starting DEM rasterization
+2024-04-14 22:17:51 {0} [ console ] : 	--> DEM spacing: 1 pt/px
+2024-04-14 22:17:51 {0} [ console ] : 	             or: 1 px/pt
+2024-04-14 22:17:51 {0} [ console ] : Creating output file that is Vector2(18950,15481) px.
+2024-04-14 22:17:51 {0} [ console ] : Writing: stereo_ba_50ips_10matches_dg_weight_image__ortho_0.55m_mode_asp_mgm_spm_9_corr_7_rfne_15_cost_4_refdem_COP30/20220419_2321_10300100D12D7400_10300100D0772D00_1m-DEM.tif
+2024-04-14 22:27:34 {0} [ console ] : Percentage of valid pixels: 75.9893%
+2024-04-14 22:27:34 {0} [ console ] : Writing: stereo_ba_50ips_10matches_dg_weight_image__ortho_0.55m_mode_asp_mgm_spm_9_corr_7_rfne_15_cost_4_refdem_COP30/20220419_2321_10300100D12D7400_10300100D0772D00_1m-IntersectionErr.tif
+2024-04-14 22:32:17 {0} [ console ] : Cannot grid the horizontal and vertical stddev as the point cloud file is not in the expected format.

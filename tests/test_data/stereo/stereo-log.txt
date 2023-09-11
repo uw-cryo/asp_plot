@@ -1,0 +1,59 @@
+ASP 3.4.0-alpha
+Build ID: 491f12c9
+Build date: 2024-02-18
+
+stereo_tri --stereo-algorithm asp_mgm --corr-kernel 7 7 --subpixel-kernel 15 15 --cost-mode 4 --subpixel-mode 9 --corr-max-levels 5 --filter-mode 1 --erode-max-size 0 --individually-normalize --corr-memory-limit-mb 5000 --sgm-collar-size 256 --corr-tile-size 1024 --alignment-method none --corr-seed-mode 1 --compute-point-cloud-center-only --threads 24 10300100D12D7400_ortho_0.55m.tif 10300100D0772D00_ortho_0.55m.tif ba/ba_50ips_10matches_dg_weight_image-10300100D12D7400.r100.adjusted_state.json ba/ba_50ips_10matches_dg_weight_image-10300100D0772D00.r100.adjusted_state.json stereo_ba_50ips_10matches_dg_weight_image__ortho_0.55m_mode_asp_mgm_spm_9_corr_7_rfne_15_cost_4_refdem_COP30/20220419_2321_10300100D12D7400_10300100D0772D00 /nobackup/bpurint1/data/utqiagvik/COP/COP30_utqiagvik_lzw-adj_proj.tif 
+
+uname -a
+Linux r605i6n15 4.18.0-477.27.1.1toss.t4.x86_64 #1 SMP Tue Sep 19 15:17:56 PDT 2023 x86_64 x86_64 x86_64 GNU/Linux
+
+cat /proc/meminfo 2>/dev/null | grep MemTotal
+MemTotal:       131458532 kB
+
+cat /proc/cpuinfo 2>/dev/null | tail -n 25
+cpu family	: 6
+model		: 79
+model name	: Intel(R) Xeon(R) CPU E5-2680 v4 @ 2.40GHz
+stepping	: 1
+microcode	: 0xb000010
+cpu MHz		: 3300.000
+cache size	: 35840 KB
+physical id	: 1
+siblings	: 28
+core id		: 14
+cpu cores	: 14
+apicid		: 61
+initial apicid	: 61
+fpu		: yes
+fpu_exception	: yes
+cpuid level	: 20
+wp		: yes
+flags		: fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush dts acpi mmx fxsr sse sse2 ss ht tm pbe syscall nx pdpe1gb rdtscp lm constant_tsc arch_perfmon pebs bts rep_good nopl xtopology nonstop_tsc cpuid aperfmperf pni pclmulqdq dtes64 monitor ds_cpl vmx smx est tm2 ssse3 sdbg fma cx16 xtpr pdcm pcid dca sse4_1 sse4_2 x2apic movbe popcnt aes xsave avx f16c rdrand lahf_lm abm 3dnowprefetch cpuid_fault epb cat_l3 cdp_l3 invpcid_single pti intel_ppin tpr_shadow vnmi flexpriority ept vpid ept_ad fsgsbase tsc_adjust bmi1 hle avx2 smep bmi2 erms invpcid rtm cqm rdt_a rdseed adx smap intel_pt xsaveopt cqm_llc cqm_occup_llc cqm_mbm_total cqm_mbm_local dtherm ida arat pln pts
+bugs		: cpu_meltdown spectre_v1 spectre_v2 spec_store_bypass l1tf mds swapgs taa itlb_multihit mmio_stale_data
+bogomips	: 4800.09
+clflush size	: 64
+cache_alignment	: 64
+address sizes	: 46 bits physical, 48 bits virtual
+power management:
+
+
+sysctl -a hw 2>/dev/null | grep -E "ncpu|byteorder|memsize|cpufamily|cachesize|mmx|sse|machine|model" | grep -v ipv6
+
+
+
+Vision Workbench log started at 2024-04-14 18:15:03.
+
+2024-04-14 18:15:03 {0} [ console ] : Will refine the disparity using the ASP subpixel-mode: 9.
+2024-04-14 18:15:03 {0} [ console ] : Using session: csmmapcsm
+2024-04-14 18:15:03 {0} [ console ] : Mapprojected images bundle adjustment prefixes:  
+2024-04-14 18:15:03 {0} [ console ] : Mapprojection cameras: ba/ba_50ips_10matches_dg_weight_image-10300100D12D7400.r100.adjusted_state.json ba/ba_50ips_10matches_dg_weight_image-10300100D0772D00.r100.adjusted_state.json
+2024-04-14 18:15:03 {0} [ console ] : Mapprojection cam types: csm csm
+2024-04-14 18:15:03 {0} [ console ] : Loading camera model: 10300100D12D7400_ortho_0.55m.tif ba/ba_50ips_10matches_dg_weight_image-10300100D12D7400.r100.adjusted_state.json
+2024-04-14 18:15:03 {0} [ console ] : Loading camera model: 10300100D0772D00_ortho_0.55m.tif ba/ba_50ips_10matches_dg_weight_image-10300100D0772D00.r100.adjusted_state.json
+2024-04-14 18:15:04 {0} [ console ] : Distance between camera centers in meters: 664930.
+2024-04-14 18:15:04 {0} [ console ] : 	--> Inputs are map projected.
+2024-04-14 18:15:05 {0} [ console ] : 	--> Generating a 3D point cloud.
+2024-04-14 18:15:05 {0} [ console ] : Writing point cloud center: stereo_ba_50ips_10matches_dg_weight_image__ortho_0.55m_mode_asp_mgm_spm_9_corr_7_rfne_15_cost_4_refdem_COP30/20220419_2321_10300100D12D7400_10300100D0772D00-PC-center.txt
+2024-04-14 18:15:05 {0} [ console ] : Computed the point cloud center. Will stop here.
+2024-04-14 18:15:05 {0} [ console ] : 
+[ 2024-Apr-14 18:15:05 ] : TRIANGULATION FINISHED 
