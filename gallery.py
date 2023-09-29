@@ -18,12 +18,12 @@ from mpl_toolkits.axes_grid1 import ImageGrid
 from pygeotools.lib import iolib, timelib, geolib, malib
 from imview.lib import pltlib
 
-add_cbar = False
+add_cbar = False 
 hs = False
 
 #For DEMs
-cmap = 'cpt_rainbow'
-alpha = 0.5
+# cmap = 'cpt_rainbow'
+# alpha = 0.5
 
 #For orthoimages
 cmap = 'gray'
@@ -53,7 +53,7 @@ nrows = int(np.ceil(float(n)/ncols))
 if add_cbar:
     grid = ImageGrid(f, 111, nrows_ncols=(nrows, ncols), axes_pad=(0.05,0.2), share_all=True, cbar_mode='single', cbar_pad=0.1, cbar_set_cax=False)
 else:
-    grid = ImageGrid(f, 111, nrows_ncols=(nrows, ncols), axes_pad=(0.05,0.2), share_all=True, cbar_mode='None')
+    grid = ImageGrid(f, 111, nrows_ncols=(nrows, ncols), axes_pad=(0.05,0.2), share_all=True, cbar_mode=None)
 
 #f, axa = plt.subplots(nrows, ncols, sharex='all', sharey='all', figsize=(10,10))
 #plt.subplots_adjust(wspace=0, hspace=0.2)
@@ -108,8 +108,8 @@ if add_cbar:
     cbar_lbl = 'Elevation (m WGS84)'
     cbar_kwargs = {'extend':'both', 'alpha':1.0}
     cbar = grid.cbar_axes[0].colorbar(dem_im, **cbar_kwargs) 
-    cbar.update_bruteforce(dem_im)
-    cbar.set_label_text(cbar_lbl)
+    cbar.update_normal(dem_im)
+    cbar.set_label(cbar_lbl)
 
 #res = geolib.get_res(dem_ds)[0]
 #pltlib.add_scalebar(grid[-1], res=res)
