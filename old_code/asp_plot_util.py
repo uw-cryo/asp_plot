@@ -1,5 +1,3 @@
-#! /usr/bin/env python
-
 import numpy as np
 import rasterio as rio
 from rasterio import plot
@@ -75,3 +73,4 @@ def plot_ar(im, ax, cmap='inferno', clim=None, clim_perc=(2,98), label=None, cba
     ax.set_facecolor("0.5")
     ax.set_xticks([])
     ax.set_yticks([])
+

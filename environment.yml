@@ -1,0 +1,15 @@
+name: asp_plot
+channels:
+  - conda-forge
+dependencies:
+  - flake8
+  - black
+  - pytest
+  - pip
+  - numpy
+  - rasterio
+  - matplotlib
+  - pandas
+  - gdal
+  - geopandas
+  - contextily
