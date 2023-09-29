@@ -5,6 +5,7 @@ from rasterio.windows import Window
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
+
 def symm_clim(clim):
     abs_max = np.max(np.abs(clim))
     return (-abs_max, abs_max)
@@ -21,10 +22,19 @@ def get_clim(ar, perc=(2, 98), symm=False):
 
 
 # Generalize for input list, not just two images
-def find_common_clim(im1, im2, symm=False):
-    clim1 = get_clim(im1)
-    clim2 = get_clim(im2)
-    clim = (np.min([clim1[0], clim2[0]]), np.max([clim1[1], clim2[1]]))
+# def find_common_clim(im1, im2, symm=False):
+#     clim1 = get_clim(im1)
+#     clim2 = get_clim(im2)
+#     clim = (np.min([clim1[0], clim2[0]]), np.max([clim1[1], clim2[1]]))
+#     if symm:
+#         clim = symm_clim(clim)
+#     return clim
+
+def find_common_clim(images, symm=False):
+    clims = [get_clim(im) for im in images]
+    clim_min = np.min([clim[0] for clim in clims])
+    clim_max = np.max([clim[1] for clim in clims])
+    clim = (clim_min, clim_max)
     if symm:
         clim = symm_clim(clim)
     return clim
