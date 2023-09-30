@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import rasterio as rio
 from rasterio import plot
@@ -29,6 +30,7 @@ def get_clim(ar, perc=(2, 98), symm=False):
 #     if symm:
 #         clim = symm_clim(clim)
 #     return clim
+
 
 def find_common_clim(images, symm=False):
     clims = [get_clim(im) for im in images]
