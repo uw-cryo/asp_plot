@@ -17,13 +17,18 @@ def resid_plot(
     clim=None,
     cmap="inferno",
     map_crs="EPSG:4326",
+    title_size=10,
     **ctx_kwargs,
 ):
     n = len(geodataframes)
     nrows = (n + 3) // 4
     ncols = min(n, 4)
-    f, axa = plt.subplots(nrows, ncols, figsize=(4 * ncols, 3 * nrows), sharex=True, sharey=True)
-    axa = axa.flatten()
+    if n == 1:
+        f, axa = plt.subplots(1, 1, figsize=(8, 6))
+        axa = [axa]
+    else:
+        f, axa = plt.subplots(nrows, ncols, figsize=(4 * ncols, 3 * nrows), sharex=True, sharey=True)
+        axa = axa.flatten()
     for i, gdf in enumerate(geodataframes):
         if clim is None:
             clim = get_clim(gdf[col], perc=(0, 98))
@@ -42,9 +47,10 @@ def resid_plot(
         ctx.add_basemap(ax=axa[i], **ctx_kwargs)
         if clip_final and i == n - 1:
             axa[i].autoscale(False)
-        axa[i].set_title(f"{gdf.filename}\nResiduals (n={gdf.shape[0]})")
+        axa[i].set_title(f"{gdf.filename}\nResiduals (n={gdf.shape[0]})", fontsize=title_size)
     for i in range(n, nrows * ncols):
         f.delaxes(axa[i])
+    plt.subplots_adjust(wspace=0.2, hspace=0.4)
     plt.tight_layout()
 
 def resid_plot_single(
