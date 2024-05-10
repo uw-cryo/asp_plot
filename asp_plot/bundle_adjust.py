@@ -2,6 +2,7 @@ import os
 import pandas as pd
 import geopandas as gpd
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
 import contextily as ctx
 from asp_plot.utils import ColorBar, Plotter
 
@@ -77,6 +78,10 @@ class PlotResiduals:
             raise ValueError("Input must be a list of GeoDataFrames")
         self.geodataframes = geodataframes
 
+    def get_residual_stats(self, gdf, column_name="mean_residual"):
+        stats = gdf[column_name].quantile([.25, .50, .84, .95]).round(2).tolist()
+        return stats
+
     def plot_n_residuals(
         self,
         column_name="mean_residual",
@@ -120,7 +125,15 @@ class PlotResiduals:
 
             if clip_final and i == n - 1:
                 axa[i].autoscale(False)
+            
+            
+            # Show some statistics and information
             axa[i].set_title(f"{column_name:} (n={gdf.shape[0]})", fontsize=title_size)
+
+            stats = self.get_residual_stats(gdf, column_name)
+            stats_text = "\n".join(f"{quantile*100:.0f}th perc: {stat}" for quantile, stat in zip([.25, .50, .84, .95], stats))
+            axa[i].text(0.05, 0.95, stats_text, transform=axa[i].transAxes, fontsize=8,
+                        verticalalignment='top', bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
         
         # Clean up axes and tighten layout
         for i in range(n, nrows * ncols):
