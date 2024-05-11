@@ -72,8 +72,9 @@ class ReadResiduals:
         return init_resid_gdf, final_resid_gdf
 
 
-class PlotResiduals:
-    def __init__(self, geodataframes):
+class PlotResiduals(Plotter):
+    def __init__(self, geodataframes, **kwargs):
+        super().__init__(**kwargs)
         if not isinstance(geodataframes, list):
             raise ValueError("Input must be a list of GeoDataFrames")
         self.geodataframes = geodataframes
@@ -109,23 +110,17 @@ class PlotResiduals:
           
         # Plot each GeoDataFrame
         for i, gdf in enumerate(self.geodataframes):
+            gdf = gdf.sort_values(by=column_name).to_crs(map_crs)
+
             if clim is None:
                 clim = ColorBar().get_clim(gdf[column_name])
-            
-            gdf = gdf.sort_values(by=column_name).to_crs(map_crs)
-            plotter = Plotter(
-                ax=axa[i],
-                clim=clim,
-                label=column_name,
-            )
 
-            plotter.plot_geodataframe(gdf, column_name, lognorm)
+            self.plot_geodataframe(ax=axa[i], gdf=gdf, column_name=column_name, lognorm=lognorm)
 
             ctx.add_basemap(ax=axa[i], **ctx_kwargs)
 
             if clip_final and i == n - 1:
                 axa[i].autoscale(False)
-            
             
             # Show some statistics and information
             axa[i].set_title(f"{column_name:} (n={gdf.shape[0]})", fontsize=title_size)

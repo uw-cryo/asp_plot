@@ -88,7 +88,6 @@ class Raster:
 class Plotter:
     def __init__(
         self,
-        ax,
         cmap="inferno",
         clim=None,
         clim_perc=(2, 98),
@@ -96,7 +95,6 @@ class Plotter:
         add_cbar=True,
         alpha=1,
     ):
-        self.ax = ax
         self.cmap = cmap
         self.clim = clim
         self.clim_perc = clim_perc
@@ -105,11 +103,11 @@ class Plotter:
         self.alpha = alpha
         self.cb = ColorBar(perc_range=self.clim_perc)
 
-    def plot_array(self, array):
+    def plot_array(self, ax, array):
         if self.clim is None:
             self.clim = self.cb.get_clim(array)
 
-        m = self.ax.imshow(
+        im = ax.imshow(
             array,
             cmap=self.cmap,
             clim=self.clim,
@@ -118,39 +116,36 @@ class Plotter:
         )
 
         if self.add_cbar:
-            divider = make_axes_locatable(self.ax)
+            divider = make_axes_locatable(ax)
             cax = divider.append_axes("right", size="4%", pad="2%")
             plt.colorbar(
-                m,
+                im,
                 cax=cax,
-                ax=self.ax,
+                ax=ax,
                 extend=self.cb.get_cbar_extend(array, self.clim),
             )
             cax.set_ylabel(self.label)
 
-        self.ax.set_facecolor("0.5")
-        self.ax.set_xticks([])
-        self.ax.set_yticks([])
+        ax.set_facecolor("0.5")
+        ax.set_xticks([])
+        ax.set_yticks([])
 
-    def plot_geodataframe(self, gdf, column_name, lognorm=False):
+    def plot_geodataframe(self, ax, gdf, column_name, lognorm=False):
         if self.clim is None:
             self.clim = self.cb.get_clim(gdf[column_name])
         vmin, vmax = self.clim
         
-        norm = matplotlib.colors.Normalize(vmin=vmin, vmax=vmax)
         if lognorm:
             norm = matplotlib.colors.LogNorm(vmin=vmin, vmax=vmax)
+        else:
+            norm = matplotlib.colors.Normalize(vmin=vmin, vmax=vmax)
         
-        plot_kw = {
-            "cmap": self.cmap,
-            "norm": norm,
-            "s": 1,
-            "legend": True,
-            "legend_kwds": {"label": self.label},
-        }
-        
-        m = gdf.plot(
-            ax=self.ax,
+        gdf.plot(
+            ax=ax,
             column=column_name,
-            **plot_kw
+            cmap=self.cmap,
+            norm=norm,
+            s=1,
+            legend=True,
+            legend_kwds={"label": self.label},
         )

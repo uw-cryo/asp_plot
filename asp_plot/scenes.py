@@ -2,8 +2,9 @@ import matplotlib.pyplot as plt
 from asp_plot.utils import Raster, Plotter
 
 
-class ScenePlotter:
-    def __init__(self, left_ortho_fn, right_ortho_fn):
+class ScenePlotter(Plotter):
+    def __init__(self, left_ortho_fn, right_ortho_fn, **kwargs):
+        super().__init__(**kwargs)
         self.left_ortho_fn = left_ortho_fn
         self.right_ortho_fn = right_ortho_fn
 
@@ -14,14 +15,14 @@ class ScenePlotter:
 
         if self.left_ortho_fn:
             ortho_ma = Raster(self.left_ortho_fn).read_array()
-            Plotter(ax=axa[0], cmap="gray", add_cbar=False).plot_array(ortho_ma)
+            self.plot_array(ax=axa[0], array=ortho_ma)
             axa[0].set_title("Left image")
         else:
             axa[0].axis("off")
 
         if self.right_ortho_fn:
             ortho_ma = Raster(self.right_ortho_fn).read_array()
-            Plotter(ax=axa[1], cmap="gray", add_cbar=False).plot_array(ortho_ma)
+            self.plot_array(ax=axa[1], array=ortho_ma)
             axa[1].set_title("Right image")
         else:
             axa[1].axis("off")
