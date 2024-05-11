@@ -134,12 +134,12 @@ class Plotter:
         if self.clim is None:
             self.clim = self.cb.get_clim(gdf[column_name])
         vmin, vmax = self.clim
-        
+
         if lognorm:
             norm = matplotlib.colors.LogNorm(vmin=vmin, vmax=vmax)
         else:
             norm = matplotlib.colors.Normalize(vmin=vmin, vmax=vmax)
-        
+
         gdf.plot(
             ax=ax,
             column=column_name,

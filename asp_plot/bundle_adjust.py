@@ -80,7 +80,7 @@ class PlotResiduals(Plotter):
         self.geodataframes = geodataframes
 
     def get_residual_stats(self, gdf, column_name="mean_residual"):
-        stats = gdf[column_name].quantile([.25, .50, .84, .95]).round(2).tolist()
+        stats = gdf[column_name].quantile([0.25, 0.50, 0.84, 0.95]).round(2).tolist()
         return stats
 
     def plot_n_residuals(
@@ -107,7 +107,7 @@ class PlotResiduals(Plotter):
                 nrows, ncols, figsize=(4 * ncols, 3 * nrows), sharex=True, sharey=True
             )
             axa = axa.flatten()
-          
+
         # Plot each GeoDataFrame
         for i, gdf in enumerate(self.geodataframes):
             gdf = gdf.sort_values(by=column_name).to_crs(map_crs)
@@ -115,24 +115,35 @@ class PlotResiduals(Plotter):
             if clim is None:
                 clim = ColorBar().get_clim(gdf[column_name])
 
-            self.plot_geodataframe(ax=axa[i], gdf=gdf, column_name=column_name, lognorm=lognorm)
+            self.plot_geodataframe(
+                ax=axa[i], gdf=gdf, column_name=column_name, lognorm=lognorm
+            )
 
             ctx.add_basemap(ax=axa[i], **ctx_kwargs)
 
             if clip_final and i == n - 1:
                 axa[i].autoscale(False)
-            
+
             # Show some statistics and information
             axa[i].set_title(f"{column_name:} (n={gdf.shape[0]})", fontsize=title_size)
 
             stats = self.get_residual_stats(gdf, column_name)
-            stats_text = "\n".join(f"{quantile*100:.0f}th perc: {stat}" for quantile, stat in zip([.25, .50, .84, .95], stats))
-            axa[i].text(0.05, 0.95, stats_text, transform=axa[i].transAxes, fontsize=8,
-                        verticalalignment='top', bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
-        
+            stats_text = "\n".join(
+                f"{quantile*100:.0f}th perc: {stat}"
+                for quantile, stat in zip([0.25, 0.50, 0.84, 0.95], stats)
+            )
+            axa[i].text(
+                0.05,
+                0.95,
+                stats_text,
+                transform=axa[i].transAxes,
+                fontsize=8,
+                verticalalignment="top",
+                bbox=dict(boxstyle="round", facecolor="white", alpha=0.8),
+            )
+
         # Clean up axes and tighten layout
         for i in range(n, nrows * ncols):
             f.delaxes(axa[i])
         plt.subplots_adjust(wspace=0.2, hspace=0.4)
         plt.tight_layout()
-
