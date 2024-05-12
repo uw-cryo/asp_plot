@@ -91,15 +91,19 @@ class Plotter:
         cmap="inferno",
         clim=None,
         clim_perc=(2, 98),
-        label=None,
         add_cbar=True,
+        lognorm=False,
+        cbar_label=None,
+        title=None,
         alpha=1,
     ):
         self.cmap = cmap
         self.clim = clim
         self.clim_perc = clim_perc
-        self.label = label
         self.add_cbar = add_cbar
+        self.lognorm = lognorm
+        self.cbar_label = cbar_label
+        self.title = title
         self.alpha = alpha
         self.cb = ColorBar(perc_range=self.clim_perc)
 
@@ -124,18 +128,19 @@ class Plotter:
                 ax=ax,
                 extend=self.cb.get_cbar_extend(array, self.clim),
             )
-            cax.set_ylabel(self.label)
+            cax.set_ylabel(self.cbar_label)
 
         ax.set_facecolor("0.5")
         ax.set_xticks([])
         ax.set_yticks([])
+        ax.set_title(self.title)
 
-    def plot_geodataframe(self, ax, gdf, column_name, lognorm=False):
+    def plot_geodataframe(self, ax, gdf, column_name):
         if self.clim is None:
             self.clim = self.cb.get_clim(gdf[column_name])
         vmin, vmax = self.clim
 
-        if lognorm:
+        if self.lognorm:
             norm = matplotlib.colors.LogNorm(vmin=vmin, vmax=vmax)
         else:
             norm = matplotlib.colors.Normalize(vmin=vmin, vmax=vmax)
@@ -147,5 +152,5 @@ class Plotter:
             norm=norm,
             s=1,
             legend=True,
-            legend_kwds={"label": self.label},
+            legend_kwds={"label": self.cbar_label},
         )

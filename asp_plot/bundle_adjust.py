@@ -12,7 +12,7 @@ class ReadResiduals:
         self.directory = directory
         self.ba_prefix = ba_prefix
 
-    def get_residual_csv_paths(self):
+    def get_init_final_residuals_csvs(self):
         filenames = [
             f"{self.ba_prefix}-initial_residuals_pointmap.csv",
             f"{self.ba_prefix}-final_residuals_pointmap.csv",
@@ -27,12 +27,11 @@ class ReadResiduals:
             if not os.path.isfile(path):
                 raise ValueError(f"Residuals CSV file not found: {path}")
 
-        init_resid_path, final_resid_path = paths
+        resid_init_path, resid_final_path = paths
+        return resid_init_path, resid_final_path
 
-        return init_resid_path, final_resid_path
-
-    def read_residuals_csv(self, csv_path):
-        resid_cols = [
+    def get_residuals_gdf(self, csv_path):
+        cols = [
             "lon",
             "lat",
             "height_above_datum",
@@ -40,7 +39,7 @@ class ReadResiduals:
             "num_observations",
         ]
 
-        resid_df = pd.read_csv(csv_path, skiprows=2, names=resid_cols)
+        resid_df = pd.read_csv(csv_path, skiprows=2, names=cols)
 
         # Need the astype('str') to handle cases where column has dtype of int (without the # from DEM appended to some rows)
         resid_df["from_DEM"] = (
@@ -62,14 +61,53 @@ class ReadResiduals:
         )
 
         resid_gdf.filename = os.path.basename(csv_path)
-
         return resid_gdf
 
-    def get_residual_gdfs(self):
-        init_resid_path, final_resid_path = self.get_residual_csv_paths()
-        init_resid_gdf = self.read_residuals_csv(init_resid_path)
-        final_resid_gdf = self.read_residuals_csv(final_resid_path)
-        return init_resid_gdf, final_resid_gdf
+    def get_init_final_residuals_gdfs(self):
+        resid_init_path, resid_final_path = self.get_init_final_residuals_csvs()
+        resid_init_gdf = self.get_residuals_gdf(resid_init_path)
+        resid_final_gdf = self.get_residuals_gdf(resid_final_path)
+        return resid_init_gdf, resid_final_gdf
+
+    def get_mapproj_residuals_gdf(self):
+        filename = f"{self.ba_prefix}-mapproj_match_offsets.txt"
+        path = os.path.join(os.path.expanduser(self.directory), filename)
+        if not os.path.isfile(path):
+            raise ValueError(f"MapProj Residuals TXT file not found: {path}")
+
+        cols = ["lon", "lat", "height_above_datum", "mapproj_ip_dist_meters"]
+        resid_mapprojected_df = pd.read_csv(path, skiprows=2, names=cols)
+        resid_mapprojected_gdf = gpd.GeoDataFrame(
+            resid_mapprojected_df,
+            geometry=gpd.points_from_xy(
+                resid_mapprojected_df["lon"],
+                resid_mapprojected_df["lat"],
+                crs="EPSG:4326",
+            ),
+        )
+        return resid_mapprojected_gdf
+
+    def get_propagated_triangulation_uncert_df(self):
+        filename = f"{self.ba_prefix}-triangulation_uncertainty.txt"
+        path = os.path.join(os.path.expanduser(self.directory), filename)
+        if not os.path.isfile(path):
+            raise ValueError(f"Triangulation Uncertainty TXT file not found: {path}")
+
+        cols = [
+            "left_image",
+            "right_image",
+            "horiz_error_median",
+            "vert_error_median",
+            "horiz_error_mean",
+            "vert_error_mean",
+            "horiz_error_stddev",
+            "vert_error_stddev",
+            "num_meas",
+        ]
+        resid_triangulation_uncert_df = pd.read_csv(
+            path, sep=" ", skiprows=2, names=cols
+        )
+        return resid_triangulation_uncert_df
 
 
 class PlotResiduals(Plotter):
@@ -87,11 +125,9 @@ class PlotResiduals(Plotter):
         self,
         column_name="mean_residual",
         clip_final=True,
-        lognorm=False,
         clim=None,
         cmap="inferno",
         map_crs="EPSG:4326",
-        title_size=10,
         **ctx_kwargs,
     ):
 
@@ -115,9 +151,7 @@ class PlotResiduals(Plotter):
             if clim is None:
                 clim = ColorBar().get_clim(gdf[column_name])
 
-            self.plot_geodataframe(
-                ax=axa[i], gdf=gdf, column_name=column_name, lognorm=lognorm
-            )
+            self.plot_geodataframe(ax=axa[i], gdf=gdf, column_name=column_name)
 
             ctx.add_basemap(ax=axa[i], **ctx_kwargs)
 
@@ -125,11 +159,9 @@ class PlotResiduals(Plotter):
                 axa[i].autoscale(False)
 
             # Show some statistics and information
-            axa[i].set_title(f"{column_name:} (n={gdf.shape[0]})", fontsize=title_size)
-
             stats = self.get_residual_stats(gdf, column_name)
-            stats_text = "\n".join(
-                f"{quantile*100:.0f}th perc: {stat}"
+            stats_text = f"(n={gdf.shape[0]})\n" + "\n".join(
+                f"{quantile*100:.0f}th: {stat}"
                 for quantile, stat in zip([0.25, 0.50, 0.84, 0.95], stats)
             )
             axa[i].text(
@@ -145,5 +177,6 @@ class PlotResiduals(Plotter):
         # Clean up axes and tighten layout
         for i in range(n, nrows * ncols):
             f.delaxes(axa[i])
+        f.suptitle(self.title, size=10)
         plt.subplots_adjust(wspace=0.2, hspace=0.4)
         plt.tight_layout()
