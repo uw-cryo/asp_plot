@@ -1,12 +1,31 @@
+import os
+import glob
 import matplotlib.pyplot as plt
 
 
 class ProcessingParameters:
-    def __init__(self, bundle_adjust_log, stereo_log, point2dem_log):
-        self.bundle_adjust_log = bundle_adjust_log
-        self.stereo_log = stereo_log
-        self.point2dem_log = point2dem_log
+    def __init__(self, directory, bundle_adjust_directory, stereo_directory):
+        self.directory = directory
+        self.bundle_adjust_directory = bundle_adjust_directory
+        self.stereo_directory = stereo_directory
         self.processing_parameters_dict = {}
+
+        try:
+            self.bundle_adjust_log = glob.glob(
+                os.path.join(self.directory, self.bundle_adjust_directory, "*log*.txt")
+            )[0]
+            self.stereo_log = glob.glob(
+                os.path.join(self.directory, self.stereo_directory, "*log-stereo*.txt")
+            )[0]
+            self.point2dem_log = glob.glob(
+                os.path.join(
+                    self.directory, self.stereo_directory, "*log-point2dem*.txt"
+                )
+            )[0]
+        except:
+            raise ValueError(
+                "Could not find log files in bundle adjust and stereo directories\nCheck that these *log*.txt files exist in the directories specified"
+            )
 
     def from_log_files(self):
         with open(self.bundle_adjust_log, "r") as file:
@@ -32,7 +51,7 @@ class ProcessingParameters:
         stereo_params = ""
 
         for line in content:
-            if "stereo_tri" in line and not stereo_params:
+            if "stereo" in line and not stereo_params:
                 stereo_params = line.strip()
 
             if stereo_params:
