@@ -8,10 +8,12 @@ matplotlib.use("Agg")
 class TestProcessingParameters:
     @pytest.fixture
     def processing_parameters(self):
-        bundle_adjust_log = "tests/test_data/ba/ba-log.txt"
-        stereo_log = "tests/test_data/stereo/stereo-log.txt"
-        point2dem_log = "tests/test_data/stereo/point2dem-log.txt"
-        return ProcessingParameters(bundle_adjust_log, stereo_log, point2dem_log)
+        processing_parameters = ProcessingParameters(
+            directory="tests/test_data",
+            bundle_adjust_directory="ba",
+            stereo_directory="stereo",
+        )
+        return processing_parameters
 
     def test_init(self, processing_parameters):
         assert processing_parameters.bundle_adjust_log is not None
