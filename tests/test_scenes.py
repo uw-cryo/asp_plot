@@ -11,8 +11,6 @@ class TestScenePlotter:
         scene_plotter = ScenePlotter(
             directory="tests/test_data",
             stereo_directory="stereo",
-            cmap="gray",
-            add_cbar=False,
             title="Mapprojected Scenes",
         )
         return scene_plotter
