@@ -124,33 +124,27 @@ class Raster:
 class Plotter:
     def __init__(
         self,
-        cmap="inferno",
-        clim=None,
         clim_perc=(2, 98),
         add_cbar=True,
         lognorm=False,
-        cbar_label=None,
         title=None,
         alpha=1,
     ):
-        self.cmap = cmap
-        self.clim = clim
         self.clim_perc = clim_perc
         self.add_cbar = add_cbar
         self.lognorm = lognorm
-        self.cbar_label = cbar_label
         self.title = title
         self.alpha = alpha
         self.cb = ColorBar(perc_range=self.clim_perc)
 
-    def plot_array(self, ax, array):
-        if self.clim is None:
-            self.clim = self.cb.get_clim(array)
+    def plot_array(self, ax, array, clim=None, cmap="inferno", cbar_label=None):
+        if clim is None:
+            clim = self.cb.get_clim(array)
 
         im = ax.imshow(
             array,
-            cmap=self.cmap,
-            clim=self.clim,
+            cmap=cmap,
+            clim=clim,
             alpha=self.alpha,
             interpolation="none",
         )
@@ -162,19 +156,19 @@ class Plotter:
                 im,
                 cax=cax,
                 ax=ax,
-                extend=self.cb.get_cbar_extend(array, self.clim),
+                extend=self.cb.get_cbar_extend(array, clim),
             )
-            cax.set_ylabel(self.cbar_label)
+            cax.set_ylabel(cbar_label)
 
         ax.set_facecolor("0.5")
         ax.set_xticks([])
         ax.set_yticks([])
         ax.set_title(self.title)
 
-    def plot_geodataframe(self, ax, gdf, column_name):
-        if self.clim is None:
-            self.clim = self.cb.get_clim(gdf[column_name])
-        vmin, vmax = self.clim
+    def plot_geodataframe(self, ax, gdf, column_name, clim=None, cmap="inferno", cbar_label=None):
+        if clim is None:
+            clim = self.cb.get_clim(gdf[column_name])
+        vmin, vmax = clim
 
         if self.lognorm:
             norm = matplotlib.colors.LogNorm(vmin=vmin, vmax=vmax)
@@ -184,9 +178,9 @@ class Plotter:
         gdf.plot(
             ax=ax,
             column=column_name,
-            cmap=self.cmap,
+            cmap=cmap,
             norm=norm,
             s=1,
             legend=True,
-            legend_kwds={"label": self.cbar_label},
+            legend_kwds={"label": cbar_label},
         )

@@ -3,6 +3,7 @@ import glob
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from matplotlib_scalebar.scalebar import ScaleBar
 from asp_plot.utils import ColorBar, Raster, Plotter
 
 
@@ -102,13 +103,23 @@ class StereoPlotter(Plotter):
         x, y = np.frombuffer(mf.read(8), dtype=np.float32)
         xi, yi = np.frombuffer(mf.read(8), dtype=np.int32)
         orientation, scale, interest = np.frombuffer(mf.read(12), dtype=np.float32)
-        polarity, = np.frombuffer(mf.read(1), dtype=bool)
+        (polarity,) = np.frombuffer(mf.read(1), dtype=bool)
         octave, scale_lvl = np.frombuffer(mf.read(8), dtype=np.uint32)
-        ndesc, = np.frombuffer(mf.read(8), dtype=np.uint64)
+        (ndesc,) = np.frombuffer(mf.read(8), dtype=np.uint64)
         desc = np.frombuffer(mf.read(int(ndesc * 4)), dtype=np.float32)
-        iprec = [x, y, xi, yi, orientation, 
-                scale, interest, polarity, 
-                octave, scale_lvl, ndesc]
+        iprec = [
+            x,
+            y,
+            xi,
+            yi,
+            orientation,
+            scale,
+            interest,
+            polarity,
+            octave,
+            scale_lvl,
+            ndesc,
+        ]
         iprec.extend(desc)
         return iprec
 
@@ -122,11 +133,12 @@ class StereoPlotter(Plotter):
                 im1_ip = [read_ip_record(mf) for i in range(size1)]
                 im2_ip = [read_ip_record(mf) for i in range(size2)]
                 for i in range(len(im1_ip)):
-                    out.write("{} {} {} {}\n".format(im1_ip[i][0], 
-                                                    im1_ip[i][1], 
-                                                    im2_ip[i][0], 
-                                                    im2_ip[i][1]))
-        
+                    out.write(
+                        "{} {} {} {}\n".format(
+                            im1_ip[i][0], im1_ip[i][1], im2_ip[i][0], im2_ip[i][1]
+                        )
+                    )
+
         match_point_df = pd.read_csv(out_csv, delimiter=r"\s+")
         return match_point_df
 
@@ -142,11 +154,9 @@ class StereoPlotter(Plotter):
         left_image = Raster(self.left_ortho_sub_fn).read_array()
         right_image = Raster(self.right_ortho_sub_fn).read_array()
 
-        self.plot_array(ax=axa[0], array=left_image)
-        axa[0].set_title(
-            f"Left image (n={match_point_df.shape[0]})"
-        )
-        self.plot_array(ax=axa[1], array=right_image)
+        self.plot_array(ax=axa[0], array=left_image, cmap="gray")
+        axa[0].set_title(f"Left image (n={match_point_df.shape[0]})")
+        self.plot_array(ax=axa[1], array=right_image, cmap="gray")
         axa[1].set_title("Right image")
 
         axa[0].scatter(
@@ -170,4 +180,58 @@ class StereoPlotter(Plotter):
         axa[1].set_aspect("equal")
 
         fig.suptitle(self.title, size=10)
+        plt.tight_layout()
+
+    def plot_disparity(
+        self,
+        unit="pixels",
+        remove_bias=True,
+        quiver=True,
+    ):
+        gsd = Raster(self.left_ortho_fn).get_gsd()
+        raster = Raster(self.disparity_sub_fn)
+        dx = raster.read_array(b=1)
+        dy = raster.read_array(b=2)
+
+        # Scale offsets to meters
+        if unit == "meters":
+            dx *= gsd
+            dy *= gsd
+
+        # Remove median disparity
+        if remove_bias:
+            dx_offset = np.ma.median(dx)
+            dy_offset = np.ma.median(dy)
+            dx -= dx_offset
+            dy -= dy_offset
+
+        # Compute magnitude
+        dm = np.sqrt(abs(dx**2 + dy**2))
+
+        # Compute robust colorbar limits (default is 2-98 percentile)
+        clim = ColorBar(perc_range=(2, 98), symm=True).get_clim(dm)
+
+        f, axa = plt.subplots(1, 3, figsize=(10, 3), dpi=220)
+
+        f.suptitle(self.title, size=10)
+
+        self.plot_array(ax=axa[0], array=dx, cmap="RdBu", clim=clim, cbar_label=unit)
+        self.plot_array(ax=axa[1], array=dy, cmap="RdBu", clim=clim, cbar_label=unit)
+        self.plot_array(ax=axa[2], array=dm, cmap="inferno", clim=(0, clim[1]), cbar_label=unit)
+
+        # Add quiver vectors
+        if quiver:
+            # Set ~30 points for quivers along x dimension
+            stride = int(dx.shape[1] / 30.0)
+            iy, ix = np.indices(dx.shape)[:, ::stride, ::stride]
+            dx_q = dx[::stride, ::stride]
+            dy_q = dy[::stride, ::stride]
+            axa[2].quiver(ix, iy, dx_q, dy_q, color="white")
+
+        # Add scalebar
+        sb = ScaleBar(gsd)
+        axa[0].set_title("x offset")
+        axa[1].set_title("y offset")
+        axa[2].set_title("offset magnitude")
+
         plt.tight_layout()
