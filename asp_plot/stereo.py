@@ -70,7 +70,7 @@ class StereoPlotter(Plotter):
             raise ValueError("Could not find DEM file in stereo directory")
 
         try:
-            self.intersection_error_rn = glob.glob(
+            self.intersection_error_fn = glob.glob(
                 os.path.join(
                     self.directory, self.stereo_directory, "*-IntersectionErr.tif"
                 )
@@ -157,9 +157,9 @@ class StereoPlotter(Plotter):
         left_image = Raster(self.left_ortho_sub_fn).read_array()
         right_image = Raster(self.right_ortho_sub_fn).read_array()
 
-        self.plot_array(ax=axa[0], array=left_image, cmap="gray")
+        self.plot_array(ax=axa[0], array=left_image, cmap="gray", add_cbar=False)
         axa[0].set_title(f"Left image (n={match_point_df.shape[0]})")
-        self.plot_array(ax=axa[1], array=right_image, cmap="gray")
+        self.plot_array(ax=axa[1], array=right_image, cmap="gray", add_cbar=False)
         axa[1].set_title("Right image")
 
         axa[0].scatter(
@@ -247,3 +247,31 @@ class StereoPlotter(Plotter):
         axa[2].set_title("offset magnitude")
 
         plt.tight_layout()
+
+    def plot_dem_results(self):
+        f, axa = plt.subplots(1, 3, figsize=(10, 3), dpi=220)
+        f.suptitle(self.title, size=10)
+        axa = axa.ravel()
+
+        raster = Raster(self.dem_fn)
+        dem = raster.read_array()
+        gsd = raster.get_gsd()
+        
+        hs = self.get_hillshade()
+        self.plot_array(ax=axa[0], array=hs, cmap="gray", add_cbar=False)
+        self.plot_array(ax=axa[0], array=dem, cmap="viridis", cbar_label="Elevation (m HAE)", alpha=0.5)
+
+        axa[0].set_title("Stereo DEM")
+        scalebar = ScaleBar(gsd)
+        axa[0].add_artist(scalebar)
+        
+        ie = Raster(self.intersection_error_fn).read_array()
+        self.plot_array(ax=axa[1], array=ie, cmap="inferno", cbar_label="Distance (m)")
+        axa[1].set_title("Triangulation intersection error")
+        
+        diff = self.get_diff_vs_reference()
+        clim = ColorBar(perc_range=(2, 98), symm=True).get_clim(diff)
+        self.plot_array(ax=axa[2], array=diff, clim=clim, cmap="RdBu", cbar_label="Elevation diff. (m)")
+        axa[2].set_title(f"Difference with reference DEM:\n{self.reference_dem.split("/")[-1]}")
+
+        f.tight_layout()

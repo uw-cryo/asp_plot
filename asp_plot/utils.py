@@ -101,7 +101,7 @@ class Raster:
     def compute_difference(self, second_fn, outdir=None):
         fn_list = [self.fn, second_fn]
         outdir = os.path.dirname(os.path.abspath(self.fn))
-        
+
         outprefix = (
             os.path.splitext(os.path.split(self.fn)[1])[0]
             + "_"
@@ -116,7 +116,7 @@ class Raster:
         r1 = iolib.ds_getma(r1_ds, 1)
         r2 = iolib.ds_getma(r2_ds, 1)
         diff = r2 - r1
-        dst_fn = os.path.join(outdir, outprefix+'_diff.tif')
+        dst_fn = os.path.join(outdir, outprefix + "_diff.tif")
         iolib.writeGTiff(diff, dst_fn, r1_ds, ndv=-9999)
         return diff
 
@@ -125,19 +125,24 @@ class Plotter:
     def __init__(
         self,
         clim_perc=(2, 98),
-        add_cbar=True,
         lognorm=False,
         title=None,
-        alpha=1,
     ):
         self.clim_perc = clim_perc
-        self.add_cbar = add_cbar
         self.lognorm = lognorm
         self.title = title
-        self.alpha = alpha
         self.cb = ColorBar(perc_range=self.clim_perc)
 
-    def plot_array(self, ax, array, clim=None, cmap="inferno", cbar_label=None):
+    def plot_array(
+        self,
+        ax,
+        array,
+        clim=None,
+        cmap="inferno",
+        add_cbar=True,
+        cbar_label=None,
+        alpha=1,
+    ):
         if clim is None:
             clim = self.cb.get_clim(array)
 
@@ -145,11 +150,11 @@ class Plotter:
             array,
             cmap=cmap,
             clim=clim,
-            alpha=self.alpha,
+            alpha=alpha,
             interpolation="none",
         )
 
-        if self.add_cbar:
+        if add_cbar:
             divider = make_axes_locatable(ax)
             cax = divider.append_axes("right", size="4%", pad="2%")
             plt.colorbar(
@@ -165,7 +170,9 @@ class Plotter:
         ax.set_yticks([])
         ax.set_title(self.title)
 
-    def plot_geodataframe(self, ax, gdf, column_name, clim=None, cmap="inferno", cbar_label=None):
+    def plot_geodataframe(
+        self, ax, gdf, column_name, clim=None, cmap="inferno", cbar_label=None
+    ):
         if clim is None:
             clim = self.cb.get_clim(gdf[column_name])
         vmin, vmax = clim
