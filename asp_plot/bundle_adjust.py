@@ -124,8 +124,10 @@ class PlotResiduals(Plotter):
     def plot_n_residuals(
         self,
         column_name="mean_residual",
+        cbar_label="Mean Residual (m)",
         clip_final=True,
         clim=None,
+        common_clim=True,
         cmap="inferno",
         map_crs="EPSG:4326",
         **ctx_kwargs,
@@ -151,7 +153,10 @@ class PlotResiduals(Plotter):
             if clim is None:
                 clim = ColorBar().get_clim(gdf[column_name])
 
-            self.plot_geodataframe(ax=axa[i], gdf=gdf, column_name=column_name)
+            if common_clim:
+                self.plot_geodataframe(ax=axa[i], gdf=gdf, clim=clim, column_name=column_name, cbar_label=cbar_label)
+            else:
+                self.plot_geodataframe(ax=axa[i], gdf=gdf, column_name=column_name, cbar_label=cbar_label)
 
             ctx.add_basemap(ax=axa[i], **ctx_kwargs)
 

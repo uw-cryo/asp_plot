@@ -52,13 +52,13 @@ class ScenePlotter(Plotter):
         axa = axa.ravel()
 
         ortho_ma = Raster(self.left_ortho_sub_fn).read_array()
-        self.plot_array(ax=axa[0], array=ortho_ma)
+        self.plot_array(ax=axa[0], array=ortho_ma, cmap="gray", add_cbar=False)
         axa[0].set_title(
             f"Left image\n{scene_dict['left_name']}, {scene_dict['left_gsd']:0.2f} m"
         )
 
         ortho_ma = Raster(self.right_ortho_sub_fn).read_array()
-        self.plot_array(ax=axa[1], array=ortho_ma)
+        self.plot_array(ax=axa[1], array=ortho_ma, cmap="gray", add_cbar=False)
         axa[1].set_title(
             f"Right image\n{scene_dict['right_name']}, {scene_dict['right_gsd']:0.2f} m"
         )
