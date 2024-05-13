@@ -43,8 +43,11 @@ class StereoPlotter(Plotter):
             self.disparity_sub_fn = glob.glob(
                 os.path.join(self.directory, self.stereo_directory, "*-D_sub.tif")
             )[0]
+            self.disparity_fn = glob.glob(
+                os.path.join(self.directory, self.stereo_directory, "*-D.tif")
+            )[0]
         except:
-            raise ValueError("Could not find *.match file in stereo directory")
+            raise ValueError("Could not find D and D-sub files in stereo directory")
 
         try:
             try:
@@ -187,16 +190,20 @@ class StereoPlotter(Plotter):
         unit="pixels",
         remove_bias=True,
         quiver=True,
-    ):
-        gsd = Raster(self.left_ortho_fn).get_gsd()
+    ):  
         raster = Raster(self.disparity_sub_fn)
+        sub_gsd = raster.get_gsd()
         dx = raster.read_array(b=1)
         dy = raster.read_array(b=2)
 
+        # TODO: double check math below on rescaling things from D_sub to D
+        full_gsd = Raster(self.disparity_fn).get_gsd()
+        rescale_factor = sub_gsd / full_gsd
+
         # Scale offsets to meters
         if unit == "meters":
-            dx *= gsd
-            dy *= gsd
+            dx *= full_gsd
+            dy *= full_gsd
 
         # Remove median disparity
         if remove_bias:
@@ -207,6 +214,10 @@ class StereoPlotter(Plotter):
 
         # Compute magnitude
         dm = np.sqrt(abs(dx**2 + dy**2))
+
+        dm *= rescale_factor
+        dx *= rescale_factor
+        dy *= rescale_factor
 
         # Compute robust colorbar limits (default is 2-98 percentile)
         clim = ColorBar(perc_range=(2, 98), symm=True).get_clim(dm)
@@ -229,7 +240,8 @@ class StereoPlotter(Plotter):
             axa[2].quiver(ix, iy, dx_q, dy_q, color="white")
 
         # Add scalebar
-        sb = ScaleBar(gsd)
+        scalebar = ScaleBar(sub_gsd)
+        axa[0].add_artist(scalebar)
         axa[0].set_title("x offset")
         axa[1].set_title("y offset")
         axa[2].set_title("offset magnitude")
