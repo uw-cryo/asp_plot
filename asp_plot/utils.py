@@ -2,6 +2,8 @@ import os
 import numpy as np
 import rasterio as rio
 from rasterio.windows import Window
+from osgeo import gdal
+from pygeotools.lib import iolib, warplib
 import matplotlib.pyplot as plt
 import matplotlib.colors
 import matplotlib.image as mpimg
@@ -83,6 +85,40 @@ class Raster:
         if ndv == None:
             ndv = self.ds.read(1, window=Window(0, 0, 1, 1)).squeeze()
         return ndv
+
+    def get_gsd(self):
+        gsd = self.ds.transform[0]
+        return gsd
+
+    def hillshade(self):
+        # ds = gdal.Open(fn)
+        hs_ds = gdal.DEMProcessing(
+            "", self.ds, "hillshade", format="MEM", computeEdges=True
+        )
+        hillshade = np.ma.masked_equal(hs_ds.ReadAsArray(), 0)
+        return hillshade
+
+    def compute_difference(self, second_fn, outdir=None):
+        fn_list = [self.fn, second_fn]
+        outdir = os.path.dirname(os.path.abspath(self.fn))
+        
+        outprefix = (
+            os.path.splitext(os.path.split(self.fn)[1])[0]
+            + "_"
+            + os.path.splitext(os.path.split(second_fn)[1])[0]
+        )
+
+        ds_list = warplib.memwarp_multi_fn(
+            fn_list, extent="intersection", res="max", t_srs="first", r="cubic"
+        )
+        r1_ds = ds_list[0]
+        r2_ds = ds_list[1]
+        r1 = iolib.ds_getma(r1_ds, 1)
+        r2 = iolib.ds_getma(r2_ds, 1)
+        diff = r2 - r1
+        dst_fn = os.path.join(outdir, outprefix+'_diff.tif')
+        iolib.writeGTiff(diff, dst_fn, r1_ds, ndv=-9999)
+        return diff
 
 
 class Plotter:

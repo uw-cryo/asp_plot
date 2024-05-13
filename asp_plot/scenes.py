@@ -12,19 +12,19 @@ class ScenePlotter(Plotter):
         self.stereo_directory = stereo_directory
 
         try:
-            self.left_ortho_fn = glob.glob(
+            self.left_ortho_sub_fn = glob.glob(
                 os.path.join(self.directory, self.stereo_directory, "*-L_sub.tif")
             )[0]
-            self.right_ortho_fn = glob.glob(
+            self.right_ortho_sub_fn = glob.glob(
                 os.path.join(self.directory, self.stereo_directory, "*-R_sub.tif")
             )[0]
         except:
             raise ValueError(
-                "Could not find ortho L-sub and R-sub images in stereo directory"
+                "Could not find L-sub and R-sub images in stereo directory"
             )
 
     def get_names_and_gsd(self):
-        left_name, right_name = self.left_ortho_fn.split("/")[-1].split("_")[2:4]
+        left_name, right_name = self.left_ortho_sub_fn.split("/")[-1].split("_")[2:4]
         right_name = right_name.split("-")[0]
 
         gsds = []
@@ -51,13 +51,13 @@ class ScenePlotter(Plotter):
         f.suptitle(self.title, size=10)
         axa = axa.ravel()
 
-        ortho_ma = Raster(self.left_ortho_fn).read_array()
+        ortho_ma = Raster(self.left_ortho_sub_fn).read_array()
         self.plot_array(ax=axa[0], array=ortho_ma)
         axa[0].set_title(
             f"Left image\n{scene_dict['left_name']}, {scene_dict['left_gsd']:0.2f} m"
         )
 
-        ortho_ma = Raster(self.right_ortho_fn).read_array()
+        ortho_ma = Raster(self.right_ortho_sub_fn).read_array()
         self.plot_array(ax=axa[1], array=ortho_ma)
         axa[1].set_title(
             f"Right image\n{scene_dict['right_name']}, {scene_dict['right_gsd']:0.2f} m"
