@@ -143,7 +143,11 @@ class StereoPlotter(Plotter):
         right_image = Raster(self.right_ortho_sub_fn).read_array()
 
         self.plot_array(ax=axa[0], array=left_image)
+        axa[0].set_title(
+            f"Left image (n={match_point_df.shape[0]})"
+        )
         self.plot_array(ax=axa[1], array=right_image)
+        axa[1].set_title("Right image")
 
         axa[0].scatter(
             match_point_df["x1"] / rescale_factor,
