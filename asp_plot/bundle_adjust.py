@@ -1,4 +1,5 @@
 import os
+import glob
 import pandas as pd
 import geopandas as gpd
 import matplotlib.pyplot as plt
@@ -8,18 +9,18 @@ from asp_plot.utils import ColorBar, Plotter
 
 
 class ReadResiduals:
-    def __init__(self, directory, ba_prefix):
+    def __init__(self, directory, bundle_adjust_directory):
         self.directory = directory
-        self.ba_prefix = ba_prefix
+        self.bundle_adjust_directory = bundle_adjust_directory
 
     def get_init_final_residuals_csvs(self):
         filenames = [
-            f"{self.ba_prefix}-initial_residuals_pointmap.csv",
-            f"{self.ba_prefix}-final_residuals_pointmap.csv",
+            "*-initial_residuals_pointmap.csv",
+            "*-final_residuals_pointmap.csv",
         ]
 
         paths = [
-            os.path.join(os.path.expanduser(self.directory), filename)
+            glob.glob(os.path.join(self.directory, self.bundle_adjust_directory, filename))[0]
             for filename in filenames
         ]
 
@@ -70,8 +71,7 @@ class ReadResiduals:
         return resid_init_gdf, resid_final_gdf
 
     def get_mapproj_residuals_gdf(self):
-        filename = f"{self.ba_prefix}-mapproj_match_offsets.txt"
-        path = os.path.join(os.path.expanduser(self.directory), filename)
+        path = glob.glob(os.path.join(self.directory, self.bundle_adjust_directory, "*-mapproj_match_offsets.txt"))[0]
         if not os.path.isfile(path):
             raise ValueError(f"MapProj Residuals TXT file not found: {path}")
 
@@ -88,8 +88,7 @@ class ReadResiduals:
         return resid_mapprojected_gdf
 
     def get_propagated_triangulation_uncert_df(self):
-        filename = f"{self.ba_prefix}-triangulation_uncertainty.txt"
-        path = os.path.join(os.path.expanduser(self.directory), filename)
+        path = glob.glob(os.path.join(self.directory, self.bundle_adjust_directory, "*-triangulation_uncertainty.txt"))[0]
         if not os.path.isfile(path):
             raise ValueError(f"Triangulation Uncertainty TXT file not found: {path}")
 

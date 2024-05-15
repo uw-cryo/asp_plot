@@ -10,9 +10,9 @@ matplotlib.use("Agg")
 class TestBundleAdjust:
     @pytest.fixture
     def residual_files(self):
-        directory = "tests/test_data/"
-        ba_prefix = "ba/ba"
-        return ReadResiduals(directory, ba_prefix)
+        directory = "tests/test_data"
+        ba_directory = "ba"
+        return ReadResiduals(directory, ba_directory)
 
     def test_get_init_final_residuals_gdfs(self, residual_files):
         resid_init, resid_final = residual_files.get_init_final_residuals_gdfs()
