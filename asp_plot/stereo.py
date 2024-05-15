@@ -89,27 +89,27 @@ class StereoPlotter(Plotter):
         return hs
 
     def get_diff_vs_reference(self):
-        diff_fn = glob.glob(
-            os.path.join(
-                self.directory,
-                self.stereo_directory,
-                f"*DEM*diff.tif",
-            )
-        )[0]
-        if os.path.exists(diff_fn):
+        try:
+            diff_fn = glob.glob(
+                os.path.join(
+                    self.directory,
+                    self.stereo_directory,
+                    f"*DEM*diff.tif",
+                )
+            )[0]
             diff = Raster(diff_fn).read_array()
-        else:
+        except:
             diff = Raster(self.dem_fn).compute_difference(self.reference_dem)
         return diff
 
-    def read_ip_record(self):
-        x, y = np.frombuffer(mf.read(8), dtype=np.float32)
-        xi, yi = np.frombuffer(mf.read(8), dtype=np.int32)
-        orientation, scale, interest = np.frombuffer(mf.read(12), dtype=np.float32)
-        (polarity,) = np.frombuffer(mf.read(1), dtype=bool)
-        octave, scale_lvl = np.frombuffer(mf.read(8), dtype=np.uint32)
-        (ndesc,) = np.frombuffer(mf.read(8), dtype=np.uint64)
-        desc = np.frombuffer(mf.read(int(ndesc * 4)), dtype=np.float32)
+    def read_ip_record(self, match_file):
+        x, y = np.frombuffer(match_file.read(8), dtype=np.float32)
+        xi, yi = np.frombuffer(match_file.read(8), dtype=np.int32)
+        orientation, scale, interest = np.frombuffer(match_file.read(12), dtype=np.float32)
+        (polarity,) = np.frombuffer(match_file.read(1), dtype=bool)
+        octave, scale_lvl = np.frombuffer(match_file.read(8), dtype=np.uint32)
+        (ndesc,) = np.frombuffer(match_file.read(8), dtype=np.uint64)
+        desc = np.frombuffer(match_file.read(int(ndesc * 4)), dtype=np.float32)
         iprec = [
             x,
             y,
@@ -129,12 +129,12 @@ class StereoPlotter(Plotter):
     def get_match_point_df(self):
         out_csv = os.path.splitext(self.match_point_fn)[0] + ".csv"
         if not os.path.exists(out_csv):
-            with open(self.match_point_fn, "rb") as mf, open(out_csv, "w") as out:
-                size1 = np.frombuffer(mf.read(8), dtype=np.uint64)[0]
-                size2 = np.frombuffer(mf.read(8), dtype=np.uint64)[0]
+            with open(self.match_point_fn, "rb") as match_file, open(out_csv, "w") as out:
+                size1 = np.frombuffer(match_file.read(8), dtype=np.uint64)[0]
+                size2 = np.frombuffer(match_file.read(8), dtype=np.uint64)[0]
                 out.write("x1 y1 x2 y2\n")
-                im1_ip = [read_ip_record(mf) for i in range(size1)]
-                im2_ip = [read_ip_record(mf) for i in range(size2)]
+                im1_ip = [self.read_ip_record(match_file) for i in range(size1)]
+                im2_ip = [self.read_ip_record(match_file) for i in range(size2)]
                 for i in range(len(im1_ip)):
                     out.write(
                         "{} {} {} {}\n".format(
@@ -191,6 +191,9 @@ class StereoPlotter(Plotter):
         remove_bias=True,
         quiver=True,
     ):  
+        if unit not in ["pixels", "meters"]:
+            raise ValueError("unit must be either 'pixels' or 'meters'")
+
         raster = Raster(self.disparity_sub_fn)
         sub_gsd = raster.get_gsd()
         dx = raster.read_array(b=1)
@@ -233,7 +236,8 @@ class StereoPlotter(Plotter):
         # Add quiver vectors
         if quiver:
             # Set ~30 points for quivers along x dimension
-            stride = int(dx.shape[1] / 30.0)
+            fraction = 30
+            stride = max(1, int(dx.shape[1] / fraction))
             iy, ix = np.indices(dx.shape)[:, ::stride, ::stride]
             dx_q = dx[::stride, ::stride]
             dy_q = dy[::stride, ::stride]
@@ -249,6 +253,7 @@ class StereoPlotter(Plotter):
         plt.tight_layout()
 
     def plot_dem_results(self):
+        print(f"Plotting DEM results. This can take a minute for large inputs.")
         f, axa = plt.subplots(1, 3, figsize=(10, 3), dpi=220)
         f.suptitle(self.title, size=10)
         axa = axa.ravel()

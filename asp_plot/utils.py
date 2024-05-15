@@ -91,14 +91,16 @@ class Raster:
         return gsd
 
     def hillshade(self):
-        # ds = gdal.Open(fn)
+        print("Generating hillshade in memory")
+        gdal_ds = gdal.Open(self.fn)
         hs_ds = gdal.DEMProcessing(
-            "", self.ds, "hillshade", format="MEM", computeEdges=True
+            "", gdal_ds, "hillshade", format="MEM", computeEdges=True
         )
         hillshade = np.ma.masked_equal(hs_ds.ReadAsArray(), 0)
         return hillshade
 
     def compute_difference(self, second_fn, outdir=None):
+        print(f"Computing difference map between:\n\n{self.fn}\n\nand\n\n{second_fn}")
         fn_list = [self.fn, second_fn]
         outdir = os.path.dirname(os.path.abspath(self.fn))
 
