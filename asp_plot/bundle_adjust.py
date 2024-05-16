@@ -20,7 +20,9 @@ class ReadResiduals:
         ]
 
         paths = [
-            glob.glob(os.path.join(self.directory, self.bundle_adjust_directory, filename))[0]
+            glob.glob(
+                os.path.join(self.directory, self.bundle_adjust_directory, filename)
+            )[0]
             for filename in filenames
         ]
 
@@ -71,7 +73,13 @@ class ReadResiduals:
         return resid_init_gdf, resid_final_gdf
 
     def get_mapproj_residuals_gdf(self):
-        path = glob.glob(os.path.join(self.directory, self.bundle_adjust_directory, "*-mapproj_match_offsets.txt"))[0]
+        path = glob.glob(
+            os.path.join(
+                self.directory,
+                self.bundle_adjust_directory,
+                "*-mapproj_match_offsets.txt",
+            )
+        )[0]
         if not os.path.isfile(path):
             raise ValueError(f"MapProj Residuals TXT file not found: {path}")
 
@@ -88,7 +96,13 @@ class ReadResiduals:
         return resid_mapprojected_gdf
 
     def get_propagated_triangulation_uncert_df(self):
-        path = glob.glob(os.path.join(self.directory, self.bundle_adjust_directory, "*-triangulation_uncertainty.txt"))[0]
+        path = glob.glob(
+            os.path.join(
+                self.directory,
+                self.bundle_adjust_directory,
+                "*-triangulation_uncertainty.txt",
+            )
+        )[0]
         if not os.path.isfile(path):
             raise ValueError(f"Triangulation Uncertainty TXT file not found: {path}")
 
@@ -153,9 +167,17 @@ class PlotResiduals(Plotter):
                 clim = ColorBar().get_clim(gdf[column_name])
 
             if common_clim:
-                self.plot_geodataframe(ax=axa[i], gdf=gdf, clim=clim, column_name=column_name, cbar_label=cbar_label)
+                self.plot_geodataframe(
+                    ax=axa[i],
+                    gdf=gdf,
+                    clim=clim,
+                    column_name=column_name,
+                    cbar_label=cbar_label,
+                )
             else:
-                self.plot_geodataframe(ax=axa[i], gdf=gdf, column_name=column_name, cbar_label=cbar_label)
+                self.plot_geodataframe(
+                    ax=axa[i], gdf=gdf, column_name=column_name, cbar_label=cbar_label
+                )
 
             ctx.add_basemap(ax=axa[i], **ctx_kwargs)
 
