@@ -47,8 +47,8 @@ class ScenePlotter(Plotter):
     def plot_orthos(self):
         scene_dict = self.get_names_and_gsd()
 
-        f, axa = plt.subplots(1, 2, figsize=(10, 5), dpi=300)
-        f.suptitle(self.title, size=10)
+        fig, axa = plt.subplots(1, 2, figsize=(10, 5), dpi=300)
+        fig.suptitle(self.title, size=10)
         axa = axa.ravel()
 
         ortho_ma = Raster(self.left_ortho_sub_fn).read_array()
@@ -63,5 +63,5 @@ class ScenePlotter(Plotter):
             f"Right image\n{scene_dict['right_name']}, {scene_dict['right_gsd']:0.2f} m"
         )
 
-        f.tight_layout()
+        fig.tight_layout()
         plt.show()

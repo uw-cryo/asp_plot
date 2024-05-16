@@ -27,9 +27,9 @@ class TestProcessingParameters:
         assert "point2dem" in result
         assert "processing_timestamp" in result
 
-    def test_figure(self, processing_parameters):
+    def test_plot_processing_parameters(self, processing_parameters):
         processing_parameters.from_log_files()
         try:
-            processing_parameters.figure()
+            processing_parameters.plot_processing_parameters()
         except Exception as e:
             pytest.fail(f"figure method raised an exception: {str(e)}")

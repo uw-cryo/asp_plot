@@ -151,10 +151,10 @@ class PlotResiduals(Plotter):
         nrows = (n + 3) // 4
         ncols = min(n, 4)
         if n == 1:
-            f, axa = plt.subplots(1, 1, figsize=(8, 6))
+            fig, axa = plt.subplots(1, 1, figsize=(8, 6))
             axa = [axa]
         else:
-            f, axa = plt.subplots(
+            fig, axa = plt.subplots(
                 nrows, ncols, figsize=(4 * ncols, 3 * nrows), sharex=True, sharey=True
             )
             axa = axa.flatten()
@@ -202,7 +202,7 @@ class PlotResiduals(Plotter):
 
         # Clean up axes and tighten layout
         for i in range(n, nrows * ncols):
-            f.delaxes(axa[i])
-        f.suptitle(self.title, size=10)
+            fig.delaxes(axa[i])
+        fig.suptitle(self.title, size=10)
         plt.subplots_adjust(wspace=0.2, hspace=0.4)
-        plt.tight_layout()
+        fig.tight_layout()

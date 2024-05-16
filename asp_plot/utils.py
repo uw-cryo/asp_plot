@@ -20,6 +20,11 @@ def show_existing_figure(filename):
     else:
         print(f"Figure not found: {filename}")
 
+def save_figure(fig, save_dir=None, fig_fn=None, dpi=300):
+    os.makedirs(save_dir, exist_ok=True)
+    file_path = os.path.join(save_dir, fig_fn)
+    fig.savefig(file_path, dpi=dpi, bbox_inches="tight")
+    print(f"Figure saved to {file_path}")
 
 class ColorBar:
     def __init__(self, perc_range=(2, 98), symm=False):

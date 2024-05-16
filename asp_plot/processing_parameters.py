@@ -1,6 +1,7 @@
 import os
 import glob
 import matplotlib.pyplot as plt
+from asp_plot.utils import save_figure
 
 
 class ProcessingParameters:
@@ -78,7 +79,7 @@ class ProcessingParameters:
 
         return self.processing_parameters_dict
 
-    def figure(self):
+    def plot_processing_parameters(self, save_dir=None, fig_fn=None):
         fig, axes = plt.subplots(3, 1, figsize=(10, 6))
         ax1, ax2, ax3 = axes.flatten()
 
@@ -115,5 +116,9 @@ class ProcessingParameters:
             wrap=True,
         )
 
-        plt.tight_layout()
+        fig.tight_layout()
+
+        if save_dir and fig_fn:
+            save_figure(fig, save_dir, fig_fn)
+
         plt.show()

@@ -183,7 +183,7 @@ class StereoPlotter(Plotter):
         axa[1].set_aspect("equal")
 
         fig.suptitle(self.title, size=10)
-        plt.tight_layout()
+        fig.tight_layout()
 
     def plot_disparity(
         self,
@@ -224,9 +224,8 @@ class StereoPlotter(Plotter):
         # Compute robust colorbar limits (default is 2-98 percentile)
         clim = ColorBar(symm=True).get_clim(dm)
 
-        f, axa = plt.subplots(1, 3, figsize=(10, 3), dpi=220)
-
-        f.suptitle(self.title, size=10)
+        fig, axa = plt.subplots(1, 3, figsize=(10, 3), dpi=220)
+        fig.suptitle(self.title, size=10)
 
         self.plot_array(ax=axa[0], array=dx, cmap="RdBu", clim=clim, cbar_label=unit)
         self.plot_array(ax=axa[1], array=dy, cmap="RdBu", clim=clim, cbar_label=unit)
@@ -249,13 +248,13 @@ class StereoPlotter(Plotter):
         axa[1].set_title("y offset")
         axa[2].set_title("offset magnitude")
 
-        plt.tight_layout()
+        fig.tight_layout()
+        plt.show()
 
     def plot_dem_results(self, el_clim=None, ie_clim=None, diff_clim=None):
         print(f"Plotting DEM results. This can take a minute for large inputs.")
-        f, axa = plt.subplots(1, 3, figsize=(10, 3), dpi=220)
-        f.suptitle(self.title, size=10)
-        axa = axa.ravel()
+        fig, axa = plt.subplots(1, 3, figsize=(10, 3), dpi=220)
+        fig.suptitle(self.title, size=10)
 
         raster = Raster(self.dem_fn)
         dem = raster.read_array()
@@ -280,4 +279,5 @@ class StereoPlotter(Plotter):
         self.plot_array(ax=axa[2], array=diff, clim=diff_clim, cmap="RdBu", cbar_label="Elevation diff. (m)")
         axa[2].set_title(f"Difference with reference DEM:\n{self.reference_dem.split("/")[-1]}")
 
-        f.tight_layout()
+        fig.tight_layout()
+        plt.show()
