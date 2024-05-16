@@ -199,9 +199,12 @@ class StereoPlotter(Plotter):
         dx = raster.read_array(b=1)
         dy = raster.read_array(b=2)
 
-        # TODO: double check math below on rescaling things from D_sub to D
+        # Rescale D_sub.tif to true ground resolution using the D.tif
+        # Plotting the D.tif is prohibitively slow for large images
         full_gsd = Raster(self.disparity_fn).get_gsd()
         rescale_factor = sub_gsd / full_gsd
+        dx *= rescale_factor
+        dy *= rescale_factor
 
         # Scale offsets to meters
         if unit == "meters":
@@ -218,12 +221,8 @@ class StereoPlotter(Plotter):
         # Compute magnitude
         dm = np.sqrt(abs(dx**2 + dy**2))
 
-        dm *= rescale_factor
-        dx *= rescale_factor
-        dy *= rescale_factor
-
         # Compute robust colorbar limits (default is 2-98 percentile)
-        clim = ColorBar(perc_range=(2, 98), symm=True).get_clim(dm)
+        clim = ColorBar(symm=True).get_clim(dm)
 
         f, axa = plt.subplots(1, 3, figsize=(10, 3), dpi=220)
 
