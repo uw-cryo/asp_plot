@@ -14,5 +14,6 @@ dependencies:
   - geopandas
   - contextily
   - matplotlib-scalebar
+  - pypdf
   - pip:
     - git+https://github.com/dshean/dgtools.git

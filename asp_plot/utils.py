@@ -8,6 +8,8 @@ import matplotlib.pyplot as plt
 import matplotlib.colors
 import matplotlib.image as mpimg
 from mpl_toolkits.axes_grid1 import make_axes_locatable
+from pypdf import PdfMerger
+from PIL import Image
 
 
 def show_existing_figure(filename):
@@ -25,6 +27,24 @@ def save_figure(fig, save_dir=None, fig_fn=None, dpi=300):
     file_path = os.path.join(save_dir, fig_fn)
     fig.savefig(file_path, dpi=dpi, bbox_inches="tight")
     print(f"Figure saved to {file_path}")
+
+def compile_report(report_directory, report_pdf):
+    files = [f for f in os.listdir(report_directory) if f.endswith(".png") or f.endswith(".pdf")]
+    files.sort()
+    merger = PdfMerger()
+
+    for file in files:
+        file_path = os.path.join(report_directory, file)
+        if file.endswith(".png"):
+            img = Image.open(file_path).convert("RGB")
+            pdf_path = os.path.join(report_directory, f"{os.path.splitext(file)[0]}.pdf")
+            img.save(pdf_path)
+            merger.append(pdf_path)
+        elif file.endswith(".pdf"):
+            merger.append(file_path)
+
+    merger.write(os.path.join(report_directory, report_pdf))
+    merger.close()
 
 class ColorBar:
     def __init__(self, perc_range=(2, 98), symm=False):
