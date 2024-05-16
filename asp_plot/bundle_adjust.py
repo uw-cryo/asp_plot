@@ -5,7 +5,7 @@ import geopandas as gpd
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 import contextily as ctx
-from asp_plot.utils import ColorBar, Plotter
+from asp_plot.utils import ColorBar, Plotter, save_figure
 
 
 class ReadResiduals:
@@ -143,6 +143,8 @@ class PlotResiduals(Plotter):
         common_clim=True,
         cmap="inferno",
         map_crs="EPSG:4326",
+        save_dir=None,
+        fig_fn=None,
         **ctx_kwargs,
     ):
 
@@ -206,3 +208,6 @@ class PlotResiduals(Plotter):
         fig.suptitle(self.title, size=10)
         plt.subplots_adjust(wspace=0.2, hspace=0.4)
         fig.tight_layout()
+        if save_dir and fig_fn:
+            save_figure(fig, save_dir, fig_fn)
+        plt.show()

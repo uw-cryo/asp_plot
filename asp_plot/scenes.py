@@ -2,7 +2,7 @@ import os
 import glob
 import matplotlib.pyplot as plt
 from dgtools.lib import dglib
-from asp_plot.utils import Raster, Plotter
+from asp_plot.utils import Raster, Plotter, save_figure
 
 
 class ScenePlotter(Plotter):
@@ -44,7 +44,7 @@ class ScenePlotter(Plotter):
 
         return scene_dict
 
-    def plot_orthos(self):
+    def plot_orthos(self, save_dir=None, fig_fn=None):
         scene_dict = self.get_names_and_gsd()
 
         fig, axa = plt.subplots(1, 2, figsize=(10, 5), dpi=300)
@@ -64,4 +64,6 @@ class ScenePlotter(Plotter):
         )
 
         fig.tight_layout()
+        if save_dir and fig_fn:
+            save_figure(fig, save_dir, fig_fn)
         plt.show()

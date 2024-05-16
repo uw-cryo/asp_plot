@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib_scalebar.scalebar import ScaleBar
-from asp_plot.utils import ColorBar, Raster, Plotter
+from asp_plot.utils import ColorBar, Raster, Plotter, save_figure
 
 
 class StereoPlotter(Plotter):
@@ -145,7 +145,7 @@ class StereoPlotter(Plotter):
         match_point_df = pd.read_csv(out_csv, delimiter=r"\s+")
         return match_point_df
 
-    def plot_match_points(self):
+    def plot_match_points(self, save_dir=None, fig_fn=None):
         match_point_df = self.get_match_point_df()
 
         full_gsd = Raster(self.left_ortho_fn).get_gsd()
@@ -184,12 +184,17 @@ class StereoPlotter(Plotter):
 
         fig.suptitle(self.title, size=10)
         fig.tight_layout()
+        if save_dir and fig_fn:
+            save_figure(fig, save_dir, fig_fn)
+        plt.show()
 
     def plot_disparity(
         self,
         unit="pixels",
         remove_bias=True,
         quiver=True,
+        save_dir=None,
+        fig_fn=None
     ):  
         if unit not in ["pixels", "meters"]:
             raise ValueError("unit must be either 'pixels' or 'meters'")
@@ -249,9 +254,11 @@ class StereoPlotter(Plotter):
         axa[2].set_title("offset magnitude")
 
         fig.tight_layout()
+        if save_dir and fig_fn:
+            save_figure(fig, save_dir, fig_fn)
         plt.show()
 
-    def plot_dem_results(self, el_clim=None, ie_clim=None, diff_clim=None):
+    def plot_dem_results(self, el_clim=None, ie_clim=None, diff_clim=None, save_dir=None, fig_fn=None):
         print(f"Plotting DEM results. This can take a minute for large inputs.")
         fig, axa = plt.subplots(1, 3, figsize=(10, 3), dpi=220)
         fig.suptitle(self.title, size=10)
@@ -280,4 +287,6 @@ class StereoPlotter(Plotter):
         axa[2].set_title(f"Difference with reference DEM:\n{self.reference_dem.split("/")[-1]}")
 
         fig.tight_layout()
+        if save_dir and fig_fn:
+            save_figure(fig, save_dir, fig_fn)
         plt.show()
