@@ -251,7 +251,7 @@ class StereoPlotter(Plotter):
 
         plt.tight_layout()
 
-    def plot_dem_results(self):
+    def plot_dem_results(self, el_clim=None, ie_clim=None, diff_clim=None):
         print(f"Plotting DEM results. This can take a minute for large inputs.")
         f, axa = plt.subplots(1, 3, figsize=(10, 3), dpi=220)
         f.suptitle(self.title, size=10)
@@ -263,19 +263,21 @@ class StereoPlotter(Plotter):
         
         hs = self.get_hillshade()
         self.plot_array(ax=axa[0], array=hs, cmap="gray", add_cbar=False)
-        self.plot_array(ax=axa[0], array=dem, cmap="viridis", cbar_label="Elevation (m HAE)", alpha=0.5)
+        self.plot_array(ax=axa[0], array=dem, clim=el_clim, cmap="viridis", cbar_label="Elevation (m HAE)", alpha=0.5)
 
         axa[0].set_title("Stereo DEM")
         scalebar = ScaleBar(gsd)
         axa[0].add_artist(scalebar)
         
         ie = Raster(self.intersection_error_fn).read_array()
-        self.plot_array(ax=axa[1], array=ie, cmap="inferno", cbar_label="Distance (m)")
+        self.plot_array(ax=axa[1], array=ie, clim=ie_clim, cmap="inferno", cbar_label="Distance (m)")
         axa[1].set_title("Triangulation intersection error")
         
         diff = self.get_diff_vs_reference()
-        clim = ColorBar(perc_range=(2, 98), symm=True).get_clim(diff)
-        self.plot_array(ax=axa[2], array=diff, clim=clim, cmap="RdBu", cbar_label="Elevation diff. (m)")
+        if diff_clim is None:
+            diff_clim = ColorBar(perc_range=(2, 98), symm=True).get_clim(diff)
+
+        self.plot_array(ax=axa[2], array=diff, clim=diff_clim, cmap="RdBu", cbar_label="Elevation diff. (m)")
         axa[2].set_title(f"Difference with reference DEM:\n{self.reference_dem.split("/")[-1]}")
 
         f.tight_layout()
