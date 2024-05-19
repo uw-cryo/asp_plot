@@ -8,8 +8,7 @@ import matplotlib.pyplot as plt
 import matplotlib.colors
 import matplotlib.image as mpimg
 from mpl_toolkits.axes_grid1 import make_axes_locatable
-from pypdf import PdfMerger
-from PIL import Image
+from markdown_pdf import MarkdownPdf, Section
 
 
 def show_existing_figure(filename):
@@ -22,29 +21,41 @@ def show_existing_figure(filename):
     else:
         print(f"Figure not found: {filename}")
 
-def save_figure(fig, save_dir=None, fig_fn=None, dpi=300):
-    os.makedirs(save_dir, exist_ok=True)
-    file_path = os.path.join(save_dir, fig_fn)
-    fig.savefig(file_path, dpi=dpi, bbox_inches="tight")
-    print(f"Figure saved to {file_path}")
 
-def compile_report(report_directory, report_pdf):
-    files = [f for f in os.listdir(report_directory) if f.endswith(".png") or f.endswith(".pdf")]
+def save_figure(fig, save_dir=None, fig_fn=None, dpi=150):
+    if save_dir or not fig_fn:
+        os.makedirs(save_dir, exist_ok=True)
+        file_path = os.path.join(save_dir, fig_fn)
+        fig.savefig(file_path, dpi=dpi, bbox_inches="tight")
+        print(f"Figure saved to {file_path}")
+    else:
+        raise ValueError("Please provide a save directory and figure filename")
+
+
+def compile_report(plots_directory, processing_parameters_dict, report_pdf_path):
+    files = [f for f in os.listdir(plots_directory) if f.endswith(".png")]
     files.sort()
-    merger = PdfMerger()
 
-    for file in files:
-        file_path = os.path.join(report_directory, file)
-        if file.endswith(".png"):
-            img = Image.open(file_path).convert("RGB")
-            pdf_path = os.path.join(report_directory, f"{os.path.splitext(file)[0]}.pdf")
-            img.save(pdf_path)
-            merger.append(pdf_path)
-        elif file.endswith(".pdf"):
-            merger.append(file_path)
+    processing_date = (
+        f"Processed on: {processing_parameters_dict['processing_timestamp']:}"
+    )
+    ba_string = f"### Bundle Adjust:\n\n{processing_parameters_dict['bundle_adjust']:}"
+    stereo_string = f"### Stereo:\n\n{processing_parameters_dict['stereo']:}"
+    point2dem_string = f"### point2dem:\n\n{processing_parameters_dict['point2dem']:}"
 
-    merger.write(os.path.join(report_directory, report_pdf))
-    merger.close()
+    pdf = MarkdownPdf()
+
+    pdf.add_section(Section(f"# ASP Report, {processing_date:}\n\n"))
+    pdf.add_section(
+        Section(
+            f"## Processing Parameters\n\n{ba_string:}\n\n{stereo_string}\n\n{point2dem_string}\n\n"
+        )
+    )
+    plots = "".join([f"![]({file})\n\n" for file in files])
+    pdf.add_section(Section(f"## Plots\n\n{plots:}", root=plots_directory))
+
+    pdf.save(report_pdf_path)
+
 
 class ColorBar:
     def __init__(self, perc_range=(2, 98), symm=False):
