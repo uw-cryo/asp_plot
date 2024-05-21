@@ -186,7 +186,6 @@ class StereoPlotter(Plotter):
         fig.tight_layout()
         if save_dir and fig_fn:
             save_figure(fig, save_dir, fig_fn)
-        plt.show()
 
     def plot_disparity(
         self,
@@ -256,7 +255,6 @@ class StereoPlotter(Plotter):
         fig.tight_layout()
         if save_dir and fig_fn:
             save_figure(fig, save_dir, fig_fn)
-        plt.show()
 
     def plot_dem_results(self, el_clim=None, ie_clim=None, diff_clim=None, save_dir=None, fig_fn=None):
         print(f"Plotting DEM results. This can take a minute for large inputs.")
@@ -289,4 +287,3 @@ class StereoPlotter(Plotter):
         fig.tight_layout()
         if save_dir and fig_fn:
             save_figure(fig, save_dir, fig_fn)
-        plt.show()

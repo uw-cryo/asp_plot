@@ -119,4 +119,3 @@ class ProcessingParameters:
         fig.tight_layout()
         if save_dir and fig_fn:
             save_figure(fig, save_dir, fig_fn)
-        plt.show()

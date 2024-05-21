@@ -17,7 +17,6 @@ def show_existing_figure(filename):
         plt.figure(figsize=(10, 10))
         plt.imshow(img)
         plt.axis("off")
-        plt.show()
     else:
         print(f"Figure not found: {filename}")
 

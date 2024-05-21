@@ -37,3 +37,15 @@ The `data/` directory in that tarball looks like:
 ```
 
 Can we use that data in the tests here as well? Or perhaps better to keep separate, some useful files maybe? (But probably not the `.cub` or `.json` files).
+
+## Notes on CLI usage
+
+```
+asp_plot --directory ./asp_processing \
+         --bundle_adjust_directory ba \
+         --stereo_directory stereo \
+         --map_crs EPSG:32604 \
+         --reference_dem ref_dem.tif 
+         --plots_directory asp_plots \
+         --report_filename asp_plot_report.pdf
+```
