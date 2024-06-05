@@ -1,0 +1,3 @@
+# Horizontal and vertical propagated triangulation uncertainties (in meters) for each image pair having matches.
+# left_image right_image horiz_error_median vert_error_median horiz_error_mean vert_error_mean horiz_error_stddev vert_error_stddev num_meas
+10300100D12D7400.r100.tif 10300100D0772D00.r100.tif 5.3478451 10.651996 5.3518882 10.653534 0.021195062 0.01656124 2248

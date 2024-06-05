@@ -1,0 +1,255 @@
+ASP 3.4.0-alpha
+Build ID: 491f12c9
+Build date: 2024-02-18
+
+/swbuild/bpurint1/asp/dev/libexec/bundle_adjust -t dg --weight-image /nobackup/bpurint1/data/utqiagvik/WV/utqiagvik_wv_EE/2022/utqiagvik_10m_UTM4N_seaice_mask_0and1.tif --datum WGS84 --individually-normalize --normalize-ip-tiles --ip-per-tile 50 --matches-per-tile 10 --min-triangulation-angle 10 --mapproj-dem /nobackup/bpurint1/data/utqiagvik/COP/COP30_utqiagvik_lzw-adj_proj.tif --propagate-errors --tri-weight 0.1 --tri-robust-threshold 0.1 --camera-weight 0 10300100D12D7400.r100.tif 10300100D0772D00.r100.tif 10300100D12D7400.r100.xml 10300100D0772D00.r100.xml -o ba/ba_50ips_10matches_dg_weight_image --threads 28 
+
+uname -a
+Linux r605i6n15 4.18.0-477.27.1.1toss.t4.x86_64 #1 SMP Tue Sep 19 15:17:56 PDT 2023 x86_64 x86_64 x86_64 GNU/Linux
+
+cat /proc/meminfo 2>/dev/null | grep MemTotal
+MemTotal:       131458532 kB
+
+cat /proc/cpuinfo 2>/dev/null | tail -n 25
+cpu family	: 6
+model		: 79
+model name	: Intel(R) Xeon(R) CPU E5-2680 v4 @ 2.40GHz
+stepping	: 1
+microcode	: 0xb000010
+cpu MHz		: 3300.000
+cache size	: 35840 KB
+physical id	: 1
+siblings	: 28
+core id		: 14
+cpu cores	: 14
+apicid		: 61
+initial apicid	: 61
+fpu		: yes
+fpu_exception	: yes
+cpuid level	: 20
+wp		: yes
+flags		: fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush dts acpi mmx fxsr sse sse2 ss ht tm pbe syscall nx pdpe1gb rdtscp lm constant_tsc arch_perfmon pebs bts rep_good nopl xtopology nonstop_tsc cpuid aperfmperf pni pclmulqdq dtes64 monitor ds_cpl vmx smx est tm2 ssse3 sdbg fma cx16 xtpr pdcm pcid dca sse4_1 sse4_2 x2apic movbe popcnt aes xsave avx f16c rdrand lahf_lm abm 3dnowprefetch cpuid_fault epb cat_l3 cdp_l3 invpcid_single pti intel_ppin tpr_shadow vnmi flexpriority ept vpid ept_ad fsgsbase tsc_adjust bmi1 hle avx2 smep bmi2 erms invpcid rtm cqm rdt_a rdseed adx smap intel_pt xsaveopt cqm_llc cqm_occup_llc cqm_mbm_total cqm_mbm_local dtherm ida arat pln pts
+bugs		: cpu_meltdown spectre_v1 spectre_v2 spec_store_bypass l1tf mds swapgs taa itlb_multihit mmio_stale_data
+bogomips	: 4800.09
+clflush size	: 64
+cache_alignment	: 64
+address sizes	: 46 bits physical, 48 bits virtual
+power management:
+
+
+sysctl -a hw 2>/dev/null | grep -E "ncpu|byteorder|memsize|cpufamily|cachesize|mmx|sse|machine|model" | grep -v ipv6
+
+
+
+Vision Workbench log started at 2024-04-14 16:29:14.
+
+2024-04-14 16:29:14 {0} [ console ] : Using session: dg
+2024-04-14 16:29:14 {0} [ console ] : Loading camera model: 10300100D12D7400.r100.tif 10300100D12D7400.r100.xml
+2024-04-14 16:29:17 {0} [ console ] : Using session: dg
+2024-04-14 16:29:17 {0} [ console ] : Loading camera model: 10300100D0772D00.r100.tif 10300100D0772D00.r100.xml
+2024-04-14 16:29:19 {0} [ console ] : Computing statistics for 10300100D12D7400.r100.tif
+2024-04-14 16:29:19 {0} [ console ] : Using downsample scale: 32
+2024-04-14 16:29:54 {0} [ console ] : 	    Writing stats file: ba/ba_50ips_10matches_dg_weight_image-10300100D12D7400.r100-stats.tif
+2024-04-14 16:29:54 {0} [ console ] : 	    10300100D12D7400.r100.tif: [ lo: 122 hi: 1912.79 mean: 900.291 std_dev: 384.606 ]
+2024-04-14 16:29:54 {0} [ console ] : Computing statistics for 10300100D0772D00.r100.tif
+2024-04-14 16:29:54 {0} [ console ] : Using downsample scale: 32
+2024-04-14 16:30:26 {0} [ console ] : 	    Writing stats file: ba/ba_50ips_10matches_dg_weight_image-10300100D0772D00.r100-stats.tif
+2024-04-14 16:30:26 {0} [ console ] : 	    10300100D0772D00.r100.tif: [ lo: 144.203 hi: 1709.76 mean: 866.825 std_dev: 392.312 ]
+2024-04-14 16:30:26 {0} [ console ] : Using session: dg
+2024-04-14 16:30:26 {0} [ console ] : Computing statistics for 10300100D12D7400.r100.tif
+2024-04-14 16:30:26 {0} [ console ] : 	--> Reading statistics from file ba/ba_50ips_10matches_dg_weight_image-10300100D12D7400.r100-stats.tif
+2024-04-14 16:30:26 {0} [ console ] : 	    10300100D12D7400.r100.tif: [ lo: 122 hi: 1912.79 mean: 900.291 std_dev: 384.606 ]
+2024-04-14 16:30:26 {0} [ console ] : Computing statistics for 10300100D0772D00.r100.tif
+2024-04-14 16:30:26 {0} [ console ] : 	--> Reading statistics from file ba/ba_50ips_10matches_dg_weight_image-10300100D0772D00.r100-stats.tif
+2024-04-14 16:30:26 {0} [ console ] : 	    10300100D0772D00.r100.tif: [ lo: 144.203 hi: 1709.76 mean: 866.825 std_dev: 392.312 ]
+2024-04-14 16:30:26 {0} [ console ] : 	--> Matching interest points in StereoSession.
+2024-04-14 16:30:26 {0} [ console ] : 	    Using epipolar threshold = 3017.66
+2024-04-14 16:30:26 {0} [ console ] : 	    IP uniqueness threshold  = 0.8
+2024-04-14 16:30:26 {0} [ console ] : 	    Datum:                     Geodetic Datum --> Name: WGS_1984  Spheroid: WGS 84  Semi-major axis: 6378137  Semi-minor axis: 6356752.3142451793  Meridian: Greenwich at 0  Proj4 Str: +proj=longlat +datum=WGS84 +no_defs
+2024-04-14 16:30:26 {0} [ console ] : 	    Skipping rough homography.
+2024-04-14 16:30:26 {0} [ console ] : 	    Looking for IP in left image.
+2024-04-14 16:30:26 {0} [ console ] : 	    Using 50 interest points per tile (1024^2 px).
+2024-04-14 16:30:26 {0} [ console ] : 	    Detecting IP
+2024-04-14 16:31:03 {0} [ console ] : 	    Removing IP near nodata with radius 4
+2024-04-14 16:31:07 {0} [ console ] : 	    Building descriptors
+2024-04-14 16:31:14 {0} [ console ] : 	    Found interest points: 46314
+2024-04-14 16:31:14 {0} [ console ] : 	    Looking for IP in right image.
+2024-04-14 16:31:14 {0} [ console ] : 	    Using 50 interest points per tile (1024^2 px).
+2024-04-14 16:31:14 {0} [ console ] : 	    Detecting IP
+2024-04-14 16:31:51 {0} [ console ] : 	    Removing IP near nodata with radius 4
+2024-04-14 16:31:54 {0} [ console ] : 	    Building descriptors
+2024-04-14 16:32:01 {0} [ console ] : 	    Found interest points: 46241
+2024-04-14 16:32:01 {0} [ console ] : Elapsed time in ip detection: 95.1707 s.
+2024-04-14 16:32:01 {0} [ console ] : 	--> Matching interest points using the epipolar line.
+2024-04-14 16:32:01 {0} [ console ] : 	    Uniqueness threshold: 0.8
+2024-04-14 16:32:01 {0} [ console ] : 	    Epipolar threshold:   3017.66
+2024-04-14 16:32:01 {0} [ console ] : 	    Matching forward
+2024-04-14 16:32:11 {0} [ console ] : 	    ---> Obtained 46314 matches.
+2024-04-14 16:32:11 {0} [ console ] : 	    Matching backward
+2024-04-14 16:32:18 {0} [ console ] : 	    ---> Obtained 46241 matches.
+2024-04-14 16:32:18 {0} [ console ] : 	    Matched 1014 points.
+2024-04-14 16:32:19 {0} [ console ] : 	      Removed 77 points in stddev filtering.
+2024-04-14 16:32:19 {0} [ console ] : 	    Reduced matches to 937
+2024-04-14 16:32:19 {0} [ console ] : Elapsed time in ip matching: 17.9393 s.
+2024-04-14 16:32:19 {0} [ console ] : 	    Computing homography transform.
+2024-04-14 16:32:19 {0} [ console ] : 	    Homography rectification inlier threshold: 1000
+2024-04-14 16:32:19 {0} [ console ] : 	    RANSAC iterations:                         1000
+2024-04-14 16:32:20 {0} [ console ] : Homography matrix:
+Matrix3x3((1.33088,-0.0017607,-5912.69)(-0.237014,1.02118,3719.27)(-2.38643e-07,9.33625e-08,1))
+2024-04-14 16:32:20 {0} [ console ] : Number of inliers: 804.
+2024-04-14 16:32:20 {0} [ console ] : Elapsed time in homography computation: 1.41571 s.
+2024-04-14 16:32:21 {0} [ console ] : 	--> Performing matching per tile.
+2024-04-14 16:32:21 {0} [ console ] : Tile size used in matching: 1024
+2024-04-14 16:32:21 {0} [ console ] : Expanded tile size:         1280
+2024-04-14 16:32:21 {0} [ console ] : 	    Matched 3778 points.
+2024-04-14 16:32:25 {0} [ console ] : 	      Removed 81 points in stddev filtering.
+2024-04-14 16:32:25 {0} [ console ] : 	    Reduced matches to 3697
+2024-04-14 16:32:25 {0} [ console ] : Elapsed time in ip matching when using tiles: 4.3133 s.
+2024-04-14 16:32:25 {0} [ console ] : 	    * Writing match file: ba/ba_50ips_10matches_dg_weight_image-10300100D12D7400.r100__10300100D0772D00.r100.match
+2024-04-14 16:32:25 {0} [ console ] : IP coverage fraction = 0.538624
+2024-04-14 16:32:25 {0} [ console ] : Match file ba/ba_50ips_10matches_dg_weight_image-10300100D12D7400.r100__10300100D0772D00.r100.match has 3697 matches.
+2024-04-14 16:32:25 {0} [ console ] : Loaded 3697 matches.
+2024-04-14 16:32:25 {0} [ console ] : Building the control network took 0.015936 seconds.
+2024-04-14 16:32:25 {0} [ console ] : --> Bundle adjust pass: 0
+2024-04-14 16:32:25 {0} [ console ] : Reading: /nobackup/bpurint1/data/utqiagvik/WV/utqiagvik_wv_EE/2022/utqiagvik_10m_UTM4N_seaice_mask_0and1.tif
+2024-04-14 16:32:25 {0} [ console ] : Writing initial condition files.
+2024-04-14 16:32:25 {0} [ console ] : Writing: ba/ba_50ips_10matches_dg_weight_image-initial_residuals_stats.txt
+2024-04-14 16:32:25 {0} [ console ] : Writing: ba/ba_50ips_10matches_dg_weight_image-initial_residuals_raw_pixels.txt
+2024-04-14 16:32:25 {0} [ console ] : Writing: ba/ba_50ips_10matches_dg_weight_image-initial_residuals_raw_gcp.txt
+2024-04-14 16:32:25 {0} [ console ] : Writing: ba/ba_50ips_10matches_dg_weight_image-initial_residuals_raw_cameras.txt
+2024-04-14 16:32:25 {0} [ console ] : Writing: ba/ba_50ips_10matches_dg_weight_image-initial_residuals_pointmap.csv
+2024-04-14 16:32:25 {0} [ console ] : Writing: ba/ba_50ips_10matches_dg_weight_image-initial_points.kml
+2024-04-14 16:32:25 {0} [ console ] : Starting the Ceres optimizer.
+2024-04-14 16:32:26 {0} [ console ] : 
+Solver Summary (v 2.2.0-eigen-(3.4.0)-lapack-suitesparse-(5.10.1)-metis-(5.1.0)-eigensparse)
+
+                                     Original                  Reduced
+Parameter blocks                         2612                     2612
+Parameters                               7842                     7842
+Residual blocks                          7830                     7830
+Residuals                               18270                    18270
+
+Minimizer                        TRUST_REGION
+
+Dense linear algebra library            EIGEN 
+Trust region strategy     LEVENBERG_MARQUARDT
+                                        Given                     Used
+Linear solver                     DENSE_SCHUR              DENSE_SCHUR
+Threads                                    28                       28
+Linear solver ordering              AUTOMATIC                   2610,2
+Schur structure                         d,3,6                    d,d,d
+
+Cost:
+Initial                          1.512839e+03
+Final                            9.775107e+02
+Change                           5.353280e+02
+
+Minimizer iterations                        3
+Successful steps                            3
+Unsuccessful steps                          0
+
+Time (in seconds):
+Preprocessor                         0.021825
+
+  Residual only evaluation           0.004252 (3)
+  Jacobian & residual evaluation     0.045012 (3)
+  Linear solver                      0.020210 (3)
+Minimizer                            0.073523
+
+Postprocessor                        0.000352
+Total                                0.095701
+
+Termination:                      CONVERGENCE (Parameter tolerance reached. Relative step_norm: 7.524243e-09 <= 1.000000e-08.)
+
+2024-04-14 16:32:26 {0} [ console ] : Writing final condition log files.
+2024-04-14 16:32:26 {0} [ console ] : Writing: ba/ba_50ips_10matches_dg_weight_image-final_residuals_stats.txt
+2024-04-14 16:32:26 {0} [ console ] : Writing: ba/ba_50ips_10matches_dg_weight_image-final_residuals_raw_pixels.txt
+2024-04-14 16:32:26 {0} [ console ] : Writing: ba/ba_50ips_10matches_dg_weight_image-final_residuals_raw_gcp.txt
+2024-04-14 16:32:26 {0} [ console ] : Writing: ba/ba_50ips_10matches_dg_weight_image-final_residuals_raw_cameras.txt
+2024-04-14 16:32:26 {0} [ console ] : Writing: ba/ba_50ips_10matches_dg_weight_image-final_residuals_pointmap.csv
+2024-04-14 16:32:26 {0} [ console ] : Writing: ba/ba_50ips_10matches_dg_weight_image-final_points.kml
+2024-04-14 16:32:26 {0} [ console ] : Removing pixel outliers in preparation for another solver attempt.
+2024-04-14 16:32:26 {0} [ console ] : Outlier statistics: b = -0.412053, e = 0.657268.
+2024-04-14 16:32:26 {0} [ console ] : Removing as outliers points with mean reprojection error > 2.
+2024-04-14 16:32:26 {0} [ console ] : Removed 362 outliers out of 7394 by reprojection error. Ratio: 0.0489586.
+2024-04-14 16:32:26 {0} [ console ] : Removed 0 outlier(s) based on spatial distribution of triangulated points.
+2024-04-14 16:32:26 {0} [ console ] : Filtering outliers and creating reports.
+2024-04-14 16:32:26 {0} [ console ] : Loading DEM: /nobackup/bpurint1/data/utqiagvik/COP/COP30_utqiagvik_lzw-adj_proj.tif
+2024-04-14 16:32:26 {0} [ console ] : Found DEM nodata value: -32768
+2024-04-14 16:32:26 {0} [ console ] : IP coverage fraction after cleaning = 0.339683
+2024-04-14 16:32:26 {0} [ console ] : Saving 2248 filtered interest points.
+2024-04-14 16:32:26 {0} [ console ] : Writing: ba/ba_50ips_10matches_dg_weight_image-10300100D12D7400.r100__10300100D0772D00.r100-clean.match
+2024-04-14 16:32:26 {0} [ console ] : Writing: ba/ba_50ips_10matches_dg_weight_image-convergence_angles.txt
+2024-04-14 16:32:26 {0} [ console ] : Writing: ba/ba_50ips_10matches_dg_weight_image-mapproj_match_offset_stats.txt
+2024-04-14 16:32:26 {0} [ console ] : Writing: ba/ba_50ips_10matches_dg_weight_image-mapproj_match_offsets.txt
+2024-04-14 16:32:26 {0} [ console ] : Writing: ba/ba_50ips_10matches_dg_weight_image-triangulation_uncertainty.txt
+2024-04-14 16:32:26 {0} [ console ] : --> Bundle adjust pass: 1
+2024-04-14 16:32:26 {0} [ console ] : Reading: /nobackup/bpurint1/data/utqiagvik/WV/utqiagvik_wv_EE/2022/utqiagvik_10m_UTM4N_seaice_mask_0and1.tif
+2024-04-14 16:32:26 {0} [ console ] : Starting the Ceres optimizer.
+2024-04-14 16:32:26 {0} [ console ] : 
+Solver Summary (v 2.2.0-eigen-(3.4.0)-lapack-suitesparse-(5.10.1)-metis-(5.1.0)-eigensparse)
+
+                                     Original                  Reduced
+Parameter blocks                         2250                     2250
+Parameters                               6756                     6756
+Residual blocks                          6744                     6744
+Residuals                               15736                    15736
+
+Minimizer                        TRUST_REGION
+
+Dense linear algebra library            EIGEN 
+Trust region strategy     LEVENBERG_MARQUARDT
+                                        Given                     Used
+Linear solver                     DENSE_SCHUR              DENSE_SCHUR
+Threads                                    28                       28
+Linear solver ordering              AUTOMATIC                   2248,2
+Schur structure                         d,3,6                    d,d,d
+
+Cost:
+Initial                          7.645720e+01
+Final                            7.573613e+01
+Change                           7.210646e-01
+
+Minimizer iterations                        2
+Successful steps                            2
+Unsuccessful steps                          0
+
+Time (in seconds):
+Preprocessor                         0.009048
+
+  Residual only evaluation           0.002175 (2)
+  Jacobian & residual evaluation     0.025483 (2)
+  Linear solver                      0.008736 (2)
+Minimizer                            0.039461
+
+Postprocessor                        0.000401
+Total                                0.048910
+
+Termination:                      CONVERGENCE (Parameter tolerance reached. Relative step_norm: 4.955378e-09 <= 1.000000e-08.)
+
+2024-04-14 16:32:26 {0} [ console ] : Writing final condition log files.
+2024-04-14 16:32:26 {0} [ console ] : Writing: ba/ba_50ips_10matches_dg_weight_image-final_residuals_stats.txt
+2024-04-14 16:32:26 {0} [ console ] : Writing: ba/ba_50ips_10matches_dg_weight_image-final_residuals_raw_pixels.txt
+2024-04-14 16:32:26 {0} [ console ] : Writing: ba/ba_50ips_10matches_dg_weight_image-final_residuals_raw_gcp.txt
+2024-04-14 16:32:26 {0} [ console ] : Writing: ba/ba_50ips_10matches_dg_weight_image-final_residuals_raw_cameras.txt
+2024-04-14 16:32:26 {0} [ console ] : Writing: ba/ba_50ips_10matches_dg_weight_image-final_residuals_pointmap.csv
+2024-04-14 16:32:26 {0} [ console ] : Writing: ba/ba_50ips_10matches_dg_weight_image-final_points.kml
+2024-04-14 16:32:26 {0} [ console ] : Removing pixel outliers in preparation for another solver attempt.
+2024-04-14 16:32:26 {0} [ console ] : Outlier statistics: b = -0.273779, e = 0.458093.
+2024-04-14 16:32:26 {0} [ console ] : Removing as outliers points with mean reprojection error > 2.
+2024-04-14 16:32:26 {0} [ console ] : Removed 0 outliers out of 7394 by reprojection error. Ratio: 0.
+2024-04-14 16:32:26 {0} [ console ] : Removed 0 outlier(s) based on spatial distribution of triangulated points.
+2024-04-14 16:32:27 {0} [ console ] : Filtering outliers and creating reports.
+2024-04-14 16:32:27 {0} [ console ] : Loading DEM: /nobackup/bpurint1/data/utqiagvik/COP/COP30_utqiagvik_lzw-adj_proj.tif
+2024-04-14 16:32:27 {0} [ console ] : Found DEM nodata value: -32768
+2024-04-14 16:32:27 {0} [ console ] : IP coverage fraction after cleaning = 0.339683
+2024-04-14 16:32:27 {0} [ console ] : Saving 2248 filtered interest points.
+2024-04-14 16:32:27 {0} [ console ] : Writing: ba/ba_50ips_10matches_dg_weight_image-10300100D12D7400.r100__10300100D0772D00.r100-clean.match
+2024-04-14 16:32:27 {0} [ console ] : Writing: ba/ba_50ips_10matches_dg_weight_image-convergence_angles.txt
+2024-04-14 16:32:27 {0} [ console ] : Writing: ba/ba_50ips_10matches_dg_weight_image-mapproj_match_offset_stats.txt
+2024-04-14 16:32:27 {0} [ console ] : Writing: ba/ba_50ips_10matches_dg_weight_image-mapproj_match_offsets.txt
+2024-04-14 16:32:27 {0} [ console ] : Writing: ba/ba_50ips_10matches_dg_weight_image-triangulation_uncertainty.txt
+2024-04-14 16:32:27 {0} [ console ] : Writing: ba/ba_50ips_10matches_dg_weight_image-10300100D12D7400.r100.adjust
+2024-04-14 16:32:27 {0} [ console ] : Writing model state: ba/ba_50ips_10matches_dg_weight_image-10300100D12D7400.r100.adjusted_state.json
+2024-04-14 16:32:27 {0} [ console ] : Writing: ba/ba_50ips_10matches_dg_weight_image-10300100D0772D00.r100.adjust
+2024-04-14 16:32:27 {0} [ console ] : Writing model state: ba/ba_50ips_10matches_dg_weight_image-10300100D0772D00.r100.adjusted_state.json
