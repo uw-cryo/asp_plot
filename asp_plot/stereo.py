@@ -282,7 +282,7 @@ class StereoPlotter(Plotter):
             diff_clim = ColorBar(perc_range=(2, 98), symm=True).get_clim(diff)
 
         self.plot_array(ax=axa[2], array=diff, clim=diff_clim, cmap="RdBu", cbar_label="Elevation diff. (m)")
-        axa[2].set_title(f"Difference with reference DEM:\n{self.reference_dem.split("/")[-1]}")
+        axa[2].set_title(f"Difference with reference DEM:\n{self.reference_dem.split('/')[-1]}")
 
         fig.tight_layout()
         if save_dir and fig_fn:
