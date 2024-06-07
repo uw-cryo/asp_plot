@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "asp_plot"
+version = "0.0.2"
+authors = [
+  { name="Ben Purinton", email="purinton@uw.edu" },
+]
+description = "Package for plotting outputs Ames Stereo Pipeline processing"
+readme = "README.md"
+requires-python = ">=3.11"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: BSD License",
+    "Operating System :: OS Independent",
+]
+
+[project.urls]
+Homepage = "https://github.com/uw-cryo/asp_plot"
+Issues = "https://github.com/uw-cryo/asp_plot/issues"
