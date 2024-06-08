@@ -17,6 +17,9 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 
+[project.scripts]
+asp_plot = "asp_plot.cli.asp_plot:main"
+
 [project.urls]
 Homepage = "https://github.com/uw-cryo/asp_plot"
 Issues = "https://github.com/uw-cryo/asp_plot/issues"
