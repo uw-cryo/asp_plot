@@ -5,7 +5,7 @@ name: Python application
 
 on:
   push:
-    branches: [ "bp-add-github-workflow-for-testing" ]
+    branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
 
