@@ -16,7 +16,11 @@ The directory `original_code/` contains initial notebooks compiled from recent p
 The functionality of these notebooks is being ported to the `asp_plot/` directory, which is the package `asp_plot`.
 
 
-## Installing and testing the package
+## Installing, testing, and distributing the package
+
+### For Development
+
+If you instead want to install the source code for e.g. developing the project:
 
 ```
 $ git clone git@github.com:uw-cryo/asp_plot.git
@@ -31,6 +35,21 @@ To ensure the install was successful, tests can be run with:
 
 ```
 $ pytest
+```
+
+### Package and upload
+
+```
+$ python3 -m pip install --upgrade build
+$ python3 -m build
+$ python3 -m pip install --upgrade twine
+$ python3 -m twine upload dist/*
+```
+
+### Install via pip
+
+```
+pip install asp-plot
 ```
 
 ## Notebook example usage
