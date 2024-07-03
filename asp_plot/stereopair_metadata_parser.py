@@ -104,7 +104,7 @@ class StereopairMetadataParser:
         for lon_tag, lat_tag in tags:
             lon = self.getTag(xml, lon_tag)
             lat = self.getTag(xml, lat_tag)
-            if lon and lat:  # Ensure both longitude and latitude are found
+            if lon and lat:
                 coords.append(f"{lon} {lat}")
         geom_wkt = f"POLYGON(({', '.join(coords)}))"
         return geom_wkt
