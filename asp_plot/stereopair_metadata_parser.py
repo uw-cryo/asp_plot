@@ -2,6 +2,7 @@ import glob
 import os
 import numpy as np
 import pandas as pd
+import geopandas as gpd
 from datetime import datetime, timedelta
 from osgeo import ogr, osr, gdal
 from shapely import wkt
@@ -15,7 +16,7 @@ class StereopairMetadataParser:
         ids = self.get_ids()
         id1_dict = self.get_id_dict(ids[0])
         id2_dict = self.get_id_dict(ids[1])
-        pairname = os.path.split(self.directory)[-1]
+        pairname = os.path.split(self.directory.rstrip("/\\"))[-1]
         return self.pair_dict(id1_dict, id2_dict, pairname)
 
     def get_ids(self):
@@ -81,13 +82,46 @@ class StereopairMetadataParser:
 
         return d
 
-    def getTag(self, xml, tag):
+    def getTag(self, xml, tag, all=False):
         import xml.etree.ElementTree as ET
 
         tree = ET.parse(xml)
-        elem = tree.find(".//%s" % tag)
-        if elem is not None:
-            return elem.text
+        if all:
+            elem = tree.findall(".//%s" % tag)
+            elem = [i.text for i in elem]
+        else:
+            elem = tree.find(".//%s" % tag)
+            elem = elem.text
+
+        return elem
+
+    def getEphem(self, xml):
+        e = self.getTag(xml, "EPHEMLIST", all=True)
+        # Could get fancy with structured array here
+        # point_num, Xpos, Ypos, Zpos, Xvel, Yvel, Zvel, covariance matrix (6 elements)
+        # dtype=[('point', 'i4'), ('Xpos', 'f8'), ('Ypos', 'f8'), ('Zpos', 'f8'), ('Xvel', 'f8') ...]
+        # All coordinates are ECF, meters, meters/sec, m^2
+        return np.array([i.split() for i in e], dtype=np.float64)
+
+    def getEphem_gdf(self, xml):
+        names = [
+            "index",
+        ]
+        names.extend(["x", "y", "z"])
+        names.extend(["dx", "dy", "dz"])
+        names.extend(["{}_cov".format(n) for n in names[1:7]])
+        e = self.getEphem(xml)
+        t0 = pd.to_datetime(self.getTag(xml, "STARTTIME"))
+        dt = pd.Timedelta(float(self.getTag(xml, "TIMEINTERVAL")), unit="s")
+        eph_df = pd.DataFrame(e, columns=names)
+        eph_df["time"] = t0 + eph_df.index * dt
+        eph_df.set_index("time", inplace=True)
+        eph_gdf = gpd.GeoDataFrame(
+            eph_df,
+            geometry=gpd.points_from_xy(eph_df["x"], eph_df["y"], eph_df["z"]),
+            crs="EPSG:4978",
+        )
+        return eph_gdf
 
     def xml2wkt(self, xml):
         tags = [
@@ -112,6 +146,17 @@ class StereopairMetadataParser:
         wgs_srs = self.get_wgs_srs()
         geom.AssignSpatialReference(wgs_srs)
         return geom
+
+    def xml2gdf(self, xml, init_crs="EPSG:4326"):
+        poly = self.xml2poly(xml)
+        gdf = gpd.GeoDataFrame(
+            {"idx": [0], "geometry": poly}, geometry="geometry", crs=init_crs
+        )
+        return gdf
+
+    def xml2poly(self, xml):
+        geom_wkt = self.xml2wkt(xml)
+        return wkt.loads(geom_wkt)
 
     def get_wgs_srs(self):
         # Define WGS84 srs
