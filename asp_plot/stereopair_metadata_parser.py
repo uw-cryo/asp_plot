@@ -8,14 +8,14 @@ from shapely import wkt
 
 
 class StereopairMetadataParser:
-    def __init__(self, stereopair_directory):
-        self.stereopair_directory = stereopair_directory
+    def __init__(self, directory):
+        self.directory = directory
 
     def get_pair_dict(self):
         ids = self.get_ids()
         id1_dict = self.get_id_dict(ids[0])
         id2_dict = self.get_id_dict(ids[1])
-        pairname = os.path.split(self.stereopair_directory)[-1]
+        pairname = os.path.split(self.directory)[-1]
         return self.pair_dict(id1_dict, id2_dict, pairname)
 
     def get_ids(self):
@@ -27,7 +27,7 @@ class StereopairMetadataParser:
             return list(set(ids))
 
         image_list = glob.glob(
-            os.path.join(self.stereopair_directory, "*.[Xx][Mm][Ll]")
+            os.path.join(self.directory, "*.[Xx][Mm][Ll]")
         )
         ids = [get_id(f) for f in image_list]
         ids = sorted(set(item for sublist in ids if sublist for item in sublist))
@@ -45,7 +45,7 @@ class StereopairMetadataParser:
             return union
 
         xml_list = glob.glob(
-            os.path.join(self.stereopair_directory, f"*{id:}*.[Xx][Mm][Ll]")
+            os.path.join(self.directory, f"*{id:}*.[Xx][Mm][Ll]")
         )
 
         attributes = {
