@@ -26,9 +26,7 @@ class StereopairMetadataParser:
             ids = re.findall("10[123456][0-9a-fA-F]+00", filename)
             return list(set(ids))
 
-        image_list = glob.glob(
-            os.path.join(self.directory, "*.[Xx][Mm][Ll]")
-        )
+        image_list = glob.glob(os.path.join(self.directory, "*.[Xx][Mm][Ll]"))
         ids = [get_id(f) for f in image_list]
         ids = sorted(set(item for sublist in ids if sublist for item in sublist))
         return ids
@@ -44,9 +42,7 @@ class StereopairMetadataParser:
                 union = union.Union(geom)
             return union
 
-        xml_list = glob.glob(
-            os.path.join(self.directory, f"*{id:}*.[Xx][Mm][Ll]")
-        )
+        xml_list = glob.glob(os.path.join(self.directory, f"*{id:}*.[Xx][Mm][Ll]"))
 
         attributes = {
             "MEANSATAZ": [],
@@ -113,14 +109,19 @@ class StereopairMetadataParser:
     def xml2geom(self, xml):
         geom_wkt = self.xml2wkt(xml)
         geom = ogr.CreateGeometryFromWkt(geom_wkt)
-        # Define WGS84 srs; mpd = 111319.9
-        wgs_srs = osr.SpatialReference()
-        wgs_srs.SetWellKnownGeogCS("WGS84")
-        # Hack for GDAL3, should reorder with (lat,lon) as specified
-        if int(gdal.__version__.split(".")[0]) >= 3:
-            wgs_srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+        wgs_srs = self.get_wgs_srs()
         geom.AssignSpatialReference(wgs_srs)
         return geom
+
+    def get_wgs_srs(self):
+        # Define WGS84 srs
+        # mpd = 111319.9
+        wgs_srs = osr.SpatialReference()
+        wgs_srs.SetWellKnownGeogCS("WGS84")
+        # GDAL3 hack
+        if int(gdal.__version__.split(".")[0]) >= 3:
+            wgs_srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+        return wgs_srs
 
     def pair_dict(self, id1_dict, id2_dict, pairname):
         def center_date(dt_list):
@@ -181,16 +182,11 @@ class StereopairMetadataParser:
             return intsect
 
         def geom2localortho(geom):
-            # Define WGS84 srs
-            # mpd = 111319.9
-            wgs_srs = osr.SpatialReference()
-            wgs_srs.SetWellKnownGeogCS("WGS84")
-            # GDAL3 hack
-            if int(gdal.__version__.split(".")[0]) >= 3:
-                wgs_srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
-
+            wgs_srs = self.get_wgs_srs()
             cx, cy = geom.Centroid().GetPoint_2D()
-            lon, lat, z = self.cT_helper(cx, cy, 0, geom.GetSpatialReference(), wgs_srs)
+            lon, lat, z = self.coordinate_transformation_helper(
+                cx, cy, 0, geom.GetSpatialReference(), wgs_srs
+            )
             local_srs = osr.SpatialReference()
             local_proj = f"+proj=ortho +lat_0={lat:0.7f} +lon_0={lon:0.7f} +datum=WGS84 +units=m +no_defs "
             local_srs.ImportFromProj4(local_proj)
@@ -225,18 +221,18 @@ class StereopairMetadataParser:
         if intersection is not None:
             # Area calc shouldn't matter too much
             intersection_area = intersection_local.GetArea()
-            p["intersection_area"] = float("{0:.2f}".format(intersection_area / 1e6))
+            p["intersection_area"] = np.round(intersection_area / 1e6, 2)
             perc = (
                 100.0 * intersection_area / geom1_local.GetArea(),
                 100 * intersection_area / geom2_local.GetArea(),
             )
-            perc = (float("{0:.2f}".format(perc[0])), float("{0:.2f}".format(perc[1])))
+            perc = (np.round(perc[0], 2), np.round(perc[1], 2))
             p["intersection_area_perc"] = perc
         else:
             p["intersection_area"] = None
             p["intersection_area_perc"] = None
 
-    def cT_helper(self, x, y, z, in_srs, out_srs):
+    def coordinate_transformation_helper(self, x, y, z, in_srs, out_srs):
         def common_mask(ma_list, apply=False):
             a = np.ma.array(ma_list, shrink=False)
             mask = np.ma.getmaskarray(a).any(axis=0)
@@ -273,9 +269,14 @@ class StereopairMetadataParser:
         else:
             xyz = np.array([x.ravel(), y.ravel(), z.ravel()]).T
         # Define coordinate transformation
-        cT = osr.CoordinateTransformation(in_srs, out_srs)
+        coordinate_transformation = osr.CoordinateTransformation(in_srs, out_srs)
         # Loop through each point
-        xyz2 = np.array([cT.TransformPoint(xi, yi, zi) for (xi, yi, zi) in xyz]).T
+        xyz2 = np.array(
+            [
+                coordinate_transformation.TransformPoint(xi, yi, zi)
+                for (xi, yi, zi) in xyz
+            ]
+        ).T
         # If single input coordinate
         if xyz2.shape[1] == 1:
             xyz2 = xyz2.squeeze()
