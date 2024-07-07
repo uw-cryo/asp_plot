@@ -16,7 +16,7 @@ class TestImports:
     def test_import_asp_plot_classes(self):
         from asp_plot.utils import ColorBar, Raster, Plotter
         from asp_plot.stereopair_metadata_parser import StereopairMetadataParser
-        from asp_plot.scenes import ScenePlotter
+        from asp_plot.scenes import ScenePlotter, SceneGeometryPlotter
         from asp_plot.processing_parameters import ProcessingParameters
         from asp_plot.bundle_adjust import ReadResiduals, PlotResiduals
         from asp_plot.stereo import StereoPlotter

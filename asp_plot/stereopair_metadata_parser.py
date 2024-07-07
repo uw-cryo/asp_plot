@@ -6,6 +6,7 @@ import geopandas as gpd
 from datetime import datetime, timedelta
 from osgeo import ogr, osr, gdal
 from shapely import wkt
+from asp_plot.utils import get_xml_tag
 
 
 class StereopairMetadataParser:
@@ -61,18 +62,18 @@ class StereopairMetadataParser:
         for xml in xml_list:
             for tag, lst in attributes.items():
                 if tag != "geom":
-                    lst.append(self.getTag(xml, tag))
+                    lst.append(get_xml_tag(xml, tag))
                 else:
                     lst.append(self.xml2geom(xml))
 
         d = {
             "id": str(id),
-            "sensor": self.getTag(xml_list[0], "SATID"),
+            "sensor": get_xml_tag(xml_list[0], "SATID"),
             "date": datetime.strptime(
-                self.getTag(xml_list[0], "FIRSTLINETIME"), "%Y-%m-%dT%H:%M:%S.%fZ"
+                get_xml_tag(xml_list[0], "FIRSTLINETIME"), "%Y-%m-%dT%H:%M:%S.%fZ"
             ),
-            "scandir": self.getTag(xml_list[0], "SCANDIRECTION"),
-            "tdi": int(self.getTag(xml_list[0], "TDILEVEL")),
+            "scandir": get_xml_tag(xml_list[0], "SCANDIRECTION"),
+            "tdi": int(get_xml_tag(xml_list[0], "TDILEVEL")),
             "geom": geom_union(attributes["geom"]),
         }
 
@@ -82,21 +83,8 @@ class StereopairMetadataParser:
 
         return d
 
-    def getTag(self, xml, tag, all=False):
-        import xml.etree.ElementTree as ET
-
-        tree = ET.parse(xml)
-        if all:
-            elem = tree.findall(".//%s" % tag)
-            elem = [i.text for i in elem]
-        else:
-            elem = tree.find(".//%s" % tag)
-            elem = elem.text
-
-        return elem
-
     def getEphem(self, xml):
-        e = self.getTag(xml, "EPHEMLIST", all=True)
+        e = get_xml_tag(xml, "EPHEMLIST", all=True)
         # Could get fancy with structured array here
         # point_num, Xpos, Ypos, Zpos, Xvel, Yvel, Zvel, covariance matrix (6 elements)
         # dtype=[('point', 'i4'), ('Xpos', 'f8'), ('Ypos', 'f8'), ('Zpos', 'f8'), ('Xvel', 'f8') ...]
@@ -111,8 +99,8 @@ class StereopairMetadataParser:
         names.extend(["dx", "dy", "dz"])
         names.extend(["{}_cov".format(n) for n in names[1:7]])
         e = self.getEphem(xml)
-        t0 = pd.to_datetime(self.getTag(xml, "STARTTIME"))
-        dt = pd.Timedelta(float(self.getTag(xml, "TIMEINTERVAL")), unit="s")
+        t0 = pd.to_datetime(get_xml_tag(xml, "STARTTIME"))
+        dt = pd.Timedelta(float(get_xml_tag(xml, "TIMEINTERVAL")), unit="s")
         eph_df = pd.DataFrame(e, columns=names)
         eph_df["time"] = t0 + eph_df.index * dt
         eph_df.set_index("time", inplace=True)
@@ -133,8 +121,8 @@ class StereopairMetadataParser:
         ]
         coords = []
         for lon_tag, lat_tag in tags:
-            lon = self.getTag(xml, lon_tag)
-            lat = self.getTag(xml, lat_tag)
+            lon = get_xml_tag(xml, lon_tag)
+            lat = get_xml_tag(xml, lat_tag)
             if lon and lat:
                 coords.append(f"{lon} {lat}")
         geom_wkt = f"POLYGON(({', '.join(coords)}))"

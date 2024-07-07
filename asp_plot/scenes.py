@@ -4,8 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 from shapely import wkt
-from dgtools.lib import dglib
-from asp_plot.utils import Raster, Plotter, save_figure
+from asp_plot.utils import Raster, Plotter, save_figure, get_xml_tag
 from asp_plot.stereopair_metadata_parser import StereopairMetadataParser
 
 
@@ -49,7 +48,7 @@ class SceneGeometryPlotter(StereopairMetadataParser):
         Parameters
         -----------
         p: pair dictionary
-            dictionary with xml info read from dglib.dir_pair_dict function
+            dictionary with xml info read from get_pair_dict function
         ax: matplotlib.axes
             polar axes object to plot the skyplot on
         """
@@ -193,29 +192,8 @@ class ScenePlotter(Plotter):
                 "Could not find L-sub and R-sub images in stereo directory"
             )
 
-    def get_names_and_gsd(self):
-        left_name, right_name = self.left_ortho_sub_fn.split("/")[-1].split("_")[2:4]
-        right_name = right_name.split("-")[0]
-
-        gsds = []
-        for image in [left_name, right_name]:
-            xml_fn = glob.glob(os.path.join(self.directory, f"{image}*.xml"))[0]
-            gsd = dglib.getTag(xml_fn, "MEANPRODUCTGSD")
-            if gsd is None:
-                gsd = dglib.getTag(xml_fn, "MEANCOLLECTEDGSD")
-            gsds.append(round(float(gsd), 2))
-
-        scene_dict = {
-            "left_name": left_name,
-            "right_name": right_name,
-            "left_gsd": gsds[0],
-            "right_gsd": gsds[1],
-        }
-
-        return scene_dict
-
     def plot_orthos(self, save_dir=None, fig_fn=None):
-        scene_dict = self.get_names_and_gsd()
+        p = StereopairMetadataParser(self.directory).get_pair_dict()
 
         fig, axa = plt.subplots(1, 2, figsize=(10, 5), dpi=300)
         fig.suptitle(self.title, size=10)
@@ -224,13 +202,13 @@ class ScenePlotter(Plotter):
         ortho_ma = Raster(self.left_ortho_sub_fn).read_array()
         self.plot_array(ax=axa[0], array=ortho_ma, cmap="gray", add_cbar=False)
         axa[0].set_title(
-            f"Left image\n{scene_dict['left_name']}, {scene_dict['left_gsd']:0.2f} m"
+            f"Left image\n{p['id1_dict']['id']}, {p['id1_dict']['meanproductgsd']:0.2f} m"
         )
 
         ortho_ma = Raster(self.right_ortho_sub_fn).read_array()
         self.plot_array(ax=axa[1], array=ortho_ma, cmap="gray", add_cbar=False)
         axa[1].set_title(
-            f"Right image\n{scene_dict['right_name']}, {scene_dict['right_gsd']:0.2f} m"
+            f"Right image\n{p['id2_dict']['id']}, {p['id2_dict']['meanproductgsd']:0.2f} m"
         )
 
         fig.tight_layout()
