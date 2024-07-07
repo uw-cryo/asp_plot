@@ -4,7 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 from shapely import wkt
-from asp_plot.utils import Raster, Plotter, save_figure, get_xml_tag
+from asp_plot.utils import Raster, Plotter, save_figure
 from asp_plot.stereopair_metadata_parser import StereopairMetadataParser
 
 
