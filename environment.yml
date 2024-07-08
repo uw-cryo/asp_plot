@@ -17,4 +17,3 @@ dependencies:
   - click
   - pip:
     - markdown-pdf
-    - git+https://github.com/dshean/dgtools.git

@@ -4,7 +4,7 @@ import subprocess
 import click
 import contextily as ctx
 from asp_plot.processing_parameters import ProcessingParameters
-from asp_plot.scenes import ScenePlotter
+from asp_plot.scenes import ScenePlotter, SceneGeometryPlotter
 from asp_plot.bundle_adjust import ReadResiduals, PlotResiduals
 from asp_plot.stereo import StereoPlotter
 from asp_plot.utils import compile_report
@@ -69,16 +69,9 @@ def main(
     report_pdf_path = os.path.join(directory, report_filename)
 
     # Geometry plot
-    try:
-        subprocess.run(["dg_geom_plot.py", directory])
-        subprocess.run(
-            f"mv {directory}/*stereo_geom.png {plots_directory}/00_stereo_geom.png",
-            shell=True,
-        )
-    except:
-        print(
-            "Could not generate stereo geometry plot, check your path for dg_geom_plot.py"
-        )
+    plotter = SceneGeometryPlotter(directory)
+
+    plotter.dg_geom_plot(save_dir=plots_directory, fig_fn="00_geometry.png")
 
     # Scene plot
     plotter = ScenePlotter(directory, stereo_directory, title="Mapprojected Scenes")

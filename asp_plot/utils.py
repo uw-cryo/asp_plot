@@ -56,6 +56,20 @@ def compile_report(plots_directory, processing_parameters_dict, report_pdf_path)
     pdf.save(report_pdf_path)
 
 
+def get_xml_tag(xml, tag, all=False):
+    import xml.etree.ElementTree as ET
+
+    tree = ET.parse(xml)
+    if all:
+        elem = tree.findall(".//%s" % tag)
+        elem = [i.text for i in elem]
+    else:
+        elem = tree.find(".//%s" % tag)
+        elem = elem.text
+
+    return elem
+
+
 class ColorBar:
     def __init__(self, perc_range=(2, 98), symm=False):
         self.perc_range = perc_range
