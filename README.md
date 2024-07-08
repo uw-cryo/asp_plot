@@ -39,6 +39,8 @@ $ pytest
 
 ### Package and upload
 
+Update version in `pyproject.toml` and `setup.py`, then:
+
 ```
 $ python3 -m pip install --upgrade build
 $ python3 -m build
