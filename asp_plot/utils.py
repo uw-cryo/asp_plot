@@ -3,7 +3,7 @@ import numpy as np
 import rasterio as rio
 from rasterio.windows import Window
 from osgeo import gdal
-from pygeotools.lib import iolib, warplib
+import geoutils as gu
 import matplotlib.pyplot as plt
 import matplotlib.colors
 import matplotlib.image as mpimg
@@ -148,8 +148,7 @@ class Raster:
         hillshade = np.ma.masked_equal(hs_ds.ReadAsArray(), 0)
         return hillshade
 
-    def compute_difference(self, second_fn, outdir=None):
-        print(f"Computing difference map between:\n\n{self.fn}\n\nand\n\n{second_fn}")
+    def compute_difference(self, second_fn):
         fn_list = [self.fn, second_fn]
         outdir = os.path.dirname(os.path.abspath(self.fn))
 
@@ -159,17 +158,11 @@ class Raster:
             + os.path.splitext(os.path.split(second_fn)[1])[0]
         )
 
-        ds_list = warplib.memwarp_multi_fn(
-            fn_list, extent="intersection", res="max", t_srs="first", r="cubic"
-        )
-        r1_ds = ds_list[0]
-        r2_ds = ds_list[1]
-        r1 = iolib.ds_getma(r1_ds, 1)
-        r2 = iolib.ds_getma(r2_ds, 1)
-        diff = r2 - r1
+        rasters = gu.raster.load_multiple_rasters(fn_list, ref_grid=1)
+        diff = rasters[1] - rasters[0]
         dst_fn = os.path.join(outdir, outprefix + "_diff.tif")
-        iolib.writeGTiff(diff, dst_fn, r1_ds, ndv=-9999)
-        return diff
+        diff.save(dst_fn)
+        return diff.data
 
 
 class Plotter:
