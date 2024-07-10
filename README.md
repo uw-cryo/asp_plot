@@ -39,7 +39,11 @@ $ pytest
 
 ### Package and upload
 
-Update version in `pyproject.toml` and `setup.py`, then:
+```
+$ rm -rf dist/
+```
+
+Then update version in `pyproject.toml` and `setup.py`, then:
 
 ```
 $ python3 -m pip install --upgrade build
