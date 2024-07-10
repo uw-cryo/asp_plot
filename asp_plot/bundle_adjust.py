@@ -8,7 +8,7 @@ import contextily as ctx
 from asp_plot.utils import ColorBar, Plotter, save_figure
 
 
-class ReadResiduals:
+class ReadBundleAdjustFiles:
     def __init__(self, directory, bundle_adjust_directory):
         self.directory = directory
         self.bundle_adjust_directory = bundle_adjust_directory
@@ -152,18 +152,18 @@ class ReadResiduals:
         return resid_triangulation_uncert_df
 
 
-class PlotResiduals(Plotter):
+class PlotBundleAdjustFiles(Plotter):
     def __init__(self, geodataframes, **kwargs):
         super().__init__(**kwargs)
         if not isinstance(geodataframes, list):
             raise ValueError("Input must be a list of GeoDataFrames")
         self.geodataframes = geodataframes
 
-    def get_residual_stats(self, gdf, column_name="mean_residual"):
+    def gdf_percentile_stats(self, gdf, column_name="mean_residual"):
         stats = gdf[column_name].quantile([0.25, 0.50, 0.84, 0.95]).round(2).tolist()
         return stats
 
-    def plot_n_residuals(
+    def plot_n_gdfs(
         self,
         column_name="mean_residual",
         cbar_label="Mean Residual (m)",
@@ -216,7 +216,7 @@ class PlotResiduals(Plotter):
                 axa[i].autoscale(False)
 
             # Show some statistics and information
-            stats = self.get_residual_stats(gdf, column_name)
+            stats = self.gdf_percentile_stats(gdf, column_name)
             stats_text = f"(n={gdf.shape[0]})\n" + "\n".join(
                 f"{quantile*100:.0f}th: {stat}"
                 for quantile, stat in zip([0.25, 0.50, 0.84, 0.95], stats)

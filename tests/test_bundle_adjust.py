@@ -1,5 +1,5 @@
 import pytest
-from asp_plot.bundle_adjust import ReadResiduals, PlotResiduals
+from asp_plot.bundle_adjust import ReadBundleAdjustFiles, PlotBundleAdjustFiles
 import matplotlib
 import geopandas as gpd
 import pandas as pd
@@ -12,7 +12,7 @@ class TestBundleAdjust:
     def residual_files(self):
         directory = "tests/test_data"
         ba_directory = "ba"
-        return ReadResiduals(directory, ba_directory)
+        return ReadBundleAdjustFiles(directory, ba_directory)
 
     def test_get_init_final_residuals_gdfs(self, residual_files):
         resid_init, resid_final = residual_files.get_init_final_residuals_gdfs()
@@ -27,9 +27,9 @@ class TestBundleAdjust:
         resid_triangulation_uncert_df = residual_files.get_propagated_triangulation_uncert_df()
         assert isinstance(resid_triangulation_uncert_df, pd.DataFrame)
 
-    def test_plot_n_residuals(self, residual_files):
+    def test_plot_n_gdfs(self, residual_files):
         resid_init, resid_final = residual_files.get_init_final_residuals_gdfs()
         try:
-            PlotResiduals([resid_init, resid_final]).plot_n_residuals(column_name="mean_residual")
+            PlotBundleAdjustFiles([resid_init, resid_final]).plot_n_gdfs(column_name="mean_residual")
         except Exception as e:
             pytest.fail(f"figure method raised an exception: {str(e)}")

@@ -5,7 +5,7 @@ import click
 import contextily as ctx
 from asp_plot.processing_parameters import ProcessingParameters
 from asp_plot.scenes import ScenePlotter, SceneGeometryPlotter
-from asp_plot.bundle_adjust import ReadResiduals, PlotResiduals
+from asp_plot.bundle_adjust import ReadBundleAdjustFiles, PlotBundleAdjustFiles
 from asp_plot.stereo import StereoPlotter
 from asp_plot.utils import compile_report
 
@@ -79,7 +79,7 @@ def main(
     plotter.plot_orthos(save_dir=plots_directory, fig_fn="01_orthos.png")
 
     # Bundle adjustment plots
-    residuals = ReadResiduals(directory, bundle_adjust_directory)
+    residuals = ReadBundleAdjustFiles(directory, bundle_adjust_directory)
     resid_init_gdf, resid_final_gdf = residuals.get_init_final_residuals_gdfs()
     resid_mapprojected_gdf = residuals.get_mapproj_residuals_gdf()
 
@@ -90,13 +90,13 @@ def main(
         "alpha": 0.5,
     }
 
-    plotter = PlotResiduals(
+    plotter = PlotBundleAdjustFiles(
         [resid_init_gdf, resid_final_gdf],
         lognorm=True,
         title="Bundle Adjust Initial and Final Residuals (Log Scale)",
     )
 
-    plotter.plot_n_residuals(
+    plotter.plot_n_gdfs(
         column_name="mean_residual",
         cbar_label="Mean Residual (m)",
         map_crs=map_crs,
@@ -108,7 +108,7 @@ def main(
     plotter.lognorm = False
     plotter.title = "Bundle Adjust Initial and Final Residuals (Linear Scale)"
 
-    plotter.plot_n_residuals(
+    plotter.plot_n_gdfs(
         column_name="mean_residual",
         cbar_label="Mean Residual (m)",
         common_clim=False,
@@ -118,12 +118,12 @@ def main(
         **ctx_kwargs,
     )
 
-    plotter = PlotResiduals(
+    plotter = PlotBundleAdjustFiles(
         [resid_mapprojected_gdf],
         title="Bundle Adjust Midpoint distance between\nfinal interest points projected onto reference DEM",
     )
 
-    plotter.plot_n_residuals(
+    plotter.plot_n_gdfs(
         column_name="mapproj_ip_dist_meters",
         cbar_label="Interest point distance (m)",
         map_crs=map_crs,
