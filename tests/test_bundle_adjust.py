@@ -14,9 +14,9 @@ class TestBundleAdjust:
         ba_directory = "ba"
         return ReadBundleAdjustFiles(directory, ba_directory)
 
-    def test_get_init_final_residuals_gdfs(self, residual_files):
-        resid_init, resid_final = residual_files.get_init_final_residuals_gdfs()
-        assert isinstance(resid_init, gpd.GeoDataFrame)
+    def test_get_initial_final_residuals_gdfs(self, residual_files):
+        resid_initial, resid_final = residual_files.get_initial_final_residuals_gdfs()
+        assert isinstance(resid_initial, gpd.GeoDataFrame)
         assert isinstance(resid_final, gpd.GeoDataFrame)
 
     def test_get_mapproj_residuals_gdf(self, residual_files):
@@ -28,8 +28,8 @@ class TestBundleAdjust:
         assert isinstance(resid_triangulation_uncert_df, pd.DataFrame)
 
     def test_plot_n_gdfs(self, residual_files):
-        resid_init, resid_final = residual_files.get_init_final_residuals_gdfs()
+        resid_initial, resid_final = residual_files.get_initial_final_residuals_gdfs()
         try:
-            PlotBundleAdjustFiles([resid_init, resid_final]).plot_n_gdfs(column_name="mean_residual")
+            PlotBundleAdjustFiles([resid_initial, resid_final]).plot_n_gdfs(column_name="mean_residual")
         except Exception as e:
             pytest.fail(f"figure method raised an exception: {str(e)}")
