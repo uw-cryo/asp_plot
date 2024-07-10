@@ -45,7 +45,7 @@ from asp_plot.utils import compile_report
 @click.option(
     "--plots_directory",
     prompt=True,
-    default="asp_plots",
+    default="asp_plots_for_report",
     help="Directory to put output plots. Default: asp_plots",
 )
 @click.option(
@@ -82,9 +82,10 @@ def main(
     plotter.plot_orthos(save_dir=plots_directory, fig_fn=f"{next(figure_counter):02}.png")
 
     # Bundle adjustment plots
-    residuals = ReadBundleAdjustFiles(directory, bundle_adjust_directory)
-    resid_init_gdf, resid_final_gdf = residuals.get_init_final_residuals_gdfs()
-    resid_mapprojected_gdf = residuals.get_mapproj_residuals_gdf()
+    ba_files = ReadBundleAdjustFiles(directory, bundle_adjust_directory)
+    resid_initial_gdf, resid_final_gdf = ba_files.get_initial_final_residuals_gdfs()
+    geodiff_initial_gdf, geodiff_final_gdf = ba_files.get_initial_final_geodiff_gdfs()
+    resid_mapprojected_gdf = ba_files.get_mapproj_residuals_gdf()
 
     ctx_kwargs = {
         "crs": map_crs,
@@ -94,7 +95,7 @@ def main(
     }
 
     plotter = PlotBundleAdjustFiles(
-        [resid_init_gdf, resid_final_gdf],
+        [resid_initial_gdf, resid_final_gdf],
         lognorm=True,
         title="Bundle Adjust Initial and Final Residuals (Log Scale)",
     )
@@ -133,6 +134,23 @@ def main(
         save_dir=plots_directory,
         fig_fn=f"{next(figure_counter):02}.png",
         **ctx_kwargs,
+    )
+
+    plotter = PlotBundleAdjustFiles(
+        [geodiff_initial_gdf, geodiff_final_gdf],
+        lognorm=False,
+        title="Bundle Adjust Initial and Final Geodiff vs. Reference DEM"
+    )
+
+    plotter.plot_n_gdfs(
+        column_name="height_diff_meters",
+        cbar_label="Height difference (m)",
+        map_crs=map_crs,
+        cmap="RdBu",
+        clim=(geodiff_initial_gdf["height_diff_meters"].quantile(0.05), geodiff_initial_gdf["height_diff_meters"].quantile(0.95)),
+        save_dir=plots_directory,
+        fig_fn=f"{next(figure_counter):02}.png",
+        **ctx_kwargs
     )
 
     # Stereo plots
