@@ -32,8 +32,23 @@ def save_figure(fig, save_dir=None, fig_fn=None, dpi=150):
 
 
 def compile_report(plots_directory, processing_parameters_dict, report_pdf_path):
+    from PIL import Image
+
     files = [f for f in os.listdir(plots_directory) if f.endswith(".png")]
     files.sort()
+
+    # Convert .png files to .jpg with 95% quality
+    compressed_files = []
+    for file in files:
+        png_path = os.path.join(plots_directory, file)
+        jpg_file = file.replace(".png", ".jpg")
+        jpg_path = os.path.join(plots_directory, jpg_file)
+
+        with Image.open(png_path) as img:
+            img = img.convert("RGB")
+            img.save(jpg_path, "JPEG", quality=95)
+
+        compressed_files.append(jpg_file)
 
     processing_date = (
         f"Processed on: {processing_parameters_dict['processing_timestamp']:}"
@@ -50,10 +65,15 @@ def compile_report(plots_directory, processing_parameters_dict, report_pdf_path)
             f"## Processing Parameters\n\n{ba_string:}\n\n{stereo_string}\n\n{point2dem_string}\n\n"
         )
     )
-    plots = "".join([f"![]({file})\n\n" for file in files])
+    plots = "".join([f"![]({file})\n\n" for file in compressed_files])
     pdf.add_section(Section(f"## Plots\n\n{plots:}", root=plots_directory))
 
     pdf.save(report_pdf_path)
+
+    # cleanup temporary JPEG files
+    for file in compressed_files:
+        jpg_path = os.path.join(plots_directory, file)
+        os.remove(jpg_path)
 
 
 def get_xml_tag(xml, tag, all=False):
