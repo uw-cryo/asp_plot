@@ -23,9 +23,7 @@ class ReadBundleAdjustFiles:
             filenames = [f.replace(".csv", "-diff.csv") for f in filenames]
 
         paths = [
-            glob.glob(
-                os.path.join(self.directory, self.bundle_adjust_directory, f)
-            )[0]
+            glob.glob(os.path.join(self.directory, self.bundle_adjust_directory, f))[0]
             for f in filenames
         ]
 
@@ -35,7 +33,6 @@ class ReadBundleAdjustFiles:
 
         initial, final = paths
         return initial, final
-
 
     def get_residuals_gdf(self, csv_path):
         cols = [
@@ -96,7 +93,9 @@ class ReadBundleAdjustFiles:
         return resid_initial_gdf, resid_final_gdf
 
     def get_initial_final_geodiff_gdfs(self):
-        geodiff_initial_path, geodiff_final_path = self.get_csv_paths(geodiff_files=True)
+        geodiff_initial_path, geodiff_final_path = self.get_csv_paths(
+            geodiff_files=True
+        )
         geodiff_initial_gdf = self.get_geodiff_gdf(geodiff_initial_path)
         geodiff_final_gdf = self.get_geodiff_gdf(geodiff_final_path)
         return geodiff_initial_gdf, geodiff_final_gdf
@@ -204,10 +203,15 @@ class PlotBundleAdjustFiles(Plotter):
                     clim=clim,
                     column_name=column_name,
                     cbar_label=cbar_label,
+                    cmap=cmap,
                 )
             else:
                 self.plot_geodataframe(
-                    ax=axa[i], gdf=gdf, column_name=column_name, cbar_label=cbar_label
+                    ax=axa[i],
+                    gdf=gdf,
+                    column_name=column_name,
+                    cbar_label=cbar_label,
+                    cmap=cmap,
                 )
 
             ctx.add_basemap(ax=axa[i], **ctx_kwargs)
