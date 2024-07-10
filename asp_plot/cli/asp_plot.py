@@ -3,6 +3,7 @@ import glob
 import subprocess
 import click
 import contextily as ctx
+from itertools import count
 from asp_plot.processing_parameters import ProcessingParameters
 from asp_plot.scenes import ScenePlotter, SceneGeometryPlotter
 from asp_plot.bundle_adjust import ReadBundleAdjustFiles, PlotBundleAdjustFiles
@@ -68,15 +69,17 @@ def main(
     os.makedirs(plots_directory, exist_ok=True)
     report_pdf_path = os.path.join(directory, report_filename)
 
+    figure_counter = count(0)
+
     # Geometry plot
     plotter = SceneGeometryPlotter(directory)
 
-    plotter.dg_geom_plot(save_dir=plots_directory, fig_fn="00_geometry.png")
+    plotter.dg_geom_plot(save_dir=plots_directory, fig_fn=f"{next(figure_counter):02}.png")
 
     # Scene plot
     plotter = ScenePlotter(directory, stereo_directory, title="Mapprojected Scenes")
 
-    plotter.plot_orthos(save_dir=plots_directory, fig_fn="01_orthos.png")
+    plotter.plot_orthos(save_dir=plots_directory, fig_fn=f"{next(figure_counter):02}.png")
 
     # Bundle adjustment plots
     residuals = ReadBundleAdjustFiles(directory, bundle_adjust_directory)
@@ -101,7 +104,7 @@ def main(
         cbar_label="Mean Residual (m)",
         map_crs=map_crs,
         save_dir=plots_directory,
-        fig_fn="02_ba_residuals_log.png",
+        fig_fn=f"{next(figure_counter):02}.png",
         **ctx_kwargs,
     )
 
@@ -114,7 +117,7 @@ def main(
         common_clim=False,
         map_crs=map_crs,
         save_dir=plots_directory,
-        fig_fn="03_ba_residuals_linear.png",
+        fig_fn=f"{next(figure_counter):02}.png",
         **ctx_kwargs,
     )
 
@@ -128,7 +131,7 @@ def main(
         cbar_label="Interest point distance (m)",
         map_crs=map_crs,
         save_dir=plots_directory,
-        fig_fn="04_ba_residuals_mapproj_dist.png",
+        fig_fn=f"{next(figure_counter):02}.png",
         **ctx_kwargs,
     )
 
@@ -143,7 +146,7 @@ def main(
 
     plotter.plot_match_points(
         save_dir=plots_directory,
-        fig_fn="05_stereo_match_points.png",
+        fig_fn=f"{next(figure_counter):02}.png",
     )
 
     plotter.title = "Disparity (pixels)"
@@ -152,14 +155,14 @@ def main(
         unit="pixels",
         quiver=True,
         save_dir=plots_directory,
-        fig_fn="06_disparity_pixels.png",
+        fig_fn=f"{next(figure_counter):02}.png",
     )
 
     plotter.title = "Stereo DEM Results"
 
     plotter.plot_dem_results(
         save_dir=plots_directory,
-        fig_fn="07_stereo_dem_results.png",
+        fig_fn=f"{next(figure_counter):02}.png",
     )
 
     # Compile report
