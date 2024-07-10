@@ -142,12 +142,16 @@ def main(
         title="Bundle Adjust Initial and Final Geodiff vs. Reference DEM"
     )
 
+    clim = (float(geodiff_initial_gdf["height_diff_meters"].quantile(0.05)), float(geodiff_initial_gdf["height_diff_meters"].quantile(0.95)))
+    abs_max = max(abs(clim[0]), abs(clim[1]))
+    clim = (-abs_max, abs_max)
+
     plotter.plot_n_gdfs(
         column_name="height_diff_meters",
         cbar_label="Height difference (m)",
         map_crs=map_crs,
         cmap="RdBu",
-        clim=(geodiff_initial_gdf["height_diff_meters"].quantile(0.05), geodiff_initial_gdf["height_diff_meters"].quantile(0.95)),
+        clim=clim,
         save_dir=plots_directory,
         fig_fn=f"{next(figure_counter):02}.png",
         **ctx_kwargs
