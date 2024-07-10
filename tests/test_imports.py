@@ -18,5 +18,5 @@ class TestImports:
         from asp_plot.stereopair_metadata_parser import StereopairMetadataParser
         from asp_plot.scenes import ScenePlotter, SceneGeometryPlotter
         from asp_plot.processing_parameters import ProcessingParameters
-        from asp_plot.bundle_adjust import ReadResiduals, PlotResiduals
+        from asp_plot.bundle_adjust import ReadBundleAdjustFiles, PlotBundleAdjustFiles
         from asp_plot.stereo import StereoPlotter

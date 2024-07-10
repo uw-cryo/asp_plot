@@ -3,9 +3,10 @@ import glob
 import subprocess
 import click
 import contextily as ctx
+from itertools import count
 from asp_plot.processing_parameters import ProcessingParameters
 from asp_plot.scenes import ScenePlotter, SceneGeometryPlotter
-from asp_plot.bundle_adjust import ReadResiduals, PlotResiduals
+from asp_plot.bundle_adjust import ReadBundleAdjustFiles, PlotBundleAdjustFiles
 from asp_plot.stereo import StereoPlotter
 from asp_plot.utils import compile_report
 
@@ -44,7 +45,7 @@ from asp_plot.utils import compile_report
 @click.option(
     "--plots_directory",
     prompt=True,
-    default="asp_plots",
+    default="asp_plots_for_report",
     help="Directory to put output plots. Default: asp_plots",
 )
 @click.option(
@@ -68,20 +69,23 @@ def main(
     os.makedirs(plots_directory, exist_ok=True)
     report_pdf_path = os.path.join(directory, report_filename)
 
+    figure_counter = count(0)
+
     # Geometry plot
     plotter = SceneGeometryPlotter(directory)
 
-    plotter.dg_geom_plot(save_dir=plots_directory, fig_fn="00_geometry.png")
+    plotter.dg_geom_plot(save_dir=plots_directory, fig_fn=f"{next(figure_counter):02}.png")
 
     # Scene plot
     plotter = ScenePlotter(directory, stereo_directory, title="Mapprojected Scenes")
 
-    plotter.plot_orthos(save_dir=plots_directory, fig_fn="01_orthos.png")
+    plotter.plot_orthos(save_dir=plots_directory, fig_fn=f"{next(figure_counter):02}.png")
 
     # Bundle adjustment plots
-    residuals = ReadResiduals(directory, bundle_adjust_directory)
-    resid_init_gdf, resid_final_gdf = residuals.get_init_final_residuals_gdfs()
-    resid_mapprojected_gdf = residuals.get_mapproj_residuals_gdf()
+    ba_files = ReadBundleAdjustFiles(directory, bundle_adjust_directory)
+    resid_initial_gdf, resid_final_gdf = ba_files.get_initial_final_residuals_gdfs()
+    geodiff_initial_gdf, geodiff_final_gdf = ba_files.get_initial_final_geodiff_gdfs()
+    resid_mapprojected_gdf = ba_files.get_mapproj_residuals_gdf()
 
     ctx_kwargs = {
         "crs": map_crs,
@@ -90,46 +94,67 @@ def main(
         "alpha": 0.5,
     }
 
-    plotter = PlotResiduals(
-        [resid_init_gdf, resid_final_gdf],
+    plotter = PlotBundleAdjustFiles(
+        [resid_initial_gdf, resid_final_gdf],
         lognorm=True,
         title="Bundle Adjust Initial and Final Residuals (Log Scale)",
     )
 
-    plotter.plot_n_residuals(
+    plotter.plot_n_gdfs(
         column_name="mean_residual",
         cbar_label="Mean Residual (m)",
         map_crs=map_crs,
         save_dir=plots_directory,
-        fig_fn="02_ba_residuals_log.png",
+        fig_fn=f"{next(figure_counter):02}.png",
         **ctx_kwargs,
     )
 
     plotter.lognorm = False
     plotter.title = "Bundle Adjust Initial and Final Residuals (Linear Scale)"
 
-    plotter.plot_n_residuals(
+    plotter.plot_n_gdfs(
         column_name="mean_residual",
         cbar_label="Mean Residual (m)",
         common_clim=False,
         map_crs=map_crs,
         save_dir=plots_directory,
-        fig_fn="03_ba_residuals_linear.png",
+        fig_fn=f"{next(figure_counter):02}.png",
         **ctx_kwargs,
     )
 
-    plotter = PlotResiduals(
+    plotter = PlotBundleAdjustFiles(
         [resid_mapprojected_gdf],
         title="Bundle Adjust Midpoint distance between\nfinal interest points projected onto reference DEM",
     )
 
-    plotter.plot_n_residuals(
+    plotter.plot_n_gdfs(
         column_name="mapproj_ip_dist_meters",
         cbar_label="Interest point distance (m)",
         map_crs=map_crs,
         save_dir=plots_directory,
-        fig_fn="04_ba_residuals_mapproj_dist.png",
+        fig_fn=f"{next(figure_counter):02}.png",
         **ctx_kwargs,
+    )
+
+    plotter = PlotBundleAdjustFiles(
+        [geodiff_initial_gdf, geodiff_final_gdf],
+        lognorm=False,
+        title="Bundle Adjust Initial and Final Geodiff vs. Reference DEM"
+    )
+
+    clim = (float(geodiff_initial_gdf["height_diff_meters"].quantile(0.05)), float(geodiff_initial_gdf["height_diff_meters"].quantile(0.95)))
+    abs_max = max(abs(clim[0]), abs(clim[1]))
+    clim = (-abs_max, abs_max)
+
+    plotter.plot_n_gdfs(
+        column_name="height_diff_meters",
+        cbar_label="Height difference (m)",
+        map_crs=map_crs,
+        cmap="RdBu",
+        clim=clim,
+        save_dir=plots_directory,
+        fig_fn=f"{next(figure_counter):02}.png",
+        **ctx_kwargs
     )
 
     # Stereo plots
@@ -143,7 +168,7 @@ def main(
 
     plotter.plot_match_points(
         save_dir=plots_directory,
-        fig_fn="05_stereo_match_points.png",
+        fig_fn=f"{next(figure_counter):02}.png",
     )
 
     plotter.title = "Disparity (pixels)"
@@ -152,14 +177,14 @@ def main(
         unit="pixels",
         quiver=True,
         save_dir=plots_directory,
-        fig_fn="06_disparity_pixels.png",
+        fig_fn=f"{next(figure_counter):02}.png",
     )
 
     plotter.title = "Stereo DEM Results"
 
     plotter.plot_dem_results(
         save_dir=plots_directory,
-        fig_fn="07_stereo_dem_results.png",
+        fig_fn=f"{next(figure_counter):02}.png",
     )
 
     # Compile report

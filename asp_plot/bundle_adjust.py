@@ -8,30 +8,31 @@ import contextily as ctx
 from asp_plot.utils import ColorBar, Plotter, save_figure
 
 
-class ReadResiduals:
+class ReadBundleAdjustFiles:
     def __init__(self, directory, bundle_adjust_directory):
         self.directory = directory
         self.bundle_adjust_directory = bundle_adjust_directory
 
-    def get_init_final_residuals_csvs(self):
+    def get_csv_paths(self, geodiff_files=False):
         filenames = [
             "*-initial_residuals_pointmap.csv",
             "*-final_residuals_pointmap.csv",
         ]
 
+        if geodiff_files:
+            filenames = [f.replace(".csv", "-diff.csv") for f in filenames]
+
         paths = [
-            glob.glob(
-                os.path.join(self.directory, self.bundle_adjust_directory, filename)
-            )[0]
-            for filename in filenames
+            glob.glob(os.path.join(self.directory, self.bundle_adjust_directory, f))[0]
+            for f in filenames
         ]
 
         for path in paths:
             if not os.path.isfile(path):
-                raise ValueError(f"Residuals CSV file not found: {path}")
+                raise ValueError(f"CSV file not found: {path}")
 
-        resid_init_path, resid_final_path = paths
-        return resid_init_path, resid_final_path
+        initial, final = paths
+        return initial, final
 
     def get_residuals_gdf(self, csv_path):
         cols = [
@@ -66,11 +67,38 @@ class ReadResiduals:
         resid_gdf.filename = os.path.basename(csv_path)
         return resid_gdf
 
-    def get_init_final_residuals_gdfs(self):
-        resid_init_path, resid_final_path = self.get_init_final_residuals_csvs()
-        resid_init_gdf = self.get_residuals_gdf(resid_init_path)
+    def get_geodiff_gdf(self, csv_path):
+        cols = [
+            "lon",
+            "lat",
+            "height_diff_meters",
+        ]
+
+        geodiff_df = pd.read_csv(csv_path, skiprows=7, names=cols)
+
+        geodiff_gdf = gpd.GeoDataFrame(
+            geodiff_df,
+            geometry=gpd.points_from_xy(
+                geodiff_df["lon"], geodiff_df["lat"], crs="EPSG:4326"
+            ),
+        )
+
+        geodiff_gdf.filename = os.path.basename(csv_path)
+        return geodiff_gdf
+
+    def get_initial_final_residuals_gdfs(self):
+        resid_initial_path, resid_final_path = self.get_csv_paths()
+        resid_initial_gdf = self.get_residuals_gdf(resid_initial_path)
         resid_final_gdf = self.get_residuals_gdf(resid_final_path)
-        return resid_init_gdf, resid_final_gdf
+        return resid_initial_gdf, resid_final_gdf
+
+    def get_initial_final_geodiff_gdfs(self):
+        geodiff_initial_path, geodiff_final_path = self.get_csv_paths(
+            geodiff_files=True
+        )
+        geodiff_initial_gdf = self.get_geodiff_gdf(geodiff_initial_path)
+        geodiff_final_gdf = self.get_geodiff_gdf(geodiff_final_path)
+        return geodiff_initial_gdf, geodiff_final_gdf
 
     def get_mapproj_residuals_gdf(self):
         path = glob.glob(
@@ -123,18 +151,18 @@ class ReadResiduals:
         return resid_triangulation_uncert_df
 
 
-class PlotResiduals(Plotter):
+class PlotBundleAdjustFiles(Plotter):
     def __init__(self, geodataframes, **kwargs):
         super().__init__(**kwargs)
         if not isinstance(geodataframes, list):
             raise ValueError("Input must be a list of GeoDataFrames")
         self.geodataframes = geodataframes
 
-    def get_residual_stats(self, gdf, column_name="mean_residual"):
+    def gdf_percentile_stats(self, gdf, column_name="mean_residual"):
         stats = gdf[column_name].quantile([0.25, 0.50, 0.84, 0.95]).round(2).tolist()
         return stats
 
-    def plot_n_residuals(
+    def plot_n_gdfs(
         self,
         column_name="mean_residual",
         cbar_label="Mean Residual (m)",
@@ -175,10 +203,15 @@ class PlotResiduals(Plotter):
                     clim=clim,
                     column_name=column_name,
                     cbar_label=cbar_label,
+                    cmap=cmap,
                 )
             else:
                 self.plot_geodataframe(
-                    ax=axa[i], gdf=gdf, column_name=column_name, cbar_label=cbar_label
+                    ax=axa[i],
+                    gdf=gdf,
+                    column_name=column_name,
+                    cbar_label=cbar_label,
+                    cmap=cmap,
                 )
 
             ctx.add_basemap(ax=axa[i], **ctx_kwargs)
@@ -187,7 +220,7 @@ class PlotResiduals(Plotter):
                 axa[i].autoscale(False)
 
             # Show some statistics and information
-            stats = self.get_residual_stats(gdf, column_name)
+            stats = self.gdf_percentile_stats(gdf, column_name)
             stats_text = f"(n={gdf.shape[0]})\n" + "\n".join(
                 f"{quantile*100:.0f}th: {stat}"
                 for quantile, stat in zip([0.25, 0.50, 0.84, 0.95], stats)

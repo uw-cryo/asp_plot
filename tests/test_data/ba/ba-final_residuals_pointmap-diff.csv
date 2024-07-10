@@ -1,0 +1,11 @@
+# longitude,latitude, height diff (m)
+# Geodetic Datum --> Name: WGS_1984  Spheroid: WGS 84  Semi-major axis: 6378137  Semi-minor axis: 6356752.3142451793  Meridian: Greenwich at 0  Proj4 Str: +proj=longlat +datum=WGS84 +no_defs
+# Max difference:       273.5375164356524 meters
+# Min difference:       -260.1243758197094 meters
+# Mean difference:      0.07389983706737262 meters
+# StdDev of difference: 11.69937232507772 meters
+# Median difference:    -0.1591635984314165 meters
+-156.8787621266714,71.27187484108732,0.4695946277797966
+-156.8780547480608,71.27539855076918,1.098870222080507
+-156.8772758099679,71.28614588880114,-0.07137935860346944
+-156.874706313862,71.2903275389766,-0.7280408988894513
