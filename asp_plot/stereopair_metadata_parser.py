@@ -8,6 +8,7 @@ from osgeo import ogr, osr, gdal
 from shapely import wkt
 from asp_plot.utils import get_xml_tag
 
+osr.UseExceptions()
 
 class StereopairMetadataParser:
     def __init__(self, directory):
