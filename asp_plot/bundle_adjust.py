@@ -1,17 +1,22 @@
 import os
-import glob
+import logging
 import pandas as pd
 import geopandas as gpd
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 import contextily as ctx
-from asp_plot.utils import ColorBar, Plotter, save_figure
+from asp_plot.utils import ColorBar, Plotter, save_figure, glob_file
+
+
+logging.basicConfig(level=logging.WARNING)
+logger = logging.getLogger(__name__)
 
 
 class ReadBundleAdjustFiles:
     def __init__(self, directory, bundle_adjust_directory):
         self.directory = directory
         self.bundle_adjust_directory = bundle_adjust_directory
+        self.full_directory = os.path.join(directory, bundle_adjust_directory)
 
     def get_csv_paths(self, geodiff_files=False):
         filenames = [
@@ -22,14 +27,13 @@ class ReadBundleAdjustFiles:
         if geodiff_files:
             filenames = [f.replace(".csv", "-diff.csv") for f in filenames]
 
-        paths = [
-            glob.glob(os.path.join(self.directory, self.bundle_adjust_directory, f))[0]
-            for f in filenames
-        ]
+        paths = [glob_file(self.full_directory, f) for f in filenames]
 
         for path in paths:
-            if not os.path.isfile(path):
-                raise ValueError(f"CSV file not found: {path}")
+            if path is None:
+                raise ValueError(
+                    "\n\nInitial and final bundle adjust CSV file not found. Did you run bundle_adjust?\n\n"
+                )
 
         initial, final = paths
         return initial, final
@@ -101,15 +105,9 @@ class ReadBundleAdjustFiles:
         return geodiff_initial_gdf, geodiff_final_gdf
 
     def get_mapproj_residuals_gdf(self):
-        path = glob.glob(
-            os.path.join(
-                self.directory,
-                self.bundle_adjust_directory,
-                "*-mapproj_match_offsets.txt",
-            )
-        )[0]
-        if not os.path.isfile(path):
-            raise ValueError(f"MapProj Residuals TXT file not found: {path}")
+        path = glob_file(self.full_directory, "*-mapproj_match_offsets.txt")
+        if path is None:
+            raise ValueError("\n\nMapProj Residuals TXT file not found.\n\n")
 
         cols = ["lon", "lat", "height_above_datum", "mapproj_ip_dist_meters"]
         resid_mapprojected_df = pd.read_csv(path, skiprows=2, names=cols)
@@ -124,15 +122,9 @@ class ReadBundleAdjustFiles:
         return resid_mapprojected_gdf
 
     def get_propagated_triangulation_uncert_df(self):
-        path = glob.glob(
-            os.path.join(
-                self.directory,
-                self.bundle_adjust_directory,
-                "*-triangulation_uncertainty.txt",
-            )
-        )[0]
-        if not os.path.isfile(path):
-            raise ValueError(f"Triangulation Uncertainty TXT file not found: {path}")
+        path = glob_file(self.full_directory, "*-triangulation_uncertainty.txt")
+        if path is None:
+            raise ValueError("\n\nTriangulation Uncertainty TXT file not found.\n\n")
 
         cols = [
             "left_image",
@@ -155,7 +147,7 @@ class PlotBundleAdjustFiles(Plotter):
     def __init__(self, geodataframes, **kwargs):
         super().__init__(**kwargs)
         if not isinstance(geodataframes, list):
-            raise ValueError("Input must be a list of GeoDataFrames")
+            raise ValueError("\n\nInput must be a list of GeoDataFrames\n\n")
         self.geodataframes = geodataframes
 
     def gdf_percentile_stats(self, gdf, column_name="mean_residual"):
