@@ -1,7 +1,10 @@
 import os
+import logging
 import matplotlib.pyplot as plt
 from asp_plot.utils import save_figure, glob_file
 
+logging.basicConfig(level=logging.WARNING)
+logger = logging.getLogger(__name__)
 
 class ProcessingParameters:
     def __init__(self, directory, bundle_adjust_directory, stereo_directory):

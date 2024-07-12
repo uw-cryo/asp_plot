@@ -1,10 +1,15 @@
 import os
+import logging
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 from shapely import wkt
 from asp_plot.utils import Raster, Plotter, save_figure, glob_file
 from asp_plot.stereopair_metadata_parser import StereopairMetadataParser
+
+
+logging.basicConfig(level=logging.WARNING)
+logger = logging.getLogger(__name__)
 
 
 class SceneGeometryPlotter(StereopairMetadataParser):
