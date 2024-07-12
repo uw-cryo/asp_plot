@@ -9,6 +9,7 @@ dependencies:
   - numpy
   - rasterio
   - matplotlib
+  - fiona
   - pandas
   - gdal
   - geopandas
