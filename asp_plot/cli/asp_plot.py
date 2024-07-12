@@ -40,19 +40,25 @@ from asp_plot.utils import compile_report
     "--reference_dem",
     prompt=True,
     default="",
-    help="Reference DEM used in ASP processing. Default: ",
+    help="Reference DEM used in ASP processing. No default. Must be supplied.",
 )
 @click.option(
     "--plots_directory",
-    prompt=True,
+    prompt=False,
     default="asp_plots_for_report",
     help="Directory to put output plots. Default: asp_plots",
 )
 @click.option(
     "--report_filename",
-    prompt=True,
-    default="asp_plot_report.pdf",
-    help="PDF file to write out for report. Default: asp_plot_report.pdf",
+    prompt=False,
+    default=None,
+    help="PDF file to write out for report into the processing directory supplied by --directory. Default: Directory name of ASP processing",
+)
+@click.option(
+    "--report_title",
+    prompt=False,
+    default=None,
+    help="Title for the report. Default: Directory name of ASP processing",
 )
 def main(
     directory,
@@ -62,11 +68,15 @@ def main(
     reference_dem,
     plots_directory,
     report_filename,
+    report_title,
 ):
     print(f"\n\nProcessing ASP files in {directory}\n\n")
 
     plots_directory = os.path.join(directory, plots_directory)
     os.makedirs(plots_directory, exist_ok=True)
+
+    if report_filename is None:
+        report_filename = f"asp_plot_report_{os.path.split(directory.rstrip("/\\"))[-1]:}.pdf"
     report_pdf_path = os.path.join(directory, report_filename)
 
     figure_counter = count(0)
@@ -74,12 +84,16 @@ def main(
     # Geometry plot
     plotter = SceneGeometryPlotter(directory)
 
-    plotter.dg_geom_plot(save_dir=plots_directory, fig_fn=f"{next(figure_counter):02}.png")
+    plotter.dg_geom_plot(
+        save_dir=plots_directory, fig_fn=f"{next(figure_counter):02}.png"
+    )
 
     # Scene plot
     plotter = ScenePlotter(directory, stereo_directory, title="Mapprojected Scenes")
 
-    plotter.plot_orthos(save_dir=plots_directory, fig_fn=f"{next(figure_counter):02}.png")
+    plotter.plot_orthos(
+        save_dir=plots_directory, fig_fn=f"{next(figure_counter):02}.png"
+    )
 
     # Bundle adjustment plots
     ba_files = ReadBundleAdjustFiles(directory, bundle_adjust_directory)
@@ -139,10 +153,13 @@ def main(
     plotter = PlotBundleAdjustFiles(
         [geodiff_initial_gdf, geodiff_final_gdf],
         lognorm=False,
-        title="Bundle Adjust Initial and Final Geodiff vs. Reference DEM"
+        title="Bundle Adjust Initial and Final Geodiff vs. Reference DEM",
     )
 
-    clim = (float(geodiff_initial_gdf["height_diff_meters"].quantile(0.05)), float(geodiff_initial_gdf["height_diff_meters"].quantile(0.95)))
+    clim = (
+        float(geodiff_initial_gdf["height_diff_meters"].quantile(0.05)),
+        float(geodiff_initial_gdf["height_diff_meters"].quantile(0.95)),
+    )
     abs_max = max(abs(clim[0]), abs(clim[1]))
     clim = (-abs_max, abs_max)
 
@@ -154,7 +171,7 @@ def main(
         clim=clim,
         save_dir=plots_directory,
         fig_fn=f"{next(figure_counter):02}.png",
-        **ctx_kwargs
+        **ctx_kwargs,
     )
 
     # Stereo plots
@@ -193,7 +210,12 @@ def main(
     )
     processing_parameters_dict = processing_parameters.from_log_files()
 
-    compile_report(plots_directory, processing_parameters_dict, report_pdf_path)
+    compile_report(
+        plots_directory,
+        processing_parameters_dict,
+        report_pdf_path,
+        report_title=report_title,
+    )
 
     print(f"\n\nReport saved to {report_pdf_path}\n\n")
 
