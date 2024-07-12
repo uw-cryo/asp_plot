@@ -1,31 +1,27 @@
 import os
-import glob
+import logging
 import matplotlib.pyplot as plt
-from asp_plot.utils import save_figure
+from asp_plot.utils import save_figure, glob_file
 
+logging.basicConfig(level=logging.WARNING)
+logger = logging.getLogger(__name__)
 
 class ProcessingParameters:
     def __init__(self, directory, bundle_adjust_directory, stereo_directory):
         self.directory = directory
         self.bundle_adjust_directory = bundle_adjust_directory
         self.stereo_directory = stereo_directory
+        self.full_ba_directory = os.path.join(directory, bundle_adjust_directory)
+        self.full_stereo_directory = os.path.join(directory, stereo_directory)
         self.processing_parameters_dict = {}
 
         try:
-            self.bundle_adjust_log = glob.glob(
-                os.path.join(self.directory, self.bundle_adjust_directory, "*log*.txt")
-            )[0]
-            self.stereo_log = glob.glob(
-                os.path.join(self.directory, self.stereo_directory, "*log-stereo*.txt")
-            )[0]
-            self.point2dem_log = glob.glob(
-                os.path.join(
-                    self.directory, self.stereo_directory, "*log-point2dem*.txt"
-                )
-            )[0]
+            self.bundle_adjust_log = glob_file(self.full_ba_directory, "*log-bundle_adjust*.txt")
+            self.stereo_log = glob_file(self.full_stereo_directory, "*log-stereo*.txt")
+            self.point2dem_log = glob_file(self.full_stereo_directory, "*log-point2dem*.txt")
         except:
             raise ValueError(
-                "Could not find log files in bundle adjust and stereo directories\nCheck that these *log*.txt files exist in the directories specified"
+                "\n\nCould not find log files in bundle adjust and stereo directories\nCheck that these *log*.txt files exist in the directories specified.\n\n"
             )
 
     def from_log_files(self):

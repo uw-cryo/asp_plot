@@ -1,14 +1,18 @@
-import glob
 import os
+import logging
 import numpy as np
 import pandas as pd
 import geopandas as gpd
 from datetime import datetime, timedelta
 from osgeo import ogr, osr, gdal
 from shapely import wkt
-from asp_plot.utils import get_xml_tag
+from asp_plot.utils import get_xml_tag, glob_file
+
 
 osr.UseExceptions()
+logging.basicConfig(level=logging.WARNING)
+logger = logging.getLogger(__name__)
+
 
 class StereopairMetadataParser:
     def __init__(self, directory):
@@ -29,7 +33,9 @@ class StereopairMetadataParser:
             ids = re.findall("10[123456][0-9a-fA-F]+00", filename)
             return list(set(ids))
 
-        image_list = glob.glob(os.path.join(self.directory, "*.[Xx][Mm][Ll]"))
+        image_list = glob_file(self.directory, "*.[Xx][Mm][Ll]", all_files=True)
+        if not image_list:
+            raise ValueError("\n\nMissing XML camera files in directory. Cannot extract metadata without these.\n\n")
         ids = [get_id(f) for f in image_list]
         ids = sorted(set(item for sublist in ids if sublist for item in sublist))
         return ids
@@ -45,7 +51,7 @@ class StereopairMetadataParser:
                 union = union.Union(geom)
             return union
 
-        xml_list = glob.glob(os.path.join(self.directory, f"*{id:}*.[Xx][Mm][Ll]"))
+        xml_list = glob_file(self.directory, f"*{id:}*.[Xx][Mm][Ll]", all_files=True)
 
         attributes = {
             "MEANSATAZ": [],
