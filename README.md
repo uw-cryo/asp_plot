@@ -15,6 +15,16 @@ The directory `original_code/` contains initial notebooks compiled from recent p
 
 The functionality of these notebooks is being ported to the `asp_plot/` directory, which is the package `asp_plot`.
 
+## Files you will need from ASP processing
+
+During the `stereo` or `parallel_stereo` steps at the heart of the Ames Stereo Pipeline, you can add this to the command to ensure that the files needed for plotting are retained, and files that are not required are cleaned up:
+
+```
+--keep-only '.mask .txt .exr .match -L.tif -L_sub.tif -R_sub.tif -D_sub.tif -D.tif -RD.tif -F.tif -PC.tif'
+```
+
+Not all of those files are used in the plotting, but all are useful for re-processing and detailed analyses.
+
 ## Install via pip
 
 ```
