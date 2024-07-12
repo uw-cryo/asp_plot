@@ -1,10 +1,9 @@
 import os
-import glob
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 from shapely import wkt
-from asp_plot.utils import Raster, Plotter, save_figure
+from asp_plot.utils import Raster, Plotter, save_figure, glob_file
 from asp_plot.stereopair_metadata_parser import StereopairMetadataParser
 
 
@@ -138,7 +137,7 @@ class SceneGeometryPlotter(StereopairMetadataParser):
 
         # TODO: Should store xml names in the pairdict
         # Use r100 outputs from dg_mosaic
-        xml_list = sorted(glob.glob(os.path.join(self.directory, "*r100.[Xx][Mm][Ll]")))
+        xml_list = sorted(glob_file(self.directory, "*r100.[Xx][Mm][Ll]", all_files=True))
 
         eph1_gdf, eph2_gdf = [self.getEphem_gdf(xml) for xml in xml_list]
         fp1_gdf, fp2_gdf = [self.xml2gdf(xml) for xml in xml_list]
@@ -179,18 +178,10 @@ class ScenePlotter(Plotter):
         super().__init__(**kwargs)
         self.directory = directory
         self.stereo_directory = stereo_directory
+        self.full_stereo_directory = os.path.join(directory, stereo_directory)
 
-        try:
-            self.left_ortho_sub_fn = glob.glob(
-                os.path.join(self.directory, self.stereo_directory, "*-L_sub.tif")
-            )[0]
-            self.right_ortho_sub_fn = glob.glob(
-                os.path.join(self.directory, self.stereo_directory, "*-R_sub.tif")
-            )[0]
-        except:
-            raise ValueError(
-                "\n\nCould not find L-sub and R-sub images in stereo directory\n\n"
-            )
+        self.left_ortho_sub_fn = glob_file(self.full_stereo_directory, "*-L_sub.tif")
+        self.right_ortho_sub_fn = glob_file(self.full_stereo_directory, "*-R_sub.tif")
 
     def plot_orthos(self, save_dir=None, fig_fn=None):
         p = StereopairMetadataParser(self.directory).get_pair_dict()
@@ -199,17 +190,37 @@ class ScenePlotter(Plotter):
         fig.suptitle(self.title, size=10)
         axa = axa.ravel()
 
-        ortho_ma = Raster(self.left_ortho_sub_fn).read_array()
-        self.plot_array(ax=axa[0], array=ortho_ma, cmap="gray", add_cbar=False)
-        axa[0].set_title(
-            f"Left image\n{p['id1_dict']['id']}, {p['id1_dict']['meanproductgsd']:0.2f} m"
-        )
+        if self.left_ortho_sub_fn:
+            ortho_ma = Raster(self.left_ortho_sub_fn).read_array()
+            self.plot_array(ax=axa[0], array=ortho_ma, cmap="gray", add_cbar=False)
+            axa[0].set_title(
+                f"Left image\n{p['id1_dict']['id']}, {p['id1_dict']['meanproductgsd']:0.2f} m"
+            )
+        else:
+            axa[0].text(
+                0.5,
+                0.5,
+                "One or more required\nfiles are missing",
+                horizontalalignment="center",
+                verticalalignment="center",
+                transform=axa[0].transAxes,
+            )
 
-        ortho_ma = Raster(self.right_ortho_sub_fn).read_array()
-        self.plot_array(ax=axa[1], array=ortho_ma, cmap="gray", add_cbar=False)
-        axa[1].set_title(
-            f"Right image\n{p['id2_dict']['id']}, {p['id2_dict']['meanproductgsd']:0.2f} m"
-        )
+        if self.right_ortho_sub_fn:
+            ortho_ma = Raster(self.right_ortho_sub_fn).read_array()
+            self.plot_array(ax=axa[1], array=ortho_ma, cmap="gray", add_cbar=False)
+            axa[1].set_title(
+                f"Right image\n{p['id2_dict']['id']}, {p['id2_dict']['meanproductgsd']:0.2f} m"
+            )
+        else:
+            axa[1].text(
+                0.5,
+                0.5,
+                "One or more required\nfiles are missing",
+                horizontalalignment="center",
+                verticalalignment="center",
+                transform=axa[1].transAxes,
+            )
 
         fig.tight_layout()
         if save_dir and fig_fn:
