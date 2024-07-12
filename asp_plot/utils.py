@@ -1,4 +1,6 @@
 import os
+import glob
+import logging
 import numpy as np
 import rasterio as rio
 from rasterio.windows import Window
@@ -9,6 +11,23 @@ import matplotlib.colors
 import matplotlib.image as mpimg
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from markdown_pdf import MarkdownPdf, Section
+
+
+logger = logging.getLogger(__name__)
+
+
+def glob_file(directory, *patterns, all_files=False):
+    for pattern in patterns:
+        files = glob.glob(os.path.join(directory, pattern))
+        if files:
+            if all_files:
+                return files
+            else:
+                return files[0]
+    logger.warning(
+        f"Could not find {patterns} in {directory}. Some plots may be missing."
+    )
+    return None
 
 
 def show_existing_figure(filename):
