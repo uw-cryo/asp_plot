@@ -31,23 +31,39 @@ Examples of the modular usage of the package can be found in the `notebooks/` di
 A full report and individual plots can be output via the command-line:
 
 ```
-$ asp_plot --directory ./asp_processing \
+$ asp_plot --directory ./ \
            --bundle_adjust_directory ba \
            --stereo_directory stereo \
            --map_crs EPSG:32604 \
-           --reference_dem ref_dem.tif \
-           --plots_directory asp_plots \
-           --report_filename asp_plot_report.pdf \
-           --report_title "Scene X and Y"
+           --reference_dem ref_dem.tif
 ```
 
-Use:
+Before that, we recommend running `asp_plot --help` for details (and defaults) of all of the command-line flags:
 
 ```
-$ asp_plot --help
-```
+ $ asp_plot --help
+Usage: asp_plot [OPTIONS]
 
-for details (and defaults) of the command-line flags.
+Options:
+  --directory TEXT                Directory of ASP processing with scenes and
+                                  sub-directories for bundle adjustment and
+                                  stereo. Default: current directory
+  --bundle_adjust_directory TEXT  Directory of bundle adjustment files.
+                                  Default: ba
+  --stereo_directory TEXT         Directory of stereo files. Default: stereo
+  --map_crs TEXT                  Projection for bundle adjustment plots.
+                                  Default: EPSG:4326
+  --reference_dem TEXT            Reference DEM used in ASP processing. No
+                                  default. Must be supplied.
+  --plots_directory TEXT          Directory to put output plots. Default:
+                                  asp_plots
+  --report_filename TEXT          PDF file to write out for report into the
+                                  processing directory supplied by
+                                  --directory. Default: Directory name of ASP
+                                  processing
+  --report_title TEXT             Title for the report. Default: Directory
+                                  name of ASP processing
+```
 
 
 ## Development

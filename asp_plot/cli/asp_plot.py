@@ -40,7 +40,7 @@ from asp_plot.utils import compile_report
     "--reference_dem",
     prompt=True,
     default="",
-    help="Reference DEM used in ASP processing. Default: ",
+    help="Reference DEM used in ASP processing. No default. Must be supplied.",
 )
 @click.option(
     "--plots_directory",
