@@ -30,9 +30,11 @@ jobs:
     - name: Install dependencies
       run: |
         conda install mamba -c conda-forge
-        mamba env create -f environment.yml
+        mamba env update --file environment.yml --name asp_plot
         source $CONDA/etc/profile.d/conda.sh
         conda activate asp_plot
+        # For some reason, fiona is nto installed on CI, so do it manually
+        mamba install fiona -c conda-forge
         pip install .
     - name: Test with pytest
       run: |
