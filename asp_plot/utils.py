@@ -168,12 +168,15 @@ class Raster:
         return gsd
 
     def hillshade(self):
-        print("Generating hillshade in memory")
-        gdal_ds = gdal.Open(self.fn)
-        hs_ds = gdal.DEMProcessing(
-            "", gdal_ds, "hillshade", format="MEM", computeEdges=True
-        )
-        hillshade = np.ma.masked_equal(hs_ds.ReadAsArray(), 0)
+        hs_fn = os.path.splitext(self.fn)[0] + "_hs.tif"
+        if os.path.exists(hs_fn):
+            hillshade = Raster(hs_fn).read_array()
+        else:
+            gdal_ds = gdal.Open(self.fn)
+            hs_ds = gdal.DEMProcessing(
+                "", gdal_ds, "hillshade", format="MEM", computeEdges=True
+            )
+            hillshade = np.ma.masked_equal(hs_ds.ReadAsArray(), 0)
         return hillshade
 
     def compute_difference(self, second_fn):
