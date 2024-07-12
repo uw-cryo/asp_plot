@@ -31,7 +31,9 @@ def save_figure(fig, save_dir=None, fig_fn=None, dpi=150):
         raise ValueError("Please provide a save directory and figure filename")
 
 
-def compile_report(plots_directory, processing_parameters_dict, report_pdf_path):
+def compile_report(
+    plots_directory, processing_parameters_dict, report_pdf_path, report_title=None
+):
     from PIL import Image
 
     files = [f for f in os.listdir(plots_directory) if f.endswith(".png")]
@@ -50,16 +52,22 @@ def compile_report(plots_directory, processing_parameters_dict, report_pdf_path)
 
         compressed_files.append(jpg_file)
 
-    processing_date = (
-        f"Processed on: {processing_parameters_dict['processing_timestamp']:}"
+    processing_date = processing_parameters_dict["processing_timestamp"]
+
+    if report_title is None:
+        report_title = os.path.basename(os.path.dirname(report_pdf_path))
+
+    report_title = (
+        f"# ASP Report\n\n## {report_title:}\n\nProcessed on: {processing_date:}"
     )
+
     ba_string = f"### Bundle Adjust:\n\n{processing_parameters_dict['bundle_adjust']:}"
     stereo_string = f"### Stereo:\n\n{processing_parameters_dict['stereo']:}"
     point2dem_string = f"### point2dem:\n\n{processing_parameters_dict['point2dem']:}"
 
     pdf = MarkdownPdf()
 
-    pdf.add_section(Section(f"# ASP Report, {processing_date:}\n\n"))
+    pdf.add_section(Section(f"{report_title:}\n\n"))
     pdf.add_section(
         Section(
             f"## Processing Parameters\n\n{ba_string:}\n\n{stereo_string}\n\n{point2dem_string}\n\n"

@@ -37,7 +37,8 @@ $ asp_plot --directory ./asp_processing \
            --map_crs EPSG:32604 \
            --reference_dem ref_dem.tif \
            --plots_directory asp_plots \
-           --report_filename asp_plot_report.pdf
+           --report_filename asp_plot_report.pdf \
+           --report_title "Scene X and Y"
 ```
 
 Use:
