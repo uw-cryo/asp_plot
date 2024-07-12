@@ -80,14 +80,6 @@ class StereoPlotter(Plotter):
                 "Could not find IntersectionError file in stereo directory"
             )
 
-    def get_hillshade(self):
-        hs_fn = os.path.splitext(self.dem_fn)[0] + "_hs.tif"
-        if os.path.exists(hs_fn):
-            hs = Raster(hs_fn).read_array()
-        else:
-            hs = Raster(self.dem_fn).hillshade()
-        return hs
-
     def get_diff_vs_reference(self):
         try:
             diff_fn = glob.glob(
@@ -265,7 +257,7 @@ class StereoPlotter(Plotter):
         dem = raster.read_array()
         gsd = raster.get_gsd()
         
-        hs = self.get_hillshade()
+        hs = raster.hillshade()
         self.plot_array(ax=axa[0], array=hs, cmap="gray", add_cbar=False)
         self.plot_array(ax=axa[0], array=dem, clim=el_clim, cmap="viridis", cbar_label="Elevation (m HAE)", alpha=0.5)
 
