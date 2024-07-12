@@ -189,7 +189,7 @@ class ScenePlotter(Plotter):
             )[0]
         except:
             raise ValueError(
-                "Could not find L-sub and R-sub images in stereo directory"
+                "\n\nCould not find L-sub and R-sub images in stereo directory\n\n"
             )
 
     def plot_orthos(self, save_dir=None, fig_fn=None):

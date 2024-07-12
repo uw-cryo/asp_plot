@@ -170,7 +170,9 @@ class StereoPlotter(Plotter):
         self, unit="pixels", remove_bias=True, quiver=True, save_dir=None, fig_fn=None
     ):
         if unit not in ["pixels", "meters"]:
-            raise ValueError("unit must be either 'pixels' or 'meters'")
+            raise ValueError(
+                "\n\nUnit for disparity plot must be either 'pixels' or 'meters'\n\n"
+            )
 
         fig, axa = plt.subplots(1, 3, figsize=(10, 3), dpi=220)
         fig.suptitle(self.title, size=10)

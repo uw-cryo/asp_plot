@@ -47,7 +47,7 @@ def save_figure(fig, save_dir=None, fig_fn=None, dpi=150):
         fig.savefig(file_path, dpi=dpi, bbox_inches="tight")
         print(f"Figure saved to {file_path}")
     else:
-        raise ValueError("Please provide a save directory and figure filename")
+        raise ValueError("\n\nPlease provide a save directory and figure filename.\n\n")
 
 
 def compile_report(

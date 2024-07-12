@@ -32,7 +32,7 @@ class ReadBundleAdjustFiles:
         for path in paths:
             if path is None:
                 raise ValueError(
-                    "Initial and final bundle adjust CSV file not found. Did you run bundle_adjust?"
+                    "\n\nInitial and final bundle adjust CSV file not found. Did you run bundle_adjust?\n\n"
                 )
 
         initial, final = paths
@@ -107,7 +107,7 @@ class ReadBundleAdjustFiles:
     def get_mapproj_residuals_gdf(self):
         path = glob_file(self.full_directory, "*-mapproj_match_offsets.txt")
         if path is None:
-            raise ValueError(f"MapProj Residuals TXT file not found.")
+            raise ValueError("\n\nMapProj Residuals TXT file not found.\n\n")
 
         cols = ["lon", "lat", "height_above_datum", "mapproj_ip_dist_meters"]
         resid_mapprojected_df = pd.read_csv(path, skiprows=2, names=cols)
@@ -124,7 +124,7 @@ class ReadBundleAdjustFiles:
     def get_propagated_triangulation_uncert_df(self):
         path = glob_file(self.full_directory, "*-triangulation_uncertainty.txt")
         if path is None:
-            raise ValueError(f"Triangulation Uncertainty TXT file not found.")
+            raise ValueError("\n\nTriangulation Uncertainty TXT file not found.\n\n")
 
         cols = [
             "left_image",
@@ -147,7 +147,7 @@ class PlotBundleAdjustFiles(Plotter):
     def __init__(self, geodataframes, **kwargs):
         super().__init__(**kwargs)
         if not isinstance(geodataframes, list):
-            raise ValueError("Input must be a list of GeoDataFrames")
+            raise ValueError("\n\nInput must be a list of GeoDataFrames\n\n")
         self.geodataframes = geodataframes
 
     def gdf_percentile_stats(self, gdf, column_name="mean_residual"):
