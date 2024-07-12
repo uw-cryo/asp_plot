@@ -30,7 +30,7 @@ jobs:
     - name: Install dependencies
       run: |
         conda install mamba -c conda-forge
-        mamba env update --file environment.yml --name asp_plot
+        mamba env create -f environment.yml
         source $CONDA/etc/profile.d/conda.sh
         conda activate asp_plot
         pip install .
