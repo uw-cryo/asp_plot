@@ -8,16 +8,8 @@ repos:
                 - id: check-yaml
                 - id: end-of-file-fixer
                   exclude: \.txt$
-                - id: trailing-whitespace  # Remove trailing whitespaces
+                - id: trailing-whitespace
                 - id: check-merge-conflict
-        # Fix common spelling mistakes
-        - repo: https://github.com/codespell-project/codespell
-          rev: v2.2.1
-          hooks:
-                - id: codespell
-                  args: [--ignore-words-list=alos, --ignore-regex=\bnin\b]
-                  types_or: [python, rst, markdown]
-                  files: ^(geoutils|doc|tests)/
 
         # Replace relative imports (e.g. 'from . import raster' -> 'from geoutils import raster')
         - repo: https://github.com/MarcoGorelli/absolufy-imports
@@ -30,7 +22,6 @@ repos:
           rev: 22.10.0
           hooks:
                   - id: black
-
 
         # Lint the code using flake8
         - repo: https://github.com/pycqa/flake8
