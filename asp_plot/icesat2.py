@@ -18,7 +18,7 @@ logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
 
-class Icesat2:
+class ICESat2:
     def __init__(self, dem_fn, geojson_fn):
         self.dem_fn = dem_fn
         self.geojson_fn = geojson_fn

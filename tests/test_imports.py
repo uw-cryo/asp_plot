@@ -10,12 +10,14 @@ class TestImports:
         import asp_plot.scenes
         import asp_plot.stereopair_metadata_parser
         import asp_plot.utils
+        import asp_plot.icesat2
 
         assert asp_plot.utils is not None
         assert asp_plot.stereopair_metadata_parser is not None
         assert asp_plot.scenes is not None
         assert asp_plot.processing_parameters is not None
         assert asp_plot.bundle_adjust is not None
+        assert asp_plot.icesat2 is not None
 
     def test_import_asp_plot_classes(self):
         from asp_plot.bundle_adjust import PlotBundleAdjustFiles, ReadBundleAdjustFiles
@@ -24,6 +26,7 @@ class TestImports:
         from asp_plot.stereo import StereoPlotter
         from asp_plot.stereopair_metadata_parser import StereopairMetadataParser
         from asp_plot.utils import ColorBar, Plotter, Raster
+        from asp_plot.icesat2 import ICESat2
 
         assert ColorBar is not None
         assert Raster is not None
@@ -35,3 +38,4 @@ class TestImports:
         assert ReadBundleAdjustFiles is not None
         assert PlotBundleAdjustFiles is not None
         assert StereoPlotter is not None
+        assert ICESat2 is not None
