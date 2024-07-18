@@ -1,0 +1,8 @@
+[flake8]
+max-line-length = 88
+extend-ignore = E203,E701
+exclude =
+    .git
+    __pycache__
+    original_code
+    build

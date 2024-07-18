@@ -4,6 +4,7 @@ channels:
 dependencies:
   - flake8
   - black
+  - pre_commit
   - pytest
   - pip
   - numpy
