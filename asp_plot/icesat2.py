@@ -81,7 +81,18 @@ class ICESat2(Plotter):
         mask_worldcover_water=True,
         select_months=None,
         select_years=None,
+        save_to_csv=False,
+        save_to_gpkg=False,
+        filename_to_save="atl06_clean",
     ):
+        def save_to_csv(atl06, fn_out):
+            df = atl06[["geometry", "h_mean"]].copy()
+            df["lon"] = df["geometry"].x
+            df["lat"] = df["geometry"].y
+            df["height_above_datum"] = df["h_mean"]
+            df = df[["lon", "lat", "height_above_datum"]]
+            df.to_csv(fn_out, header=True, index=False)
+
         # TODO: optionally save to parquet and/or csv
         # parquet needs time in [ms] so some precision loss
         # atl06.index = atl06.index.astype("datetime64[ms]")
@@ -140,6 +151,11 @@ class ICESat2(Plotter):
             self.atl06_clean = self.atl06_clean[
                 self.atl06_clean.index.year.isin(select_years)
             ]
+
+        if save_to_csv:
+            save_to_csv(self.atl06_clean, f"{filename_to_save}.csv")
+        if save_to_gpkg:
+            self.atl06_clean.to_file(f"{filename_to_save}.gpkg", driver="GPKG")
 
         return self.atl06_clean
 
