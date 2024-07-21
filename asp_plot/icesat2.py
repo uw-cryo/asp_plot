@@ -14,8 +14,9 @@ logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
 
-class ICESat2:
-    def __init__(self, dem_fn, geojson_fn, atl06=None):
+class ICESat2(Plotter):
+    def __init__(self, dem_fn, geojson_fn, atl06=None, **kwargs):
+        super().__init__(**kwargs)
         self.dem_fn = dem_fn
         self.geojson_fn = geojson_fn
         if atl06 is not None and not isinstance(atl06, gpd.GeoDataFrame):
@@ -81,7 +82,6 @@ class ICESat2:
         self,
         column_name="h_mean",
         cbar_label="Height above datum (m)",
-        title="ICESat-2 ATL06",
         clim=None,
         cmap="inferno",
         map_crs="EPSG:4326",
@@ -95,11 +95,9 @@ class ICESat2:
         if clim is None:
             clim = ColorBar().get_clim(self.atl06[column_name])
 
-        plotter = Plotter(title=title)
-
         fig, ax = plt.subplots(1, 1, figsize=(8, 6))
 
-        plotter.plot_geodataframe(
+        self.plot_geodataframe(
             ax=ax,
             gdf=atl06_sorted,
             column_name=column_name,
@@ -108,7 +106,7 @@ class ICESat2:
             **ctx_kwargs,
         )
 
-        fig.suptitle(plotter.title, size=10)
+        fig.suptitle(self.title, size=10)
 
         fig.tight_layout()
         if save_dir and fig_fn:
