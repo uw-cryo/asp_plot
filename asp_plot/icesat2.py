@@ -1,6 +1,7 @@
 import logging
 import os
 
+import geopandas as gpd
 from sliderule import icesat2, sliderule
 
 icesat2.init("slideruleearth.io", verbose=True)
@@ -11,9 +12,12 @@ logger = logging.getLogger(__name__)
 
 
 class ICESat2:
-    def __init__(self, dem_fn, geojson_fn):
+    def __init__(self, dem_fn, geojson_fn, atl06=None):
         self.dem_fn = dem_fn
         self.geojson_fn = geojson_fn
+        if atl06 is not None and not isinstance(atl06, gpd.GeoDataFrame):
+            raise ValueError("atl06 must be a GeoDataFrame if provided.")
+        self.atl06 = atl06
 
     def pull_atl06_data(
         self,
@@ -58,15 +62,18 @@ class ICESat2:
             }
 
         # Make request
-        atl06 = icesat2.atl06p(params)
+        print("\nICESat-2 ATL06 request processing\n")
+        self.atl06 = icesat2.atl06p(params)
 
-        return atl06
+        return self.atl06
 
     # TODO: clean it up
     # def clean_atl06_data(self):
     # TODO: optionally save to parquet and/or csv
+    # parquet needs time in [ms] so some precision loss
+    # atl06.index = atl06.index.astype("datetime64[ms]")
+    # csv will only save lat/lon/height (and time if possible?)
 
-    # TODO: quick n' dirty plot, maybe with ctx basemap?
     # def plot_atl06_data(self, region):
 
     # TODO: comparison plotting
