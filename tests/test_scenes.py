@@ -1,6 +1,7 @@
-import pytest
-from asp_plot.scenes import ScenePlotter, SceneGeometryPlotter
 import matplotlib
+import pytest
+
+from asp_plot.scenes import SceneGeometryPlotter, ScenePlotter
 
 matplotlib.use("Agg")
 

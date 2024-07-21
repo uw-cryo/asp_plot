@@ -1,10 +1,13 @@
-import os
 import logging
+import os
+
 import matplotlib.pyplot as plt
-from asp_plot.utils import save_figure, glob_file
+
+from asp_plot.utils import glob_file, save_figure
 
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
+
 
 class ProcessingParameters:
     def __init__(self, directory, bundle_adjust_directory, stereo_directory):
@@ -16,9 +19,13 @@ class ProcessingParameters:
         self.processing_parameters_dict = {}
 
         try:
-            self.bundle_adjust_log = glob_file(self.full_ba_directory, "*log-bundle_adjust*.txt")
+            self.bundle_adjust_log = glob_file(
+                self.full_ba_directory, "*log-bundle_adjust*.txt"
+            )
             self.stereo_log = glob_file(self.full_stereo_directory, "*log-stereo*.txt")
-            self.point2dem_log = glob_file(self.full_stereo_directory, "*log-point2dem*.txt")
+            self.point2dem_log = glob_file(
+                self.full_stereo_directory, "*log-point2dem*.txt"
+            )
         except:
             raise ValueError(
                 "\n\nCould not find log files in bundle adjust and stereo directories\nCheck that these *log*.txt files exist in the directories specified.\n\n"

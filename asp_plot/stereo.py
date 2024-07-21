@@ -1,10 +1,12 @@
-import os
 import logging
+import os
+
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 from matplotlib_scalebar.scalebar import ScaleBar
-from asp_plot.utils import ColorBar, Raster, Plotter, save_figure, glob_file
+
+from asp_plot.utils import ColorBar, Plotter, Raster, glob_file, save_figure
 
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
@@ -242,7 +244,7 @@ class StereoPlotter(Plotter):
     def plot_dem_results(
         self, el_clim=None, ie_clim=None, diff_clim=None, save_dir=None, fig_fn=None
     ):
-        print(f"Plotting DEM results. This can take a minute for large inputs.")
+        print("Plotting DEM results. This can take a minute for large inputs.")
         fig, axa = plt.subplots(1, 3, figsize=(10, 3), dpi=220)
         fig.suptitle(self.title, size=10)
 

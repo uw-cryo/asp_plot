@@ -1,6 +1,7 @@
-import pytest
-from asp_plot.processing_parameters import ProcessingParameters
 import matplotlib
+import pytest
+
+from asp_plot.processing_parameters import ProcessingParameters
 
 matplotlib.use("Agg")
 

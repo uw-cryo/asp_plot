@@ -1,13 +1,14 @@
-import os
 import logging
+import os
+from datetime import datetime, timedelta
+
+import geopandas as gpd
 import numpy as np
 import pandas as pd
-import geopandas as gpd
-from datetime import datetime, timedelta
-from osgeo import ogr, osr, gdal
+from osgeo import gdal, ogr, osr
 from shapely import wkt
-from asp_plot.utils import get_xml_tag, glob_file
 
+from asp_plot.utils import get_xml_tag, glob_file
 
 osr.UseExceptions()
 logging.basicConfig(level=logging.WARNING)
@@ -26,7 +27,6 @@ class StereopairMetadataParser:
         return self.pair_dict(id1_dict, id2_dict, pairname)
 
     def get_ids(self):
-
         def get_id(filename):
             import re
 
@@ -35,13 +35,14 @@ class StereopairMetadataParser:
 
         image_list = glob_file(self.directory, "*.[Xx][Mm][Ll]", all_files=True)
         if not image_list:
-            raise ValueError("\n\nMissing XML camera files in directory. Cannot extract metadata without these.\n\n")
+            raise ValueError(
+                "\n\nMissing XML camera files in directory. Cannot extract metadata without these.\n\n"
+            )
         ids = [get_id(f) for f in image_list]
         ids = sorted(set(item for sublist in ids if sublist for item in sublist))
         return ids
 
     def get_id_dict(self, id):
-
         def list_average(list):
             return np.round(pd.Series(list, dtype=float).dropna().mean(), 2)
 
@@ -285,7 +286,7 @@ class StereopairMetadataParser:
         y = np.atleast_1d(y)
         z = np.atleast_1d(z)
         if x.shape != y.shape:
-            sys.exit("Inconsistent number of x and y points")
+            raise ValueError("Inconsistent number of x and y points")
         valid_idx = None
         # Handle case where we have x array, y array, but a constant z (e.g., 0.0)
         if z.shape != x.shape:
@@ -297,7 +298,7 @@ class StereopairMetadataParser:
                 if np.ma.is_masked(x):
                     z[np.ma.getmaskarray(x)] = np.ma.masked
             else:
-                sys.exit("Inconsistent number of z and x/y points")
+                raise ValueError("Inconsistent number of z x/y points")
         # If any of the inputs is masked, only transform points with all three coordinates available
         if np.ma.is_masked(x) or np.ma.is_masked(y) or np.ma.is_masked(z):
             x = np.ma.array(x)
