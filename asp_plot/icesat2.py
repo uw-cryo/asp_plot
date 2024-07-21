@@ -3,6 +3,8 @@ import os
 
 import geopandas as gpd
 import matplotlib.pyplot as plt
+import rasterio as rio
+import rioxarray
 from sliderule import icesat2, sliderule
 
 from asp_plot.utils import ColorBar, Plotter, save_figure
@@ -22,6 +24,7 @@ class ICESat2(Plotter):
         if atl06 is not None and not isinstance(atl06, gpd.GeoDataFrame):
             raise ValueError("atl06 must be a GeoDataFrame if provided.")
         self.atl06 = atl06
+        self.atl06_clean = None
 
     def pull_atl06_data(
         self,
@@ -71,15 +74,38 @@ class ICESat2(Plotter):
 
         return self.atl06
 
-    # TODO: clean it up
-    # def clean_atl06_data(self):
-    # TODO: optionally save to parquet and/or csv
-    # parquet needs time in [ms] so some precision loss
-    # atl06.index = atl06.index.astype("datetime64[ms]")
-    # csv will only save lat/lon/height (and time if possible?)
+    def clean_atl06(self, h_sigma_quantile=0.95):
+        # TODO: optionally save to parquet and/or csv
+        # parquet needs time in [ms] so some precision loss
+        # atl06.index = atl06.index.astype("datetime64[ms]")
+        # csv will only save lat/lon/height (and time if possible?)
+
+        # From Aimee Gibbons:
+        # I'd recommend anything cycle 03 and later, due to pointing issues before cycle 03.
+        self.atl06_clean = self.atl06[self.atl06["cycle"] >= 3]
+
+        # Remove bad fits using high percentile of `h_sigma`, the error estimate for the least squares fit model.
+        # Also need to filter out 0 values, not sure what these are caused by, but also very bad points.
+        self.atl06_clean = self.atl06_clean[
+            self.atl06_clean["h_sigma"]
+            < self.atl06_clean["h_sigma"].quantile(h_sigma_quantile)
+        ]
+        self.atl06_clean = self.atl06_clean[self.atl06_clean["h_sigma"] != 0]
+
+        # Clip to DEM area
+        dem = rioxarray.open_rasterio(self.dem_fn, masked=True).squeeze()
+        bounds = dem.rio.bounds()
+        epsg = dem.rio.crs.to_epsg()
+        bounds = rio.warp.transform_bounds(f"EPSG:{epsg}", "EPSG:4326", *bounds)
+        self.atl06_clean = self.atl06_clean.cx[
+            bounds[0] : bounds[2], bounds[1] : bounds[3]
+        ]
+
+        return self.atl06_clean
 
     def plot_atl06(
         self,
+        clean=False,
         column_name="h_mean",
         cbar_label="Height above datum (m)",
         clim=None,
@@ -89,8 +115,10 @@ class ICESat2(Plotter):
         fig_fn=None,
         **ctx_kwargs,
     ):
-
-        atl06_sorted = self.atl06.sort_values(by=column_name).to_crs(map_crs)
+        if clean:
+            atl06_sorted = self.atl06_clean.sort_values(by=column_name).to_crs(map_crs)
+        else:
+            atl06_sorted = self.atl06.sort_values(by=column_name).to_crs(map_crs)
 
         if clim is None:
             clim = ColorBar().get_clim(self.atl06[column_name])
