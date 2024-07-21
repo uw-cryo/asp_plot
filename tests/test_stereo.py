@@ -1,6 +1,7 @@
-import pytest
-from asp_plot.stereo import StereoPlotter
 import matplotlib
+import pytest
+
+from asp_plot.stereo import StereoPlotter
 
 matplotlib.use("Agg")
 

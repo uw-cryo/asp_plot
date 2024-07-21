@@ -1,17 +1,17 @@
-import os
 import glob
 import logging
-import numpy as np
-import rasterio as rio
-from rasterio.windows import Window
-from osgeo import gdal
+import os
+
 import geoutils as gu
-import matplotlib.pyplot as plt
 import matplotlib.colors
 import matplotlib.image as mpimg
-from mpl_toolkits.axes_grid1 import make_axes_locatable
+import matplotlib.pyplot as plt
+import numpy as np
+import rasterio as rio
 from markdown_pdf import MarkdownPdf, Section
-
+from mpl_toolkits.axes_grid1 import make_axes_locatable
+from osgeo import gdal
+from rasterio.windows import Window
 
 logger = logging.getLogger(__name__)
 
@@ -178,7 +178,7 @@ class Raster:
 
     def get_ndv(self):
         ndv = self.ds.nodatavals[0]
-        if ndv == None:
+        if ndv is None:
             ndv = self.ds.read(1, window=Window(0, 0, 1, 1)).squeeze()
         return ndv
 

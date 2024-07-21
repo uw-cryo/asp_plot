@@ -1,12 +1,12 @@
-import os
 import logging
-import pandas as pd
+import os
+
+import contextily as ctx
 import geopandas as gpd
 import matplotlib.pyplot as plt
-from matplotlib.lines import Line2D
-import contextily as ctx
-from asp_plot.utils import ColorBar, Plotter, save_figure, glob_file
+import pandas as pd
 
+from asp_plot.utils import ColorBar, Plotter, glob_file, save_figure
 
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
