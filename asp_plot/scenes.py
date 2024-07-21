@@ -1,12 +1,13 @@
-import os
 import logging
-import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.gridspec as gridspec
-from shapely import wkt
-from asp_plot.utils import Raster, Plotter, save_figure, glob_file
-from asp_plot.stereopair_metadata_parser import StereopairMetadataParser
+import os
 
+import matplotlib.gridspec as gridspec
+import matplotlib.pyplot as plt
+import numpy as np
+from shapely import wkt
+
+from asp_plot.stereopair_metadata_parser import StereopairMetadataParser
+from asp_plot.utils import Plotter, Raster, glob_file, save_figure
 
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
@@ -142,7 +143,9 @@ class SceneGeometryPlotter(StereopairMetadataParser):
 
         # TODO: Should store xml names in the pairdict
         # Use r100 outputs from dg_mosaic
-        xml_list = sorted(glob_file(self.directory, "*r100.[Xx][Mm][Ll]", all_files=True))
+        xml_list = sorted(
+            glob_file(self.directory, "*r100.[Xx][Mm][Ll]", all_files=True)
+        )
 
         eph1_gdf, eph2_gdf = [self.getEphem_gdf(xml) for xml in xml_list]
         fp1_gdf, fp2_gdf = [self.xml2gdf(xml) for xml in xml_list]

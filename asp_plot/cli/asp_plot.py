@@ -1,12 +1,12 @@
 import os
-import glob
-import subprocess
+from itertools import count
+
 import click
 import contextily as ctx
-from itertools import count
+
+from asp_plot.bundle_adjust import PlotBundleAdjustFiles, ReadBundleAdjustFiles
 from asp_plot.processing_parameters import ProcessingParameters
-from asp_plot.scenes import ScenePlotter, SceneGeometryPlotter
-from asp_plot.bundle_adjust import ReadBundleAdjustFiles, PlotBundleAdjustFiles
+from asp_plot.scenes import SceneGeometryPlotter, ScenePlotter
 from asp_plot.stereo import StereoPlotter
 from asp_plot.utils import compile_report
 
@@ -76,7 +76,9 @@ def main(
     os.makedirs(plots_directory, exist_ok=True)
 
     if report_filename is None:
-        report_filename = f"asp_plot_report_{os.path.split(directory.rstrip("/\\"))[-1]:}.pdf"
+        report_filename = (
+            f"asp_plot_report_{os.path.split(directory.rstrip('/\\'))[-1]}.pdf"
+        )
     report_pdf_path = os.path.join(directory, report_filename)
 
     figure_counter = count(0)

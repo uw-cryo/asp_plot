@@ -11,7 +11,7 @@ Our objective is to release a modular Python package with a command-line interfa
 
 This is a work in progress.
 
-The directory `original_code/` contains initial notebooks compiled from recent projects using sample stereo images from the Maxar WorldView, Planet SkySat-C and BlackSky Global constellations. 
+The directory `original_code/` contains initial notebooks compiled from recent projects using sample stereo images from the Maxar WorldView, Planet SkySat-C and BlackSky Global constellations.
 
 The functionality of these notebooks is being ported to the `asp_plot/` directory, which is the package `asp_plot`.
 

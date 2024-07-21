@@ -1,8 +1,9 @@
-import pytest
-from asp_plot.bundle_adjust import ReadBundleAdjustFiles, PlotBundleAdjustFiles
-import matplotlib
 import geopandas as gpd
+import matplotlib
 import pandas as pd
+import pytest
+
+from asp_plot.bundle_adjust import PlotBundleAdjustFiles, ReadBundleAdjustFiles
 
 matplotlib.use("Agg")
 
@@ -29,12 +30,16 @@ class TestBundleAdjust:
         assert isinstance(resid_mapprojected_gdf, gpd.GeoDataFrame)
 
     def test_get_propagated_triangulation_uncert_df(self, ba_files):
-        resid_triangulation_uncert_df = ba_files.get_propagated_triangulation_uncert_df()
+        resid_triangulation_uncert_df = (
+            ba_files.get_propagated_triangulation_uncert_df()
+        )
         assert isinstance(resid_triangulation_uncert_df, pd.DataFrame)
 
     def test_plot_n_gdfs(self, ba_files):
         resid_initial, resid_final = ba_files.get_initial_final_residuals_gdfs()
         try:
-            PlotBundleAdjustFiles([resid_initial, resid_final]).plot_n_gdfs(column_name="mean_residual")
+            PlotBundleAdjustFiles([resid_initial, resid_final]).plot_n_gdfs(
+                column_name="mean_residual"
+            )
         except Exception as e:
             pytest.fail(f"figure method raised an exception: {str(e)}")
