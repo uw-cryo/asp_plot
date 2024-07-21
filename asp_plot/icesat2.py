@@ -2,7 +2,10 @@ import logging
 import os
 
 import geopandas as gpd
+import matplotlib.pyplot as plt
 from sliderule import icesat2, sliderule
+
+from asp_plot.utils import ColorBar, Plotter, save_figure
 
 icesat2.init("slideruleearth.io", verbose=True)
 
@@ -74,7 +77,42 @@ class ICESat2:
     # atl06.index = atl06.index.astype("datetime64[ms]")
     # csv will only save lat/lon/height (and time if possible?)
 
-    # def plot_atl06_data(self, region):
+    def plot_atl06(
+        self,
+        column_name="h_mean",
+        cbar_label="Height above datum (m)",
+        title="ICESat-2 ATL06",
+        clim=None,
+        cmap="inferno",
+        map_crs="EPSG:4326",
+        save_dir=None,
+        fig_fn=None,
+        **ctx_kwargs,
+    ):
+
+        atl06_sorted = self.atl06.sort_values(by=column_name).to_crs(map_crs)
+
+        if clim is None:
+            clim = ColorBar().get_clim(self.atl06[column_name])
+
+        plotter = Plotter(title=title)
+
+        fig, ax = plt.subplots(1, 1, figsize=(8, 6))
+
+        plotter.plot_geodataframe(
+            ax=ax,
+            gdf=atl06_sorted,
+            column_name=column_name,
+            cbar_label=cbar_label,
+            cmap=cmap,
+            **ctx_kwargs,
+        )
+
+        fig.suptitle(plotter.title, size=10)
+
+        fig.tight_layout()
+        if save_dir and fig_fn:
+            save_figure(fig, save_dir, fig_fn)
 
     # TODO: comparison plotting
 
