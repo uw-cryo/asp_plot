@@ -273,6 +273,7 @@ class Plotter:
         clim=None,
         cmap="inferno",
         cbar_label=None,
+        color=None,
         **ctx_kwargs,
     ):
         if clim is None:
@@ -289,7 +290,8 @@ class Plotter:
             column=column_name,
             cmap=cmap,
             norm=norm,
-            s=1,
+            color=color,
+            markersize=1,
             legend=True,
             legend_kwds={"label": cbar_label},
         )

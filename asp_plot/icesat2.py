@@ -2,6 +2,7 @@ import logging
 import os
 
 import geopandas as gpd
+import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import rasterio as rio
 import rioxarray
@@ -74,7 +75,13 @@ class ICESat2(Plotter):
 
         return self.atl06
 
-    def clean_atl06(self, h_sigma_quantile=0.95, mask_worldcover_water=True):
+    def clean_atl06(
+        self,
+        h_sigma_quantile=0.95,
+        mask_worldcover_water=True,
+        select_months=None,
+        select_years=None,
+    ):
         # TODO: optionally save to parquet and/or csv
         # parquet needs time in [ms] so some precision loss
         # atl06.index = atl06.index.astype("datetime64[ms]")
@@ -124,11 +131,22 @@ class ICESat2(Plotter):
                     self.atl06_clean["esa-worldcover-.value"] != 80
                 ]
 
+        # Filter by time
+        if select_months:
+            self.atl06_clean = self.atl06_clean[
+                self.atl06_clean.index.month.isin(select_months)
+            ]
+        if select_years:
+            self.atl06_clean = self.atl06_clean[
+                self.atl06_clean.index.year.isin(select_years)
+            ]
+
         return self.atl06_clean
 
     def plot_atl06(
         self,
         clean=False,
+        plot_beams=False,
         column_name="h_mean",
         cbar_label="Height above datum (m)",
         clim=None,
@@ -148,14 +166,36 @@ class ICESat2(Plotter):
 
         fig, ax = plt.subplots(1, 1, figsize=(8, 6))
 
-        self.plot_geodataframe(
-            ax=ax,
-            gdf=atl06_sorted,
-            column_name=column_name,
-            cbar_label=cbar_label,
-            cmap=cmap,
-            **ctx_kwargs,
-        )
+        if plot_beams:
+            color_dict = {
+                1: "red",
+                2: "lightpink",
+                3: "blue",
+                4: "lightblue",
+                5: "green",
+                6: "lightgreen",
+            }
+            patches = [mpatches.Patch(color=v, label=k) for k, v in color_dict.items()]
+            self.plot_geodataframe(
+                ax=ax,
+                gdf=atl06_sorted,
+                column_name="spot",
+                cmap=None,
+                color=atl06_sorted["spot"].map(color_dict).values,
+                **ctx_kwargs,
+            )
+            ax.legend(
+                handles=patches, title="laser spot\n(strong=1,3,5)", loc="upper left"
+            )
+        else:
+            self.plot_geodataframe(
+                ax=ax,
+                gdf=atl06_sorted,
+                column_name=column_name,
+                cbar_label=cbar_label,
+                cmap=cmap,
+                **ctx_kwargs,
+            )
 
         fig.suptitle(self.title, size=10)
 
