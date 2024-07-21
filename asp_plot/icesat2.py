@@ -74,7 +74,7 @@ class ICESat2(Plotter):
 
         return self.atl06
 
-    def clean_atl06(self, h_sigma_quantile=0.95):
+    def clean_atl06(self, h_sigma_quantile=0.95, mask_worldcover_water=True):
         # TODO: optionally save to parquet and/or csv
         # parquet needs time in [ms] so some precision loss
         # atl06.index = atl06.index.astype("datetime64[ms]")
@@ -100,6 +100,29 @@ class ICESat2(Plotter):
         self.atl06_clean = self.atl06_clean.cx[
             bounds[0] : bounds[2], bounds[1] : bounds[3]
         ]
+
+        # Mask out water using ESA WorldCover (if it exists)
+        # Value	Color	Description
+        # 10	#006400	Tree cover
+        # 20	#ffbb22	Shrubland
+        # 30	#ffff4c	Grassland
+        # 40	#f096ff	Cropland
+        # 50	#fa0000	Built-up
+        # 60	#b4b4b4	Bare / sparse vegetation
+        # 70	#f0f0f0	Snow and ice
+        # 80	#0064c8	Permanent water bodies
+        # 90	#0096a0	Herbaceous wetland
+        # 95	#00cf75	Mangroves
+        # 100	#fae6a0	Moss and lichen
+        if mask_worldcover_water:
+            if "esa-worldcover-.value" not in self.atl06_clean.columns:
+                logger.warning(
+                    "\nESA WorldCover not found in ATL06 dataframe. Proceeding without water masking.\n"
+                )
+            else:
+                self.atl06_clean = self.atl06_clean[
+                    self.atl06_clean["esa-worldcover-.value"] != 80
+                ]
 
         return self.atl06_clean
 
