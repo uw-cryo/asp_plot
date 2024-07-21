@@ -2,6 +2,7 @@ import glob
 import logging
 import os
 
+import contextily as ctx
 import geoutils as gu
 import matplotlib.colors
 import matplotlib.image as mpimg
@@ -265,7 +266,14 @@ class Plotter:
         ax.set_title(self.title)
 
     def plot_geodataframe(
-        self, ax, gdf, column_name, clim=None, cmap="inferno", cbar_label=None
+        self,
+        ax,
+        gdf,
+        column_name,
+        clim=None,
+        cmap="inferno",
+        cbar_label=None,
+        **ctx_kwargs,
     ):
         if clim is None:
             clim = self.cb.get_clim(gdf[column_name])
@@ -285,3 +293,6 @@ class Plotter:
             legend=True,
             legend_kwds={"label": cbar_label},
         )
+
+        if ctx_kwargs:
+            ctx.add_basemap(ax=ax, **ctx_kwargs)

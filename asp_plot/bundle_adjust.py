@@ -1,7 +1,6 @@
 import logging
 import os
 
-import contextily as ctx
 import geopandas as gpd
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -196,6 +195,7 @@ class PlotBundleAdjustFiles(Plotter):
                     column_name=column_name,
                     cbar_label=cbar_label,
                     cmap=cmap,
+                    **ctx_kwargs,
                 )
             else:
                 self.plot_geodataframe(
@@ -204,9 +204,8 @@ class PlotBundleAdjustFiles(Plotter):
                     column_name=column_name,
                     cbar_label=cbar_label,
                     cmap=cmap,
+                    **ctx_kwargs,
                 )
-
-            ctx.add_basemap(ax=axa[i], **ctx_kwargs)
 
             if clip_final and i == n - 1:
                 axa[i].autoscale(False)
