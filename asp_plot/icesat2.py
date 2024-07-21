@@ -1,15 +1,7 @@
-import os
-import glob
 import logging
-import rioxarray
-import xarray as xr
-import numpy as np
-import pandas as pd
-import geopandas as gpd
-import rasterio as rio
-import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
-from sliderule import sliderule, icesat2
+import os
+
+from sliderule import icesat2, sliderule
 
 icesat2.init("slideruleearth.io", verbose=True)
 
@@ -72,11 +64,10 @@ class ICESat2:
 
     # TODO: clean it up
     # def clean_atl06_data(self):
-        # TODO: optionally save to parquet and/or csv
+    # TODO: optionally save to parquet and/or csv
 
     # TODO: quick n' dirty plot, maybe with ctx basemap?
     # def plot_atl06_data(self, region):
-
 
     # TODO: comparison plotting
 
