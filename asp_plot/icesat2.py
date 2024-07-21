@@ -1,11 +1,14 @@
 import logging
 import os
+import subprocess
 
 import geopandas as gpd
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
+import numpy as np
 import rasterio as rio
 import rioxarray
+import xarray as xr
 from sliderule import icesat2, sliderule
 
 from asp_plot.utils import ColorBar, Plotter, save_figure
@@ -18,14 +21,16 @@ logger = logging.getLogger(__name__)
 
 
 class ICESat2(Plotter):
-    def __init__(self, dem_fn, geojson_fn, atl06=None, **kwargs):
+    def __init__(self, dem_fn, geojson_fn, atl06=None, atl06_clean=None, **kwargs):
         super().__init__(**kwargs)
         self.dem_fn = dem_fn
         self.geojson_fn = geojson_fn
         if atl06 is not None and not isinstance(atl06, gpd.GeoDataFrame):
-            raise ValueError("atl06 must be a GeoDataFrame if provided.")
+            raise ValueError("ATL06 must be a GeoDataFrame if provided.")
         self.atl06 = atl06
-        self.atl06_clean = None
+        if atl06_clean is not None and not isinstance(atl06_clean, gpd.GeoDataFrame):
+            raise ValueError("Cleaned ATL06 must be a GeoDataFrame if provided.")
+        self.atl06_clean = atl06_clean
 
     def pull_atl06_data(
         self,
@@ -173,12 +178,14 @@ class ICESat2(Plotter):
         **ctx_kwargs,
     ):
         if clean:
-            atl06_sorted = self.atl06_clean.sort_values(by=column_name).to_crs(map_crs)
+            atl06 = self.atl06_clean
         else:
-            atl06_sorted = self.atl06.sort_values(by=column_name).to_crs(map_crs)
+            atl06 = self.atl06
 
         if clim is None:
-            clim = ColorBar().get_clim(self.atl06[column_name])
+            clim = ColorBar().get_clim(atl06[column_name])
+
+        atl06_sorted = atl06.sort_values(by=column_name).to_crs(map_crs)
 
         fig, ax = plt.subplots(1, 1, figsize=(8, 6))
 
@@ -210,6 +217,7 @@ class ICESat2(Plotter):
                 column_name=column_name,
                 cbar_label=cbar_label,
                 cmap=cmap,
+                clim=clim,
                 **ctx_kwargs,
             )
 
@@ -219,6 +227,150 @@ class ICESat2(Plotter):
         if save_dir and fig_fn:
             save_figure(fig, save_dir, fig_fn)
 
-    # TODO: comparison plotting
+    def run_subprocess_command(self, command):
+        process = subprocess.Popen(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+        )
+
+        for line in process.stdout:
+            print(line.strip())
+
+        process.stdout.close()
+        return_code = process.wait()
+        if return_code == 0:
+            print("\nCommand executed successfully.\n")
+        else:
+            print("\nCommand failed.\n")
+
+    def pc_align_dem_to_atl06(self, atl06_csv=None, output_prefix=None):
+        if atl06_csv is None or not os.path.exists(atl06_csv):
+            raise ValueError(
+                f"\nATL06 clean CSV file not found: {atl06_csv}\n\nWe need this to run pc_align.\n"
+            )
+        if not output_prefix:
+            raise ValueError("\nPlease provide an output prefix for pc_align.\n")
+
+        command = [
+            "pc_align",
+            "--max-displacement",
+            "20",
+            "--max-num-source-points",
+            "10000000",
+            "--alignment-method",
+            "point-to-point",
+            "--csv-format",
+            "1:lon 2:lat 3:height_above_datum",
+            "--compute-translation-only",
+            "--save-inv-transformed-reference-points",
+            "--output-prefix",
+            output_prefix,
+            self.dem_fn,
+            atl06_csv,
+        ]
+
+        self.run_subprocess_command(command)
+
+    def generate_translated_dem(self, pc_align_output, dem_out_fn):
+        if not os.path.exists(pc_align_output):
+            raise ValueError(
+                f"\npc_align output not found: {pc_align_output}\n\nWe need this to generate the translated DEM.\n"
+            )
+
+        dem = rioxarray.open_rasterio(self.dem_fn, masked=True).squeeze()
+        epsg = dem.rio.crs.to_epsg()
+        gsd = dem.rio.transform()[0]
+
+        command = [
+            "point2dem",
+            "--tr",
+            str(gsd),
+            "--t_srs",
+            f"EPSG:{epsg}",
+            "--nodata-value",
+            str(-9999),
+            "-o",
+            dem_out_fn,
+            pc_align_output,
+        ]
+
+        self.run_subprocess_command(command)
+
+    def compare_atl06_to_dem(self, save_dir=None, fig_fn=None, **ctx_kwargs):
+        if self.atl06_clean is None:
+            raise ValueError(
+                "\nPlease clean ATL06 data with clean_atl06 function before comparing to DEM.\n"
+            )
+
+        print(
+            "\nComparing ATL06 to DEM. Gross mismatches or spatial trends may indicate a need for pc_align step.\n"
+        )
+        dem = rioxarray.open_rasterio(self.dem_fn, masked=True).squeeze()
+        epsg = dem.rio.crs.to_epsg()
+        self.atl06_clean = self.atl06_clean.to_crs(f"EPSG:{epsg}")
+
+        x = xr.DataArray(self.atl06_clean.geometry.x.values, dims="z")
+        y = xr.DataArray(self.atl06_clean.geometry.y.values, dims="z")
+        sample = dem.interp(x=x, y=y)
+
+        self.atl06_clean["dem_height"] = sample.values
+        self.atl06_clean["icesat_minus_dem"] = (
+            self.atl06_clean["h_mean"] - self.atl06_clean["dem_height"]
+        )
+
+        clim = (
+            float(self.atl06_clean["icesat_minus_dem"].quantile(0.05)),
+            float(self.atl06_clean["icesat_minus_dem"].quantile(0.95)),
+        )
+        abs_max = max(abs(clim[0]), abs(clim[1]))
+        clim = (-abs_max, abs_max)
+
+        self.plot_atl06(
+            clean=True,
+            column_name="icesat_minus_dem",
+            cbar_label="ICESat-2 minus DEM (m)",
+            clim=clim,
+            cmap="RdBu",
+            map_crs=f"EPSG:{epsg}",
+            save_dir=save_dir,
+            fig_fn=fig_fn,
+            **ctx_kwargs,
+        )
+
+    def atl06_dem_histogram(self, save_dir=None, fig_fn=None):
+        if "icesat_minus_dem" not in self.atl06_clean.columns:
+            raise ValueError(
+                "\nNo icesat_minus_dem column found. Please run compare_atl06_to_dem first.\n"
+            )
+
+        def nmad(a, c=1.4826):
+            return np.nanmedian(np.fabs(a - np.nanmedian(a))) * c
+
+        med = self.atl06_clean["icesat_minus_dem"].quantile(0.50)
+        nmad = self.atl06_clean[["icesat_minus_dem"]].apply(nmad).iloc[0]
+
+        fig, ax = plt.subplots(1, 1, figsize=(8, 6))
+
+        xmin = self.atl06_clean["icesat_minus_dem"].quantile(0.01)
+        xmax = self.atl06_clean["icesat_minus_dem"].quantile(0.99)
+        plot_kwargs = {"bins": 128, "alpha": 0.5, "range": (xmin, xmax)}
+        self.atl06_clean.hist(
+            ax=ax,
+            column="icesat_minus_dem",
+            label=f"Median={med:0.2f}, NMAD={nmad:0.2f}",
+            **plot_kwargs,
+        )
+        ax.legend()
+        ax.set_title(None)
+        ax.set_xlabel("ICESat-2 - DEM (m)")
+
+        fig.suptitle(self.title, size=10)
+
+        fig.tight_layout()
+        if save_dir and fig_fn:
+            save_figure(fig, save_dir, fig_fn)
 
     # TODO: profile plotting
