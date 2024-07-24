@@ -35,6 +35,8 @@ class ICESat2(Plotter):
     def pull_atl06_data(
         self,
         esa_worldcover=True,
+        save_to_gpkg=False,
+        filename_to_save="atl06_all",
         srt=0,
         cnf=4,
         ats=5,
@@ -77,6 +79,9 @@ class ICESat2(Plotter):
         # Make request
         print("\nICESat-2 ATL06 request processing\n")
         self.atl06 = icesat2.atl06p(params)
+
+        if save_to_gpkg:
+            self.atl06.to_file(f"{filename_to_save}.gpkg", driver="GPKG")
 
         return self.atl06
 
@@ -168,6 +173,7 @@ class ICESat2(Plotter):
         self,
         clean=False,
         plot_beams=False,
+        use_dem_basemap=False,
         column_name="h_mean",
         cbar_label="Height above datum (m)",
         clim=None,
@@ -188,6 +194,19 @@ class ICESat2(Plotter):
         atl06_sorted = atl06.sort_values(by=column_name).to_crs(map_crs)
 
         fig, ax = plt.subplots(1, 1, figsize=(8, 6))
+
+        if use_dem_basemap:
+            ctx_kwargs = {}
+            # TODO: Plotter.plot_array method takes no spatial info
+            # either modify it for use here (and everywhere else it's used)
+            # or continue to use rasterio directly in this case
+            # dem_ma = Raster(self.dem_fn).read_array()
+            # self.plot_array(ax=ax, array=dem_ma, add_cbar=False)
+
+            # TODO: add rasterio plotting to Plotter (plot_geo_array?)
+            dem = rioxarray.open_rasterio(self.dem_fn, masked=True)
+            print(dem.rio.transform())
+            dem.plot(ax=ax)
 
         if plot_beams:
             color_dict = {
