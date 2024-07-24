@@ -105,7 +105,7 @@ class ICESat2(Plotter):
         save_to_gpkg=False,
         filename_to_save="atl06_clean",
     ):
-        def save_to_csv(atl06, fn_out):
+        def to_csv(atl06, fn_out):
             df = atl06[["geometry", "h_mean"]].copy()
             df["lon"] = df["geometry"].x
             df["lat"] = df["geometry"].y
@@ -168,7 +168,7 @@ class ICESat2(Plotter):
             ]
 
         if save_to_csv:
-            save_to_csv(self.atl06_clean, f"{filename_to_save}.csv")
+            to_csv(self.atl06_clean, f"{filename_to_save}.csv")
         if save_to_gpkg:
             self.atl06_clean.to_file(f"{filename_to_save}.gpkg", driver="GPKG")
 
