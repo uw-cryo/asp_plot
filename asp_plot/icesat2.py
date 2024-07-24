@@ -197,16 +197,17 @@ class ICESat2(Plotter):
 
         if use_dem_basemap:
             ctx_kwargs = {}
-            # TODO: Plotter.plot_array method takes no spatial info
-            # either modify it for use here (and everywhere else it's used)
-            # or continue to use rasterio directly in this case
-            # dem_ma = Raster(self.dem_fn).read_array()
-            # self.plot_array(ax=ax, array=dem_ma, add_cbar=False)
+            # TODO: add rioxarray resampling and plotting to Plotter (plot_geo_array?)
+            dem = rioxarray.open_rasterio(self.dem_fn, masked=True).squeeze()
+            downscale_factor = 0.1
+            new_width = dem.rio.width * downscale_factor
+            new_height = dem.rio.height * downscale_factor
 
-            # TODO: add rasterio plotting to Plotter (plot_geo_array?)
-            dem = rioxarray.open_rasterio(self.dem_fn, masked=True)
-            print(dem.rio.transform())
-            dem.plot(ax=ax)
+            dem_downsampled = dem.rio.reproject(
+                dem.rio.crs,
+                shape=(int(new_height), int(new_width)),
+            )
+            dem_downsampled.plot(ax=ax, cmap="viridis", add_colorbar=False, alpha=0.8)
 
         if plot_beams:
             color_dict = {
