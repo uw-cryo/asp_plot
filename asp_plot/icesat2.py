@@ -113,11 +113,6 @@ class ICESat2(Plotter):
             df = df[["lon", "lat", "height_above_datum"]]
             df.to_csv(fn_out, header=True, index=False)
 
-        # TODO: optionally save to parquet and/or csv
-        # parquet needs time in [ms] so some precision loss
-        # atl06.index = atl06.index.astype("datetime64[ms]")
-        # csv will only save lat/lon/height (and time if possible?)
-
         # From Aimee Gibbons:
         # I'd recommend anything cycle 03 and later, due to pointing issues before cycle 03.
         self.atl06_clean = self.atl06[self.atl06["cycle"] >= 3]
@@ -345,7 +340,6 @@ class ICESat2(Plotter):
 
         self.run_subprocess_command(command)
 
-    # TODO: combine with histogram plot as subplot
     def compare_atl06_to_dem(
         self, use_aligned_dem=False, save_dir=None, fig_fn=None, **ctx_kwargs
     ):
