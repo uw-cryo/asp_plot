@@ -290,9 +290,10 @@ class ICESat2(Plotter):
         if not output_prefix:
             raise ValueError("\nPlease provide an output prefix for pc_align.\n")
         if self.aligned_dem_fn:
-            raise ValueError(
+            logger.warning(
                 f"\nAligned DEM already exists: {self.aligned_dem_fn}\n\nPlease use that, or remove this file before running pc_align.\n"
             )
+            return
 
         command = [
             "pc_align",
@@ -320,9 +321,10 @@ class ICESat2(Plotter):
                 f"\npc_align output not found: {pc_align_output}\n\nWe need this to generate the translated DEM.\n"
             )
         if self.aligned_dem_fn:
-            raise ValueError(
+            logger.warning(
                 f"\nAligned DEM already exists: {self.aligned_dem_fn}\n\nPlease use that, or remove this file before running pc_align.\n"
             )
+            return
 
         dem = rioxarray.open_rasterio(self.dem_fn, masked=True).squeeze()
         epsg = dem.rio.crs.to_epsg()
@@ -343,6 +345,7 @@ class ICESat2(Plotter):
 
         self.run_subprocess_command(command)
 
+    # TODO: combine with histogram plot as subplot
     def compare_atl06_to_dem(
         self, use_aligned_dem=False, save_dir=None, fig_fn=None, **ctx_kwargs
     ):
