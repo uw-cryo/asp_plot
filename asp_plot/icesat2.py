@@ -2,6 +2,7 @@ import logging
 import os
 import subprocess
 
+import contextily as ctx
 import geopandas as gpd
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
@@ -21,7 +22,15 @@ logger = logging.getLogger(__name__)
 
 
 class ICESat2(Plotter):
-    def __init__(self, dem_fn, geojson_fn, atl06=None, atl06_clean=None, **kwargs):
+    def __init__(
+        self,
+        dem_fn,
+        geojson_fn,
+        aligned_dem_fn=None,
+        atl06=None,
+        atl06_clean=None,
+        **kwargs,
+    ):
         super().__init__(**kwargs)
         self.dem_fn = dem_fn
         self.geojson_fn = geojson_fn
@@ -31,6 +40,7 @@ class ICESat2(Plotter):
         if atl06_clean is not None and not isinstance(atl06_clean, gpd.GeoDataFrame):
             raise ValueError("Cleaned ATL06 must be a GeoDataFrame if provided.")
         self.atl06_clean = atl06_clean
+        self.aligned_dem_fn = aligned_dem_fn
 
     def pull_atl06_data(
         self,
@@ -202,12 +212,12 @@ class ICESat2(Plotter):
             downscale_factor = 0.1
             new_width = dem.rio.width * downscale_factor
             new_height = dem.rio.height * downscale_factor
-
             dem_downsampled = dem.rio.reproject(
                 dem.rio.crs,
                 shape=(int(new_height), int(new_width)),
             )
-            dem_downsampled.plot(ax=ax, cmap="viridis", add_colorbar=False, alpha=0.8)
+            dem_downsampled.plot(ax=ax, cmap="inferno", add_colorbar=False, alpha=0.8)
+            ax.set_title(None)
 
         if plot_beams:
             color_dict = {
@@ -219,17 +229,16 @@ class ICESat2(Plotter):
                 6: "lightgreen",
             }
             patches = [mpatches.Patch(color=v, label=k) for k, v in color_dict.items()]
-            self.plot_geodataframe(
+            atl06_sorted.plot(
                 ax=ax,
-                gdf=atl06_sorted,
-                column_name="spot",
-                cmap=None,
+                markersize=1,
                 color=atl06_sorted["spot"].map(color_dict).values,
-                **ctx_kwargs,
             )
             ax.legend(
                 handles=patches, title="laser spot\n(strong=1,3,5)", loc="upper left"
             )
+            if ctx_kwargs:
+                ctx.add_basemap(ax=ax, **ctx_kwargs)
         else:
             self.plot_geodataframe(
                 ax=ax,
@@ -266,22 +275,33 @@ class ICESat2(Plotter):
         else:
             print("\nCommand failed.\n")
 
-    def pc_align_dem_to_atl06(self, atl06_csv=None, output_prefix=None):
+    def pc_align_dem_to_atl06(
+        self,
+        max_displacement=20,
+        max_source_points=10000000,
+        alignment_method="point-to-point",
+        atl06_csv=None,
+        output_prefix=None,
+    ):
         if atl06_csv is None or not os.path.exists(atl06_csv):
             raise ValueError(
                 f"\nATL06 clean CSV file not found: {atl06_csv}\n\nWe need this to run pc_align.\n"
             )
         if not output_prefix:
             raise ValueError("\nPlease provide an output prefix for pc_align.\n")
+        if self.aligned_dem_fn:
+            raise ValueError(
+                f"\nAligned DEM already exists: {self.aligned_dem_fn}\n\nPlease use that, or remove this file before running pc_align.\n"
+            )
 
         command = [
             "pc_align",
             "--max-displacement",
-            "20",
+            str(max_displacement),
             "--max-num-source-points",
-            "10000000",
+            str(max_source_points),
             "--alignment-method",
-            "point-to-point",
+            alignment_method,
             "--csv-format",
             "1:lon 2:lat 3:height_above_datum",
             "--compute-translation-only",
@@ -298,6 +318,10 @@ class ICESat2(Plotter):
         if not os.path.exists(pc_align_output):
             raise ValueError(
                 f"\npc_align output not found: {pc_align_output}\n\nWe need this to generate the translated DEM.\n"
+            )
+        if self.aligned_dem_fn:
+            raise ValueError(
+                f"\nAligned DEM already exists: {self.aligned_dem_fn}\n\nPlease use that, or remove this file before running pc_align.\n"
             )
 
         dem = rioxarray.open_rasterio(self.dem_fn, masked=True).squeeze()
@@ -319,16 +343,22 @@ class ICESat2(Plotter):
 
         self.run_subprocess_command(command)
 
-    def compare_atl06_to_dem(self, save_dir=None, fig_fn=None, **ctx_kwargs):
+    def compare_atl06_to_dem(
+        self, use_aligned_dem=False, save_dir=None, fig_fn=None, **ctx_kwargs
+    ):
         if self.atl06_clean is None:
             raise ValueError(
                 "\nPlease clean ATL06 data with clean_atl06 function before comparing to DEM.\n"
             )
 
-        print(
-            "\nComparing ATL06 to DEM. Gross mismatches or spatial trends may indicate a need for pc_align step.\n"
-        )
-        dem = rioxarray.open_rasterio(self.dem_fn, masked=True).squeeze()
+        if use_aligned_dem:
+            print("\nUsing aligned DEM for comparison.\n")
+            dem = rioxarray.open_rasterio(self.aligned_dem_fn, masked=True).squeeze()
+        else:
+            print(
+                "\nComparing ATL06 to DEM. Gross mismatches or spatial trends may indicate a need for pc_align step.\n"
+            )
+            dem = rioxarray.open_rasterio(self.dem_fn, masked=True).squeeze()
         epsg = dem.rio.crs.to_epsg()
         self.atl06_clean = self.atl06_clean.to_crs(f"EPSG:{epsg}")
 
