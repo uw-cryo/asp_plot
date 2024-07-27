@@ -420,4 +420,75 @@ class ICESat2(Plotter):
         if save_dir and fig_fn:
             save_figure(fig, save_dir, fig_fn)
 
-    # TODO: profile plotting
+    def plot_atl06_dem_profiles(
+        self,
+        select_days=None,
+        select_months=None,
+        select_years=None,
+        save_dir=None,
+        fig_fn=None,
+    ):
+
+        atl06 = self.atl06_clean
+
+        # Additional day, month, and year filtering
+        if select_years:
+            atl06 = atl06[atl06.index.year.isin(select_years)]
+        if select_months:
+            atl06 = atl06[atl06.index.month.isin(select_months)]
+        if select_days:
+            atl06 = atl06[atl06.index.day.isin(select_days)]
+
+        # Get day of interest
+        dates = atl06.index.strftime("%Y-%m-%d").unique()
+
+        if dates.size > 1:
+            logger.warning(
+                f"\nYou are trying to plot {dates.size} ICESat-2 passes. Please apply additional day, month, and year filtering to get only one pass for plotting.\n"
+            )
+            return
+        else:
+            date = dates[0]
+
+        atl06 = atl06[atl06.index.normalize() == date]
+
+        # Get unique beam strength spot numbers
+        spots = atl06.spot.unique()
+
+        # Plot the beams
+        fig, axes = plt.subplots(spots.size, 1, figsize=(10, 12))
+        axes = axes.flatten()
+        for ii, spot in enumerate(spots):
+            ax = axes[ii]
+            spot_to_plot = atl06[atl06.spot == spot]
+            along_track_dist = abs(spot_to_plot.x_atc - spot_to_plot.x_atc.max()) / 1000
+
+            ax.scatter(
+                along_track_dist,
+                spot_to_plot.h_mean,
+                color="black",
+                s=5,
+                marker="s",
+                label="ICESat-2 ATL06",
+            )
+            ax.scatter(
+                along_track_dist,
+                spot_to_plot.dem_height,
+                color="red",
+                s=5,
+                marker="o",
+                label="DEM",
+            )
+            ax.set_axisbelow(True)
+            ax.grid(0.3)
+            ax.set_title(f"Laser Spot {spot:0.0f}")
+            ax.set_xlabel("Distance along track (km)")
+            ax.set_ylabel("Elevation (m HAE)")
+            ax.legend()
+
+        fig.suptitle(self.title)
+        fig.subplots_adjust(hspace=0.3)
+
+        fig.tight_layout()
+        if save_dir and fig_fn:
+            save_figure(fig, save_dir, fig_fn)
