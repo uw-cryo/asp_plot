@@ -425,6 +425,7 @@ class ICESat2(Plotter):
         select_days=None,
         select_months=None,
         select_years=None,
+        only_strong_beams=True,
         save_dir=None,
         fig_fn=None,
     ):
@@ -454,6 +455,10 @@ class ICESat2(Plotter):
 
         # Get unique beam strength spot numbers
         spots = atl06.spot.unique()
+
+        # Optionally, filter out weak beams (2, 4, 6)
+        if only_strong_beams:
+            spots = spots[spots % 2 == 1]
 
         # Plot the beams
         fig, axes = plt.subplots(spots.size, 1, figsize=(10, 12))
