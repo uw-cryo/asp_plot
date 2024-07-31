@@ -15,14 +15,11 @@ class TestICESat2:
         )
         return icesat
 
-    def test_pull_atl06_data(self, icesat):
+    def test_pull_and_clean_atl06_data(self, icesat):
         try:
-            icesat.pull_atl06_data()
+            icesat.pull_atl06_data(esa_worldcover=False)
+            icesat.clean_atl06(mask_worldcover_water=False)
         except Exception as e:
-            pytest.fail(f"pull_atl06_data() method raised an exception: {str(e)}")
-
-    def test_clean_atl06(self, icesat):
-        try:
-            icesat.clean_atl06()
-        except Exception as e:
-            pytest.fail(f"clean_atl06() method raised an exception: {str(e)}")
+            pytest.fail(
+                f"pull_atl06_data() or clean_atl06() method raised an exception: {str(e)}"
+            )
