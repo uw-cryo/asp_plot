@@ -21,10 +21,12 @@ logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
 
+# TODO: generalize name "altimetry" because we might incorporate GEDI later
 class ICESat2(Plotter):
     def __init__(
         self,
         dem_fn,
+        # TODO: remove geojson, use DEM as spatial filter
         geojson_fn,
         aligned_dem_fn=None,
         atl06=None,
@@ -42,7 +44,8 @@ class ICESat2(Plotter):
         self.atl06_clean = atl06_clean
         self.aligned_dem_fn = aligned_dem_fn
 
-    def pull_atl06_data(
+    # TODO: possibly go all defaults here
+    def pull_atl06sr_data(
         self,
         esa_worldcover=True,
         save_to_gpkg=False,
@@ -92,9 +95,12 @@ class ICESat2(Plotter):
 
         if save_to_gpkg:
             self.atl06.to_file(f"{filename_to_save}.gpkg", driver="GPKG")
+            # TODO: .to_parquet() for faster read/write. SlideRule can write directly to it.
+            # https://slideruleearth.io/web/rtd/tutorials/user/geoparquet_output.html
 
         return self.atl06
 
+    # TODO: use "filter" instead of "clean"
     def clean_atl06(
         self,
         h_sigma_quantile=0.95,
@@ -270,6 +276,14 @@ class ICESat2(Plotter):
         else:
             print("\nCommand failed.\n")
 
+    # TODO: how to select icesat for pc_align? use DEM timestamp and:
+    # 1. closest in time
+    # 2. ~90 day padding
+    # 3. run for all time
+    # 4. seasonal
+    # Spawn all four, see if they agree (translations are similar)
+
+    # TODO: report translation from pc_align, does it look reasonable?
     def pc_align_dem_to_atl06(
         self,
         max_displacement=20,
@@ -301,6 +315,7 @@ class ICESat2(Plotter):
             "--csv-format",
             "1:lon 2:lat 3:height_above_datum",
             "--compute-translation-only",
+            # TODO: remove below, can apply transformation from geotiff header to original DEM, see David dem_coreg apply_dem_translation.py
             "--save-inv-transformed-reference-points",
             "--output-prefix",
             output_prefix,
@@ -420,6 +435,14 @@ class ICESat2(Plotter):
         if save_dir and fig_fn:
             save_figure(fig, save_dir, fig_fn)
 
+    # TODO: ATL03 photons, dem as line not markers, possibly atl06
+    # TODO: need to separate by ground and top of canopy and plot both
+    # TODO: run analysis in area other than Utqiagvik to shake out more bugs
+    # TODO: before and after plots from pc_align
+    # TODO: how to select profile for plotting...? interactive? closest in time, most points left after filtering..
+    #   use dh map to find best and worst agreement (worst = 90th percentile or so)
+    #   group by spot, track, cycle to get unique profiles; look at stats of those; perhaps filter points more with that information
+    #   longest track, be careful for number of points
     def plot_atl06_dem_profiles(
         self,
         select_days=None,
