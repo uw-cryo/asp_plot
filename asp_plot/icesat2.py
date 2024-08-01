@@ -276,14 +276,7 @@ class ICESat2(Plotter):
         else:
             print("\nCommand failed.\n")
 
-    # TODO: how to select icesat for pc_align? use DEM timestamp and:
-    # 1. closest in time
-    # 2. ~90 day padding
-    # 3. run for all time
-    # 4. seasonal
-    # Spawn all four, see if they agree (translations are similar)
-
-    # TODO: report translation from pc_align, does it look reasonable?
+    # TODO: Add report of translation and stats from pc_align (parse log file and show)
     def pc_align_dem_to_atl06(
         self,
         max_displacement=20,
@@ -435,14 +428,6 @@ class ICESat2(Plotter):
         if save_dir and fig_fn:
             save_figure(fig, save_dir, fig_fn)
 
-    # TODO: ATL03 photons, dem as line not markers, possibly atl06
-    # TODO: need to separate by ground and top of canopy and plot both
-    # TODO: run analysis in area other than Utqiagvik to shake out more bugs
-    # TODO: before and after plots from pc_align
-    # TODO: how to select profile for plotting...? interactive? closest in time, most points left after filtering..
-    #   use dh map to find best and worst agreement (worst = 90th percentile or so)
-    #   group by spot, track, cycle to get unique profiles; look at stats of those; perhaps filter points more with that information
-    #   longest track, be careful for number of points
     def plot_atl06_dem_profiles(
         self,
         select_days=None,
