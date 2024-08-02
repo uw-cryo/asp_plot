@@ -160,6 +160,7 @@ class PlotBundleAdjustFiles(Plotter):
         clip_final=True,
         clim=None,
         common_clim=True,
+        symm_clim=False,
         cmap="inferno",
         map_crs="EPSG:4326",
         save_dir=None,
@@ -185,7 +186,7 @@ class PlotBundleAdjustFiles(Plotter):
             gdf = gdf.sort_values(by=column_name).to_crs(map_crs)
 
             if clim is None:
-                clim = ColorBar().get_clim(gdf[column_name])
+                clim = ColorBar(symm=symm_clim).get_clim(gdf[column_name])
 
             if common_clim:
                 self.plot_geodataframe(

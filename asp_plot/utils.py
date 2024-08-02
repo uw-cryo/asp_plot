@@ -122,15 +122,17 @@ class ColorBar:
     def __init__(self, perc_range=(2, 98), symm=False):
         self.perc_range = perc_range
         self.symm = symm
+        self.clim = None
 
     def get_clim(self, input):
         try:
             clim = np.percentile(input.compressed(), self.perc_range)
         except:
             clim = np.percentile(input, self.perc_range)
+        self.clim = clim
         if self.symm:
-            clim = self.symm_clim(clim)
-        return clim
+            self.clim = self.symm_clim()
+        return self.clim
 
     def find_common_clim(self, inputs):
         clims = []
@@ -141,12 +143,13 @@ class ColorBar:
         clim_min = np.min([clim[0] for clim in clims])
         clim_max = np.max([clim[1] for clim in clims])
         clim = (clim_min, clim_max)
+        self.clim = clim
         if self.symm:
-            clim = self.symm_clim(clim)
-        return clim
+            self.clim = self.symm_clim()
+        return self.clim
 
-    def symm_clim(self, clim):
-        abs_max = np.max(np.abs(clim))
+    def symm_clim(self):
+        abs_max = np.max(np.abs(self.clim))
         return (-abs_max, abs_max)
 
     def get_cbar_extend(self, input, clim=None):
@@ -160,6 +163,14 @@ class ColorBar:
         elif input.min() < clim[0] and input.max() <= clim[1]:
             extend = "min"
         return extend
+
+    def get_norm(self, lognorm=False):
+        vmin, vmax = self.clim
+        if lognorm:
+            norm = matplotlib.colors.LogNorm(vmin=vmin, vmax=vmax)
+        else:
+            norm = matplotlib.colors.Normalize(vmin=vmin, vmax=vmax)
+        return norm
 
 
 class Raster:
@@ -276,13 +287,10 @@ class Plotter:
         **ctx_kwargs,
     ):
         if clim is None:
-            clim = self.cb.get_clim(gdf[column_name])
-        vmin, vmax = clim
-
-        if self.lognorm:
-            norm = matplotlib.colors.LogNorm(vmin=vmin, vmax=vmax)
+            self.cb.get_clim(gdf[column_name])
         else:
-            norm = matplotlib.colors.Normalize(vmin=vmin, vmax=vmax)
+            self.cb.clim = clim
+        norm = self.cb.get_norm(self.lognorm)
 
         gdf.plot(
             ax=ax,
