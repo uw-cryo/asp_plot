@@ -12,7 +12,7 @@ import rioxarray
 import xarray as xr
 from sliderule import icesat2, sliderule
 
-from asp_plot.utils import ColorBar, Plotter, save_figure
+from asp_plot.utils import ColorBar, save_figure
 
 icesat2.init("slideruleearth.io", verbose=True)
 
@@ -21,7 +21,7 @@ logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
 
-class Altimetry(Plotter):
+class Altimetry:
     def __init__(
         self,
         dem_fn,
@@ -188,7 +188,9 @@ class Altimetry(Plotter):
         use_dem_basemap=False,
         column_name="h_mean",
         cbar_label="Height above datum (m)",
+        title="ICESat-2 ATL06-SR",
         clim=None,
+        symm_clim=False,
         cmap="inferno",
         map_crs="EPSG:4326",
         save_dir=None,
@@ -199,9 +201,6 @@ class Altimetry(Plotter):
             atl06 = self.atl06_clean
         else:
             atl06 = self.atl06
-
-        if clim is None:
-            clim = ColorBar().get_clim(atl06[column_name])
 
         atl06_sorted = atl06.sort_values(by=column_name).to_crs(map_crs)
 
@@ -239,21 +238,28 @@ class Altimetry(Plotter):
             ax.legend(
                 handles=patches, title="laser spot\n(strong=1,3,5)", loc="upper left"
             )
-            if ctx_kwargs:
-                ctx.add_basemap(ax=ax, **ctx_kwargs)
         else:
-            self.plot_geodataframe(
+            cb = ColorBar(perc_range=(2, 98), symm=symm_clim)
+            if clim is None:
+                cb.get_clim(atl06_sorted[column_name])
+            else:
+                cb.clim = clim
+            norm = cb.get_norm(lognorm=False)
+
+            atl06_sorted.plot(
                 ax=ax,
-                gdf=atl06_sorted,
-                column_name=column_name,
-                cbar_label=cbar_label,
+                column=column_name,
                 cmap=cmap,
-                clim=clim,
-                **ctx_kwargs,
+                norm=norm,
+                s=1,
+                legend=True,
+                legend_kwds={"label": cbar_label},
             )
 
-        fig.suptitle(self.title, size=10)
+        if ctx_kwargs:
+            ctx.add_basemap(ax=ax, **ctx_kwargs)
 
+        fig.suptitle(title, size=10)
         fig.tight_layout()
         if save_dir and fig_fn:
             save_figure(fig, save_dir, fig_fn)
@@ -350,7 +356,7 @@ class Altimetry(Plotter):
         self.run_subprocess_command(command)
 
     def compare_atl06_to_dem(
-        self, use_aligned_dem=False, save_dir=None, fig_fn=None, **ctx_kwargs
+        self, clim=None, use_aligned_dem=False, save_dir=None, fig_fn=None, **ctx_kwargs
     ):
         if self.atl06_clean is None:
             raise ValueError(
@@ -377,18 +383,17 @@ class Altimetry(Plotter):
             self.atl06_clean["h_mean"] - self.atl06_clean["dem_height"]
         )
 
-        clim = (
-            float(self.atl06_clean["icesat_minus_dem"].quantile(0.05)),
-            float(self.atl06_clean["icesat_minus_dem"].quantile(0.95)),
-        )
-        abs_max = max(abs(clim[0]), abs(clim[1]))
-        clim = (-abs_max, abs_max)
+        if clim is not None:
+            symm_clim = False
+        else:
+            symm_clim = True
 
         self.plot_atl06(
             clean=True,
             column_name="icesat_minus_dem",
             cbar_label="ICESat-2 minus DEM (m)",
             clim=clim,
+            symm_clim=symm_clim,
             cmap="RdBu",
             map_crs=f"EPSG:{epsg}",
             save_dir=save_dir,
@@ -399,7 +404,7 @@ class Altimetry(Plotter):
     # TODO: plot n histograms on top of each other
     # need to save atl06 diff before and atl06 diff after pc_align step
     # then supply list of columns and labels for each histogram
-    def atl06_dem_histogram(self, save_dir=None, fig_fn=None):
+    def atl06_dem_histogram(self, title="Histogram", save_dir=None, fig_fn=None):
         if "icesat_minus_dem" not in self.atl06_clean.columns:
             raise ValueError(
                 "\nNo icesat_minus_dem column found. Please run compare_atl06_to_dem first.\n"
@@ -426,7 +431,7 @@ class Altimetry(Plotter):
         ax.set_title(None)
         ax.set_xlabel("ICESat-2 - DEM (m)")
 
-        fig.suptitle(self.title, size=10)
+        fig.suptitle(title, size=10)
 
         fig.tight_layout()
         if save_dir and fig_fn:
@@ -434,6 +439,7 @@ class Altimetry(Plotter):
 
     def plot_atl06_dem_profiles(
         self,
+        title="ICESat-2 ATL06-SR Profiles",
         select_days=None,
         select_months=None,
         select_years=None,
@@ -503,7 +509,7 @@ class Altimetry(Plotter):
             ax.set_ylabel("Elevation (m HAE)")
             ax.legend()
 
-        fig.suptitle(self.title)
+        fig.suptitle(title)
         fig.subplots_adjust(hspace=0.3)
 
         fig.tight_layout()

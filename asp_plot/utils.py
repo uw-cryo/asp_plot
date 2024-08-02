@@ -126,9 +126,9 @@ class ColorBar:
 
     def get_clim(self, input):
         try:
-            clim = np.percentile(input.compressed(), self.perc_range)
+            clim = np.nanpercentile(input.compressed(), self.perc_range)
         except:
-            clim = np.percentile(input, self.perc_range)
+            clim = np.nanpercentile(input, self.perc_range)
         self.clim = clim
         if self.symm:
             self.clim = self.symm_clim()
