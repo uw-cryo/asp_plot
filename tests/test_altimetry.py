@@ -15,11 +15,11 @@ class TestAltimetry:
         )
         return icesat
 
-    def test_pull_and_clean_atl06_data(self, icesat):
+    def test_pull_and_filter_atl06sr(self, icesat):
         try:
-            icesat.pull_atl06_data(esa_worldcover=False)
-            icesat.clean_atl06(mask_worldcover_water=False)
+            icesat.pull_atl06sr(esa_worldcover=False, save_to_gpkg=False)
+            icesat.filter_atl06sr(mask_worldcover_water=False)
         except Exception as e:
             pytest.fail(
-                f"pull_atl06_data() or clean_atl06() method raised an exception: {str(e)}"
+                f"pull_atl06sr() or filter_atl06sr() method raised an exception: {str(e)}"
             )
