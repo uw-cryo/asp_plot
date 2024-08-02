@@ -21,8 +21,7 @@ logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
 
-# TODO: generalize name "altimetry" because we might incorporate GEDI later
-class ICESat2(Plotter):
+class Altimetry(Plotter):
     def __init__(
         self,
         dem_fn,
@@ -44,8 +43,10 @@ class ICESat2(Plotter):
         self.atl06_clean = atl06_clean
         self.aligned_dem_fn = aligned_dem_fn
 
-    # TODO: possibly go all defaults here
-    def pull_atl06sr_data(
+    # TODO: go all defaults here, maybe use kwargs to allow for whatever sliderule params
+    # TODO: remove geojson, convert DEM to bounding box poly
+    # TODO: names of methods should be e.g. pull_atl06sr_data to reflect this is sliderule processed
+    def pull_atl06_data(
         self,
         esa_worldcover=True,
         save_to_gpkg=False,
@@ -395,6 +396,9 @@ class ICESat2(Plotter):
             **ctx_kwargs,
         )
 
+    # TODO: plot n histograms on top of each other
+    # need to save atl06 diff before and atl06 diff after pc_align step
+    # then supply list of columns and labels for each histogram
     def atl06_dem_histogram(self, save_dir=None, fig_fn=None):
         if "icesat_minus_dem" not in self.atl06_clean.columns:
             raise ValueError(

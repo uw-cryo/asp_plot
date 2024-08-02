@@ -1,15 +1,15 @@
 import matplotlib
 import pytest
 
-from asp_plot.icesat2 import ICESat2
+from asp_plot.altimetry import Altimetry
 
 matplotlib.use("Agg")
 
 
-class TestICESat2:
+class TestAltimetry:
     @pytest.fixture
     def icesat(self):
-        icesat = ICESat2(
+        icesat = Altimetry(
             dem_fn="tests/test_data/stereo/date_time_left_right_1m-DEM.tif",
             geojson_fn="tests/test_data/icesat_region.geojson",
         )

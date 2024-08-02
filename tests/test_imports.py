@@ -5,8 +5,8 @@ class TestImports:
         assert asp_plot is not None
 
     def test_import_asp_plot_modules(self):
+        import asp_plot.altimetry
         import asp_plot.bundle_adjust
-        import asp_plot.icesat2
         import asp_plot.processing_parameters
         import asp_plot.scenes
         import asp_plot.stereopair_metadata_parser
@@ -17,11 +17,11 @@ class TestImports:
         assert asp_plot.scenes is not None
         assert asp_plot.processing_parameters is not None
         assert asp_plot.bundle_adjust is not None
-        assert asp_plot.icesat2 is not None
+        assert asp_plot.altimetry is not None
 
     def test_import_asp_plot_classes(self):
+        from asp_plot.altimetry import Altimetry
         from asp_plot.bundle_adjust import PlotBundleAdjustFiles, ReadBundleAdjustFiles
-        from asp_plot.icesat2 import ICESat2
         from asp_plot.processing_parameters import ProcessingParameters
         from asp_plot.scenes import SceneGeometryPlotter, ScenePlotter
         from asp_plot.stereo import StereoPlotter
@@ -38,4 +38,4 @@ class TestImports:
         assert ReadBundleAdjustFiles is not None
         assert PlotBundleAdjustFiles is not None
         assert StereoPlotter is not None
-        assert ICESat2 is not None
+        assert Altimetry is not None
