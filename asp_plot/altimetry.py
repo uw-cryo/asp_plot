@@ -49,11 +49,8 @@ class Altimetry:
     def pull_atl06sr(
         self,
         esa_worldcover=True,
-        # TODO: parquet saving not working with sampling
-        #    make this "output" : "parquet" directly in request instead of gpkg
-        #    need to this fixed: https://github.com/SlideRuleEarth/sliderule/issues/298
-        save_to_gpkg=True,
-        file_to_save="atl06sr_all.gpkg",
+        save_to_parquet=True,
+        filename="atl06sr_all",
         parms=None,
     ):
         if not os.path.exists(self.geojson_fn):
@@ -65,18 +62,22 @@ class Altimetry:
             region = sliderule.toregion(self.geojson_fn)["poly"]
             parms = {
                 "poly": region,
-                "samples": {
+            }
+
+            if esa_worldcover:
+                parms["samples"] = {
                     "esa_worldcover": {
                         "asset": "esa-worldcover-10meter",
-                    },
-                },
-            }
+                    }
+                }
 
         print(f"\nICESat-2 ATL06 request processing with parms:\n{parms}")
         self.atl06sr = icesat2.atl06p(parms)
 
-        if save_to_gpkg:
-            self.atl06sr.to_file(file_to_save, driver="GPKG")
+        if save_to_parquet:
+            # Need to write out this way instead of including option
+            # in parms due to: https://github.com/SlideRuleEarth/sliderule/issues/298
+            self.atl06sr.to_parquet(f"{filename}.parquet")
 
         return self.atl06sr
 
@@ -84,13 +85,12 @@ class Altimetry:
         self,
         h_sigma_quantile=0.95,
         mask_worldcover_water=True,
-        select_months=None,
         select_years=None,
-        save_to_csv=False,
-        # TODO: make this parquet instead of gpkg
-        #   wait until fix on: https://github.com/SlideRuleEarth/sliderule/issues/298
-        save_to_gpkg=False,
-        file_to_save="atl06sr_filtered",
+        select_months=None,
+        select_days=None,
+        save_to_csv=True,
+        save_to_parquet=True,
+        filename="atl06sr_filtered",
     ):
         def to_csv(atl06, fn_out):
             df = atl06[["geometry", "h_mean"]].copy()
@@ -147,19 +147,26 @@ class Altimetry:
                 ]
 
         # Filter by time
-        if select_months:
-            self.atl06sr_filtered = self.atl06sr_filtered[
-                self.atl06sr_filtered.index.month.isin(select_months)
-            ]
         if select_years:
             self.atl06sr_filtered = self.atl06sr_filtered[
                 self.atl06sr_filtered.index.year.isin(select_years)
             ]
+        if select_months:
+            self.atl06sr_filtered = self.atl06sr_filtered[
+                self.atl06sr_filtered.index.month.isin(select_months)
+            ]
+        if select_days:
+            self.atl06sr_filtered = self.atl06sr_filtered[
+                self.atl06sr_filtered.index.day.isin(select_days)
+            ]
 
         if save_to_csv:
-            to_csv(self.atl06sr_filtered, f"{file_to_save}.csv")
-        if save_to_gpkg:
-            self.atl06sr_filtered.to_file(f"{file_to_save}.gpkg", driver="GPKG")
+            # Useful for pc_align step
+            to_csv(self.atl06sr_filtered, f"{filename}.csv")
+        if save_to_parquet:
+            # Need to write out this way instead of including option
+            # in parms due to: https://github.com/SlideRuleEarth/sliderule/issues/298
+            self.atl06sr_filtered.to_parquet(f"{filename}.parquet")
 
         return self.atl06sr_filtered
 
@@ -423,9 +430,9 @@ class Altimetry:
     def plot_atl06sr_dem_profiles(
         self,
         title="ICESat-2 ATL06-SR Profiles",
-        select_days=None,
-        select_months=None,
         select_years=None,
+        select_months=None,
+        select_days=None,
         only_strong_beams=True,
         save_dir=None,
         fig_fn=None,
