@@ -1,6 +1,5 @@
 import logging
 import os
-import subprocess
 
 import contextily as ctx
 import geopandas as gpd
@@ -12,7 +11,7 @@ import rioxarray
 import xarray as xr
 from sliderule import icesat2, sliderule
 
-from asp_plot.utils import ColorBar, save_figure
+from asp_plot.utils import ColorBar, run_subprocess_command, save_figure
 
 icesat2.init("slideruleearth.io", verbose=True)
 
@@ -253,25 +252,6 @@ class Altimetry:
         if save_dir and fig_fn:
             save_figure(fig, save_dir, fig_fn)
 
-    def run_subprocess_command(self, command):
-        process = subprocess.Popen(
-            command,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            bufsize=1,
-        )
-
-        for line in process.stdout:
-            print(line.strip())
-
-        process.stdout.close()
-        return_code = process.wait()
-        if return_code == 0:
-            print("\nCommand executed successfully.\n")
-        else:
-            print("\nCommand failed.\n")
-
     # TODO: Add report of translation and stats from pc_align (parse log file and show)
     def pc_align_dem_to_atl06sr(
         self,
@@ -312,7 +292,7 @@ class Altimetry:
             atl06sr_csv,
         ]
 
-        self.run_subprocess_command(command)
+        run_subprocess_command(command)
 
     # TODO: instead of point2dem call, use apply_dem_translation to write out new geotiff with shift applied from translation file
     def generate_translated_dem(self, pc_align_output, dem_out_fn):
@@ -343,7 +323,7 @@ class Altimetry:
             pc_align_output,
         ]
 
-        self.run_subprocess_command(command)
+        run_subprocess_command(command)
 
     def compare_atl06sr_to_dem(
         self, clim=None, use_aligned_dem=False, save_dir=None, fig_fn=None, **ctx_kwargs

@@ -1,6 +1,7 @@
 import glob
 import logging
 import os
+import subprocess
 
 import contextily as ctx
 import geoutils as gu
@@ -116,6 +117,26 @@ def get_xml_tag(xml, tag, all=False):
         elem = elem.text
 
     return elem
+
+
+def run_subprocess_command(command):
+    process = subprocess.Popen(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        bufsize=1,
+    )
+
+    for line in process.stdout:
+        print(line.strip())
+
+    process.stdout.close()
+    return_code = process.wait()
+    if return_code == 0:
+        print("\nCommand executed successfully.\n")
+    else:
+        print("\nCommand failed.\n")
 
 
 class ColorBar:
