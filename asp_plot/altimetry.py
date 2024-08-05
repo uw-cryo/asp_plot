@@ -9,9 +9,16 @@ import matplotlib.pyplot as plt
 import numpy as np
 import rioxarray
 import xarray as xr
+from osgeo import gdal, osr
 from sliderule import icesat2
 
-from asp_plot.utils import ColorBar, Raster, run_subprocess_command, save_figure
+from asp_plot.utils import (
+    ColorBar,
+    Raster,
+    glob_file,
+    run_subprocess_command,
+    save_figure,
+)
 
 icesat2.init("slideruleearth.io", verbose=True)
 
@@ -285,7 +292,6 @@ class Altimetry:
 
         run_subprocess_command(command)
 
-    # TODO: instead of point2dem call, use apply_dem_translation to write out new geotiff with shift applied from translation file
     def generate_translated_dem(self, pc_align_output, dem_out_fn):
         if not os.path.exists(pc_align_output):
             raise ValueError(
@@ -315,6 +321,105 @@ class Altimetry:
         ]
 
         run_subprocess_command(command)
+
+    def apply_dem_translation(self, pc_align_folder="pc_align", inv_trans=True):
+        def get_proj_shift(src_c, src_shift, s_srs, t_srs, inv_trans=True):
+            if s_srs.IsSame(t_srs):
+                proj_shift = src_shift
+            else:
+                src_c_shift = src_c + src_shift
+                src2proj = osr.CoordinateTransformation(s_srs, t_srs)
+                proj_c = np.array(src2proj.TransformPoint(*src_c))
+                proj_c_shift = np.array(src2proj.TransformPoint(*src_c_shift))
+                if inv_trans:
+                    proj_shift = proj_c - proj_c_shift
+                else:
+                    proj_shift = proj_c_shift - proj_c
+            # Reduce unnecessary precision
+            proj_shift = np.around(proj_shift, 3)
+            return proj_shift
+
+        if self.aligned_dem_fn:
+            logger.warning(
+                f"\nAligned DEM already exists: {self.aligned_dem_fn}\n\nPlease use that, or remove this file before running pc_align.\n"
+            )
+            return
+
+        pc_align_log = glob_file(pc_align_folder, "*log-pc_align*.txt")
+
+        src = Raster(self.dem_fn)
+        src_a = src.read_array()
+        src_ndv = src.get_ndv()
+
+        # Extract info from input log
+        # These are coordinates of source points
+        ecef_centroid_str = "Centroid of source points (Cartesian, meters):"
+        llz_centroid_str = "Centroid of source points (lat,lon,z):"
+        ecef_shift_str = "Translation vector (Cartesian, meters):"
+        llz_shift_str = "Translation vector (lat,lon,z):"
+
+        # Need to extract from log to know how to compute translation
+        # if ref is csv and src is dem, want to transform source_center + shift
+        # if ref is dem and src is csv, want to inverse transform ref by shift applied at (source_center - shift)
+
+        llz_c = None
+        log = open(pc_align_log)
+        for line in log:
+            if ecef_centroid_str in line:
+                ecef_c = np.genfromtxt([line.split("Vector3")[1][1:-2]], delimiter=",")
+            if llz_centroid_str in line:
+                llz_c = np.genfromtxt([line.split("Vector3")[1][1:-2]], delimiter=",")
+            if ecef_shift_str in line:
+                ecef_shift = np.genfromtxt(
+                    [line.split("Vector3")[1][1:-2]], delimiter=","
+                )
+            if llz_shift_str in line:
+                llz_shift = np.genfromtxt(
+                    [line.split("Vector3")[1][1:-2]], delimiter=","
+                )
+                break
+        log.close()
+
+        if llz_c is None:
+            raise ValueError(
+                f"\nLog file does not contain necessary translation information: {pc_align_log}\n"
+            )
+
+        # Reorder lat,lon,z to lon,lat,z (x,y,z)
+        i = [1, 0, 2]
+        llz_c = llz_c[i]
+        llz_shift = llz_shift[i]
+
+        ecef_srs = osr.SpatialReference()
+        ecef_srs.ImportFromEPSG(4978)
+
+        s_srs = ecef_srs
+        src_c = ecef_c
+        src_shift = ecef_shift
+
+        # Determine shift in original dataset coords
+        t_srs = osr.SpatialReference()
+        t_srs.ImportFromWkt(src.ds.crs.to_wkt())
+        proj_shift = get_proj_shift(src_c, src_shift, s_srs, t_srs, inv_trans)
+
+        self.aligned_dem_fn = self.dem_fn.replace(".tif", "_pc_align_translated.tif")
+        gdal_opt = ["COMPRESS=LZW", "TILED=YES", "PREDICTOR=3", "BIGTIFF=IF_SAFER"]
+        dst_ds = gdal.GetDriverByName("GTiff").CreateCopy(
+            self.aligned_dem_fn, gdal.Open(self.dem_fn), strict=0, options=gdal_opt
+        )
+        # Apply vertical shift
+        dst_b = dst_ds.GetRasterBand(1)
+        dst_b.SetNoDataValue(float(src_ndv))
+        dst_b.WriteArray(np.around((src_a + proj_shift[2]).filled(src_ndv), decimals=3))
+
+        dst_gt = list(dst_ds.GetGeoTransform())
+        # Apply horizontal shift directly to geotransform
+        dst_gt[0] += proj_shift[0]
+        dst_gt[3] += proj_shift[1]
+        dst_ds.SetGeoTransform(dst_gt)
+
+        print(f"\nWriting out: {self.aligned_dem_fn}\n")
+        dst_ds = None
 
     def compare_atl06sr_to_dem(
         self, clim=None, use_aligned_dem=False, save_dir=None, fig_fn=None, **ctx_kwargs
