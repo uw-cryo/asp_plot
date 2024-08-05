@@ -9,7 +9,7 @@ import numpy as np
 import rasterio as rio
 import rioxarray
 import xarray as xr
-from sliderule import icesat2, sliderule
+from sliderule import icesat2
 
 from asp_plot.utils import ColorBar, run_subprocess_command, save_figure
 
@@ -24,16 +24,14 @@ class Altimetry:
     def __init__(
         self,
         dem_fn,
-        # TODO: remove geojson, use DEM as spatial filter
-        geojson_fn,
         aligned_dem_fn=None,
         atl06sr=None,
         atl06sr_filtered=None,
         **kwargs,
     ):
-        super().__init__(**kwargs)
+        if not os.path.exists(dem_fn):
+            raise ValueError(f"DEM file not found: {dem_fn}")
         self.dem_fn = dem_fn
-        self.geojson_fn = geojson_fn
         if atl06sr is not None and not isinstance(atl06sr, gpd.GeoDataFrame):
             raise ValueError("ATL06 must be a GeoDataFrame if provided.")
         self.atl06sr = atl06sr
@@ -44,31 +42,41 @@ class Altimetry:
         self.atl06sr_filtered = atl06sr_filtered
         self.aligned_dem_fn = aligned_dem_fn
 
-    # TODO: remove geojson, convert DEM to bounding box poly
     def pull_atl06sr(
         self,
         esa_worldcover=True,
         save_to_parquet=True,
-        filename="atl06sr_all",
+        filename="atl06sr_defaults_all",
         parms=None,
     ):
-        if not os.path.exists(self.geojson_fn):
-            raise ValueError(
-                f"Geojson file not found: {self.geojson_fn}\nUse this tool to make and download one:\nhttps://geojson.io/"
-            )
+
+        dem = rioxarray.open_rasterio(self.dem_fn, masked=True).squeeze()
+        bounds = dem.rio.bounds()
+        epsg = dem.rio.crs.to_epsg()
+        min_lon, min_lat, max_lon, max_lat = rio.warp.transform_bounds(
+            f"EPSG:{epsg}", "EPSG:4326", *bounds
+        )
+        region = [
+            {"lon": min_lon, "lat": min_lat},
+            {"lon": min_lon, "lat": max_lat},
+            {"lon": max_lon, "lat": max_lat},
+            {"lon": max_lon, "lat": min_lat},
+            {"lon": min_lon, "lat": min_lat},
+        ]
 
         if parms is None:
-            region = sliderule.toregion(self.geojson_fn)["poly"]
             parms = {
                 "poly": region,
             }
+        else:
+            parms["poly"] = region
 
-            if esa_worldcover:
-                parms["samples"] = {
-                    "esa_worldcover": {
-                        "asset": "esa-worldcover-10meter",
-                    }
+        if esa_worldcover:
+            parms["samples"] = {
+                "esa_worldcover": {
+                    "asset": "esa-worldcover-10meter",
                 }
+            }
 
         print(f"\nICESat-2 ATL06 request processing with parms:\n{parms}")
         self.atl06sr = icesat2.atl06p(parms)
@@ -89,7 +97,7 @@ class Altimetry:
         select_days=None,
         save_to_csv=True,
         save_to_parquet=True,
-        filename="atl06sr_filtered",
+        filename="atl06sr_defaults_filtered",
     ):
         def to_csv(atl06, fn_out):
             df = atl06[["geometry", "h_mean"]].copy()
@@ -111,15 +119,6 @@ class Altimetry:
         ]
         self.atl06sr_filtered = self.atl06sr_filtered[
             self.atl06sr_filtered["h_sigma"] != 0
-        ]
-
-        # Clip to DEM area
-        dem = rioxarray.open_rasterio(self.dem_fn, masked=True).squeeze()
-        bounds = dem.rio.bounds()
-        epsg = dem.rio.crs.to_epsg()
-        bounds = rio.warp.transform_bounds(f"EPSG:{epsg}", "EPSG:4326", *bounds)
-        self.atl06sr_filtered = self.atl06sr_filtered.cx[
-            bounds[0] : bounds[2], bounds[1] : bounds[3]
         ]
 
         # Mask out water using ESA WorldCover (if it exists)
@@ -160,7 +159,7 @@ class Altimetry:
             ]
 
         if save_to_csv:
-            # Useful for pc_align step
+            # Used for pc_align step
             to_csv(self.atl06sr_filtered, f"{filename}.csv")
         if save_to_parquet:
             # Need to write out this way instead of including option

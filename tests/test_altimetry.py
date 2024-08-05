@@ -11,7 +11,6 @@ class TestAltimetry:
     def icesat(self):
         icesat = Altimetry(
             dem_fn="tests/test_data/stereo/date_time_left_right_1m-DEM.tif",
-            geojson_fn="tests/test_data/icesat_region.geojson",
         )
         return icesat
 
