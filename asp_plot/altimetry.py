@@ -3,15 +3,15 @@ import os
 
 import contextily as ctx
 import geopandas as gpd
+import geoutils as gu
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import numpy as np
-import rasterio as rio
 import rioxarray
 import xarray as xr
 from sliderule import icesat2
 
-from asp_plot.utils import ColorBar, run_subprocess_command, save_figure
+from asp_plot.utils import ColorBar, Raster, run_subprocess_command, save_figure
 
 icesat2.init("slideruleearth.io", verbose=True)
 
@@ -50,19 +50,7 @@ class Altimetry:
         parms=None,
     ):
 
-        dem = rioxarray.open_rasterio(self.dem_fn, masked=True).squeeze()
-        bounds = dem.rio.bounds()
-        epsg = dem.rio.crs.to_epsg()
-        min_lon, min_lat, max_lon, max_lat = rio.warp.transform_bounds(
-            f"EPSG:{epsg}", "EPSG:4326", *bounds
-        )
-        region = [
-            {"lon": min_lon, "lat": min_lat},
-            {"lon": min_lon, "lat": max_lat},
-            {"lon": max_lon, "lat": max_lat},
-            {"lon": max_lon, "lat": min_lat},
-            {"lon": min_lon, "lat": min_lat},
-        ]
+        region = Raster(self.dem_fn).get_bounds(latlon=True)
 
         if parms is None:
             parms = {
@@ -172,7 +160,7 @@ class Altimetry:
         self,
         filtered=False,
         plot_beams=False,
-        use_dem_basemap=False,
+        plot_dem=False,
         column_name="h_mean",
         cbar_label="Height above datum (m)",
         title="ICESat-2 ATL06-SR",
@@ -193,18 +181,19 @@ class Altimetry:
 
         fig, ax = plt.subplots(1, 1, figsize=(8, 6))
 
-        if use_dem_basemap:
+        if plot_dem:
             ctx_kwargs = {}
-            # TODO: add rioxarray resampling and plotting to Plotter (plot_geo_array?)
-            dem = rioxarray.open_rasterio(self.dem_fn, masked=True).squeeze()
-            downscale_factor = 0.1
-            new_width = dem.rio.width * downscale_factor
-            new_height = dem.rio.height * downscale_factor
-            dem_downsampled = dem.rio.reproject(
-                dem.rio.crs,
-                shape=(int(new_height), int(new_width)),
+            dem_downsampled = gu.Raster(self.dem_fn, downsample=10)
+            cb = ColorBar(perc_range=(2, 98))
+            cb.get_clim(dem_downsampled.data)
+            dem_downsampled.plot(
+                ax=ax,
+                cmap="inferno",
+                add_cbar=False,
+                vmin=cb.clim[0],
+                vmax=cb.clim[1],
+                alpha=1,
             )
-            dem_downsampled.plot(ax=ax, cmap="inferno", add_colorbar=False, alpha=0.8)
             ax.set_title(None)
 
         if plot_beams:
@@ -226,11 +215,15 @@ class Altimetry:
                 handles=patches, title="laser spot\n(strong=1,3,5)", loc="upper left"
             )
         else:
-            cb = ColorBar(perc_range=(2, 98), symm=symm_clim)
-            if clim is None:
-                cb.get_clim(atl06sr_sorted[column_name])
+            if plot_dem:
+                cb.symm = symm_clim
             else:
-                cb.clim = clim
+                cb = ColorBar(perc_range=(2, 98), symm=symm_clim)
+                if clim is None:
+                    cb.get_clim(atl06sr_sorted[column_name])
+                else:
+                    cb.clim = clim
+
             norm = cb.get_norm(lognorm=False)
 
             atl06sr_sorted.plot(
@@ -305,9 +298,9 @@ class Altimetry:
             )
             return
 
-        dem = rioxarray.open_rasterio(self.dem_fn, masked=True).squeeze()
-        epsg = dem.rio.crs.to_epsg()
-        gsd = dem.rio.transform()[0]
+        rast = Raster(self.dem_fn)
+        gsd = rast.get_gsd()
+        epsg = rast.get_epsg_code()
 
         command = [
             "point2dem",

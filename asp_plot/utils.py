@@ -10,6 +10,7 @@ import matplotlib.image as mpimg
 import matplotlib.pyplot as plt
 import numpy as np
 import rasterio as rio
+import rioxarray
 from markdown_pdf import MarkdownPdf, Section
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from osgeo import gdal
@@ -215,9 +216,32 @@ class Raster:
             ndv = self.ds.read(1, window=Window(0, 0, 1, 1)).squeeze()
         return ndv
 
+    def get_epsg_code(self):
+        epsg = self.ds.crs.to_epsg()
+        return epsg
+
     def get_gsd(self):
         gsd = self.ds.transform[0]
         return gsd
+
+    def get_bounds(self, latlon=True, json_format=True):
+        ds = rioxarray.open_rasterio(self.fn, masked=True).squeeze()
+        bounds = ds.rio.bounds()
+        if latlon:
+            epsg = self.get_epsg_code()
+            bounds = rio.warp.transform_bounds(f"EPSG:{epsg}", "EPSG:4326", *bounds)
+        if json_format:
+            min_lon, min_lat, max_lon, max_lat = bounds
+            region = [
+                {"lon": min_lon, "lat": min_lat},
+                {"lon": min_lon, "lat": max_lat},
+                {"lon": max_lon, "lat": max_lat},
+                {"lon": max_lon, "lat": min_lat},
+                {"lon": min_lon, "lat": min_lat},
+            ]
+            return region
+        else:
+            return bounds
 
     def hillshade(self):
         hs_fn = os.path.splitext(self.fn)[0] + "_hs.tif"
