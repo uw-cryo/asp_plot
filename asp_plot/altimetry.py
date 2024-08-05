@@ -55,6 +55,7 @@ class Altimetry:
         if parms is None:
             parms = {
                 "poly": region,
+                "cnf": 4,
             }
         else:
             parms["poly"] = region
@@ -261,7 +262,7 @@ class Altimetry:
             raise ValueError("\nPlease provide an output prefix for pc_align.\n")
         if self.aligned_dem_fn:
             logger.warning(
-                f"\nAligned DEM already exists: {self.aligned_dem_fn}\n\nPlease use that, or remove this file before running pc_align.\n"
+                f"\nAligned DEM was already supplied: {self.aligned_dem_fn}\n\nPlease use that, or remove this file before running pc_align.\n"
             )
             return
 
@@ -276,8 +277,6 @@ class Altimetry:
             "--csv-format",
             "1:lon 2:lat 3:height_above_datum",
             "--compute-translation-only",
-            # TODO: remove below, can apply transformation from geotiff header to original DEM, see David dem_coreg apply_dem_translation.py
-            "--save-inv-transformed-reference-points",
             "--output-prefix",
             output_prefix,
             self.dem_fn,
