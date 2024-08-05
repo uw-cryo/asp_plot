@@ -1,4 +1,5 @@
 import os
+import shutil
 from itertools import count
 
 import click
@@ -43,12 +44,6 @@ from asp_plot.utils import compile_report
     help="Reference DEM used in ASP processing. No default. Must be supplied.",
 )
 @click.option(
-    "--plots_directory",
-    prompt=False,
-    default="asp_plots_for_report",
-    help="Directory to put output plots. Default: asp_plots",
-)
-@click.option(
     "--report_filename",
     prompt=False,
     default=None,
@@ -66,13 +61,12 @@ def main(
     stereo_directory,
     map_crs,
     reference_dem,
-    plots_directory,
     report_filename,
     report_title,
 ):
     print(f"\n\nProcessing ASP files in {directory}\n\n")
 
-    plots_directory = os.path.join(directory, plots_directory)
+    plots_directory = os.path.join(directory, "tmp_asp_report_plots/")
     os.makedirs(plots_directory, exist_ok=True)
 
     if report_filename is None:
@@ -158,19 +152,12 @@ def main(
         title="Bundle Adjust Initial and Final Geodiff vs. Reference DEM",
     )
 
-    clim = (
-        float(geodiff_initial_gdf["height_diff_meters"].quantile(0.05)),
-        float(geodiff_initial_gdf["height_diff_meters"].quantile(0.95)),
-    )
-    abs_max = max(abs(clim[0]), abs(clim[1]))
-    clim = (-abs_max, abs_max)
-
     plotter.plot_n_gdfs(
         column_name="height_diff_meters",
         cbar_label="Height difference (m)",
         map_crs=map_crs,
         cmap="RdBu",
-        clim=clim,
+        symm_clim=True,
         save_dir=plots_directory,
         fig_fn=f"{next(figure_counter):02}.png",
         **ctx_kwargs,
@@ -218,6 +205,8 @@ def main(
         report_pdf_path,
         report_title=report_title,
     )
+
+    shutil.rmtree(plots_directory)
 
     print(f"\n\nReport saved to {report_pdf_path}\n\n")
 

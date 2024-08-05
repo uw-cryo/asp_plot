@@ -65,8 +65,6 @@ Options:
                                   Default: EPSG:4326
   --reference_dem TEXT            Reference DEM used in ASP processing. No
                                   default. Must be supplied.
-  --plots_directory TEXT          Directory to put output plots. Default:
-                                  asp_plots
   --report_filename TEXT          PDF file to write out for report into the
                                   processing directory supplied by
                                   --directory. Default: Directory name of ASP

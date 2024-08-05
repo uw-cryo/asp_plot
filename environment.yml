@@ -19,5 +19,6 @@ dependencies:
   - click
   - geoutils
   - xdem
+  - sliderule
   - pip:
     - markdown-pdf
