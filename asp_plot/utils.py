@@ -1,13 +1,16 @@
 import glob
 import logging
 import os
+import subprocess
 
+import contextily as ctx
 import geoutils as gu
 import matplotlib.colors
 import matplotlib.image as mpimg
 import matplotlib.pyplot as plt
 import numpy as np
 import rasterio as rio
+import rioxarray
 from markdown_pdf import MarkdownPdf, Section
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from osgeo import gdal
@@ -117,19 +120,41 @@ def get_xml_tag(xml, tag, all=False):
     return elem
 
 
+def run_subprocess_command(command):
+    process = subprocess.Popen(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        bufsize=1,
+    )
+
+    for line in process.stdout:
+        print(line.strip())
+
+    process.stdout.close()
+    return_code = process.wait()
+    if return_code == 0:
+        print("\nCommand executed successfully.\n")
+    else:
+        print("\nCommand failed.\n")
+
+
 class ColorBar:
     def __init__(self, perc_range=(2, 98), symm=False):
         self.perc_range = perc_range
         self.symm = symm
+        self.clim = None
 
     def get_clim(self, input):
         try:
-            clim = np.percentile(input.compressed(), self.perc_range)
+            clim = np.nanpercentile(input.compressed(), self.perc_range)
         except:
-            clim = np.percentile(input, self.perc_range)
+            clim = np.nanpercentile(input, self.perc_range)
+        self.clim = clim
         if self.symm:
-            clim = self.symm_clim(clim)
-        return clim
+            self.clim = self.symm_clim()
+        return self.clim
 
     def find_common_clim(self, inputs):
         clims = []
@@ -140,12 +165,13 @@ class ColorBar:
         clim_min = np.min([clim[0] for clim in clims])
         clim_max = np.max([clim[1] for clim in clims])
         clim = (clim_min, clim_max)
+        self.clim = clim
         if self.symm:
-            clim = self.symm_clim(clim)
-        return clim
+            self.clim = self.symm_clim()
+        return self.clim
 
-    def symm_clim(self, clim):
-        abs_max = np.max(np.abs(clim))
+    def symm_clim(self):
+        abs_max = np.max(np.abs(self.clim))
         return (-abs_max, abs_max)
 
     def get_cbar_extend(self, input, clim=None):
@@ -159,6 +185,14 @@ class ColorBar:
         elif input.min() < clim[0] and input.max() <= clim[1]:
             extend = "min"
         return extend
+
+    def get_norm(self, lognorm=False):
+        vmin, vmax = self.clim
+        if lognorm:
+            norm = matplotlib.colors.LogNorm(vmin=vmin, vmax=vmax)
+        else:
+            norm = matplotlib.colors.Normalize(vmin=vmin, vmax=vmax)
+        return norm
 
 
 class Raster:
@@ -182,9 +216,32 @@ class Raster:
             ndv = self.ds.read(1, window=Window(0, 0, 1, 1)).squeeze()
         return ndv
 
+    def get_epsg_code(self):
+        epsg = self.ds.crs.to_epsg()
+        return epsg
+
     def get_gsd(self):
         gsd = self.ds.transform[0]
         return gsd
+
+    def get_bounds(self, latlon=True, json_format=True):
+        ds = rioxarray.open_rasterio(self.fn, masked=True).squeeze()
+        bounds = ds.rio.bounds()
+        if latlon:
+            epsg = self.get_epsg_code()
+            bounds = rio.warp.transform_bounds(f"EPSG:{epsg}", "EPSG:4326", *bounds)
+        if json_format:
+            min_lon, min_lat, max_lon, max_lat = bounds
+            region = [
+                {"lon": min_lon, "lat": min_lat},
+                {"lon": min_lon, "lat": max_lat},
+                {"lon": max_lon, "lat": max_lat},
+                {"lon": max_lon, "lat": min_lat},
+                {"lon": min_lon, "lat": min_lat},
+            ]
+            return region
+        else:
+            return bounds
 
     def hillshade(self):
         hs_fn = os.path.splitext(self.fn)[0] + "_hs.tif"
@@ -265,16 +322,20 @@ class Plotter:
         ax.set_title(self.title)
 
     def plot_geodataframe(
-        self, ax, gdf, column_name, clim=None, cmap="inferno", cbar_label=None
+        self,
+        ax,
+        gdf,
+        column_name,
+        clim=None,
+        cmap="inferno",
+        cbar_label=None,
+        **ctx_kwargs,
     ):
         if clim is None:
-            clim = self.cb.get_clim(gdf[column_name])
-        vmin, vmax = clim
-
-        if self.lognorm:
-            norm = matplotlib.colors.LogNorm(vmin=vmin, vmax=vmax)
+            self.cb.get_clim(gdf[column_name])
         else:
-            norm = matplotlib.colors.Normalize(vmin=vmin, vmax=vmax)
+            self.cb.clim = clim
+        norm = self.cb.get_norm(self.lognorm)
 
         gdf.plot(
             ax=ax,
@@ -285,3 +346,6 @@ class Plotter:
             legend=True,
             legend_kwds={"label": cbar_label},
         )
+
+        if ctx_kwargs:
+            ctx.add_basemap(ax=ax, **ctx_kwargs)
