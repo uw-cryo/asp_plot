@@ -1,3 +1,4 @@
+import geopandas as gpd
 import matplotlib
 import pytest
 
@@ -24,3 +25,21 @@ class TestAltimetry:
             pytest.fail(
                 f"pull_atl06sr() or filter_atl06sr() method raised an exception: {str(e)}"
             )
+
+    def test_plot_atl06sr(self, icesat):
+        try:
+            icesat.atl06sr_filtered = gpd.read_parquet(
+                "tests/test_data/icesat_data/atl06sr_defaults_filtered.parquet"
+            )
+            icesat.plot_atl06sr(filtered=True)
+        except Exception as e:
+            pytest.fail(f"plot_atl06sr() method raised an exception: {str(e)}")
+
+    def test_atl06sr_to_dem_dh(self, icesat):
+        try:
+            icesat.atl06sr_filtered = gpd.read_parquet(
+                "tests/test_data/icesat_data/atl06sr_defaults_filtered.parquet"
+            )
+            icesat.atl06sr_to_dem_dh()
+        except Exception as e:
+            pytest.fail(f"atl06sr_to_dem_dh() method raised an exception: {str(e)}")
