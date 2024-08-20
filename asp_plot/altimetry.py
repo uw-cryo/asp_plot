@@ -20,7 +20,7 @@ from asp_plot.utils import (
     save_figure,
 )
 
-# icesat2.init("slideruleearth.io", verbose=True)
+icesat2.init("slideruleearth.io", verbose=True)
 
 
 logging.basicConfig(level=logging.WARNING)
