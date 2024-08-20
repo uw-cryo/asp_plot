@@ -252,7 +252,6 @@ class Altimetry:
         if save_dir and fig_fn:
             save_figure(fig, save_dir, fig_fn)
 
-    # TODO: Add report of translation and stats from pc_align (parse log file and show)
     def pc_align_dem_to_atl06sr(
         self,
         max_displacement=20,
@@ -291,6 +290,35 @@ class Altimetry:
         ]
 
         run_subprocess_command(command)
+
+    def pc_align_report(self, pc_align_folder="pc_align"):
+        pc_align_log = glob_file(pc_align_folder, "*log-pc_align*.txt")
+
+        with open(pc_align_log, "r") as file:
+            content = file.readlines()
+
+        report = ""
+        for line in content:
+            if "Input: error percentile of smallest errors (meters):" in line:
+                report_line = line.split("[ console ] : ")[1]
+                report += report_line
+            if "Input: mean of smallest errors (meters):" in line:
+                report_line = line.split("[ console ] : ")[1]
+                report += report_line
+            if "Output: error percentile of smallest errors (meters):" in line:
+                report_line = line.split("[ console ] : ")[1]
+                report += report_line
+            if "Output: mean of smallest errors (meters):" in line:
+                report_line = line.split("[ console ] : ")[1]
+                report += report_line
+            if "Translation vector (Cartesian, meters):" in line:
+                report_line = line.split("[ console ] : ")[1]
+                report += report_line
+            if "Translation vector magnitude (meters):" in line:
+                report_line = line.split("[ console ] : ")[1]
+                report += report_line
+
+        return report
 
     def generate_translated_dem(self, pc_align_output, dem_out_fn):
         if not os.path.exists(pc_align_output):
@@ -351,34 +379,28 @@ class Altimetry:
         src_a = src.read_array()
         src_ndv = src.get_ndv()
 
-        # Extract info from input log
-        # These are coordinates of source points
-        ecef_centroid_str = "Centroid of source points (Cartesian, meters):"
-        llz_centroid_str = "Centroid of source points (lat,lon,z):"
-        ecef_shift_str = "Translation vector (Cartesian, meters):"
-        llz_shift_str = "Translation vector (lat,lon,z):"
-
         # Need to extract from log to know how to compute translation
         # if ref is csv and src is dem, want to transform source_center + shift
         # if ref is dem and src is csv, want to inverse transform ref by shift applied at (source_center - shift)
 
         llz_c = None
-        log = open(pc_align_log)
-        for line in log:
-            if ecef_centroid_str in line:
+        with open(pc_align_log, "r") as file:
+            content = file.readlines()
+
+        for line in content:
+            if "Centroid of source points (Cartesian, meters):" in line:
                 ecef_c = np.genfromtxt([line.split("Vector3")[1][1:-2]], delimiter=",")
-            if llz_centroid_str in line:
+            if "Centroid of source points (lat,lon,z):" in line:
                 llz_c = np.genfromtxt([line.split("Vector3")[1][1:-2]], delimiter=",")
-            if ecef_shift_str in line:
+            if "Translation vector (Cartesian, meters):" in line:
                 ecef_shift = np.genfromtxt(
                     [line.split("Vector3")[1][1:-2]], delimiter=","
                 )
-            if llz_shift_str in line:
+            if "Translation vector (lat,lon,z):" in line:
                 llz_shift = np.genfromtxt(
                     [line.split("Vector3")[1][1:-2]], delimiter=","
                 )
                 break
-        log.close()
 
         if llz_c is None:
             raise ValueError(
