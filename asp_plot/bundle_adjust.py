@@ -3,8 +3,10 @@ import os
 
 import geopandas as gpd
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 
+from asp_plot.stereopair_metadata_parser import StereopairMetadataParser
 from asp_plot.utils import ColorBar, Plotter, glob_file, save_figure
 
 logging.basicConfig(level=logging.WARNING)
@@ -37,7 +39,7 @@ class ReadBundleAdjustFiles:
         initial, final = paths
         return initial, final
 
-    def get_residuals_gdf(self, csv_path):
+    def get_residuals_gdf(self, csv_path, residuals_in_meters=True):
         cols = [
             "lon",
             "lat",
@@ -67,6 +69,15 @@ class ReadBundleAdjustFiles:
             ),
         )
 
+        if residuals_in_meters:
+            p = StereopairMetadataParser(self.directory).get_pair_dict()
+            mean_gsd = np.average(
+                [p["id1_dict"]["meanproductgsd"], p["id2_dict"]["meanproductgsd"]]
+            )
+            resid_gdf["mean_residual_meters"] = (
+                resid_gdf["mean_residual"].values * mean_gsd
+            )
+
         resid_gdf.filename = os.path.basename(csv_path)
         return resid_gdf
 
@@ -89,10 +100,12 @@ class ReadBundleAdjustFiles:
         geodiff_gdf.filename = os.path.basename(csv_path)
         return geodiff_gdf
 
-    def get_initial_final_residuals_gdfs(self):
+    def get_initial_final_residuals_gdfs(self, residuals_in_meters=True):
         resid_initial_path, resid_final_path = self.get_csv_paths()
-        resid_initial_gdf = self.get_residuals_gdf(resid_initial_path)
-        resid_final_gdf = self.get_residuals_gdf(resid_final_path)
+        resid_initial_gdf = self.get_residuals_gdf(
+            resid_initial_path, residuals_in_meters
+        )
+        resid_final_gdf = self.get_residuals_gdf(resid_final_path, residuals_in_meters)
         return resid_initial_gdf, resid_final_gdf
 
     def get_initial_final_geodiff_gdfs(self):
@@ -156,7 +169,7 @@ class PlotBundleAdjustFiles(Plotter):
     def plot_n_gdfs(
         self,
         column_name="mean_residual",
-        cbar_label="Mean Residual (m)",
+        cbar_label="Mean residual (px)",
         clip_final=True,
         clim=None,
         common_clim=True,

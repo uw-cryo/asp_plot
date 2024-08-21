@@ -112,7 +112,7 @@ def main(
 
     plotter.plot_n_gdfs(
         column_name="mean_residual",
-        cbar_label="Mean Residual (m)",
+        cbar_label="Mean residual (px)",
         map_crs=map_crs,
         save_dir=plots_directory,
         fig_fn=f"{next(figure_counter):02}.png",
@@ -124,7 +124,7 @@ def main(
 
     plotter.plot_n_gdfs(
         column_name="mean_residual",
-        cbar_label="Mean Residual (m)",
+        cbar_label="Mean residual (px)",
         common_clim=False,
         map_crs=map_crs,
         save_dir=plots_directory,

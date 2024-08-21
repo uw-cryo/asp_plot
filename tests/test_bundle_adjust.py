@@ -21,7 +21,9 @@ class TestBundleAdjust:
         assert isinstance(resid_final, gpd.GeoDataFrame)
 
     def test_get_initial_final_geodiff_gdfs(self, ba_files):
-        geodiff_initial, geodiff_final = ba_files.get_initial_final_geodiff_gdfs()
+        geodiff_initial, geodiff_final = ba_files.get_initial_final_residuals_gdfs(
+            residuals_in_meters=True
+        )
         assert isinstance(geodiff_initial, gpd.GeoDataFrame)
         assert isinstance(geodiff_final, gpd.GeoDataFrame)
 
