@@ -10,7 +10,7 @@ import numpy as np
 import rioxarray
 import xarray as xr
 from osgeo import gdal, osr
-from sliderule import icesat2
+from sliderule import icesat2, sliderule
 
 from asp_plot.utils import (
     ColorBar,
@@ -20,8 +20,7 @@ from asp_plot.utils import (
     save_figure,
 )
 
-icesat2.init("slideruleearth.io", verbose=True)
-
+sliderule.init("slideruleearth.io", verbose=True)
 
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
