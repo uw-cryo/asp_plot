@@ -1,3 +1,4 @@
+# copied from orbit_plot.py in the ASP
 import glob
 import json
 import math
