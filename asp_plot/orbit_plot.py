@@ -1,4 +1,9 @@
-# copied from orbit_plot.py in the ASP
+#
+# Methods below copied from orbit_plot.py in the ASP source code on 15-Aug-2024:
+# https://github.com/NeoGeographyToolkit/StereoPipeline/blob/master/src/asp/Tools/orbit_plot.py
+# Unedited from source code and used in `notebooks/orbit_plot_experiments.ipynb` by B. Purinton
+# via `from asp_plot.orbit_plot import *`
+#
 import glob
 import json
 import math
