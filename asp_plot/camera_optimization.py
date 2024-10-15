@@ -172,7 +172,7 @@ def summary_plot_two_camera_optimization(
     cam1_list,
     cam2_list,
     map_crs,
-    title,
+    title="Title",
     trim=False,
     trim_percentage=10,
     near_zero_tolerance=1e-8,
