@@ -176,12 +176,13 @@ def summary_plot_two_camera_optimization(
     trim=False,
     trim_percentage=10,
     near_zero_tolerance=1e-8,
-    shared_scales=True,
-    log_scale_positions=True,
-    log_scale_angles=True,
+    shared_scales=False,
+    log_scale_positions=False,
+    log_scale_angles=False,
     upper_magnitude_percentile=95,
     figsize=(16, 12),
-    ctx_kwargs=None,
+    add_basemap=False,
+    **ctx_kwargs,
 ):
 
     original_camera1, optimized_camera1 = cam1_list
@@ -303,7 +304,7 @@ def summary_plot_two_camera_optimization(
     ax.tick_params(labelsize=9)
     ax.set_xlabel("Easting (m)", fontsize=9)
     ax.set_ylabel("Northing (m)", fontsize=9)
-    if ctx_kwargs is not None:
+    if add_basemap:
         ctx.add_basemap(ax=ax, **ctx_kwargs)
     sm1 = ScalarMappable(
         norm=Normalize(vmin=cam1_position_vmin, vmax=cam1_position_vmax), cmap="viridis"
@@ -328,7 +329,7 @@ def summary_plot_two_camera_optimization(
     ax.tick_params(labelsize=9)
     ax.set_xlabel("Easting (m)", fontsize=9)
     ax.set_ylabel("Northing (m)", fontsize=9)
-    if ctx_kwargs is not None:
+    if add_basemap:
         ctx.add_basemap(ax=ax, **ctx_kwargs)
     sm2 = ScalarMappable(
         norm=Normalize(vmin=cam1_angular_vmin, vmax=cam1_angular_vmax), cmap="inferno"
@@ -481,7 +482,7 @@ def summary_plot_two_camera_optimization(
     ax.tick_params(labelsize=9)
     ax.set_xlabel("Easting (m)", fontsize=9)
     ax.set_ylabel("Northing (m)", fontsize=9)
-    if ctx_kwargs is not None:
+    if add_basemap:
         ctx.add_basemap(ax=ax, **ctx_kwargs)
     sm1 = ScalarMappable(
         norm=Normalize(vmin=cam1_position_vmin, vmax=cam1_position_vmax), cmap="viridis"
@@ -506,7 +507,7 @@ def summary_plot_two_camera_optimization(
     ax.tick_params(labelsize=9)
     ax.set_xlabel("Easting (m)", fontsize=9)
     ax.set_ylabel("Northing (m)", fontsize=9)
-    if ctx_kwargs is not None:
+    if add_basemap:
         ctx.add_basemap(ax=ax, **ctx_kwargs)
     sm2 = ScalarMappable(
         norm=Normalize(vmin=cam1_angular_vmin, vmax=cam1_angular_vmax), cmap="inferno"
