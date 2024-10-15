@@ -13,6 +13,8 @@ from pyproj import Transformer
 from scipy.spatial.transform import Rotation as R
 from shapely.geometry import Point
 
+from asp_plot.utils import save_figure
+
 
 def reproject_ecef(positions, to_epsg=4326):
     transformer = Transformer.from_crs("EPSG:4978", f"EPSG:{to_epsg}")
@@ -181,6 +183,8 @@ def summary_plot_two_camera_optimization(
     log_scale_angles=False,
     upper_magnitude_percentile=95,
     figsize=(16, 12),
+    save_dir=None,
+    fig_fn=None,
     add_basemap=False,
     **ctx_kwargs,
 ):
@@ -662,6 +666,8 @@ def summary_plot_two_camera_optimization(
     )
 
     plt.tight_layout()
+    if save_dir and fig_fn:
+        save_figure(fig, save_dir, fig_fn)
 
 
 #
