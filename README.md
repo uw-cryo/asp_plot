@@ -25,18 +25,32 @@ During the `stereo` or `parallel_stereo` steps at the heart of the Ames Stereo P
 
 Not all of those files are used in the plotting, but all are useful for re-processing and detailed analyses.
 
-## Install via pip
+## Installation
+
+To get started with `asp_plot`, [find the `environment.yml` file here](https://github.com/uw-cryo/asp_plot/blob/main/environment.yml), download it locally, and create a conda environment:
 
 ```
-pip install asp-plot
+$ conda env create -f environment.yml
+```
+
+Then activate the environment:
+
+```
+$ conda activate asp_plot
+```
+
+And finally, install the `asp_plot` package and CLI tools with pip:
+
+```
+(asp_plot) $ pip install asp-plot
 ```
 
 ## Notebook example usage
 
-Examples of the modular usage of the package can be found in the `notebooks/` directory.
+Examples of the modular usage of the package can be found in the [`notebooks/` directory here](https://github.com/uw-cryo/asp_plot/tree/main/notebooks).
 
 
-## CLI usage
+## CLI usage: `asp_plot`
 
 A full report and individual plots can be output via the command-line:
 
@@ -73,6 +87,73 @@ Options:
                                   name of ASP processing
 ```
 
+## CLI usage: `camera_optimization`
+
+The `camera_optimization` command-line tool is a wrapper for outputting a summary plot after running tools like `bundle_adjust` and `jitter_solve`.
+
+At its simplest is can be run like:
+
+```
+$ camera_optimization --original_cameras path/to/original_camera_1,path/to/original_camera_2 \
+                      --optimized_cameras path/to/optimized_camera_1,path/to/optimized_camera_2
+```
+
+But, for more meaningful positions we at least recommend specifying a `map_crs` UTM EPSG code, and a directory to save the output figure to:
+
+```
+$ camera_optimization --original_cameras path/to/original_camera_1,path/to/original_camera_2 \
+                      --optimized_cameras path/to/optimized_camera_1,path/to/optimized_camera_2 \
+                      --map_crs 32728
+                      --save_dir path/to/save_directory/
+```
+
+And there are many more options that can also be modified, by examining `camera_optimization --help`:
+
+```
+ $ camera_optimization --help
+Usage: camera_optimization [OPTIONS]
+
+Options:
+  --original_cameras TEXT         Original camera files, supplied as comma
+                                  separated list 'path/to/original_camera_1,path/to/original_camera_2'.
+                                  No default. Must be supplied.
+  --optimized_cameras TEXT        Optimized camera files, supplied as comma
+                                  separated list 'path/to/optimized_camera_1,path/to/optimized_camera_2'.
+                                  No default. Must be supplied.
+  --map_crs TEXT                  UTM EPSG code for map projection. If not
+                                  supplied, the map will be plotted in
+                                  original camera coordinates of EPSG:4978
+                                  (ECEF).
+  --title TEXT                    Optional short title to append to figure
+                                  output. Default: None
+  --trim BOOLEAN                  Trim the beginning and end of the
+                                  geodataframes. Default: False
+  --near_zero_tolerance FLOAT     If trim is True, the tolerance for near zero
+                                  values of the camera position differences to
+                                  trim from the beginning and end. Default:
+                                  1e-3
+  --trim_percentage INTEGER       If trim is ture, the extra percentage of the
+                                  camera positions to trim from the beginning
+                                  and end. Default: 5
+  --shared_scales BOOLEAN         If True, the position and angle difference
+                                  scales are shared between for each camera.
+                                  Default: False
+  --log_scale_positions BOOLEAN   If True, the position difference scales are
+                                  log scaled. Default: False
+  --log_scale_angles BOOLEAN      If True, the angle difference scales are log
+                                  scaled. Default: False
+  --upper_magnitude_percentile INTEGER
+                                  Percentile to use for the upper limit of the
+                                  mapview colorbars. Default: 95
+  --figsize TEXT                  Figure size as width,height. Default: 20,15
+  --save_dir TEXT                 Directory to save the figure. Default: None,
+                                  which does not save the figure.
+  --fig_fn TEXT                   Figure filename. Default:
+                                  camera_optimization_summary_plot.png.
+  --add_basemap BOOLEAN           If True, add a contextily basemap to the
+                                  figure, which requires internet connection.
+                                  Default: False
+```
 
 ## Development
 

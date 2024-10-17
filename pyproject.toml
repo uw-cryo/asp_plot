@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "asp_plot"
-version = "0.3.0"
+version = "0.4.0"
 authors = [
   { name="Ben Purinton", email="purinton@uw.edu" },
 ]
@@ -19,6 +19,7 @@ classifiers = [
 
 [project.scripts]
 asp_plot = "asp_plot.cli.asp_plot:main"
+camera_optimization = "asp_plot.cli.camera_optimization:main"
 
 [project.urls]
 Homepage = "https://github.com/uw-cryo/asp_plot"
