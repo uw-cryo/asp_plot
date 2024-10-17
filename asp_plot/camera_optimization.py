@@ -22,7 +22,7 @@ def reproject_ecef(positions, to_epsg=4326):
     return np.column_stack((x, y, z))
 
 
-def get_orbit_plot_gdf(original_camera, optimized_camera, map_crs):
+def get_orbit_plot_gdf(original_camera, optimized_camera, map_crs=None):
     """
     Get a GeoDataFrame for plotting the difference between the original and optimized camera positions and rotations.
     Methods largely taken from orbit_plot.py in StereoPipeline, but modified to return the data we want for plotting.
@@ -97,8 +97,12 @@ def get_orbit_plot_gdf(original_camera, optimized_camera, map_crs):
     angular_diff_magnitudes = np.sqrt(roll_diff**2 + pitch_diff**2 + yaw_diff**2)
 
     # Reproject positions from ECEF to map_crs
-    original_positions = reproject_ecef(original_positions_ecef, to_epsg=map_crs)
-    optimized_positions = reproject_ecef(optimized_positions_ecef, to_epsg=map_crs)
+    if map_crs:
+        original_positions = reproject_ecef(original_positions_ecef, to_epsg=map_crs)
+        optimized_positions = reproject_ecef(optimized_positions_ecef, to_epsg=map_crs)
+    else:
+        original_positions = original_positions_ecef
+        optimized_positions = optimized_positions_ecef
 
     # Calculate the difference between the original and optimized positions
     position_diffs = original_positions - optimized_positions
@@ -130,9 +134,12 @@ def get_orbit_plot_gdf(original_camera, optimized_camera, map_crs):
     }
     df = pd.DataFrame(data)
     gdf = gpd.GeoDataFrame(df, geometry="original_positions")
-    gdf.set_crs(epsg=map_crs, inplace=True)
-    # If we wanted to keep things in ECEF
-    # gdf.set_crs(epsg="4978", inplace=True);
+
+    if map_crs:
+        gdf.set_crs(epsg=map_crs, inplace=True)
+    else:
+        gdf.set_crs(epsg=4978, inplace=True)
+
     return gdf
 
 
@@ -173,7 +180,7 @@ def plot_stats_text(ax, mean, std):
 def summary_plot_two_camera_optimization(
     cam1_list,
     cam2_list,
-    map_crs,
+    map_crs=None,
     title=None,
     trim=False,
     trim_percentage=5,
@@ -193,8 +200,14 @@ def summary_plot_two_camera_optimization(
     original_camera2, optimized_camera2 = cam2_list
     cam1_name = os.path.basename(original_camera1).split(".")[0]
     cam2_name = os.path.basename(original_camera2).split(".")[0]
-    gdf_cam1 = get_orbit_plot_gdf(original_camera1, optimized_camera1, map_crs)
-    gdf_cam2 = get_orbit_plot_gdf(original_camera2, optimized_camera2, map_crs)
+    gdf_cam1 = get_orbit_plot_gdf(original_camera1, optimized_camera1, map_crs=map_crs)
+    gdf_cam2 = get_orbit_plot_gdf(original_camera2, optimized_camera2, map_crs=map_crs)
+
+    if not map_crs and add_basemap:
+        print(
+            "\nWarning: Basemap will not be added to the plot because UTM map_crs is not provided.\n"
+        )
+        add_basemap = False
 
     # Trim the beginning and end of the geodataframes
     if trim:
@@ -661,15 +674,20 @@ def summary_plot_two_camera_optimization(
             spine.set_color("#A9A9A9")
 
     if title:
-        fig.suptitle(
-            f"{title}: Position and Angle Changes for Camera 1 ({cam1_name}) and Camera 2 ({cam2_name})\n(original positions in ECEF, projected here to UTM)",
-            fontsize=12,
+        title_text = f"{title}: Position and Angle Changes for Camera 1 ({cam1_name}) and Camera 2 ({cam2_name})"
+    else:
+        title_text = f"Position and Angle Changes for Camera 1 ({cam1_name}) and Camera 2 ({cam2_name})"
+    if map_crs:
+        title_text += (
+            f"\n(original positions in ECEF, projected here to UTM EPSG:{map_crs})"
         )
     else:
-        fig.suptitle(
-            f"Position and Angle Changes for Camera 1 ({cam1_name}) and Camera 2 ({cam2_name})\n(original positions in ECEF, projected here to UTM)",
-            fontsize=12,
-        )
+        title_text += "\n(original positions in ECEF)"
+
+    fig.suptitle(
+        title_text,
+        fontsize=12,
+    )
 
     plt.tight_layout()
     if save_dir and fig_fn:

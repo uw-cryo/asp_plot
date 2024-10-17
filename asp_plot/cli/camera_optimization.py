@@ -19,10 +19,10 @@ from asp_plot.camera_optimization import summary_plot_two_camera_optimization
 )
 @click.option(
     "--map_crs",
-    prompt=True,
-    default="",
-    help="UTM EPSG code for map projection. No default. Must be supplied.",
-)  # TODO: make default false and plot in ECEF, fix plot title in that case
+    prompt=False,
+    default=None,
+    help="UTM EPSG code for map projection. If not supplied, the map will be plotted in original camera coordinates of EPSG:4978 (ECEF).",
+)
 @click.option(
     "--title",
     prompt=False,
