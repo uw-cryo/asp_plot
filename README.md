@@ -91,7 +91,7 @@ Options:
 
 The `camera_optimization` command-line tool is a wrapper for outputting a summary plot after running tools like `bundle_adjust` and `jitter_solve`.
 
-At its simplest is can be run like:
+At its simplest it can be run like:
 
 ```
 $ camera_optimization --original_cameras path/to/original_camera_1,path/to/original_camera_2 \
