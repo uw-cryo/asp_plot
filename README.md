@@ -47,7 +47,7 @@ And finally, install the `asp_plot` package and CLI tools with pip:
 
 ## Notebook example usage
 
-Examples of the modular usage of the package can be found in the `notebooks/` directory.
+Examples of the modular usage of the package can be found in the [`notebooks/` directory here](https://github.com/uw-cryo/asp_plot/tree/main/notebooks).
 
 
 ## CLI usage: `asp_plot`
