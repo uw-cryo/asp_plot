@@ -9,5 +9,10 @@ setup(
     author="Ben Purinton",
     author_email="purinton@uw.edu",
     packages=find_packages(),
-    entry_points={"console_scripts": ["asp_plot=asp_plot.cli.asp_plot:main"]},
+    entry_points={
+        "console_scripts": [
+            "asp_plot=asp_plot.cli.asp_plot:main",
+            "camera_optimization=asp_plot.cli.camera_optimization:main",
+        ]
+    },
 )

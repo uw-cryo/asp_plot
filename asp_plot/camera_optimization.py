@@ -174,15 +174,15 @@ def summary_plot_two_camera_optimization(
     cam1_list,
     cam2_list,
     map_crs,
-    title="Title",
+    title=None,
     trim=False,
-    trim_percentage=10,
-    near_zero_tolerance=1e-8,
+    trim_percentage=5,
+    near_zero_tolerance=1e-3,
     shared_scales=False,
     log_scale_positions=False,
     log_scale_angles=False,
     upper_magnitude_percentile=95,
-    figsize=(16, 12),
+    figsize=(20, 15),
     save_dir=None,
     fig_fn=None,
     add_basemap=False,
@@ -660,14 +660,22 @@ def summary_plot_two_camera_optimization(
             spine.set_linewidth(2)
             spine.set_color("#A9A9A9")
 
-    fig.suptitle(
-        f"{title}: Position and Angle Changes for Camera 1 ({cam1_name}) and Camera 2 ({cam2_name})\n(original positions in ECEF, projected here to UTM)",
-        fontsize=12,
-    )
+    if title:
+        fig.suptitle(
+            f"{title}: Position and Angle Changes for Camera 1 ({cam1_name}) and Camera 2 ({cam2_name})\n(original positions in ECEF, projected here to UTM)",
+            fontsize=12,
+        )
+    else:
+        fig.suptitle(
+            f"Position and Angle Changes for Camera 1 ({cam1_name}) and Camera 2 ({cam2_name})\n(original positions in ECEF, projected here to UTM)",
+            fontsize=12,
+        )
 
     plt.tight_layout()
     if save_dir and fig_fn:
         save_figure(fig, save_dir, fig_fn)
+
+    plt.show()
 
 
 #
