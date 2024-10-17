@@ -7,6 +7,7 @@ class TestImports:
     def test_import_asp_plot_modules(self):
         import asp_plot.altimetry
         import asp_plot.bundle_adjust
+        import asp_plot.camera_optimization
         import asp_plot.processing_parameters
         import asp_plot.scenes
         import asp_plot.stereopair_metadata_parser
@@ -16,6 +17,7 @@ class TestImports:
         assert asp_plot.stereopair_metadata_parser is not None
         assert asp_plot.scenes is not None
         assert asp_plot.processing_parameters is not None
+        assert asp_plot.camera_optimization is not None
         assert asp_plot.bundle_adjust is not None
         assert asp_plot.altimetry is not None
 
