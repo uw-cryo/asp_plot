@@ -17,6 +17,16 @@ from asp_plot.utils import save_figure
 
 
 def reproject_ecef(positions, to_epsg=4326):
+    """
+    Reproject a set of ECEF (Earth-Centered, Earth-Fixed) coordinates to a specified EPSG coordinate system.
+
+    Args:
+        positions (numpy.ndarray): A 2D array of ECEF coordinates, where each row represents a point.
+        to_epsg (int): The EPSG code of the target coordinate system to reproject to. Defaults to 4326 (WGS84).
+
+    Returns:
+        numpy.ndarray: A 2D array of reprojected coordinates in the target EPSG coordinate system.
+    """
     transformer = Transformer.from_crs("EPSG:4978", f"EPSG:{to_epsg}")
     x, y, z = transformer.transform(positions[:, 0], positions[:, 1], positions[:, 2])
     return np.column_stack((x, y, z))
@@ -24,8 +34,30 @@ def reproject_ecef(positions, to_epsg=4326):
 
 def get_orbit_plot_gdf(original_camera, optimized_camera, map_crs=None):
     """
-    Get a GeoDataFrame for plotting the difference between the original and optimized camera positions and rotations.
-    Methods largely taken from orbit_plot.py in StereoPipeline, but modified to return the data we want for plotting.
+    Get a GeoDataFrame containing the original and optimized camera positions, as well as the differences between them.
+
+    Args:
+        original_camera (list): A list containing the original cameras.
+        optimized_camera (list): A list containing the optimized cameras.
+        map_crs (int, optional): The EPSG code of the target coordinate system to reproject the camera positions to. If not provided, the positions will be returned in ECEF coordinates.
+
+    Returns:
+        geopandas.GeoDataFrame: A GeoDataFrame containing the following columns:
+            - original_positions: A shapely.geometry.Point for each original camera position.
+            - position_diff_magnitude: The magnitude of the difference between the original and optimized camera positions.
+            - x_position_diff: The difference in the x-coordinate between the original and optimized camera positions.
+            - y_position_diff: The difference in the y-coordinate between the original and optimized camera positions.
+            - z_position_diff: The difference in the z-coordinate between the original and optimized camera positions.
+            - angular_diff_magnitude: The magnitude of the difference between the original and optimized camera rotation angles.
+            - original_roll: The roll angle of the original camera.
+            - original_pitch: The pitch angle of the original camera.
+            - original_yaw: The yaw angle of the original camera.
+            - optimized_roll: The roll angle of the optimized camera.
+            - optimized_pitch: The pitch angle of the optimized camera.
+            - optimized_yaw: The yaw angle of the optimized camera.
+            - roll_diff: The difference in roll angle between the original and optimized cameras.
+            - pitch_diff: The difference in pitch angle between the original and optimized cameras.
+            - yaw_diff: The difference in yaw angle between the original and optimized cameras.
     """
     # orbit_plot.py method to get angles in NED
     # https://github.com/NeoGeographyToolkit/StereoPipeline/blob/master/src/asp/Tools/orbit_plot.py#L412
@@ -143,7 +175,18 @@ def get_orbit_plot_gdf(original_camera, optimized_camera, map_crs=None):
     return gdf
 
 
-def trim_gdf(gdf, trim_percentage=10, near_zero_tolerance=1e-8):
+def trim_gdf(gdf, near_zero_tolerance=1e-8, trim_percentage=10):
+    """
+    Trims a GeoDataFrame by removing the first and last entries that have a position difference magnitude close to zero.
+
+    Args:
+        gdf (gpd.GeoDataFrame): The GeoDataFrame to be trimmed.
+        near_zero_tolerance (float, optional): The tolerance value for considering a position difference magnitude as close to zero. Defaults to 1e-8.
+        trim_percentage (float, optional): Any additional percentage of the total length to trim from the start and end. Defaults to 10.
+
+    Returns:
+        gpd.GeoDataFrame: The trimmed GeoDataFrame.
+    """
     non_zero_indices = np.where(
         np.abs(gdf.position_diff_magnitude) > near_zero_tolerance
     )[0]
@@ -161,10 +204,32 @@ def trim_gdf(gdf, trim_percentage=10, near_zero_tolerance=1e-8):
 
 
 def format_stat_value(value):
+    """
+    Formats a numeric value as a string with appropriate precision.
+
+    If the absolute value of the input value is less than 0.01, the value is formatted using scientific notation with 2 decimal places. Otherwise, the value is formatted as a fixed-point number with 2 decimal places.
+
+    Args:
+        value (float): The numeric value to be formatted.
+
+    Returns:
+        str: The formatted string representation of the input value.
+    """
     return f"{value:.2e}" if abs(value) < 0.01 else f"{value:.2f}"
 
 
 def plot_stats_text(ax, mean, std):
+    """
+    Plots a text annotation on the given axis displaying the mean and standard deviation of a value.
+
+    Args:
+        ax (matplotlib.axes.Axes): The axis on which to plot the text annotation.
+        mean (float): The mean value to display.
+        std (float): The standard deviation value to display.
+
+    Returns:
+        None
+    """
     stats_text = f"{format_stat_value(mean)} ± {format_stat_value(std)} m"
     ax.text(
         0.05,
@@ -183,8 +248,8 @@ def summary_plot_two_camera_optimization(
     map_crs=None,
     title=None,
     trim=False,
-    trim_percentage=5,
     near_zero_tolerance=1e-3,
+    trim_percentage=5,
     shared_scales=False,
     log_scale_positions=False,
     log_scale_angles=False,
@@ -195,6 +260,30 @@ def summary_plot_two_camera_optimization(
     add_basemap=False,
     **ctx_kwargs,
 ):
+    """
+    Generates a summary plot comparing the position and angle changes between the original and optimized camera parameters for two cameras.
+
+    Args:
+        cam1_list (list): A list containing the original and optimized camera files for the first camera.
+        cam2_list (list): A list containing the original and optimized camera files for the second camera.
+        map_crs (int, optional): The EPSG code for the coordinate reference system to use for the map plots. If not provided, the plots will use the original ECEF coordinates.
+        title (str, optional): An additional descriptive title to append to the overall plot title containing the camera names.
+        trim (bool, optional): Whether to trim the beginning and end of the data to remove near-zero values.
+        near_zero_tolerance (float, optional): The tolerance value for considering a value to be near zero if `trim` is True.
+        trim_percentage (float, optional): The additional percentage of data to trim from the beginning and end if `trim` is True.
+        shared_scales (bool, optional): Whether to use shared y-axis scales for the position and angle difference plots.
+        log_scale_positions (bool, optional): Whether to use a logarithmic scale for the position difference plots.
+        log_scale_angles (bool, optional): Whether to use a logarithmic scale for the angle difference plots.
+        upper_magnitude_percentile (int, optional): The upper percentile to use for the colorbar ranges for the mapview plots.
+        figsize (tuple, optional): The size of the figure to generate.
+        save_dir (str, optional): The directory to save the generated figure to.
+        fig_fn (str, optional): The filename to use for the saved figure.
+        add_basemap (bool, optional): Whether to add a basemap to the map plots.
+        **ctx_kwargs: Additional keyword arguments to pass to the `ctx.add_basemap` function.
+
+    Returns:
+        None
+    """
 
     original_camera1, optimized_camera1 = cam1_list
     original_camera2, optimized_camera2 = cam2_list
@@ -213,13 +302,13 @@ def summary_plot_two_camera_optimization(
     if trim:
         gdf_cam1 = trim_gdf(
             gdf_cam1,
-            trim_percentage=trim_percentage,
             near_zero_tolerance=near_zero_tolerance,
+            trim_percentage=trim_percentage,
         )
         gdf_cam2 = trim_gdf(
             gdf_cam2,
-            trim_percentage=trim_percentage,
             near_zero_tolerance=near_zero_tolerance,
+            trim_percentage=trim_percentage,
         )
 
     # Calculate colorbar ranges
