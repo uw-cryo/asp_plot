@@ -25,10 +25,24 @@ During the `stereo` or `parallel_stereo` steps at the heart of the Ames Stereo P
 
 Not all of those files are used in the plotting, but all are useful for re-processing and detailed analyses.
 
-## Install via pip
+## Installation
+
+To get started with `asp_plot`, [find the `environment.yml` file here](https://github.com/uw-cryo/asp_plot/blob/main/environment.yml), download it locally, and create a conda environment:
 
 ```
-pip install asp-plot
+$ conda env create -f environment.yml
+```
+
+Then activate the environment:
+
+```
+$ conda activate asp_plot
+```
+
+And finally, install the `asp_plot` package and CLI tools with pip:
+
+```
+(asp_plot) $ pip install asp-plot
 ```
 
 ## Notebook example usage
