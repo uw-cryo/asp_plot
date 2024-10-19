@@ -331,32 +331,25 @@ class StereoPlotter(Plotter):
             np.argmin(np.abs(block_variances - upper)), block_variances.shape
         )
 
-        # Add red boxes outlining the three areas
-        titles = ["Lower Int. Err.", "Middle Int. Err.", "Upper Int. Err."]
+        # Define distinct colors for the rectangles and subplot axes
+        rect_colors = ["magenta", "cyan", "orange"]
+
+        # Add colored boxes outlining the three areas
         percentiles_idx = [lower_idx, middle_idx, upper_idx]
-        for idx, title in zip(percentiles_idx, titles):
+        for idx, color in zip(percentiles_idx, rect_colors):
             rect = plt.Rectangle(
                 (idx[1] * subset_size, idx[0] * subset_size),
                 subset_size,
                 subset_size,
                 fill=False,
-                edgecolor="red",
-                linewidth=2,
+                edgecolor=color,
+                linewidth=4,
             )
             ax_top.add_patch(rect)
-            ax_top.text(
-                idx[1] * subset_size + subset_size / 2,
-                idx[0] * subset_size + subset_size / 2,
-                title,
-                color="red",
-                ha="center",
-                va="center",
-                bbox=dict(facecolor="white", alpha=0.7, edgecolor="none", pad=3),
-            )
 
         # Plot subsets
         axes = [ax_bottom_left, ax_bottom_middle, ax_bottom_right]
-        for ax, idx, title in zip(axes, percentiles_idx, titles):
+        for ax, idx, color in zip(axes, percentiles_idx, rect_colors):
             hs_subset = hs[
                 idx[0] * subset_size : (idx[0] + 1) * subset_size,
                 idx[1] * subset_size : (idx[1] + 1) * subset_size,
@@ -375,7 +368,10 @@ class StereoPlotter(Plotter):
             )
             ax.set_xticks([])
             ax.set_yticks([])
-            ax.set_title(f"{title}")
+            ax.set_title(None)
+            for spine in ax.spines.values():
+                spine.set_color(color)
+                spine.set_linewidth(4)
             scalebar = ScaleBar(gsd)
             ax.add_artist(scalebar)
 
