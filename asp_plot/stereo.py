@@ -1,6 +1,7 @@
 import logging
 import os
 
+import matplotlib.gridspec as gridspec
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -236,6 +237,133 @@ class StereoPlotter(Plotter):
                     verticalalignment="center",
                     transform=ax.transAxes,
                 )
+
+        fig.tight_layout()
+        if save_dir and fig_fn:
+            save_figure(fig, save_dir, fig_fn)
+
+    def plot_detailed_hillshade(self, el_clim=None, save_dir=None, fig_fn=None):
+        # Set up the plot
+        fig = plt.figure(figsize=(15, 15), dpi=220)
+        gs = gridspec.GridSpec(2, 3, height_ratios=[2, 1])
+
+        # Create the large top plot
+        ax_top = fig.add_subplot(gs[0, :])
+
+        # Create the three smaller bottom plots
+        ax_bottom_left = fig.add_subplot(gs[1, 0])
+        ax_bottom_middle = fig.add_subplot(gs[1, 1])
+        ax_bottom_right = fig.add_subplot(gs[1, 2])
+
+        # Get the data
+        raster = Raster(self.dem_fn)
+        dem = raster.read_array()
+        gsd = raster.get_gsd()
+        hs = raster.hillshade()
+        ie = Raster(self.intersection_error_fn).read_array()
+
+        # Full hillshade with DEM overlay
+        self.plot_array(ax=ax_top, array=hs, cmap="gray", add_cbar=False)
+        self.plot_array(
+            ax=ax_top,
+            array=dem,
+            clim=el_clim,
+            cmap="viridis",
+            cbar_label="Elevation (m HAE)",
+            alpha=0.5,
+        )
+        ax_top.set_title("Stereo DEM")
+        scalebar = ScaleBar(gsd)
+        ax_top.add_artist(scalebar)
+
+        # 1x1 km in pixels
+        subset_size = int(1000 / gsd)
+
+        # Calculate the number of full windows in each dimension
+        rows, cols = ie.shape
+        n_rows = rows // subset_size
+        n_cols = cols // subset_size
+
+        # Trim the array to fit an integer number of windows
+        ie_trimmed = ie[: n_rows * subset_size, : n_cols * subset_size]
+
+        # Reshape the array into non-overlapping blocks
+        blocks = ie_trimmed.reshape(n_rows, subset_size, n_cols, subset_size).swapaxes(
+            1, 2
+        )
+
+        # Calculate variance for each block
+        block_variances = np.ma.var(blocks, axis=(2, 3))
+
+        # Use the compressed array to calculate percentiles
+        compressed_variances = block_variances.compressed()
+
+        # Calculate the percentiles
+        lower_16th = np.percentile(compressed_variances, 16)
+        median = np.percentile(compressed_variances, 50)
+        upper_84th = np.percentile(compressed_variances, 84)
+
+        # Find the indices of the blocks closest to these percentiles
+        lower_16th_idx = np.unravel_index(
+            np.argmin(np.abs(block_variances - lower_16th)), block_variances.shape
+        )
+        median_idx = np.unravel_index(
+            np.argmin(np.abs(block_variances - median)), block_variances.shape
+        )
+        upper_84th_idx = np.unravel_index(
+            np.argmin(np.abs(block_variances - upper_84th)), block_variances.shape
+        )
+
+        # Add red boxes outlining the three areas
+        titles = ["16th", "50th", "84th"]
+        percentiles_idx = [lower_16th_idx, median_idx, upper_84th_idx]
+        for idx, title in zip(percentiles_idx, titles):
+            rect = plt.Rectangle(
+                (idx[1] * subset_size, idx[0] * subset_size),
+                subset_size,
+                subset_size,
+                fill=False,
+                edgecolor="red",
+                linewidth=2,
+            )
+            ax_top.add_patch(rect)
+            ax_top.text(
+                idx[1] * subset_size + subset_size / 2,
+                idx[0] * subset_size + subset_size / 2,
+                title,
+                color="red",
+                ha="center",
+                va="center",
+            )
+
+        def plot_subset(ax, idx):
+            hs_subset = hs[
+                idx[0] * subset_size : (idx[0] + 1) * subset_size,
+                idx[1] * subset_size : (idx[1] + 1) * subset_size,
+            ]
+            dem_subset = dem[
+                idx[0] * subset_size : (idx[0] + 1) * subset_size,
+                idx[1] * subset_size : (idx[1] + 1) * subset_size,
+            ]
+
+            self.plot_array(ax=ax, array=hs_subset, cmap="gray", add_cbar=False)
+            self.plot_array(
+                ax=ax,
+                array=dem_subset,
+                clim=el_clim,
+                cmap="viridis",
+                cbar_label="Elevation (m HAE)",
+                alpha=0.5,
+            )
+            ax.set_xticks([])
+            ax.set_yticks([])
+
+        # Plot subsets
+        axes = [ax_bottom_left, ax_bottom_middle, ax_bottom_right]
+        for ax, idx, title in zip(axes, percentiles_idx, titles):
+            plot_subset(ax, idx)
+            ax.set_title(f"{title} perc. Intersection Error")
+            # ax.add_artist(scalebar)
 
         fig.tight_layout()
         if save_dir and fig_fn:
