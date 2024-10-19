@@ -382,7 +382,10 @@ class StereoPlotter(Plotter):
                 cbar_label="Elevation (m HAE)",
                 alpha=0.5,
             )
-            self.plot_array(ax=ax_img, array=image_subset, cmap="gray", add_cbar=False)
+            clim = [image_subset.min(), np.percentile(image_subset, 95)]
+            self.plot_array(
+                ax=ax_img, array=image_subset, clim=clim, cmap="gray", add_cbar=False
+            )
 
             for ax in [ax_hs, ax_img]:
                 ax.set_xticks([])
