@@ -242,9 +242,15 @@ class StereoPlotter(Plotter):
         if save_dir and fig_fn:
             save_figure(fig, save_dir, fig_fn)
 
-    def plot_detailed_hillshade(self, el_clim=None, save_dir=None, fig_fn=None):
+    def plot_detailed_hillshade(
+        self,
+        intersection_error_percentiles=[16, 50, 84],
+        subset_km=1,
+        save_dir=None,
+        fig_fn=None,
+    ):
         # Set up the plot
-        fig = plt.figure(figsize=(15, 15), dpi=220)
+        fig = plt.figure(figsize=(10, 10), dpi=220)
         gs = gridspec.GridSpec(2, 3, height_ratios=[2, 1])
 
         # Create the large top plot
@@ -267,17 +273,16 @@ class StereoPlotter(Plotter):
         self.plot_array(
             ax=ax_top,
             array=dem,
-            clim=el_clim,
             cmap="viridis",
             cbar_label="Elevation (m HAE)",
             alpha=0.5,
         )
-        ax_top.set_title("Stereo DEM")
+        ax_top.set_title(self.title, size=10)
         scalebar = ScaleBar(gsd)
         ax_top.add_artist(scalebar)
 
-        # 1x1 km in pixels
-        subset_size = int(1000 / gsd)
+        # Calculate subset size in pixels
+        subset_size = int(subset_km * 1000 / gsd)
 
         # Calculate the number of full windows in each dimension
         rows, cols = ie.shape
@@ -299,24 +304,24 @@ class StereoPlotter(Plotter):
         compressed_variances = block_variances.compressed()
 
         # Calculate the percentiles
-        lower_16th = np.percentile(compressed_variances, 16)
-        median = np.percentile(compressed_variances, 50)
-        upper_84th = np.percentile(compressed_variances, 84)
+        lower = np.percentile(compressed_variances, intersection_error_percentiles[0])
+        middle = np.percentile(compressed_variances, intersection_error_percentiles[1])
+        upper = np.percentile(compressed_variances, intersection_error_percentiles[2])
 
         # Find the indices of the blocks closest to these percentiles
-        lower_16th_idx = np.unravel_index(
-            np.argmin(np.abs(block_variances - lower_16th)), block_variances.shape
+        lower_idx = np.unravel_index(
+            np.argmin(np.abs(block_variances - lower)), block_variances.shape
         )
-        median_idx = np.unravel_index(
-            np.argmin(np.abs(block_variances - median)), block_variances.shape
+        middle_idx = np.unravel_index(
+            np.argmin(np.abs(block_variances - middle)), block_variances.shape
         )
-        upper_84th_idx = np.unravel_index(
-            np.argmin(np.abs(block_variances - upper_84th)), block_variances.shape
+        upper_idx = np.unravel_index(
+            np.argmin(np.abs(block_variances - upper)), block_variances.shape
         )
 
         # Add red boxes outlining the three areas
-        titles = ["16th", "50th", "84th"]
-        percentiles_idx = [lower_16th_idx, median_idx, upper_84th_idx]
+        titles = ["Lower Int. Err.", "Middle Int. Err.", "Upper Int. Err."]
+        percentiles_idx = [lower_idx, middle_idx, upper_idx]
         for idx, title in zip(percentiles_idx, titles):
             rect = plt.Rectangle(
                 (idx[1] * subset_size, idx[0] * subset_size),
@@ -334,9 +339,12 @@ class StereoPlotter(Plotter):
                 color="red",
                 ha="center",
                 va="center",
+                bbox=dict(facecolor="white", alpha=0.7, edgecolor="none", pad=3),
             )
 
-        def plot_subset(ax, idx):
+        # Plot subsets
+        axes = [ax_bottom_left, ax_bottom_middle, ax_bottom_right]
+        for ax, idx, title in zip(axes, percentiles_idx, titles):
             hs_subset = hs[
                 idx[0] * subset_size : (idx[0] + 1) * subset_size,
                 idx[1] * subset_size : (idx[1] + 1) * subset_size,
@@ -345,25 +353,19 @@ class StereoPlotter(Plotter):
                 idx[0] * subset_size : (idx[0] + 1) * subset_size,
                 idx[1] * subset_size : (idx[1] + 1) * subset_size,
             ]
-
             self.plot_array(ax=ax, array=hs_subset, cmap="gray", add_cbar=False)
             self.plot_array(
                 ax=ax,
                 array=dem_subset,
-                clim=el_clim,
                 cmap="viridis",
                 cbar_label="Elevation (m HAE)",
                 alpha=0.5,
             )
             ax.set_xticks([])
             ax.set_yticks([])
-
-        # Plot subsets
-        axes = [ax_bottom_left, ax_bottom_middle, ax_bottom_right]
-        for ax, idx, title in zip(axes, percentiles_idx, titles):
-            plot_subset(ax, idx)
-            ax.set_title(f"{title} perc. Intersection Error")
-            # ax.add_artist(scalebar)
+            ax.set_title(f"{title}")
+            scalebar = ScaleBar(gsd)
+            ax.add_artist(scalebar)
 
         fig.tight_layout()
         if save_dir and fig_fn:
