@@ -14,6 +14,7 @@ import rioxarray
 from markdown_pdf import MarkdownPdf, Section
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from osgeo import gdal
+from rasterio.enums import Resampling
 from rasterio.windows import Window
 
 logger = logging.getLogger(__name__)
@@ -209,6 +210,17 @@ class Raster:
             extent = rio.plot.plotting_extent(self.ds)
             out = (ma, extent)
         return out
+
+    def read_resampled_array(self, resample_factor):
+        data = self.ds.read(
+            out_shape=(
+                self.ds.count,
+                int(self.ds.height * resample_factor),
+                int(self.ds.width * resample_factor),
+            ),
+            resampling=Resampling.bilinear,
+        )
+        return data.squeeze()
 
     def get_ndv(self):
         ndv = self.ds.nodatavals[0]

@@ -250,16 +250,21 @@ class StereoPlotter(Plotter):
         fig_fn=None,
     ):
         # Set up the plot
-        fig = plt.figure(figsize=(10, 10), dpi=220)
-        gs = gridspec.GridSpec(2, 3, height_ratios=[2, 1])
+        fig = plt.figure(figsize=(10, 15), dpi=220)
+        gs = gridspec.GridSpec(3, 3, height_ratios=[2, 1, 1])
 
         # Create the large top plot
         ax_top = fig.add_subplot(gs[0, :])
 
-        # Create the three smaller bottom plots
-        ax_bottom_left = fig.add_subplot(gs[1, 0])
-        ax_bottom_middle = fig.add_subplot(gs[1, 1])
-        ax_bottom_right = fig.add_subplot(gs[1, 2])
+        # Create the three smaller bottom plots for hillshade
+        ax_hs_left = fig.add_subplot(gs[1, 0])
+        ax_hs_middle = fig.add_subplot(gs[1, 1])
+        ax_hs_right = fig.add_subplot(gs[1, 2])
+
+        # Create the three smaller bottom plots for image
+        ax_image_left = fig.add_subplot(gs[2, 0])
+        ax_image_middle = fig.add_subplot(gs[2, 1])
+        ax_image_right = fig.add_subplot(gs[2, 2])
 
         # Get the data
         raster = Raster(self.dem_fn)
@@ -267,6 +272,10 @@ class StereoPlotter(Plotter):
         gsd = raster.get_gsd()
         hs = raster.hillshade()
         ie = Raster(self.intersection_error_fn).read_array()
+        image_data = Raster(self.left_ortho_fn)
+        image_gsd = image_data.get_gsd()
+        resample_factor = image_gsd / gsd
+        image = image_data.read_resampled_array(resample_factor=resample_factor)
 
         # Full hillshade with DEM overlay
         self.plot_array(ax=ax_top, array=hs, cmap="gray", add_cbar=False)
@@ -348,8 +357,11 @@ class StereoPlotter(Plotter):
             ax_top.add_patch(rect)
 
         # Plot subsets
-        axes = [ax_bottom_left, ax_bottom_middle, ax_bottom_right]
-        for ax, idx, color in zip(axes, percentiles_idx, rect_colors):
+        axes_hillshade = [ax_hs_left, ax_hs_middle, ax_hs_right]
+        axes_image = [ax_image_left, ax_image_middle, ax_image_right]
+        for ax_hs, ax_img, idx, color in zip(
+            axes_hillshade, axes_image, percentiles_idx, rect_colors
+        ):
             hs_subset = hs[
                 idx[0] * subset_size : (idx[0] + 1) * subset_size,
                 idx[1] * subset_size : (idx[1] + 1) * subset_size,
@@ -358,22 +370,30 @@ class StereoPlotter(Plotter):
                 idx[0] * subset_size : (idx[0] + 1) * subset_size,
                 idx[1] * subset_size : (idx[1] + 1) * subset_size,
             ]
-            self.plot_array(ax=ax, array=hs_subset, cmap="gray", add_cbar=False)
+            image_subset = image[
+                idx[0] * subset_size : (idx[0] + 1) * subset_size,
+                idx[1] * subset_size : (idx[1] + 1) * subset_size,
+            ]
+            self.plot_array(ax=ax_hs, array=hs_subset, cmap="gray", add_cbar=False)
             self.plot_array(
-                ax=ax,
+                ax=ax_hs,
                 array=dem_subset,
                 cmap="viridis",
                 cbar_label="Elevation (m HAE)",
                 alpha=0.5,
             )
-            ax.set_xticks([])
-            ax.set_yticks([])
-            ax.set_title(None)
-            for spine in ax.spines.values():
-                spine.set_color(color)
-                spine.set_linewidth(4)
+            self.plot_array(ax=ax_img, array=image_subset, cmap="gray", add_cbar=False)
+
+            for ax in [ax_hs, ax_img]:
+                ax.set_xticks([])
+                ax.set_yticks([])
+                ax.set_title(None)
+                for spine in ax.spines.values():
+                    spine.set_color(color)
+                    spine.set_linewidth(4)
+
             scalebar = ScaleBar(gsd)
-            ax.add_artist(scalebar)
+            ax_hs.add_artist(scalebar)
 
         fig.tight_layout()
         if save_dir and fig_fn:
