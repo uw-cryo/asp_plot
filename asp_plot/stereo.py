@@ -277,7 +277,7 @@ class StereoPlotter(Plotter):
             cbar_label="Elevation (m HAE)",
             alpha=0.5,
         )
-        ax_top.set_title(self.title, size=10)
+        ax_top.set_title(self.title, size=14)
         scalebar = ScaleBar(gsd)
         ax_top.add_artist(scalebar)
 
@@ -297,8 +297,20 @@ class StereoPlotter(Plotter):
             1, 2
         )
 
-        # Calculate variance for each block
-        block_variances = np.ma.var(blocks, axis=(2, 3))
+        # Calculate the percentage of valid pixels in each block
+        valid_percentage = np.ma.count(blocks, axis=(2, 3)) / (
+            subset_size * subset_size
+        )
+
+        # Calculate variance for each block, only for blocks with >= 90% valid pixels
+        block_variances = np.ma.masked_array(
+            np.zeros((n_rows, n_cols)), mask=valid_percentage < 0.9
+        )
+
+        for i in range(n_rows):
+            for j in range(n_cols):
+                if valid_percentage[i, j] >= 0.9:
+                    block_variances[i, j] = np.ma.var(blocks[i, j])
 
         # Use the compressed array to calculate percentiles
         compressed_variances = block_variances.compressed()
