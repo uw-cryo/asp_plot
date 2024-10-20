@@ -35,3 +35,9 @@ class TestStereoPlotter:
             stereo_plotter.plot_dem_results()
         except Exception as e:
             pytest.fail(f"figure method raised an exception: {str(e)}")
+
+    def test_plot_detailed_hillshade(self, stereo_plotter):
+        try:
+            stereo_plotter.plot_detailed_hillshade(subset_km=10)
+        except Exception as e:
+            pytest.fail(f"figure method raised an exception: {str(e)}")
