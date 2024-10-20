@@ -182,15 +182,12 @@ When you add a new feature, add some test coverage as well.
 
 ### Package and upload
 
-```
-$ rm -rf dist/
-```
-
-Then update version in `pyproject.toml` and `setup.py`, then:
+Update version in `pyproject.toml` and `setup.py`, then:
 
 ```
-$ python3 -m pip install --upgrade build
-$ python3 -m build
-$ python3 -m pip install --upgrade twine
-$ python3 -m twine upload dist/*
+rm -rf dist/
+python3 -m pip install --upgrade build
+python3 -m build
+python3 -m pip install --upgrade twine
+python3 -m twine upload dist/*
 ```

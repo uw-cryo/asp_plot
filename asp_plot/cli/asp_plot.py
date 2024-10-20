@@ -77,6 +77,20 @@ def main(
 
     figure_counter = count(0)
 
+    # Detailed hillshade plot
+    plotter = StereoPlotter(
+        directory,
+        stereo_directory,
+        reference_dem,
+        out_dem_gsd=1,
+        title="Hillshade with details",
+    )
+
+    plotter.plot_detailed_hillshade(
+        save_dir=plots_directory,
+        fig_fn=f"{next(figure_counter):02}.png",
+    )
+
     # Geometry plot
     plotter = SceneGeometryPlotter(directory)
 

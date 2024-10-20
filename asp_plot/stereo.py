@@ -1,9 +1,11 @@
 import logging
 import os
 
+import matplotlib.gridspec as gridspec
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import rasterio as rio
 from matplotlib_scalebar.scalebar import ScaleBar
 
 from asp_plot.utils import ColorBar, Plotter, Raster, glob_file, save_figure
@@ -236,6 +238,170 @@ class StereoPlotter(Plotter):
                     verticalalignment="center",
                     transform=ax.transAxes,
                 )
+
+        fig.tight_layout()
+        if save_dir and fig_fn:
+            save_figure(fig, save_dir, fig_fn)
+
+    def plot_detailed_hillshade(
+        self,
+        intersection_error_percentiles=[16, 50, 84],
+        subset_km=1,
+        save_dir=None,
+        fig_fn=None,
+    ):
+        # Set up the plot
+        fig = plt.figure(figsize=(10, 15), dpi=220)
+        gs = gridspec.GridSpec(3, 3, height_ratios=[2, 1, 1])
+
+        # Create the large top plot
+        ax_top = fig.add_subplot(gs[0, :])
+
+        # Create the three smaller bottom plots for hillshade
+        ax_hs_left = fig.add_subplot(gs[1, 0])
+        ax_hs_middle = fig.add_subplot(gs[1, 1])
+        ax_hs_right = fig.add_subplot(gs[1, 2])
+
+        # Create the three smaller bottom plots for image
+        ax_image_left = fig.add_subplot(gs[2, 0])
+        ax_image_middle = fig.add_subplot(gs[2, 1])
+        ax_image_right = fig.add_subplot(gs[2, 2])
+
+        # Get the data
+        raster = Raster(self.dem_fn)
+        dem = raster.read_array()
+        gsd = raster.get_gsd()
+        hs = raster.hillshade()
+        ie = Raster(self.intersection_error_fn).read_array()
+        image = Raster(self.left_ortho_fn)
+
+        # Full hillshade with DEM overlay
+        self.plot_array(ax=ax_top, array=hs, cmap="gray", add_cbar=False)
+        self.plot_array(
+            ax=ax_top,
+            array=dem,
+            cmap="viridis",
+            cbar_label="Elevation (m HAE)",
+            alpha=0.5,
+        )
+        ax_top.set_title(self.title, size=14)
+        scalebar = ScaleBar(gsd)
+        ax_top.add_artist(scalebar)
+
+        # Calculate subset size in pixels
+        subset_size = int(subset_km * 1000 / gsd)
+
+        # Calculate the number of full windows in each dimension
+        rows, cols = ie.shape
+        n_rows = rows // subset_size
+        n_cols = cols // subset_size
+
+        # Trim the array to fit an integer number of windows
+        ie_trimmed = ie[: n_rows * subset_size, : n_cols * subset_size]
+
+        # Reshape the array into non-overlapping blocks
+        blocks = ie_trimmed.reshape(n_rows, subset_size, n_cols, subset_size).swapaxes(
+            1, 2
+        )
+
+        # Calculate the percentage of valid pixels in each block
+        valid_percentage = np.ma.count(blocks, axis=(2, 3)) / (
+            subset_size * subset_size
+        )
+
+        # Calculate variance for each block, only for blocks with >= 90% valid pixels
+        block_variances = np.ma.masked_array(
+            np.zeros((n_rows, n_cols)), mask=valid_percentage < 0.9
+        )
+
+        for i in range(n_rows):
+            for j in range(n_cols):
+                if valid_percentage[i, j] >= 0.9:
+                    block_variances[i, j] = np.ma.var(blocks[i, j])
+
+        # Use the compressed array to calculate percentiles
+        compressed_variances = block_variances.compressed()
+
+        # Calculate the percentiles
+        lower = np.percentile(compressed_variances, intersection_error_percentiles[0])
+        middle = np.percentile(compressed_variances, intersection_error_percentiles[1])
+        upper = np.percentile(compressed_variances, intersection_error_percentiles[2])
+
+        # Find the indices of the blocks closest to these percentiles
+        lower_idx = np.unravel_index(
+            np.argmin(np.abs(block_variances - lower)), block_variances.shape
+        )
+        middle_idx = np.unravel_index(
+            np.argmin(np.abs(block_variances - middle)), block_variances.shape
+        )
+        upper_idx = np.unravel_index(
+            np.argmin(np.abs(block_variances - upper)), block_variances.shape
+        )
+
+        # Define distinct colors for the rectangles and subplot axes
+        rect_colors = ["magenta", "cyan", "orange"]
+
+        # Add colored boxes outlining the three areas
+        percentiles_idx = [lower_idx, middle_idx, upper_idx]
+        for idx, color in zip(percentiles_idx, rect_colors):
+            rect = plt.Rectangle(
+                (idx[1] * subset_size, idx[0] * subset_size),
+                subset_size,
+                subset_size,
+                fill=False,
+                edgecolor=color,
+                linewidth=4,
+            )
+            ax_top.add_patch(rect)
+
+        # Plot subsets
+        axes_hillshade = [ax_hs_left, ax_hs_middle, ax_hs_right]
+        axes_image = [ax_image_left, ax_image_middle, ax_image_right]
+        for ax_hs, ax_img, idx, color in zip(
+            axes_hillshade, axes_image, percentiles_idx, rect_colors
+        ):
+            hs_subset = hs[
+                idx[0] * subset_size : (idx[0] + 1) * subset_size,
+                idx[1] * subset_size : (idx[1] + 1) * subset_size,
+            ]
+            dem_subset = dem[
+                idx[0] * subset_size : (idx[0] + 1) * subset_size,
+                idx[1] * subset_size : (idx[1] + 1) * subset_size,
+            ]
+            self.plot_array(ax=ax_hs, array=hs_subset, cmap="gray", add_cbar=False)
+            self.plot_array(
+                ax=ax_hs,
+                array=dem_subset,
+                cmap="viridis",
+                cbar_label="Elevation (m HAE)",
+                alpha=0.5,
+            )
+
+            with rio.open(self.dem_fn) as src:
+                transform = src.transform
+                ul_x, ul_y = rio.transform.xy(
+                    transform, idx[0] * subset_size, idx[1] * subset_size
+                )
+                lr_x, lr_y = rio.transform.xy(
+                    transform, (idx[0] + 1) * subset_size, (idx[1] + 1) * subset_size
+                )
+
+            image_subset = image.read_raster_subset((ul_x, lr_y, lr_x, ul_y))
+            clim = [image_subset.min(), np.percentile(image_subset, 95)]
+            self.plot_array(
+                ax=ax_img, array=image_subset, clim=clim, cmap="gray", add_cbar=False
+            )
+
+            for ax in [ax_hs, ax_img]:
+                ax.set_xticks([])
+                ax.set_yticks([])
+                ax.set_title(None)
+                for spine in ax.spines.values():
+                    spine.set_color(color)
+                    spine.set_linewidth(4)
+
+            scalebar = ScaleBar(gsd)
+            ax_hs.add_artist(scalebar)
 
         fig.tight_layout()
         if save_dir and fig_fn:
