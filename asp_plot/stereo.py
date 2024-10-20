@@ -5,6 +5,7 @@ import matplotlib.gridspec as gridspec
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import rasterio as rio
 from matplotlib_scalebar.scalebar import ScaleBar
 
 from asp_plot.utils import ColorBar, Plotter, Raster, glob_file, save_figure
@@ -272,10 +273,7 @@ class StereoPlotter(Plotter):
         gsd = raster.get_gsd()
         hs = raster.hillshade()
         ie = Raster(self.intersection_error_fn).read_array()
-        image_data = Raster(self.left_ortho_fn)
-        image_gsd = image_data.get_gsd()
-        resample_factor = image_gsd / gsd
-        image = image_data.read_resampled_array(resample_factor=resample_factor)
+        image = Raster(self.left_ortho_fn)
 
         # Full hillshade with DEM overlay
         self.plot_array(ax=ax_top, array=hs, cmap="gray", add_cbar=False)
@@ -370,10 +368,6 @@ class StereoPlotter(Plotter):
                 idx[0] * subset_size : (idx[0] + 1) * subset_size,
                 idx[1] * subset_size : (idx[1] + 1) * subset_size,
             ]
-            image_subset = image[
-                idx[0] * subset_size : (idx[0] + 1) * subset_size,
-                idx[1] * subset_size : (idx[1] + 1) * subset_size,
-            ]
             self.plot_array(ax=ax_hs, array=hs_subset, cmap="gray", add_cbar=False)
             self.plot_array(
                 ax=ax_hs,
@@ -382,6 +376,17 @@ class StereoPlotter(Plotter):
                 cbar_label="Elevation (m HAE)",
                 alpha=0.5,
             )
+
+            with rio.open(self.dem_fn) as src:
+                transform = src.transform
+                ul_x, ul_y = rio.transform.xy(
+                    transform, idx[0] * subset_size, idx[1] * subset_size
+                )
+                lr_x, lr_y = rio.transform.xy(
+                    transform, (idx[0] + 1) * subset_size, (idx[1] + 1) * subset_size
+                )
+
+            image_subset = image.read_raster_subset((ul_x, lr_y, lr_x, ul_y))
             clim = [image_subset.min(), np.percentile(image_subset, 95)]
             self.plot_array(
                 ax=ax_img, array=image_subset, clim=clim, cmap="gray", add_cbar=False

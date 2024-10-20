@@ -14,8 +14,7 @@ import rioxarray
 from markdown_pdf import MarkdownPdf, Section
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from osgeo import gdal
-from rasterio.enums import Resampling
-from rasterio.windows import Window
+from rasterio.windows import Window, from_bounds
 
 logger = logging.getLogger(__name__)
 
@@ -211,16 +210,13 @@ class Raster:
             out = (ma, extent)
         return out
 
-    def read_resampled_array(self, resample_factor):
-        data = self.ds.read(
-            out_shape=(
-                self.ds.count,
-                int(self.ds.height * resample_factor),
-                int(self.ds.width * resample_factor),
-            ),
-            resampling=Resampling.bilinear,
-        )
-        return data.squeeze()
+    def read_raster_subset(self, bbox, b=1):
+        """
+        bbox: (ul_x, lr_y, lr_x, ul_y)
+        """
+        window = from_bounds(*bbox, self.ds.transform)
+        subset = self.ds.read(b, window=window)
+        return subset
 
     def get_ndv(self):
         ndv = self.ds.nodatavals[0]
