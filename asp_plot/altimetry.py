@@ -186,7 +186,7 @@ class Altimetry:
 
         atl06sr_sorted = atl06sr.sort_values(by=column_name).to_crs(f"EPSG:{map_crs}")
 
-        fig, ax = plt.subplots(1, 1, figsize=(8, 6))
+        fig, ax = plt.subplots(1, 1, figsize=(6, 4))
 
         if plot_dem:
             ctx_kwargs = {}
@@ -518,7 +518,7 @@ class Altimetry:
         if plot_aligned:
             column_names.append("icesat_minus_dem_aligned")
 
-        fig, ax = plt.subplots(1, 1, figsize=(8, 6))
+        fig, ax = plt.subplots(1, 1, figsize=(6, 4))
 
         for column_name in column_names:
             med = self.atl06sr_filtered[column_name].quantile(0.50)

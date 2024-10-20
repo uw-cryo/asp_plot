@@ -5,6 +5,7 @@ from itertools import count
 import click
 import contextily as ctx
 
+from asp_plot.altimetry import Altimetry
 from asp_plot.bundle_adjust import PlotBundleAdjustFiles, ReadBundleAdjustFiles
 from asp_plot.processing_parameters import ProcessingParameters
 from asp_plot.scenes import SceneGeometryPlotter, ScenePlotter
@@ -77,6 +78,13 @@ def main(
 
     figure_counter = count(0)
 
+    ctx_kwargs = {
+        "crs": map_crs,
+        "source": ctx.providers.Esri.WorldImagery,
+        "attribution_size": 0,
+        "alpha": 0.5,
+    }
+
     # Detailed hillshade plot
     plotter = StereoPlotter(
         directory,
@@ -87,6 +95,33 @@ def main(
     )
 
     plotter.plot_detailed_hillshade(
+        save_dir=plots_directory,
+        fig_fn=f"{next(figure_counter):02}.png",
+    )
+
+    # ICESat-2 comparison
+    icesat = Altimetry(dem_fn=plotter.dem_fn)
+
+    icesat.pull_atl06sr(
+        esa_worldcover=True,
+        save_to_parquet=False,
+    )
+
+    icesat.filter_atl06sr(
+        mask_worldcover_water=True,
+        save_to_parquet=False,
+        save_to_csv=False,
+    )
+
+    icesat.mapview_plot_atl06sr_to_dem(
+        title=f"Filtered ICESat-2 minus DEM (n={icesat.atl06sr_filtered.shape[0]})",
+        save_dir=plots_directory,
+        fig_fn=f"{next(figure_counter):02}.png",
+        **ctx_kwargs,
+    )
+
+    icesat.histogram(
+        title=f"Filtered ICESat-2 minus DEM (n={icesat.atl06sr_filtered.shape[0]})",
         save_dir=plots_directory,
         fig_fn=f"{next(figure_counter):02}.png",
     )
@@ -110,13 +145,6 @@ def main(
     resid_initial_gdf, resid_final_gdf = ba_files.get_initial_final_residuals_gdfs()
     geodiff_initial_gdf, geodiff_final_gdf = ba_files.get_initial_final_geodiff_gdfs()
     resid_mapprojected_gdf = ba_files.get_mapproj_residuals_gdf()
-
-    ctx_kwargs = {
-        "crs": map_crs,
-        "source": ctx.providers.Esri.WorldImagery,
-        "attribution_size": 0,
-        "alpha": 0.5,
-    }
 
     plotter = PlotBundleAdjustFiles(
         [resid_initial_gdf, resid_final_gdf],
