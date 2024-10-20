@@ -17,7 +17,7 @@ dependencies:
   - contextily
   - matplotlib-scalebar
   - click
-  - geoutils
+  - geoutils>=0.1.9
   - xdem
   - sliderule
   - pip:
