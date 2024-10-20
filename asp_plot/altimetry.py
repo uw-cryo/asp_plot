@@ -10,7 +10,7 @@ import numpy as np
 import rioxarray
 import xarray as xr
 from osgeo import gdal, osr
-from sliderule import icesat2, sliderule
+from sliderule import icesat2
 
 from asp_plot.utils import (
     ColorBar,
@@ -20,7 +20,7 @@ from asp_plot.utils import (
     save_figure,
 )
 
-sliderule.init("slideruleearth.io", verbose=True)
+icesat2.init("slideruleearth.io", verbose=True)
 
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
@@ -174,7 +174,7 @@ class Altimetry:
         clim=None,
         symm_clim=False,
         cmap="inferno",
-        map_crs="EPSG:4326",
+        map_crs="4326",
         save_dir=None,
         fig_fn=None,
         **ctx_kwargs,
@@ -184,7 +184,7 @@ class Altimetry:
         else:
             atl06sr = self.atl06sr
 
-        atl06sr_sorted = atl06sr.sort_values(by=column_name).to_crs(map_crs)
+        atl06sr_sorted = atl06sr.sort_values(by=column_name).to_crs(f"EPSG:{map_crs}")
 
         fig, ax = plt.subplots(1, 1, figsize=(8, 6))
 
@@ -499,7 +499,7 @@ class Altimetry:
             clim=clim,
             symm_clim=symm_clim,
             cmap="RdBu",
-            map_crs=f"EPSG:{epsg}",
+            map_crs=epsg,
             save_dir=save_dir,
             fig_fn=fig_fn,
             **ctx_kwargs,

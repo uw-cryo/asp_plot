@@ -133,3 +133,4 @@ dmypy.json
 *.profraw
 *.DS_Store
 scratch/
+notebooks/*.parquet
