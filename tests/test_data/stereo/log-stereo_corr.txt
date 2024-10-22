@@ -1,0 +1,107 @@
+ASP 3.4.0-alpha
+Build ID: 491f12c9
+Build date: 2024-02-18
+
+stereo_corr --stereo-algorithm asp_mgm --corr-kernel 7 7 --subpixel-kernel 15 15 --cost-mode 4 --subpixel-mode 9 --corr-max-levels 5 --filter-mode 1 --erode-max-size 0 --individually-normalize --corr-memory-limit-mb 5000 --sgm-collar-size 256 --corr-tile-size 1024 --alignment-method none --corr-seed-mode 1 --compute-low-res-disparity-only 1040010074793300_ortho_0.35m.tif 1040010075633C00_ortho_0.35m.tif ba/ba_50ips_10matches_dg_weight_image-1040010074793300.r100.adjusted_state.json ba/ba_50ips_10matches_dg_weight_image-1040010075633C00.r100.adjusted_state.json stereo_ba_50ips_10matches_dg_weight_image__ortho_0.35m_mode_asp_mgm_spm_9_corr_7_rfne_15_cost_4_refdem_COP30/20220417_2252_1040010074793300_1040010075633C00 /nobackup/bpurint1/data/utqiagvik/COP/COP30_utqiagvik_lzw-adj_proj.tif 
+
+uname -a
+Linux r633i1n4 4.18.0-477.27.1.1toss.t4.x86_64 #1 SMP Tue Sep 19 15:17:56 PDT 2023 x86_64 x86_64 x86_64 GNU/Linux
+
+cat /proc/meminfo 2>/dev/null | grep MemTotal
+MemTotal:       131459868 kB
+
+cat /proc/cpuinfo 2>/dev/null | tail -n 25
+cpu family	: 6
+model		: 79
+model name	: Intel(R) Xeon(R) CPU E5-2680 v4 @ 2.40GHz
+stepping	: 1
+microcode	: 0xb000014
+cpu MHz		: 3300.000
+cache size	: 35840 KB
+physical id	: 1
+siblings	: 28
+core id		: 14
+cpu cores	: 14
+apicid		: 61
+initial apicid	: 61
+fpu		: yes
+fpu_exception	: yes
+cpuid level	: 20
+wp		: yes
+flags		: fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush dts acpi mmx fxsr sse sse2 ss ht tm pbe syscall nx pdpe1gb rdtscp lm constant_tsc arch_perfmon pebs bts rep_good nopl xtopology nonstop_tsc cpuid aperfmperf pni pclmulqdq dtes64 monitor ds_cpl vmx smx est tm2 ssse3 sdbg fma cx16 xtpr pdcm pcid dca sse4_1 sse4_2 x2apic movbe popcnt aes xsave avx f16c rdrand lahf_lm abm 3dnowprefetch cpuid_fault epb cat_l3 cdp_l3 invpcid_single pti intel_ppin tpr_shadow vnmi flexpriority ept vpid ept_ad fsgsbase tsc_adjust bmi1 hle avx2 smep bmi2 erms invpcid rtm cqm rdt_a rdseed adx smap intel_pt xsaveopt cqm_llc cqm_occup_llc cqm_mbm_total cqm_mbm_local dtherm ida arat pln pts
+bugs		: cpu_meltdown spectre_v1 spectre_v2 spec_store_bypass l1tf mds swapgs taa itlb_multihit mmio_stale_data
+bogomips	: 4800.10
+clflush size	: 64
+cache_alignment	: 64
+address sizes	: 46 bits physical, 48 bits virtual
+power management:
+
+
+sysctl -a hw 2>/dev/null | grep -E "ncpu|byteorder|memsize|cpufamily|cachesize|mmx|sse|machine|model" | grep -v ipv6
+
+
+
+Vision Workbench log started at 2024-04-14 17:55:47.
+
+2024-04-14 17:55:47 {0} [ console ] : Will refine the disparity using the ASP subpixel-mode: 9.
+2024-04-14 17:55:47 {0} [ console ] : Using session: csmmapcsm
+2024-04-14 17:55:47 {0} [ console ] : Mapprojected images bundle adjustment prefixes:  
+2024-04-14 17:55:47 {0} [ console ] : Mapprojection cameras: ba/ba_50ips_10matches_dg_weight_image-1040010074793300.r100.adjusted_state.json ba/ba_50ips_10matches_dg_weight_image-1040010075633C00.r100.adjusted_state.json
+2024-04-14 17:55:47 {0} [ console ] : Mapprojection cam types: csm csm
+2024-04-14 17:55:47 {0} [ console ] : Loading camera model: 1040010074793300_ortho_0.35m.tif ba/ba_50ips_10matches_dg_weight_image-1040010074793300.r100.adjusted_state.json
+2024-04-14 17:55:47 {0} [ console ] : Loading camera model: 1040010075633C00_ortho_0.35m.tif ba/ba_50ips_10matches_dg_weight_image-1040010075633C00.r100.adjusted_state.json
+2024-04-14 17:55:48 {0} [ console ] : Distance between camera centers in meters: 448834.
+2024-04-14 17:55:48 {0} [ console ] : 	--> Using no pre-processing filter with stereo algorithm: asp_mgm
+2024-04-14 17:55:48 {0} [ console ] : 
+[ 2024-Apr-14 17:55:48 ] : Stage 1 --> CORRELATION
+2024-04-14 17:55:48 {0} [ console ] : 
+[ 2024-Apr-14 17:55:48 ] : Stage 1 --> LOW-RESOLUTION CORRELATION
+2024-04-14 17:55:48 {0} [ console ] : No IP file found, computing IP now.
+2024-04-14 17:55:48 {0} [ console ] : 	    * Detecting interest points.
+2024-04-14 17:55:48 {0} [ console ] : 	--> Matching interest points using homography.
+2024-04-14 17:55:48 {0} [ console ] : 	    Looking for IP in left image.
+2024-04-14 17:55:48 {0} [ console ] : 	    Using 50 interest points per tile (1024^2 px).
+2024-04-14 17:55:48 {0} [ console ] : 	    Detecting IP
+2024-04-14 17:57:50 {0} [ console ] : 	    Removing IP near nodata with radius 4
+2024-04-14 17:57:58 {0} [ console ] : 	    Building descriptors
+2024-04-14 17:58:11 {0} [ console ] : 	    Found interest points: 76356
+2024-04-14 17:58:11 {0} [ console ] : 	    Recording interest points to file: stereo_ba_50ips_10matches_dg_weight_image__ortho_0.35m_mode_asp_mgm_spm_9_corr_7_rfne_15_cost_4_refdem_COP30/20220417_2252_1040010074793300_1040010075633C00-L.vwip
+2024-04-14 17:58:11 {0} [ console ] : 	    Looking for IP in right image.
+2024-04-14 17:58:11 {0} [ console ] : 	    Using 50 interest points per tile (1024^2 px).
+2024-04-14 17:58:11 {0} [ console ] : 	    Detecting IP
+2024-04-14 18:00:10 {0} [ console ] : 	    Removing IP near nodata with radius 4
+2024-04-14 18:00:18 {0} [ console ] : 	    Building descriptors
+2024-04-14 18:00:31 {0} [ console ] : 	    Found interest points: 78023
+2024-04-14 18:00:31 {0} [ console ] : 	    Recording interest points to file: stereo_ba_50ips_10matches_dg_weight_image__ortho_0.35m_mode_asp_mgm_spm_9_corr_7_rfne_15_cost_4_refdem_COP30/20220417_2252_1040010074793300_1040010075633C00-R.vwip
+2024-04-14 18:00:31 {0} [ console ] : Elapsed time in ip detection: 283.491 s.
+2024-04-14 18:00:31 {0} [ console ] : 	--> Uniqueness threshold: 0.8
+2024-04-14 18:00:37 {0} [ console ] : Elapsed time in ip matching: 5.3927 s.
+2024-04-14 18:00:37 {0} [ console ] : 	    Matched points: 20053
+2024-04-14 18:00:37 {0} [ console ] : Filtering interest point matches using homography.
+2024-04-14 18:00:37 {0} [ console ] : 	    Homography ip filter inlier threshold: 200
+2024-04-14 18:00:37 {0} [ console ] : 	    RANSAC iterations:                     1000
+2024-04-14 18:02:00 {0} [ console ] : Homography matrix:
+Matrix3x3((1.00001,-5.54079e-06,-0.226814)(-4.98519e-05,0.999999,0.311942)(-3.20054e-10,-9.56093e-11,1))
+2024-04-14 18:02:00 {0} [ console ] : Number of inliers: 18483.
+2024-04-14 18:02:00 {0} [ console ] : RANSAC time: 82.9386 seconds.
+2024-04-14 18:02:00 {0} [ console ] : 	    * Writing match file: stereo_ba_50ips_10matches_dg_weight_image__ortho_0.35m_mode_asp_mgm_spm_9_corr_7_rfne_15_cost_4_refdem_COP30/20220417_2252_1040010074793300_1040010075633C00-L__R.match
+2024-04-14 18:02:00 {0} [ console ] : 	--> Using interest points to determine search window.
+2024-04-14 18:02:00 {0} [ console ] : 	    * Loading match file: stereo_ba_50ips_10matches_dg_weight_image__ortho_0.35m_mode_asp_mgm_spm_9_corr_7_rfne_15_cost_4_refdem_COP30/20220417_2252_1040010074793300_1040010075633C00-L__R.match
+2024-04-14 18:02:01 {0} [ console ] : Removed 14 outliers based on percentiles of differences of interest points with --outlier-removal-params.
+2024-04-14 18:02:01 {0} [ console ] : D_sub search range: (Origin: (-3.875, -3.625) width: 8.75 height: 6.25) px
+2024-04-14 18:02:16 {0} [ console ] : Writing: stereo_ba_50ips_10matches_dg_weight_image__ortho_0.35m_mode_asp_mgm_spm_9_corr_7_rfne_15_cost_4_refdem_COP30/20220417_2252_1040010074793300_1040010075633C00-D_sub.tif
+2024-04-14 18:02:17 {0} [ console ] : Filtering outliers in D_sub based on --outlier-removal-params.
+2024-04-14 18:02:17 {0} [ console ] : Inlier range based on x coordinate of disparity: -4.14108 3.46707.
+2024-04-14 18:02:17 {0} [ console ] : Inlier range based on y coordinate of disparity: -3.4171 4.00015.
+2024-04-14 18:02:18 {0} [ console ] : Number (and fraction) of removed outliers by disparity values in x and y: 0 (0).
+2024-04-14 18:02:43 {0} [ console ] : Height above datum inlier range: -81.8177 71.2548.
+2024-04-14 18:02:43 {0} [ console ] : Number (and fraction) of removed outliers by the height check: 0 (0).
+2024-04-14 18:02:43 {0} [ console ] : Triangulation error inlier range: -16.3081 19.2087.
+2024-04-14 18:02:43 {0} [ console ] : Number (and fraction) of removed outliers by the triangulation error check: 6 (2.66693e-06).
+2024-04-14 18:02:43 {0} [ console ] : Writing filtered D_sub: stereo_ba_50ips_10matches_dg_weight_image__ortho_0.35m_mode_asp_mgm_spm_9_corr_7_rfne_15_cost_4_refdem_COP30/20220417_2252_1040010074793300_1040010075633C00-D_sub.tif
+2024-04-14 18:02:44 {0} [ console ] : Writing triangulated point cloud based on D_sub: stereo_ba_50ips_10matches_dg_weight_image__ortho_0.35m_mode_asp_mgm_spm_9_corr_7_rfne_15_cost_4_refdem_COP30/20220417_2252_1040010074793300_1040010075633C00-PC_sub.tif
+2024-04-14 18:02:46 {0} [ console ] : 	--> Full-res search range based on D_sub: (Origin: (-65, -43) width: 133 height: 97)
+2024-04-14 18:02:46 {0} [ console ] : 
+[ 2024-Apr-14 18:02:46 ] : LOW-RESOLUTION CORRELATION FINISHED
+2024-04-14 18:02:46 {0} [ console ] : 
+[ 2024-Apr-14 18:02:46 ] : CORRELATION FINISHED
