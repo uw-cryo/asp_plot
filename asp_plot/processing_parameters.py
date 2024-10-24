@@ -35,15 +35,21 @@ class ProcessingParameters:
             )
 
     def from_log_files(self):
-        bundle_adjust_params, processing_timestamp, ba_run_time = (
+        bundle_adjust_params, processing_timestamp, ba_run_time, reference_dem = (
             self.from_bundle_adjust_log()
         )
-        stereo_params, stereo_run_time = self.from_stereo_log()
+        if reference_dem != "":
+            stereo_params, stereo_run_time = self.from_stereo_log()
+        else:
+            stereo_params, stereo_run_time, reference_dem = self.from_stereo_log(
+                search_for_reference_dem=True
+            )
         point2dem_params, point2dem_run_time = self.from_point2dem_log()
 
         self.processing_parameters_dict = {
             "bundle_adjust": bundle_adjust_params,
             "bundle_adjust_run_time": ba_run_time,
+            "reference_dem": reference_dem,
             "stereo": stereo_params,
             "stereo_run_time": stereo_run_time,
             "point2dem": point2dem_params,
@@ -62,17 +68,19 @@ class ProcessingParameters:
                     break
 
         processing_timestamp = ""
+        reference_dem = ""
         with open(self.bundle_adjust_log, "r") as file:
             for line in file:
                 if re.match(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}", line):
                     processing_timestamp = datetime.strptime(
                         line.split()[0] + " " + line.split()[1], "%Y-%m-%d %H:%M:%S"
                     )
-                    break
+                if "Loading DEM:" in line:
+                    reference_dem = line.split("Loading DEM:")[1].strip()
 
         run_time = self.get_run_time([self.bundle_adjust_log])
 
-        return bundle_adjust_params, processing_timestamp, run_time
+        return bundle_adjust_params, processing_timestamp, run_time, reference_dem
 
     def from_point2dem_log(self):
         point2dem_params = ""
@@ -86,7 +94,7 @@ class ProcessingParameters:
 
         return point2dem_params, run_time
 
-    def from_stereo_log(self):
+    def from_stereo_log(self, search_for_reference_dem=False):
         # Stereo proceeds as:
         #  1. stereo_pprc
         #  2. stereo_corr
@@ -109,7 +117,16 @@ class ProcessingParameters:
 
         run_time = self.get_run_time([pprc_log, tri_log])
 
-        return stereo_params, run_time
+        if search_for_reference_dem:
+            reference_dem = ""
+            with open(pprc_log, "r") as file:
+                for line in file:
+                    if "Using input DEM:" in line:
+                        reference_dem = line.split("Using input DEM:")[1].strip()
+
+            return stereo_params, run_time, reference_dem
+        else:
+            return stereo_params, run_time
 
     def get_run_time(self, logfiles):
         start_time = None
