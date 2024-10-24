@@ -83,11 +83,11 @@ def compile_report(
         f"# ASP Report\n\n## {report_title:}\n\nProcessed on: {processing_date:}"
     )
     reference_dem_string = (
-        f"### Reference DEM:\n\n{processing_parameters_dict['reference_dem']:}"
+        f"### Reference DEM:\n\n`{processing_parameters_dict['reference_dem']:}`"
     )
-    ba_string = f"### Bundle Adjust ({processing_parameters_dict['bundle_adjust_run_time']:}):\n\n{processing_parameters_dict['bundle_adjust']:}"
-    stereo_string = f"### Stereo ({processing_parameters_dict['stereo_run_time']:}):\n\n{processing_parameters_dict['stereo']:}"
-    point2dem_string = f"### point2dem ({processing_parameters_dict['point2dem_run_time']}):\n\n{processing_parameters_dict['point2dem']:}"
+    ba_string = f"### Bundle Adjust ({processing_parameters_dict['bundle_adjust_run_time']:}):\n\n`{processing_parameters_dict['bundle_adjust']:}`"
+    stereo_string = f"### Stereo ({processing_parameters_dict['stereo_run_time']:}):\n\n`{processing_parameters_dict['stereo']:}`"
+    point2dem_string = f"### point2dem ({processing_parameters_dict['point2dem_run_time']}):\n\n`{processing_parameters_dict['point2dem']:}`"
 
     pdf = MarkdownPdf()
 
