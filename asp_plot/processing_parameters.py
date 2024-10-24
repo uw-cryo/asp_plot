@@ -47,14 +47,14 @@ class ProcessingParameters:
         point2dem_params, point2dem_run_time = self.from_point2dem_log()
 
         self.processing_parameters_dict = {
+            "processing_timestamp": processing_timestamp,
+            "reference_dem": reference_dem,
             "bundle_adjust": bundle_adjust_params,
             "bundle_adjust_run_time": ba_run_time,
-            "reference_dem": reference_dem,
             "stereo": stereo_params,
             "stereo_run_time": stereo_run_time,
             "point2dem": point2dem_params,
             "point2dem_run_time": point2dem_run_time,
-            "processing_timestamp": processing_timestamp,
         }
 
         return self.processing_parameters_dict

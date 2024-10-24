@@ -82,17 +82,19 @@ def compile_report(
     report_title = (
         f"# ASP Report\n\n## {report_title:}\n\nProcessed on: {processing_date:}"
     )
-
-    ba_string = f"### Bundle Adjust:\n\n{processing_parameters_dict['bundle_adjust']:}"
-    stereo_string = f"### Stereo:\n\n{processing_parameters_dict['stereo']:}"
-    point2dem_string = f"### point2dem:\n\n{processing_parameters_dict['point2dem']:}"
+    reference_dem_string = (
+        f"### Reference DEM:\n\n{processing_parameters_dict['reference_dem']:}"
+    )
+    ba_string = f"### Bundle Adjust ({processing_parameters_dict['bundle_adjust_run_time']:}):\n\n{processing_parameters_dict['bundle_adjust']:}"
+    stereo_string = f"### Stereo ({processing_parameters_dict['stereo_run_time']:}):\n\n{processing_parameters_dict['stereo']:}"
+    point2dem_string = f"### point2dem ({processing_parameters_dict['point2dem_run_time']}):\n\n{processing_parameters_dict['point2dem']:}"
 
     pdf = MarkdownPdf()
 
     pdf.add_section(Section(f"{report_title:}\n\n"))
     pdf.add_section(
         Section(
-            f"## Processing Parameters\n\n{ba_string:}\n\n{stereo_string}\n\n{point2dem_string}\n\n"
+            f"## Processing Parameters\n\n{reference_dem_string:}\n\n{ba_string:}\n\n{stereo_string}\n\n{point2dem_string}\n\n"
         )
     )
     plots = "".join([f"![]({file})\n\n" for file in compressed_files])
