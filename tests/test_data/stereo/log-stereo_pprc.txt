@@ -2,7 +2,7 @@ ASP 3.4.0-alpha
 Build ID: 491f12c9
 Build date: 2024-02-18
 
-stereo_pprc --stereo-algorithm asp_mgm --corr-kernel 7 7 --subpixel-kernel 15 15 --cost-mode 4 --subpixel-mode 9 --corr-max-levels 5 --filter-mode 1 --erode-max-size 0 --individually-normalize --corr-memory-limit-mb 5000 --sgm-collar-size 256 --corr-tile-size 1024 --alignment-method none --corr-seed-mode 1 --threads 24 1040010074793300_ortho_0.35m.tif 1040010075633C00_ortho_0.35m.tif ba/ba_50ips_10matches_dg_weight_image-1040010074793300.r100.adjusted_state.json ba/ba_50ips_10matches_dg_weight_image-1040010075633C00.r100.adjusted_state.json stereo_ba_50ips_10matches_dg_weight_image__ortho_0.35m_mode_asp_mgm_spm_9_corr_7_rfne_15_cost_4_refdem_COP30/20220417_2252_1040010074793300_1040010075633C00 /nobackup/bpurint1/data/utqiagvik/COP/COP30_utqiagvik_lzw-adj_proj.tif 
+stereo_pprc --stereo-algorithm asp_mgm --corr-kernel 7 7 --subpixel-kernel 15 15 --cost-mode 4 --subpixel-mode 9 --corr-max-levels 5 --filter-mode 1 --erode-max-size 0 --individually-normalize --corr-memory-limit-mb 5000 --sgm-collar-size 256 --corr-tile-size 1024 --alignment-method none --corr-seed-mode 1 --threads 24 1040010074793300_ortho_0.35m.tif 1040010075633C00_ortho_0.35m.tif ba/ba_50ips_10matches_dg_weight_image-1040010074793300.r100.adjusted_state.json ba/ba_50ips_10matches_dg_weight_image-1040010075633C00.r100.adjusted_state.json stereo/20220417_2252_1040010074793300_1040010075633C00 /nobackup/bpurint1/data/utqiagvik/COP/COP30_utqiagvik_lzw-adj_proj.tif 
 
 uname -a
 Linux r633i1n4 4.18.0-477.27.1.1toss.t4.x86_64 #1 SMP Tue Sep 19 15:17:56 PDT 2023 x86_64 x86_64 x86_64 GNU/Linux
@@ -56,23 +56,23 @@ Vision Workbench log started at 2024-04-14 17:14:31.
 2024-04-14 17:14:31 {0} [ console ] : Using input DEM: /nobackup/bpurint1/data/utqiagvik/COP/COP30_utqiagvik_lzw-adj_proj.tif
 2024-04-14 17:14:32 {0} [ console ] : Computing statistics for left
 2024-04-14 17:14:32 {0} [ console ] : Using downsample scale: 42
-2024-04-14 17:14:55 {0} [ console ] : 	    Writing stats file: stereo_ba_50ips_10matches_dg_weight_image__ortho_0.35m_mode_asp_mgm_spm_9_corr_7_rfne_15_cost_4_refdem_COP30/20220417_2252_1040010074793300_1040010075633C00-1040010074793300_ortho_0.35m-stats.tif
+2024-04-14 17:14:55 {0} [ console ] : 	    Writing stats file: stereo/20220417_2252_1040010074793300_1040010075633C00-1040010074793300_ortho_0.35m-stats.tif
 2024-04-14 17:14:55 {0} [ console ] : 	    left: [ lo: 87 hi: 1341 mean: 690.303 std_dev: 228.543 ]
 2024-04-14 17:14:55 {0} [ console ] : Left image stats time: 22.7028
 2024-04-14 17:14:55 {0} [ console ] : Computing statistics for right
 2024-04-14 17:14:55 {0} [ console ] : Using downsample scale: 42
-2024-04-14 17:15:17 {0} [ console ] : 	    Writing stats file: stereo_ba_50ips_10matches_dg_weight_image__ortho_0.35m_mode_asp_mgm_spm_9_corr_7_rfne_15_cost_4_refdem_COP30/20220417_2252_1040010074793300_1040010075633C00-1040010075633C00_ortho_0.35m-stats.tif
+2024-04-14 17:15:17 {0} [ console ] : 	    Writing stats file: stereo/20220417_2252_1040010074793300_1040010075633C00-1040010075633C00_ortho_0.35m-stats.tif
 2024-04-14 17:15:17 {0} [ console ] : 	    right: [ lo: 96 hi: 1414 mean: 707.895 std_dev: 232.672 ]
 2024-04-14 17:15:17 {0} [ console ] : Right image stats time: 22.5761
 2024-04-14 17:15:17 {0} [ console ] : 	--> Applying alignment method: none
 2024-04-14 17:15:17 {0} [ console ] : 	--> Individually normalize images
 2024-04-14 17:15:17 {0} [ console ] : 	--> Writing pre-aligned images.
-2024-04-14 17:15:17 {0} [ console ] : 	--> Writing: stereo_ba_50ips_10matches_dg_weight_image__ortho_0.35m_mode_asp_mgm_spm_9_corr_7_rfne_15_cost_4_refdem_COP30/20220417_2252_1040010074793300_1040010075633C00-L.tif.
+2024-04-14 17:15:17 {0} [ console ] : 	--> Writing: stereo/20220417_2252_1040010074793300_1040010075633C00-L.tif.
 2024-04-14 17:16:55 {0} [ console ] : Time to write left image: 97.87
-2024-04-14 17:16:55 {0} [ console ] : 	--> Writing: stereo_ba_50ips_10matches_dg_weight_image__ortho_0.35m_mode_asp_mgm_spm_9_corr_7_rfne_15_cost_4_refdem_COP30/20220417_2252_1040010074793300_1040010075633C00-R.tif.
+2024-04-14 17:16:55 {0} [ console ] : 	--> Writing: stereo/20220417_2252_1040010074793300_1040010075633C00-R.tif.
 2024-04-14 17:18:39 {0} [ console ] : Time to write right image: 103.927
 2024-04-14 17:18:40 {0} [ console ] : 	--> Generating image masks.
-2024-04-14 17:20:05 {0} [ console ] : Writing masks: stereo_ba_50ips_10matches_dg_weight_image__ortho_0.35m_mode_asp_mgm_spm_9_corr_7_rfne_15_cost_4_refdem_COP30/20220417_2252_1040010074793300_1040010075633C00-lMask.tif stereo_ba_50ips_10matches_dg_weight_image__ortho_0.35m_mode_asp_mgm_spm_9_corr_7_rfne_15_cost_4_refdem_COP30/20220417_2252_1040010074793300_1040010075633C00-rMask.tif.
+2024-04-14 17:20:05 {0} [ console ] : Writing masks: stereo/20220417_2252_1040010074793300_1040010075633C00-lMask.tif stereo/20220417_2252_1040010074793300_1040010075633C00-rMask.tif.
 2024-04-14 17:54:30 {0} [ console ] : 	--> Creating previews. Subsampling by 0.0364772 by using a tile of size 64 and 24 threads.
 2024-04-14 17:55:43 {0} [ console ] : 
 [ 2024-Apr-14 17:55:43 ] : PREPROCESSING FINISHED 

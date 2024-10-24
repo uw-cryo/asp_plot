@@ -2,7 +2,7 @@ ASP 3.4.0-alpha
 Build ID: 491f12c9
 Build date: 2024-02-18
 
-stereo_fltr --stereo-algorithm asp_mgm --corr-kernel 7 7 --subpixel-kernel 15 15 --cost-mode 4 --subpixel-mode 9 --corr-max-levels 5 --filter-mode 1 --erode-max-size 0 --individually-normalize --corr-memory-limit-mb 5000 --sgm-collar-size 256 --corr-tile-size 1024 --alignment-method none --corr-seed-mode 1 --threads 24 1040010074793300_ortho_0.35m.tif 1040010075633C00_ortho_0.35m.tif ba/ba_50ips_10matches_dg_weight_image-1040010074793300.r100.adjusted_state.json ba/ba_50ips_10matches_dg_weight_image-1040010075633C00.r100.adjusted_state.json stereo_ba_50ips_10matches_dg_weight_image__ortho_0.35m_mode_asp_mgm_spm_9_corr_7_rfne_15_cost_4_refdem_COP30/20220417_2252_1040010074793300_1040010075633C00 /nobackup/bpurint1/data/utqiagvik/COP/COP30_utqiagvik_lzw-adj_proj.tif 
+stereo_fltr --stereo-algorithm asp_mgm --corr-kernel 7 7 --subpixel-kernel 15 15 --cost-mode 4 --subpixel-mode 9 --corr-max-levels 5 --filter-mode 1 --erode-max-size 0 --individually-normalize --corr-memory-limit-mb 5000 --sgm-collar-size 256 --corr-tile-size 1024 --alignment-method none --corr-seed-mode 1 --threads 24 1040010074793300_ortho_0.35m.tif 1040010075633C00_ortho_0.35m.tif ba/ba_50ips_10matches_dg_weight_image-1040010074793300.r100.adjusted_state.json ba/ba_50ips_10matches_dg_weight_image-1040010075633C00.r100.adjusted_state.json stereo/20220417_2252_1040010074793300_1040010075633C00 /nobackup/bpurint1/data/utqiagvik/COP/COP30_utqiagvik_lzw-adj_proj.tif 
 
 uname -a
 Linux r633i1n4 4.18.0-477.27.1.1toss.t4.x86_64 #1 SMP Tue Sep 19 15:17:56 PDT 2023 x86_64 x86_64 x86_64 GNU/Linux
@@ -52,7 +52,7 @@ Vision Workbench log started at 2024-04-14 20:42:37.
 2024-04-14 20:42:37 {0} [ console ] : Loading camera model: 1040010075633C00_ortho_0.35m.tif ba/ba_50ips_10matches_dg_weight_image-1040010075633C00.r100.adjusted_state.json
 2024-04-14 20:42:38 {0} [ console ] : Distance between camera centers in meters: 448834.
 2024-04-14 20:42:38 {0} [ console ] : 	--> Cleaning up disparity map prior to filtering processes (0 pass).
-2024-04-14 20:42:58 {0} [ console ] : Writing: stereo_ba_50ips_10matches_dg_weight_image__ortho_0.35m_mode_asp_mgm_spm_9_corr_7_rfne_15_cost_4_refdem_COP30/20220417_2252_1040010074793300_1040010075633C00-GoodPixelMap.tif
-2024-04-14 20:47:11 {0} [ console ] : Writing: stereo_ba_50ips_10matches_dg_weight_image__ortho_0.35m_mode_asp_mgm_spm_9_corr_7_rfne_15_cost_4_refdem_COP30/20220417_2252_1040010074793300_1040010075633C00-F.tif
+2024-04-14 20:42:58 {0} [ console ] : Writing: stereo/20220417_2252_1040010074793300_1040010075633C00-GoodPixelMap.tif
+2024-04-14 20:47:11 {0} [ console ] : Writing: stereo/20220417_2252_1040010074793300_1040010075633C00-F.tif
 2024-04-14 20:55:39 {0} [ console ] : 
 [ 2024-Apr-14 20:55:39 ] : FILTERING FINISHED 

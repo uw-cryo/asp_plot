@@ -2,7 +2,7 @@ ASP 3.4.0-alpha
 Build ID: 491f12c9
 Build date: 2024-02-18
 
-stereo_corr --stereo-algorithm asp_mgm --corr-kernel 7 7 --subpixel-kernel 15 15 --cost-mode 4 --subpixel-mode 9 --corr-max-levels 5 --filter-mode 1 --erode-max-size 0 --individually-normalize --corr-memory-limit-mb 5000 --sgm-collar-size 256 --corr-tile-size 1024 --alignment-method none --corr-seed-mode 1 --compute-low-res-disparity-only 1040010074793300_ortho_0.35m.tif 1040010075633C00_ortho_0.35m.tif ba/ba_50ips_10matches_dg_weight_image-1040010074793300.r100.adjusted_state.json ba/ba_50ips_10matches_dg_weight_image-1040010075633C00.r100.adjusted_state.json stereo_ba_50ips_10matches_dg_weight_image__ortho_0.35m_mode_asp_mgm_spm_9_corr_7_rfne_15_cost_4_refdem_COP30/20220417_2252_1040010074793300_1040010075633C00 /nobackup/bpurint1/data/utqiagvik/COP/COP30_utqiagvik_lzw-adj_proj.tif 
+stereo_corr --stereo-algorithm asp_mgm --corr-kernel 7 7 --subpixel-kernel 15 15 --cost-mode 4 --subpixel-mode 9 --corr-max-levels 5 --filter-mode 1 --erode-max-size 0 --individually-normalize --corr-memory-limit-mb 5000 --sgm-collar-size 256 --corr-tile-size 1024 --alignment-method none --corr-seed-mode 1 --compute-low-res-disparity-only 1040010074793300_ortho_0.35m.tif 1040010075633C00_ortho_0.35m.tif ba/ba_50ips_10matches_dg_weight_image-1040010074793300.r100.adjusted_state.json ba/ba_50ips_10matches_dg_weight_image-1040010075633C00.r100.adjusted_state.json stereo/20220417_2252_1040010074793300_1040010075633C00 /nobackup/bpurint1/data/utqiagvik/COP/COP30_utqiagvik_lzw-adj_proj.tif 
 
 uname -a
 Linux r633i1n4 4.18.0-477.27.1.1toss.t4.x86_64 #1 SMP Tue Sep 19 15:17:56 PDT 2023 x86_64 x86_64 x86_64 GNU/Linux
@@ -65,14 +65,14 @@ Vision Workbench log started at 2024-04-14 17:55:47.
 2024-04-14 17:57:50 {0} [ console ] : 	    Removing IP near nodata with radius 4
 2024-04-14 17:57:58 {0} [ console ] : 	    Building descriptors
 2024-04-14 17:58:11 {0} [ console ] : 	    Found interest points: 76356
-2024-04-14 17:58:11 {0} [ console ] : 	    Recording interest points to file: stereo_ba_50ips_10matches_dg_weight_image__ortho_0.35m_mode_asp_mgm_spm_9_corr_7_rfne_15_cost_4_refdem_COP30/20220417_2252_1040010074793300_1040010075633C00-L.vwip
+2024-04-14 17:58:11 {0} [ console ] : 	    Recording interest points to file: stereo/20220417_2252_1040010074793300_1040010075633C00-L.vwip
 2024-04-14 17:58:11 {0} [ console ] : 	    Looking for IP in right image.
 2024-04-14 17:58:11 {0} [ console ] : 	    Using 50 interest points per tile (1024^2 px).
 2024-04-14 17:58:11 {0} [ console ] : 	    Detecting IP
 2024-04-14 18:00:10 {0} [ console ] : 	    Removing IP near nodata with radius 4
 2024-04-14 18:00:18 {0} [ console ] : 	    Building descriptors
 2024-04-14 18:00:31 {0} [ console ] : 	    Found interest points: 78023
-2024-04-14 18:00:31 {0} [ console ] : 	    Recording interest points to file: stereo_ba_50ips_10matches_dg_weight_image__ortho_0.35m_mode_asp_mgm_spm_9_corr_7_rfne_15_cost_4_refdem_COP30/20220417_2252_1040010074793300_1040010075633C00-R.vwip
+2024-04-14 18:00:31 {0} [ console ] : 	    Recording interest points to file: stereo/20220417_2252_1040010074793300_1040010075633C00-R.vwip
 2024-04-14 18:00:31 {0} [ console ] : Elapsed time in ip detection: 283.491 s.
 2024-04-14 18:00:31 {0} [ console ] : 	--> Uniqueness threshold: 0.8
 2024-04-14 18:00:37 {0} [ console ] : Elapsed time in ip matching: 5.3927 s.
@@ -84,12 +84,12 @@ Vision Workbench log started at 2024-04-14 17:55:47.
 Matrix3x3((1.00001,-5.54079e-06,-0.226814)(-4.98519e-05,0.999999,0.311942)(-3.20054e-10,-9.56093e-11,1))
 2024-04-14 18:02:00 {0} [ console ] : Number of inliers: 18483.
 2024-04-14 18:02:00 {0} [ console ] : RANSAC time: 82.9386 seconds.
-2024-04-14 18:02:00 {0} [ console ] : 	    * Writing match file: stereo_ba_50ips_10matches_dg_weight_image__ortho_0.35m_mode_asp_mgm_spm_9_corr_7_rfne_15_cost_4_refdem_COP30/20220417_2252_1040010074793300_1040010075633C00-L__R.match
+2024-04-14 18:02:00 {0} [ console ] : 	    * Writing match file: stereo/20220417_2252_1040010074793300_1040010075633C00-L__R.match
 2024-04-14 18:02:00 {0} [ console ] : 	--> Using interest points to determine search window.
-2024-04-14 18:02:00 {0} [ console ] : 	    * Loading match file: stereo_ba_50ips_10matches_dg_weight_image__ortho_0.35m_mode_asp_mgm_spm_9_corr_7_rfne_15_cost_4_refdem_COP30/20220417_2252_1040010074793300_1040010075633C00-L__R.match
+2024-04-14 18:02:00 {0} [ console ] : 	    * Loading match file: stereo/20220417_2252_1040010074793300_1040010075633C00-L__R.match
 2024-04-14 18:02:01 {0} [ console ] : Removed 14 outliers based on percentiles of differences of interest points with --outlier-removal-params.
 2024-04-14 18:02:01 {0} [ console ] : D_sub search range: (Origin: (-3.875, -3.625) width: 8.75 height: 6.25) px
-2024-04-14 18:02:16 {0} [ console ] : Writing: stereo_ba_50ips_10matches_dg_weight_image__ortho_0.35m_mode_asp_mgm_spm_9_corr_7_rfne_15_cost_4_refdem_COP30/20220417_2252_1040010074793300_1040010075633C00-D_sub.tif
+2024-04-14 18:02:16 {0} [ console ] : Writing: stereo/20220417_2252_1040010074793300_1040010075633C00-D_sub.tif
 2024-04-14 18:02:17 {0} [ console ] : Filtering outliers in D_sub based on --outlier-removal-params.
 2024-04-14 18:02:17 {0} [ console ] : Inlier range based on x coordinate of disparity: -4.14108 3.46707.
 2024-04-14 18:02:17 {0} [ console ] : Inlier range based on y coordinate of disparity: -3.4171 4.00015.
@@ -98,8 +98,8 @@ Matrix3x3((1.00001,-5.54079e-06,-0.226814)(-4.98519e-05,0.999999,0.311942)(-3.20
 2024-04-14 18:02:43 {0} [ console ] : Number (and fraction) of removed outliers by the height check: 0 (0).
 2024-04-14 18:02:43 {0} [ console ] : Triangulation error inlier range: -16.3081 19.2087.
 2024-04-14 18:02:43 {0} [ console ] : Number (and fraction) of removed outliers by the triangulation error check: 6 (2.66693e-06).
-2024-04-14 18:02:43 {0} [ console ] : Writing filtered D_sub: stereo_ba_50ips_10matches_dg_weight_image__ortho_0.35m_mode_asp_mgm_spm_9_corr_7_rfne_15_cost_4_refdem_COP30/20220417_2252_1040010074793300_1040010075633C00-D_sub.tif
-2024-04-14 18:02:44 {0} [ console ] : Writing triangulated point cloud based on D_sub: stereo_ba_50ips_10matches_dg_weight_image__ortho_0.35m_mode_asp_mgm_spm_9_corr_7_rfne_15_cost_4_refdem_COP30/20220417_2252_1040010074793300_1040010075633C00-PC_sub.tif
+2024-04-14 18:02:43 {0} [ console ] : Writing filtered D_sub: stereo/20220417_2252_1040010074793300_1040010075633C00-D_sub.tif
+2024-04-14 18:02:44 {0} [ console ] : Writing triangulated point cloud based on D_sub: stereo/20220417_2252_1040010074793300_1040010075633C00-PC_sub.tif
 2024-04-14 18:02:46 {0} [ console ] : 	--> Full-res search range based on D_sub: (Origin: (-65, -43) width: 133 height: 97)
 2024-04-14 18:02:46 {0} [ console ] : 
 [ 2024-Apr-14 18:02:46 ] : LOW-RESOLUTION CORRELATION FINISHED
