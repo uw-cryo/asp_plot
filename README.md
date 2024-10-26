@@ -114,6 +114,15 @@ $ csm_camera_plot --original_cameras path/to/original_camera_1,path/to/original_
                       --save_dir path/to/save_directory/
 ```
 
+If a second camera is not supplied, the tool will happily plot just the single camera:
+
+```
+$ csm_camera_plot --original_cameras path/to/original_camera_1 \
+                      --optimized_cameras path/to/optimized_camera_1 \
+                      --map_crs 32728
+                      --save_dir path/to/save_directory/
+```
+
 And there are many more options that can also be modified, by examining `csm_camera_plot --help`:
 
 ```
