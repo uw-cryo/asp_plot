@@ -244,7 +244,7 @@ def plot_stats_text(ax, mean, std):
 
 def csm_camera_summary_plot(
     cam1_list,
-    cam2_list,
+    cam2_list=None,
     map_crs=None,
     title=None,
     trim=False,
@@ -261,11 +261,11 @@ def csm_camera_summary_plot(
     **ctx_kwargs,
 ):
     """
-    Generates a summary plot comparing the position and angle changes between the original and optimized camera parameters for two cameras.
+    Generates a summary plot comparing the position and angle changes between the original and optimized camera parameters for one or two cameras.
 
     Args:
         cam1_list (list): A list containing the original and optimized camera files for the first camera.
-        cam2_list (list): A list containing the original and optimized camera files for the second camera.
+        cam2_list (list, optional): A list containing the original and optimized camera files for the second camera.
         map_crs (int, optional): The EPSG code for the coordinate reference system to use for the map plots. If not provided, the plots will use the original ECEF coordinates.
         title (str, optional): An additional descriptive title to append to the overall plot title containing the camera names.
         trim (bool, optional): Whether to trim the beginning and end of the data to remove near-zero values.
@@ -286,11 +286,15 @@ def csm_camera_summary_plot(
     """
 
     original_camera1, optimized_camera1 = cam1_list
-    original_camera2, optimized_camera2 = cam2_list
     cam1_name = os.path.basename(original_camera1).split(".")[0]
-    cam2_name = os.path.basename(original_camera2).split(".")[0]
     gdf_cam1 = get_orbit_plot_gdf(original_camera1, optimized_camera1, map_crs=map_crs)
-    gdf_cam2 = get_orbit_plot_gdf(original_camera2, optimized_camera2, map_crs=map_crs)
+
+    if cam2_list:
+        original_camera2, optimized_camera2 = cam2_list
+        cam2_name = os.path.basename(original_camera2).split(".")[0]
+        gdf_cam2 = get_orbit_plot_gdf(
+            original_camera2, optimized_camera2, map_crs=map_crs
+        )
 
     if not map_crs and add_basemap:
         print(
@@ -305,11 +309,12 @@ def csm_camera_summary_plot(
             near_zero_tolerance=near_zero_tolerance,
             trim_percentage=trim_percentage,
         )
-        gdf_cam2 = trim_gdf(
-            gdf_cam2,
-            near_zero_tolerance=near_zero_tolerance,
-            trim_percentage=trim_percentage,
-        )
+        if cam2_list:
+            gdf_cam2 = trim_gdf(
+                gdf_cam2,
+                near_zero_tolerance=near_zero_tolerance,
+                trim_percentage=trim_percentage,
+            )
 
     # Calculate colorbar ranges
     position_values = gdf_cam1.position_diff_magnitude[
@@ -324,18 +329,20 @@ def csm_camera_summary_plot(
     cam1_angular_vmin, cam1_angular_vmax = np.percentile(
         angular_values, [0, upper_magnitude_percentile]
     )
-    position_values = gdf_cam2.position_diff_magnitude[
-        gdf_cam2.position_diff_magnitude > 0
-    ]
-    angular_values = gdf_cam2.angular_diff_magnitude[
-        gdf_cam2.angular_diff_magnitude > 0
-    ]
-    cam2_position_vmin, cam2_position_vmax = np.percentile(
-        position_values, [0, upper_magnitude_percentile]
-    )
-    cam2_angular_vmin, cam2_angular_vmax = np.percentile(
-        angular_values, [0, upper_magnitude_percentile]
-    )
+
+    if cam2_list:
+        position_values = gdf_cam2.position_diff_magnitude[
+            gdf_cam2.position_diff_magnitude > 0
+        ]
+        angular_values = gdf_cam2.angular_diff_magnitude[
+            gdf_cam2.angular_diff_magnitude > 0
+        ]
+        cam2_position_vmin, cam2_position_vmax = np.percentile(
+            position_values, [0, upper_magnitude_percentile]
+        )
+        cam2_angular_vmin, cam2_angular_vmax = np.percentile(
+            angular_values, [0, upper_magnitude_percentile]
+        )
 
     if upper_magnitude_percentile == 100:
         extend = "neither"
@@ -368,33 +375,37 @@ def csm_camera_summary_plot(
         gdf_cam1.yaw_diff.std(),
     )
 
-    cam2_x_position_diff_mean, cam2_x_position_diff_std = (
-        gdf_cam2.x_position_diff.mean(),
-        gdf_cam2.x_position_diff.std(),
-    )
-    cam2_y_position_diff_mean, cam2_y_position_diff_std = (
-        gdf_cam2.y_position_diff.mean(),
-        gdf_cam2.y_position_diff.std(),
-    )
-    cam2_z_position_diff_mean, cam2_z_position_diff_std = (
-        gdf_cam2.z_position_diff.mean(),
-        gdf_cam2.z_position_diff.std(),
-    )
-    cam2_roll_diff_mean, cam2_roll_diff_std = (
-        gdf_cam2.roll_diff.mean(),
-        gdf_cam2.roll_diff.std(),
-    )
-    cam2_pitch_diff_mean, cam2_pitch_diff_std = (
-        gdf_cam2.pitch_diff.mean(),
-        gdf_cam2.pitch_diff.std(),
-    )
-    cam2_yaw_diff_mean, cam2_yaw_diff_std = (
-        gdf_cam2.yaw_diff.mean(),
-        gdf_cam2.yaw_diff.std(),
-    )
+    if cam2_list:
+        cam2_x_position_diff_mean, cam2_x_position_diff_std = (
+            gdf_cam2.x_position_diff.mean(),
+            gdf_cam2.x_position_diff.std(),
+        )
+        cam2_y_position_diff_mean, cam2_y_position_diff_std = (
+            gdf_cam2.y_position_diff.mean(),
+            gdf_cam2.y_position_diff.std(),
+        )
+        cam2_z_position_diff_mean, cam2_z_position_diff_std = (
+            gdf_cam2.z_position_diff.mean(),
+            gdf_cam2.z_position_diff.std(),
+        )
+        cam2_roll_diff_mean, cam2_roll_diff_std = (
+            gdf_cam2.roll_diff.mean(),
+            gdf_cam2.roll_diff.std(),
+        )
+        cam2_pitch_diff_mean, cam2_pitch_diff_std = (
+            gdf_cam2.pitch_diff.mean(),
+            gdf_cam2.pitch_diff.std(),
+        )
+        cam2_yaw_diff_mean, cam2_yaw_diff_std = (
+            gdf_cam2.yaw_diff.mean(),
+            gdf_cam2.yaw_diff.std(),
+        )
 
     # Begin plot
-    fig, axes = plt.subplots(4, 4, figsize=figsize)
+    if cam2_list:
+        fig, axes = plt.subplots(4, 4, figsize=figsize)
+    else:
+        fig, axes = plt.subplots(2, 4, figsize=(figsize[0], figsize[1] / 2))
 
     # Camera 1 mapview plot
     ax = axes[0, 0]
@@ -575,197 +586,200 @@ def csm_camera_summary_plot(
         ax_r.legend(lines1 + lines2, labels1 + labels2, loc="upper right", fontsize=8)
 
     # Camera 2 mapview plot
-    ax = axes[2, 0]
-    gdf_cam2.plot(
-        ax=ax,
-        column="position_diff_magnitude",
-        cmap="viridis",
-        markersize=10,
-        vmin=cam1_position_vmin,
-        vmax=cam1_position_vmax,
-    )
-    ax.set_title(f"Camera 2: Position Change\n{cam2_name}", fontsize=10)
-    ax.tick_params(labelsize=9)
-    ax.set_xlabel("Easting (m)", fontsize=9)
-    ax.set_ylabel("Northing (m)", fontsize=9)
-    if add_basemap:
-        ctx.add_basemap(ax=ax, **ctx_kwargs)
-    sm1 = ScalarMappable(
-        norm=Normalize(vmin=cam1_position_vmin, vmax=cam1_position_vmax), cmap="viridis"
-    )
-    cbar1 = plt.colorbar(
-        sm1, ax=ax, extend=extend, orientation="vertical", aspect=30, pad=0.05
-    )
-    cbar1.set_label("Diff Magnitude (m)", fontsize=9)
-    cbar1.ax.tick_params(labelsize=9)
-
-    # Camera 2 angular mapview plot
-    ax = axes[3, 0]
-    gdf_cam2.plot(
-        ax=ax,
-        column="angular_diff_magnitude",
-        cmap="inferno",
-        markersize=10,
-        vmin=cam1_angular_vmin,
-        vmax=cam1_angular_vmax,
-    )
-    ax.set_title(f"Camera 2: Angle Change\n{cam2_name}", fontsize=10)
-    ax.tick_params(labelsize=9)
-    ax.set_xlabel("Easting (m)", fontsize=9)
-    ax.set_ylabel("Northing (m)", fontsize=9)
-    if add_basemap:
-        ctx.add_basemap(ax=ax, **ctx_kwargs)
-    sm2 = ScalarMappable(
-        norm=Normalize(vmin=cam1_angular_vmin, vmax=cam1_angular_vmax), cmap="inferno"
-    )
-    cbar2 = plt.colorbar(
-        sm2, ax=ax, extend=extend, orientation="vertical", aspect=30, pad=0.05
-    )
-    cbar2.set_label("Diff Magnitude (deg)", fontsize=9)
-    cbar2.ax.tick_params(labelsize=9)
-
-    frame_cam2 = np.arange(gdf_cam2.shape[0])
-
-    # Plot diffs in x, y, z for Camera 2
-    ax1 = axes[2, 1]
-    ax1.plot(
-        frame_cam2,
-        gdf_cam2.x_position_diff,
-        c="#000080",
-        lw=1,
-        label="X position (easting)",
-    )
-    plot_stats_text(ax1, cam2_x_position_diff_mean, cam2_x_position_diff_std)
-    ax2 = axes[2, 2]
-    ax2.plot(
-        frame_cam2,
-        gdf_cam2.y_position_diff,
-        c="#4169E1",
-        lw=1,
-        label="Y position (northing)",
-    )
-    plot_stats_text(ax2, cam2_y_position_diff_mean, cam2_y_position_diff_std)
-    ax3 = axes[2, 3]
-    ax3.plot(
-        frame_cam2,
-        gdf_cam2.z_position_diff,
-        c="#87CEEB",
-        lw=1,
-        label="Z position (altitude)",
-    )
-    plot_stats_text(ax3, cam2_z_position_diff_mean, cam2_z_position_diff_std)
-
-    # Share y-axis for position diff plots
-    min_val_position_diff = min(
-        gdf_cam2.x_position_diff.min(),
-        gdf_cam2.y_position_diff.min(),
-        gdf_cam2.z_position_diff.min(),
-    )
-    max_val_position_diff = max(
-        gdf_cam2.x_position_diff.max(),
-        gdf_cam2.y_position_diff.max(),
-        gdf_cam2.z_position_diff.max(),
-    )
-
-    for ax in [ax1, ax2, ax3]:
-        ax.hlines(
-            0, frame_cam2.min(), frame_cam2.max(), color="k", linestyle="-", lw=0.5
+    if cam2_list:
+        ax = axes[2, 0]
+        gdf_cam2.plot(
+            ax=ax,
+            column="position_diff_magnitude",
+            cmap="viridis",
+            markersize=10,
+            vmin=cam1_position_vmin,
+            vmax=cam1_position_vmax,
         )
-        ax.set_title("Camera 2", loc="right", fontsize=10, y=0.98)
-        ax.set_xlabel("Linescan Sample", fontsize=9)
-        ax.set_ylabel("Original $-$ Optimized (m)", fontsize=9)
-        if shared_scales:
-            ax.set_ylim(min_val_position_diff, max_val_position_diff)
-        if log_scale_positions:
-            ax.set_yscale("symlog")
-        ax.set_xlim(frame_cam2.min(), frame_cam2.max())
-        ax.grid(True, linestyle=":", linewidth=0.5, alpha=0.8, color="gray")
-        ax.legend(loc="upper right", fontsize=8)
-        ax.tick_params(axis="both", which="major", labelsize=9)
-
-    # Plot diffs in roll, pitch, yaw for Camera 2
-    ax1 = axes[3, 1]
-    ax1.plot(frame_cam2, gdf_cam2.roll_diff, c="#FF4500", lw=1, label="Roll Diff")
-    ax1_r = ax1.twinx()
-    ax1_r.plot(
-        frame_cam2,
-        gdf_cam2.original_roll,
-        c="k",
-        lw=1,
-        linestyle="--",
-        label="Original Roll",
-    )
-    plot_stats_text(ax1_r, cam2_roll_diff_mean, cam2_roll_diff_std)
-
-    ax2 = axes[3, 2]
-    ax2.plot(frame_cam2, gdf_cam2.pitch_diff, c="#FFA500", lw=1, label="Pitch Diff")
-    ax2_r = ax2.twinx()
-    ax2_r.plot(
-        frame_cam2,
-        gdf_cam2.original_pitch,
-        c="k",
-        lw=1,
-        linestyle="--",
-        label="Original Pitch",
-    )
-    plot_stats_text(ax2_r, cam2_pitch_diff_mean, cam2_pitch_diff_std)
-
-    ax3 = axes[3, 3]
-    ax3.plot(frame_cam2, gdf_cam2.yaw_diff, c="#FFB347", lw=1, label="Yaw Diff")
-    ax3_r = ax3.twinx()
-    ax3_r.plot(
-        frame_cam2,
-        gdf_cam2.original_yaw,
-        c="k",
-        lw=1,
-        linestyle="--",
-        label="Original Yaw",
-    )
-    plot_stats_text(ax3_r, cam2_yaw_diff_mean, cam2_yaw_diff_std)
-
-    # Share y-axis for angular diff plots
-    min_val_angle_diff = min(
-        gdf_cam2.roll_diff.min(), gdf_cam2.pitch_diff.min(), gdf_cam2.yaw_diff.min()
-    )
-    max_val_angle_diff = max(
-        gdf_cam2.roll_diff.max(), gdf_cam2.pitch_diff.max(), gdf_cam2.yaw_diff.max()
-    )
-
-    for ax, ax_r in [(ax1, ax1_r), (ax2, ax2_r), (ax3, ax3_r)]:
-        ax.hlines(
-            0, frame_cam2.min(), frame_cam2.max(), color="k", linestyle="-", lw=0.5
+        ax.set_title(f"Camera 2: Position Change\n{cam2_name}", fontsize=10)
+        ax.tick_params(labelsize=9)
+        ax.set_xlabel("Easting (m)", fontsize=9)
+        ax.set_ylabel("Northing (m)", fontsize=9)
+        if add_basemap:
+            ctx.add_basemap(ax=ax, **ctx_kwargs)
+        sm1 = ScalarMappable(
+            norm=Normalize(vmin=cam1_position_vmin, vmax=cam1_position_vmax),
+            cmap="viridis",
         )
-        ax.set_title("Camera 2", loc="right", fontsize=10, y=0.98)
-        ax.set_xlabel("Linescan Sample", fontsize=9)
-        ax.set_ylabel("Original $-$ Optimized (deg)", fontsize=9)
-        if shared_scales:
-            ax.set_ylim(min_val_angle_diff, max_val_angle_diff)
-        ax_r.set_ylabel("Original (deg)", fontsize=9)
-        if log_scale_angles:
-            ax.set_yscale("symlog")
-        ax.set_xlim(frame_cam2.min(), frame_cam2.max())
-        ax.grid(True, linestyle=":", linewidth=0.5, alpha=0.8, color="gray")
-        ax.tick_params(axis="both", which="major", labelsize=9)
-        ax_r.tick_params(axis="both", which="major", labelsize=9)
-        lines1, labels1 = ax_r.get_legend_handles_labels()
-        lines2, labels2 = ax.get_legend_handles_labels()
-        ax_r.legend(lines1 + lines2, labels1 + labels2, loc="upper right", fontsize=8)
+        cbar1 = plt.colorbar(
+            sm1, ax=ax, extend=extend, orientation="vertical", aspect=30, pad=0.05
+        )
+        cbar1.set_label("Diff Magnitude (m)", fontsize=9)
+        cbar1.ax.tick_params(labelsize=9)
 
-    # Set linewidth and color for all spines
-    for ax in axes[:2].flatten():
-        for spine in ax.spines.values():
-            spine.set_linewidth(2)
-            spine.set_color("#141414")
+        # Camera 2 angular mapview plot
+        ax = axes[3, 0]
+        gdf_cam2.plot(
+            ax=ax,
+            column="angular_diff_magnitude",
+            cmap="inferno",
+            markersize=10,
+            vmin=cam1_angular_vmin,
+            vmax=cam1_angular_vmax,
+        )
+        ax.set_title(f"Camera 2: Angle Change\n{cam2_name}", fontsize=10)
+        ax.tick_params(labelsize=9)
+        ax.set_xlabel("Easting (m)", fontsize=9)
+        ax.set_ylabel("Northing (m)", fontsize=9)
+        if add_basemap:
+            ctx.add_basemap(ax=ax, **ctx_kwargs)
+        sm2 = ScalarMappable(
+            norm=Normalize(vmin=cam1_angular_vmin, vmax=cam1_angular_vmax),
+            cmap="inferno",
+        )
+        cbar2 = plt.colorbar(
+            sm2, ax=ax, extend=extend, orientation="vertical", aspect=30, pad=0.05
+        )
+        cbar2.set_label("Diff Magnitude (deg)", fontsize=9)
+        cbar2.ax.tick_params(labelsize=9)
 
-    for ax in axes[2:].flatten():
-        for spine in ax.spines.values():
-            spine.set_linewidth(2)
-            spine.set_color("#A9A9A9")
+        frame_cam2 = np.arange(gdf_cam2.shape[0])
 
-    if title:
-        title_text = f"{title}: Position and Angle Changes for Camera 1 ({cam1_name}) and Camera 2 ({cam2_name})"
-    else:
-        title_text = f"Position and Angle Changes for Camera 1 ({cam1_name}) and Camera 2 ({cam2_name})"
+        # Plot diffs in x, y, z for Camera 2
+        ax1 = axes[2, 1]
+        ax1.plot(
+            frame_cam2,
+            gdf_cam2.x_position_diff,
+            c="#000080",
+            lw=1,
+            label="X position (easting)",
+        )
+        plot_stats_text(ax1, cam2_x_position_diff_mean, cam2_x_position_diff_std)
+        ax2 = axes[2, 2]
+        ax2.plot(
+            frame_cam2,
+            gdf_cam2.y_position_diff,
+            c="#4169E1",
+            lw=1,
+            label="Y position (northing)",
+        )
+        plot_stats_text(ax2, cam2_y_position_diff_mean, cam2_y_position_diff_std)
+        ax3 = axes[2, 3]
+        ax3.plot(
+            frame_cam2,
+            gdf_cam2.z_position_diff,
+            c="#87CEEB",
+            lw=1,
+            label="Z position (altitude)",
+        )
+        plot_stats_text(ax3, cam2_z_position_diff_mean, cam2_z_position_diff_std)
+
+        # Share y-axis for position diff plots
+        min_val_position_diff = min(
+            gdf_cam2.x_position_diff.min(),
+            gdf_cam2.y_position_diff.min(),
+            gdf_cam2.z_position_diff.min(),
+        )
+        max_val_position_diff = max(
+            gdf_cam2.x_position_diff.max(),
+            gdf_cam2.y_position_diff.max(),
+            gdf_cam2.z_position_diff.max(),
+        )
+
+        for ax in [ax1, ax2, ax3]:
+            ax.hlines(
+                0, frame_cam2.min(), frame_cam2.max(), color="k", linestyle="-", lw=0.5
+            )
+            ax.set_title("Camera 2", loc="right", fontsize=10, y=0.98)
+            ax.set_xlabel("Linescan Sample", fontsize=9)
+            ax.set_ylabel("Original $-$ Optimized (m)", fontsize=9)
+            if shared_scales:
+                ax.set_ylim(min_val_position_diff, max_val_position_diff)
+            if log_scale_positions:
+                ax.set_yscale("symlog")
+            ax.set_xlim(frame_cam2.min(), frame_cam2.max())
+            ax.grid(True, linestyle=":", linewidth=0.5, alpha=0.8, color="gray")
+            ax.legend(loc="upper right", fontsize=8)
+            ax.tick_params(axis="both", which="major", labelsize=9)
+
+        # Plot diffs in roll, pitch, yaw for Camera 2
+        ax1 = axes[3, 1]
+        ax1.plot(frame_cam2, gdf_cam2.roll_diff, c="#FF4500", lw=1, label="Roll Diff")
+        ax1_r = ax1.twinx()
+        ax1_r.plot(
+            frame_cam2,
+            gdf_cam2.original_roll,
+            c="k",
+            lw=1,
+            linestyle="--",
+            label="Original Roll",
+        )
+        plot_stats_text(ax1_r, cam2_roll_diff_mean, cam2_roll_diff_std)
+
+        ax2 = axes[3, 2]
+        ax2.plot(frame_cam2, gdf_cam2.pitch_diff, c="#FFA500", lw=1, label="Pitch Diff")
+        ax2_r = ax2.twinx()
+        ax2_r.plot(
+            frame_cam2,
+            gdf_cam2.original_pitch,
+            c="k",
+            lw=1,
+            linestyle="--",
+            label="Original Pitch",
+        )
+        plot_stats_text(ax2_r, cam2_pitch_diff_mean, cam2_pitch_diff_std)
+
+        ax3 = axes[3, 3]
+        ax3.plot(frame_cam2, gdf_cam2.yaw_diff, c="#FFB347", lw=1, label="Yaw Diff")
+        ax3_r = ax3.twinx()
+        ax3_r.plot(
+            frame_cam2,
+            gdf_cam2.original_yaw,
+            c="k",
+            lw=1,
+            linestyle="--",
+            label="Original Yaw",
+        )
+        plot_stats_text(ax3_r, cam2_yaw_diff_mean, cam2_yaw_diff_std)
+
+        # Share y-axis for angular diff plots
+        min_val_angle_diff = min(
+            gdf_cam2.roll_diff.min(), gdf_cam2.pitch_diff.min(), gdf_cam2.yaw_diff.min()
+        )
+        max_val_angle_diff = max(
+            gdf_cam2.roll_diff.max(), gdf_cam2.pitch_diff.max(), gdf_cam2.yaw_diff.max()
+        )
+
+        for ax, ax_r in [(ax1, ax1_r), (ax2, ax2_r), (ax3, ax3_r)]:
+            ax.hlines(
+                0, frame_cam2.min(), frame_cam2.max(), color="k", linestyle="-", lw=0.5
+            )
+            ax.set_title("Camera 2", loc="right", fontsize=10, y=0.98)
+            ax.set_xlabel("Linescan Sample", fontsize=9)
+            ax.set_ylabel("Original $-$ Optimized (deg)", fontsize=9)
+            if shared_scales:
+                ax.set_ylim(min_val_angle_diff, max_val_angle_diff)
+            ax_r.set_ylabel("Original (deg)", fontsize=9)
+            if log_scale_angles:
+                ax.set_yscale("symlog")
+            ax.set_xlim(frame_cam2.min(), frame_cam2.max())
+            ax.grid(True, linestyle=":", linewidth=0.5, alpha=0.8, color="gray")
+            ax.tick_params(axis="both", which="major", labelsize=9)
+            ax_r.tick_params(axis="both", which="major", labelsize=9)
+            lines1, labels1 = ax_r.get_legend_handles_labels()
+            lines2, labels2 = ax.get_legend_handles_labels()
+            ax_r.legend(
+                lines1 + lines2, labels1 + labels2, loc="upper right", fontsize=8
+            )
+
+        # Set linewidth and color for all spines
+        for ax in axes[:2].flatten():
+            for spine in ax.spines.values():
+                spine.set_linewidth(2)
+                spine.set_color("#141414")
+
+        for ax in axes[2:].flatten():
+            for spine in ax.spines.values():
+                spine.set_linewidth(2)
+                spine.set_color("#A9A9A9")
+
+    title_text = f"{'{}: '.format(title) if title else ''}Position and Angle Changes for Camera 1 ({cam1_name}){' and Camera 2 ({})'.format(cam2_name) if cam2_list else ''}"
+
     if map_crs:
         title_text += (
             f"\n(original positions in ECEF, projected here to UTM EPSG:{map_crs})"

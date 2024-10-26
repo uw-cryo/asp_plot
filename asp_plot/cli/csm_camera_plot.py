@@ -117,7 +117,10 @@ def main(
     optimized_cameras = optimized_cameras.split(",")
 
     cam1_list = [original_cameras[0], optimized_cameras[0]]
-    cam2_list = [original_cameras[1], optimized_cameras[1]]
+    if len(original_cameras) > 1 and len(optimized_cameras) > 1:
+        cam2_list = [original_cameras[1], optimized_cameras[1]]
+    else:
+        cam2_list = None
 
     ctx_kwargs = {
         "crs": f"EPSG:{map_crs}",
