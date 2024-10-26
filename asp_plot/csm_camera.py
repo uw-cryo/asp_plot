@@ -242,7 +242,7 @@ def plot_stats_text(ax, mean, std):
     )
 
 
-def summary_plot_two_camera_optimization(
+def csm_camera_summary_plot(
     cam1_list,
     cam2_list,
     map_crs=None,

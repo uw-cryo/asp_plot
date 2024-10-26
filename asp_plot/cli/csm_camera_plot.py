@@ -1,7 +1,7 @@
 import click
 import contextily as ctx
 
-from asp_plot.camera_optimization import summary_plot_two_camera_optimization
+from asp_plot.csm_camera import csm_camera_summary_plot
 
 
 @click.command()
@@ -87,8 +87,8 @@ from asp_plot.camera_optimization import summary_plot_two_camera_optimization
 @click.option(
     "--fig_fn",
     prompt=False,
-    default="camera_optimization_summary_plot.png",
-    help="Figure filename. Default: camera_optimization_summary_plot.png.",
+    default="csm_camera_summary_plot.png",
+    help="Figure filename. Default: csm_camera_summary_plot.png.",
 )
 @click.option(
     "--add_basemap",
@@ -126,7 +126,7 @@ def main(
         "alpha": 0.5,
     }
 
-    summary_plot_two_camera_optimization(
+    csm_camera_summary_plot(
         cam1_list,
         cam2_list,
         map_crs,
