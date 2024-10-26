@@ -45,6 +45,18 @@ from asp_plot.utils import compile_report
     help="Reference DEM used in ASP processing. No default. Must be supplied.",
 )
 @click.option(
+    "--add_basemap",
+    prompt=False,
+    default=True,
+    help="If True, add a contextily basemap to the figure, which requires internet connection. Default: True",
+)
+@click.option(
+    "--plot_icesat",
+    prompt=False,
+    default=True,
+    help="If True, plot an ICESat-2 difference plot with the DEM result. This requires internet connection to pull ICESat data. Default: True",
+)
+@click.option(
     "--report_filename",
     prompt=False,
     default=None,
@@ -62,6 +74,8 @@ def main(
     stereo_directory,
     map_crs,
     reference_dem,
+    add_basemap,
+    plot_icesat,
     report_filename,
     report_title,
 ):
@@ -78,12 +92,15 @@ def main(
 
     figure_counter = count(0)
 
-    ctx_kwargs = {
-        "crs": map_crs,
-        "source": ctx.providers.Esri.WorldImagery,
-        "attribution_size": 0,
-        "alpha": 0.5,
-    }
+    if add_basemap:
+        ctx_kwargs = {
+            "crs": map_crs,
+            "source": ctx.providers.Esri.WorldImagery,
+            "attribution_size": 0,
+            "alpha": 0.5,
+        }
+    else:
+        ctx_kwargs = {}
 
     # Detailed hillshade plot
     plotter = StereoPlotter(
@@ -100,31 +117,32 @@ def main(
     )
 
     # ICESat-2 comparison
-    icesat = Altimetry(dem_fn=plotter.dem_fn)
+    if plot_icesat:
+        icesat = Altimetry(dem_fn=plotter.dem_fn)
 
-    icesat.pull_atl06sr(
-        esa_worldcover=True,
-        save_to_parquet=False,
-    )
+        icesat.pull_atl06sr(
+            esa_worldcover=True,
+            save_to_parquet=False,
+        )
 
-    icesat.filter_atl06sr(
-        mask_worldcover_water=True,
-        save_to_parquet=False,
-        save_to_csv=False,
-    )
+        icesat.filter_atl06sr(
+            mask_worldcover_water=True,
+            save_to_parquet=False,
+            save_to_csv=False,
+        )
 
-    icesat.mapview_plot_atl06sr_to_dem(
-        title=f"Filtered ICESat-2 minus DEM (n={icesat.atl06sr_filtered.shape[0]})",
-        save_dir=plots_directory,
-        fig_fn=f"{next(figure_counter):02}.png",
-        **ctx_kwargs,
-    )
+        icesat.mapview_plot_atl06sr_to_dem(
+            title=f"Filtered ICESat-2 minus DEM (n={icesat.atl06sr_filtered.shape[0]})",
+            save_dir=plots_directory,
+            fig_fn=f"{next(figure_counter):02}.png",
+            **ctx_kwargs,
+        )
 
-    icesat.histogram(
-        title=f"Filtered ICESat-2 minus DEM (n={icesat.atl06sr_filtered.shape[0]})",
-        save_dir=plots_directory,
-        fig_fn=f"{next(figure_counter):02}.png",
-    )
+        icesat.histogram(
+            title=f"Filtered ICESat-2 minus DEM (n={icesat.atl06sr_filtered.shape[0]})",
+            save_dir=plots_directory,
+            fig_fn=f"{next(figure_counter):02}.png",
+        )
 
     # Geometry plot
     plotter = SceneGeometryPlotter(directory)
