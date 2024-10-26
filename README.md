@@ -79,6 +79,13 @@ Options:
                                   Default: EPSG:4326
   --reference_dem TEXT            Reference DEM used in ASP processing. No
                                   default. Must be supplied.
+  --add_basemap BOOLEAN           If True, add a contextily basemap to the
+                                  figure, which requires internet connection.
+                                  Default: True
+  --plot_icesat BOOLEAN           If True, plot an ICESat-2 difference plot
+                                  with the DEM result. This requires internet
+                                  connection to pull ICESat data. Default:
+                                  True
   --report_filename TEXT          PDF file to write out for report into the
                                   processing directory supplied by
                                   --directory. Default: Directory name of ASP

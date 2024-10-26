@@ -4,7 +4,7 @@ from setuptools import find_packages, setup
 
 setup(
     name="asp_plot",
-    version="0.5.0",
+    version="0.5.1",
     description="Python library and client for plotting Ames Stereo Pipeline outputs",
     author="Ben Purinton",
     author_email="purinton@uw.edu",
