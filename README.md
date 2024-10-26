@@ -94,31 +94,31 @@ Options:
                                   name of ASP processing
 ```
 
-## CLI usage: `camera_optimization`
+## CLI usage: `csm_camera_plot`
 
-The `camera_optimization` command-line tool is a wrapper for outputting a summary plot after running tools like `bundle_adjust` and `jitter_solve`.
+The `csm_camera_plot` command-line tool is a wrapper for outputting a summary plot after running tools like `bundle_adjust` and `jitter_solve`. The inputs must be [CSM camera files](https://stereopipeline.readthedocs.io/en/stable/examples/csm.html). Currently, this tool only supports CSM linescan cameras, such as those from WorldView satellites.
 
 At its simplest it can be run like:
 
 ```
-$ camera_optimization --original_cameras path/to/original_camera_1,path/to/original_camera_2 \
+$ csm_camera_plot --original_cameras path/to/original_camera_1,path/to/original_camera_2 \
                       --optimized_cameras path/to/optimized_camera_1,path/to/optimized_camera_2
 ```
 
 But, for more meaningful positions we at least recommend specifying a `map_crs` UTM EPSG code, and a directory to save the output figure to:
 
 ```
-$ camera_optimization --original_cameras path/to/original_camera_1,path/to/original_camera_2 \
+$ csm_camera_plot --original_cameras path/to/original_camera_1,path/to/original_camera_2 \
                       --optimized_cameras path/to/optimized_camera_1,path/to/optimized_camera_2 \
                       --map_crs 32728
                       --save_dir path/to/save_directory/
 ```
 
-And there are many more options that can also be modified, by examining `camera_optimization --help`:
+And there are many more options that can also be modified, by examining `csm_camera_plot --help`:
 
 ```
- $ camera_optimization --help
-Usage: camera_optimization [OPTIONS]
+ $ csm_camera_plot --help
+Usage: csm_camera_plot [OPTIONS]
 
 Options:
   --original_cameras TEXT         Original camera files, supplied as comma
@@ -156,7 +156,7 @@ Options:
   --save_dir TEXT                 Directory to save the figure. Default: None,
                                   which does not save the figure.
   --fig_fn TEXT                   Figure filename. Default:
-                                  camera_optimization_summary_plot.png.
+                                  csm_camera_plot_summary_plot.png.
   --add_basemap BOOLEAN           If True, add a contextily basemap to the
                                   figure, which requires internet connection.
                                   Default: False
