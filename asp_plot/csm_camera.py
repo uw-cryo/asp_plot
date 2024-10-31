@@ -304,17 +304,25 @@ def csm_camera_summary_plot(
 
     # Trim the beginning and end of the geodataframes
     if trim:
-        gdf_cam1 = trim_gdf(
-            gdf_cam1,
-            near_zero_tolerance=near_zero_tolerance,
-            trim_percentage=trim_percentage,
-        )
-        if cam2_list:
-            gdf_cam2 = trim_gdf(
-                gdf_cam2,
+        # When position changes are all zero, the trimming will fail
+        # https://github.com/uw-cryo/asp_plot/issues/54
+        if np.sum(gdf_cam1.position_diff_magnitude > 0) == 0:
+            print(
+                "\nWarning: No data to trim from the beginning and end of the camera files. Position changes are all zero.\n"
+            )
+            trim = False
+        else:
+            gdf_cam1 = trim_gdf(
+                gdf_cam1,
                 near_zero_tolerance=near_zero_tolerance,
                 trim_percentage=trim_percentage,
             )
+            if cam2_list:
+                gdf_cam2 = trim_gdf(
+                    gdf_cam2,
+                    near_zero_tolerance=near_zero_tolerance,
+                    trim_percentage=trim_percentage,
+                )
 
     # Calculate colorbar ranges
     position_values = gdf_cam1.position_diff_magnitude[
@@ -323,26 +331,21 @@ def csm_camera_summary_plot(
     angular_values = gdf_cam1.angular_diff_magnitude[
         gdf_cam1.angular_diff_magnitude > 0
     ]
-    cam1_position_vmin, cam1_position_vmax = np.percentile(
-        position_values, [0, upper_magnitude_percentile]
-    )
-    cam1_angular_vmin, cam1_angular_vmax = np.percentile(
-        angular_values, [0, upper_magnitude_percentile]
-    )
-
-    if cam2_list:
-        position_values = gdf_cam2.position_diff_magnitude[
-            gdf_cam2.position_diff_magnitude > 0
-        ]
-        angular_values = gdf_cam2.angular_diff_magnitude[
-            gdf_cam2.angular_diff_magnitude > 0
-        ]
-        cam2_position_vmin, cam2_position_vmax = np.percentile(
+    # When position or angular changes are all zero, the percentile calculation will fail
+    # https://github.com/uw-cryo/asp_plot/issues/54
+    try:
+        cam1_position_vmin, cam1_position_vmax = np.percentile(
             position_values, [0, upper_magnitude_percentile]
         )
-        cam2_angular_vmin, cam2_angular_vmax = np.percentile(
+    except IndexError:
+        cam1_position_vmin, cam1_position_vmax = 0, 0
+
+    try:
+        cam1_angular_vmin, cam1_angular_vmax = np.percentile(
             angular_values, [0, upper_magnitude_percentile]
         )
+    except IndexError:
+        cam1_angular_vmin, cam1_angular_vmax = 0, 0
 
     if upper_magnitude_percentile == 100:
         extend = "neither"
