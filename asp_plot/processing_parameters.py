@@ -11,18 +11,36 @@ logger = logging.getLogger(__name__)
 
 
 class ProcessingParameters:
-    def __init__(self, directory, bundle_adjust_directory, stereo_directory):
-        self.directory = directory
+    def __init__(
+        self, processing_directory, bundle_adjust_directory=None, stereo_directory=None
+    ):
+        self.processing_directory = processing_directory
         self.bundle_adjust_directory = bundle_adjust_directory
         self.stereo_directory = stereo_directory
-        self.full_ba_directory = os.path.join(directory, bundle_adjust_directory)
-        self.full_stereo_directory = os.path.join(directory, stereo_directory)
+        self.full_ba_directory = (
+            os.path.join(self.processing_directory, bundle_adjust_directory)
+            if bundle_adjust_directory
+            else None
+        )
+        self.full_stereo_directory = (
+            os.path.join(self.processing_directory, stereo_directory)
+            if stereo_directory
+            else None
+        )
         self.processing_parameters_dict = {}
 
+        if self.bundle_adjust_directory:
+            try:
+                self.bundle_adjust_log = glob_file(
+                    self.full_ba_directory, "*log-bundle_adjust*.txt"
+                )
+            except:
+                logger.warning(
+                    "\n\nCould not find bundle adjust log files in bundle adjust directory\nCheck that these *log*.txt files exist in the directory specified.\n\n"
+                )
+                self.bundle_adjust_log = None
+
         try:
-            self.bundle_adjust_log = glob_file(
-                self.full_ba_directory, "*log-bundle_adjust*.txt"
-            )
             self.stereo_logs = glob.glob(
                 os.path.join(self.full_stereo_directory, "*log-stereo*.txt")
             )
@@ -31,24 +49,34 @@ class ProcessingParameters:
             )
         except:
             raise ValueError(
-                "\n\nCould not find log files in bundle adjust and stereo directories\nCheck that these *log*.txt files exist in the directories specified.\n\n"
+                "\n\nCould not find stereo log and point2dem log files in stereo directory\nCheck that these *log*.txt files exist in the directory specified.\n\n"
             )
 
     def from_log_files(self):
-        bundle_adjust_params, processing_timestamp, ba_run_time, reference_dem = (
-            self.from_bundle_adjust_log()
-        )
-        if reference_dem != "":
-            stereo_params, stereo_run_time = self.from_stereo_log()
-        else:
-            stereo_params, stereo_run_time, reference_dem = self.from_stereo_log(
-                search_for_reference_dem=True
+        if self.bundle_adjust_directory and self.bundle_adjust_log:
+            bundle_adjust_params, ba_run_time, reference_dem = (
+                self.from_bundle_adjust_log()
             )
+            if reference_dem != "":
+                processing_timestamp, stereo_params, stereo_run_time = (
+                    self.from_stereo_log()
+                )
+            else:
+                processing_timestamp, stereo_params, stereo_run_time, reference_dem = (
+                    self.from_stereo_log(search_for_reference_dem=True)
+                )
+            bundle_adjust_params = (
+                "bundle_adjust " + bundle_adjust_params.split(maxsplit=1)[1]
+            )
+        else:
+            bundle_adjust_params = "Bundle adjustment not run"
+            ba_run_time = "N/A"
+            processing_timestamp, stereo_params, stereo_run_time, reference_dem = (
+                self.from_stereo_log(search_for_reference_dem=True)
+            )
+
         point2dem_params, point2dem_run_time = self.from_point2dem_log()
 
-        bundle_adjust_params = (
-            "bundle_adjust " + bundle_adjust_params.split(maxsplit=1)[1]
-        )
         stereo_params = "stereo " + stereo_params.split(maxsplit=1)[1]
         point2dem_params = "point2dem " + point2dem_params.split(maxsplit=1)[1]
 
@@ -73,20 +101,15 @@ class ProcessingParameters:
                     bundle_adjust_params = line.strip()
                     break
 
-        processing_timestamp = ""
         reference_dem = ""
         with open(self.bundle_adjust_log, "r") as file:
             for line in file:
-                if re.match(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}", line):
-                    processing_timestamp = datetime.strptime(
-                        line.split()[0] + " " + line.split()[1], "%Y-%m-%d %H:%M:%S"
-                    )
                 if "Loading DEM:" in line:
                     reference_dem = line.split("Loading DEM:")[1].strip()
 
         run_time = self.get_run_time([self.bundle_adjust_log])
 
-        return bundle_adjust_params, processing_timestamp, run_time, reference_dem
+        return bundle_adjust_params, run_time, reference_dem
 
     def from_point2dem_log(self):
         point2dem_params = ""
@@ -121,6 +144,14 @@ class ProcessingParameters:
                     stereo_params = line.strip()
                     break
 
+        processing_timestamp = ""
+        with open(pprc_log, "r") as file:
+            for line in file:
+                if re.match(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}", line):
+                    processing_timestamp = datetime.strptime(
+                        line.split()[0] + " " + line.split()[1], "%Y-%m-%d %H:%M:%S"
+                    )
+
         run_time = self.get_run_time([pprc_log, tri_log])
 
         if search_for_reference_dem:
@@ -130,9 +161,9 @@ class ProcessingParameters:
                     if "Using input DEM:" in line:
                         reference_dem = line.split("Using input DEM:")[1].strip()
 
-            return stereo_params, run_time, reference_dem
+            return processing_timestamp, stereo_params, run_time, reference_dem
         else:
-            return stereo_params, run_time
+            return processing_timestamp, stereo_params, run_time
 
     def get_run_time(self, logfiles):
         start_time = None
