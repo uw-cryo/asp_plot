@@ -29,33 +29,27 @@ class ProcessingParameters:
         )
         self.processing_parameters_dict = {}
 
-        if self.bundle_adjust_directory:
-            try:
-                self.bundle_adjust_log = glob_file(
-                    self.full_ba_directory, "*log-bundle_adjust*.txt"
-                )
-            except:
-                logger.warning(
-                    "\n\nCould not find bundle adjust log files in bundle adjust directory\nCheck that these *log*.txt files exist in the directory specified.\n\n"
-                )
-                self.bundle_adjust_log = None
-
+        try:
+            self.bundle_adjust_log = glob_file(
+                self.full_ba_directory, "*log-bundle_adjust*.txt"
+            )
+        except:
+            self.bundle_adjust_log = None
         try:
             self.stereo_logs = glob.glob(
                 os.path.join(self.full_stereo_directory, "*log-stereo*.txt")
             )
+        except:
+            self.stereo_logs = None
+        try:
             self.point2dem_log = glob_file(
                 self.full_stereo_directory, "*log-point2dem*.txt"
             )
         except:
-            logger.warning(
-                "\n\nCould not find stereo log and/or point2dem log files in stereo directory\nCheck that these *log*.txt files exist in the directory specified.\n\n"
-            )
-            self.stereo_logs = None
             self.point2dem_log = None
 
     def from_log_files(self):
-        if self.bundle_adjust_directory and self.bundle_adjust_log:
+        if self.bundle_adjust_directory:
             bundle_adjust_params, ba_run_time, reference_dem = (
                 self.from_bundle_adjust_log()
             )
@@ -96,6 +90,10 @@ class ProcessingParameters:
         return self.processing_parameters_dict
 
     def from_bundle_adjust_log(self):
+        if not self.bundle_adjust_log:
+            raise ValueError(
+                f"\n\nCould not find bundle adjust log file in {self.full_ba_directory}\nCheck that the *log*.txt file exists in the directory specified.\n\n"
+            )
         bundle_adjust_params = ""
         with open(self.bundle_adjust_log, "r") as file:
             for line in file:
@@ -112,6 +110,10 @@ class ProcessingParameters:
         return bundle_adjust_params, run_time, reference_dem
 
     def from_point2dem_log(self):
+        if not self.point2dem_log:
+            raise ValueError(
+                f"\n\nCould not find point2dem log file in {self.full_stereo_directory}\nCheck that the *log*.txt file exists in the directory specified.\n\n"
+            )
         point2dem_params = ""
         with open(self.point2dem_log, "r") as file:
             for line in file:
@@ -131,6 +133,10 @@ class ProcessingParameters:
         #  4. stereo_rfne (logs in tile/ dirs)
         #  5. stereo_fltr
         #  6. stereo_tri
+        if not self.stereo_logs:
+            raise ValueError(
+                f"\n\nCould not find stereo log files in {self.full_stereo_directory}\nCheck that these *log*.txt files exist in the directory specified.\n\n"
+            )
         pprc_log = next(
             (log for log in self.stereo_logs if "log-stereo_pprc" in log), None
         )

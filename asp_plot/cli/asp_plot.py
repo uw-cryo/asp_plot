@@ -159,76 +159,79 @@ def main(
     )
 
     # Bundle adjustment plots
-    try:
-        ba_files = ReadBundleAdjustFiles(directory, bundle_adjust_directory)
-        resid_initial_gdf, resid_final_gdf = ba_files.get_initial_final_residuals_gdfs()
-        geodiff_initial_gdf, geodiff_final_gdf = (
-            ba_files.get_initial_final_geodiff_gdfs()
-        )
-        resid_mapprojected_gdf = ba_files.get_mapproj_residuals_gdf()
+    if bundle_adjust_directory:
+        try:
+            ba_files = ReadBundleAdjustFiles(directory, bundle_adjust_directory)
+            resid_initial_gdf, resid_final_gdf = (
+                ba_files.get_initial_final_residuals_gdfs()
+            )
+            geodiff_initial_gdf, geodiff_final_gdf = (
+                ba_files.get_initial_final_geodiff_gdfs()
+            )
+            resid_mapprojected_gdf = ba_files.get_mapproj_residuals_gdf()
 
-        plotter = PlotBundleAdjustFiles(
-            [resid_initial_gdf, resid_final_gdf],
-            lognorm=True,
-            title="Bundle Adjust Initial and Final Residuals (Log Scale)",
-        )
+            plotter = PlotBundleAdjustFiles(
+                [resid_initial_gdf, resid_final_gdf],
+                lognorm=True,
+                title="Bundle Adjust Initial and Final Residuals (Log Scale)",
+            )
 
-        plotter.plot_n_gdfs(
-            column_name="mean_residual",
-            cbar_label="Mean residual (px)",
-            map_crs=map_crs,
-            save_dir=plots_directory,
-            fig_fn=f"{next(figure_counter):02}.png",
-            **ctx_kwargs,
-        )
+            plotter.plot_n_gdfs(
+                column_name="mean_residual",
+                cbar_label="Mean residual (px)",
+                map_crs=map_crs,
+                save_dir=plots_directory,
+                fig_fn=f"{next(figure_counter):02}.png",
+                **ctx_kwargs,
+            )
 
-        plotter.lognorm = False
-        plotter.title = "Bundle Adjust Initial and Final Residuals (Linear Scale)"
+            plotter.lognorm = False
+            plotter.title = "Bundle Adjust Initial and Final Residuals (Linear Scale)"
 
-        plotter.plot_n_gdfs(
-            column_name="mean_residual",
-            cbar_label="Mean residual (px)",
-            common_clim=False,
-            map_crs=map_crs,
-            save_dir=plots_directory,
-            fig_fn=f"{next(figure_counter):02}.png",
-            **ctx_kwargs,
-        )
+            plotter.plot_n_gdfs(
+                column_name="mean_residual",
+                cbar_label="Mean residual (px)",
+                common_clim=False,
+                map_crs=map_crs,
+                save_dir=plots_directory,
+                fig_fn=f"{next(figure_counter):02}.png",
+                **ctx_kwargs,
+            )
 
-        plotter = PlotBundleAdjustFiles(
-            [resid_mapprojected_gdf],
-            title="Bundle Adjust Midpoint distance between\nfinal interest points projected onto reference DEM",
-        )
+            plotter = PlotBundleAdjustFiles(
+                [resid_mapprojected_gdf],
+                title="Bundle Adjust Midpoint distance between\nfinal interest points projected onto reference DEM",
+            )
 
-        plotter.plot_n_gdfs(
-            column_name="mapproj_ip_dist_meters",
-            cbar_label="Interest point distance (m)",
-            map_crs=map_crs,
-            save_dir=plots_directory,
-            fig_fn=f"{next(figure_counter):02}.png",
-            **ctx_kwargs,
-        )
+            plotter.plot_n_gdfs(
+                column_name="mapproj_ip_dist_meters",
+                cbar_label="Interest point distance (m)",
+                map_crs=map_crs,
+                save_dir=plots_directory,
+                fig_fn=f"{next(figure_counter):02}.png",
+                **ctx_kwargs,
+            )
 
-        plotter = PlotBundleAdjustFiles(
-            [geodiff_initial_gdf, geodiff_final_gdf],
-            lognorm=False,
-            title="Bundle Adjust Initial and Final Geodiff vs. Reference DEM",
-        )
+            plotter = PlotBundleAdjustFiles(
+                [geodiff_initial_gdf, geodiff_final_gdf],
+                lognorm=False,
+                title="Bundle Adjust Initial and Final Geodiff vs. Reference DEM",
+            )
 
-        plotter.plot_n_gdfs(
-            column_name="height_diff_meters",
-            cbar_label="Height difference (m)",
-            map_crs=map_crs,
-            cmap="RdBu",
-            symm_clim=True,
-            save_dir=plots_directory,
-            fig_fn=f"{next(figure_counter):02}.png",
-            **ctx_kwargs,
-        )
-    except ValueError:
-        print(
-            f"\n\nNo bundle adjustment files found in directory {os.path.join(directory, bundle_adjust_directory):}. If you want bundle adjustment plots, make sure you run the tool and supply the correct directory to asp_plot.\n\n"
-        )
+            plotter.plot_n_gdfs(
+                column_name="height_diff_meters",
+                cbar_label="Height difference (m)",
+                map_crs=map_crs,
+                cmap="RdBu",
+                symm_clim=True,
+                save_dir=plots_directory,
+                fig_fn=f"{next(figure_counter):02}.png",
+                **ctx_kwargs,
+            )
+        except ValueError:
+            print(
+                f"\n\nNo bundle adjustment files found in directory {os.path.join(directory, bundle_adjust_directory):}. If you want bundle adjustment plots, make sure you run the tool and supply the correct directory to asp_plot.\n\n"
+            )
 
     # Stereo plots
     plotter = StereoPlotter(
