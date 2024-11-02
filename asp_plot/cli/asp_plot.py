@@ -18,31 +18,31 @@ from asp_plot.utils import compile_report
     "--directory",
     prompt=True,
     default="./",
-    help="Directory of ASP processing with scenes and sub-directories for bundle adjustment and stereo. Default: current directory",
+    help="Required directory of ASP processing with scenes and sub-directories for stereo and optionally bundle adjustment. Default: current directory",
 )
 @click.option(
     "--bundle_adjust_directory",
     prompt=False,
-    default="ba",
-    help="Directory of bundle adjustment files. Default: ba. If expected files are not found there, no bundle adjustment plots will be made.",
+    default=None,
+    help="Optional directory of bundle adjustment files. If expected *residuals_pointmap.csv files are not found in the supplied directory, no bundle adjustment plots will be generated. Default: None.",
 )
 @click.option(
     "--stereo_directory",
     prompt=True,
     default="stereo",
-    help="Directory of stereo files. Default: stereo",
+    help="Required directory of stereo files. Default: stereo",
 )
 @click.option(
     "--map_crs",
     prompt=True,
     default="EPSG:4326",
-    help="Projection for bundle adjustment plots. Default: EPSG:4326",
+    help="Required projection for icesat and bundle adjustment plots. Default: EPSG:4326",
 )
 @click.option(
     "--reference_dem",
-    prompt=True,
+    prompt=False,
     default="",
-    help="Reference DEM used in ASP processing. No default. Must be supplied.",
+    help="Required reference DEM used in ASP processing. No default. If not supplied, the logs will be examined to find it.",
 )
 @click.option(
     "--add_basemap",

@@ -48,9 +48,11 @@ class ProcessingParameters:
                 self.full_stereo_directory, "*log-point2dem*.txt"
             )
         except:
-            raise ValueError(
-                "\n\nCould not find stereo log and point2dem log files in stereo directory\nCheck that these *log*.txt files exist in the directory specified.\n\n"
+            logger.warning(
+                "\n\nCould not find stereo log and/or point2dem log files in stereo directory\nCheck that these *log*.txt files exist in the directory specified.\n\n"
             )
+            self.stereo_logs = None
+            self.point2dem_log = None
 
     def from_log_files(self):
         if self.bundle_adjust_directory and self.bundle_adjust_log:
@@ -101,11 +103,9 @@ class ProcessingParameters:
                     bundle_adjust_params = line.strip()
                     break
 
-        reference_dem = ""
-        with open(self.bundle_adjust_log, "r") as file:
-            for line in file:
-                if "Loading DEM:" in line:
-                    reference_dem = line.split("Loading DEM:")[1].strip()
+        reference_dem = self.get_reference_dem(
+            self.bundle_adjust_log, starting_string="Loading DEM:"
+        )
 
         run_time = self.get_run_time([self.bundle_adjust_log])
 
@@ -155,15 +155,21 @@ class ProcessingParameters:
         run_time = self.get_run_time([pprc_log, tri_log])
 
         if search_for_reference_dem:
-            reference_dem = ""
-            with open(pprc_log, "r") as file:
-                for line in file:
-                    if "Using input DEM:" in line:
-                        reference_dem = line.split("Using input DEM:")[1].strip()
+            reference_dem = self.get_reference_dem(
+                pprc_log, starting_string="Using input DEM:"
+            )
 
             return processing_timestamp, stereo_params, run_time, reference_dem
         else:
             return processing_timestamp, stereo_params, run_time
+
+    def get_reference_dem(self, logfile, starting_string="DEM:"):
+        reference_dem = ""
+        with open(logfile, "r") as file:
+            for line in file:
+                if starting_string in line:
+                    reference_dem = line.split(starting_string)[1].strip()
+        return reference_dem
 
     def get_run_time(self, logfiles):
         start_time = None
