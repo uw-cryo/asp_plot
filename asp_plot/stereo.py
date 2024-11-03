@@ -462,7 +462,6 @@ class StereoPlotter(Plotter):
                 alpha=0.5,
             )
 
-            axa[0].set_title("Stereo DEM")
             scalebar = ScaleBar(gsd)
             axa[0].add_artist(scalebar)
         else:
@@ -474,6 +473,7 @@ class StereoPlotter(Plotter):
                 verticalalignment="center",
                 transform=axa[0].transAxes,
             )
+        axa[0].set_title("Stereo DEM")
 
         if self.intersection_error_fn:
             ie = Raster(self.intersection_error_fn).read_array()
@@ -484,7 +484,6 @@ class StereoPlotter(Plotter):
                 cmap="inferno",
                 cbar_label="Distance (m)",
             )
-            axa[1].set_title("Triangulation intersection error")
         else:
             axa[1].text(
                 0.5,
@@ -494,6 +493,7 @@ class StereoPlotter(Plotter):
                 verticalalignment="center",
                 transform=axa[1].transAxes,
             )
+        axa[1].set_title("Triangulation intersection error")
 
         diff = self.get_diff_vs_reference()
         if diff is not None:
@@ -507,7 +507,6 @@ class StereoPlotter(Plotter):
                 cmap="RdBu",
                 cbar_label="Elevation diff. (m)",
             )
-            axa[2].set_title("Difference with reference DEM")
         else:
             axa[2].text(
                 0.5,
@@ -517,6 +516,7 @@ class StereoPlotter(Plotter):
                 verticalalignment="center",
                 transform=axa[2].transAxes,
             )
+        axa[2].set_title("Difference with reference DEM")
 
         fig.tight_layout()
         if save_dir and fig_fn:

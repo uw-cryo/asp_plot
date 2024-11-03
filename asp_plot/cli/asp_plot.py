@@ -18,7 +18,7 @@ from asp_plot.utils import compile_report
     "--directory",
     prompt=True,
     default="./",
-    help="Required directory of ASP processing with scenes and sub-directories for stereo and optionally bundle adjustment. Default: current directory",
+    help="Required directory of ASP processing with scenes and sub-directories for stereo and optionally bundle adjustment. Default: current directory.",
 )
 @click.option(
     "--bundle_adjust_directory",
@@ -30,43 +30,43 @@ from asp_plot.utils import compile_report
     "--stereo_directory",
     prompt=True,
     default="stereo",
-    help="Required directory of stereo files. Default: stereo",
+    help="Required directory of stereo files. Default: stereo.",
 )
 @click.option(
     "--map_crs",
-    prompt=True,
-    default="EPSG:4326",
-    help="Required projection for icesat and bundle adjustment plots. Default: EPSG:4326",
+    prompt=False,
+    default=None,
+    help="Projection for ICESat and bundle adjustment plots. Default: None.",
 )
 @click.option(
     "--reference_dem",
     prompt=False,
-    default="",
-    help="Required reference DEM used in ASP processing. No default. If not supplied, the logs will be examined to find it.",
+    default=None,
+    help="Optional reference DEM used in ASP processing. No default. If not supplied, the logs will be examined to find it. If not found, no difference plots will be generated.",
 )
 @click.option(
     "--add_basemap",
     prompt=False,
     default=True,
-    help="If True, add a contextily basemap to the figure, which requires internet connection. Default: True",
+    help="If True, add a contextily basemap to the figure, which requires internet connection. Default: True.",
 )
 @click.option(
     "--plot_icesat",
     prompt=False,
     default=True,
-    help="If True, plot an ICESat-2 difference plot with the DEM result. This requires internet connection to pull ICESat data. Default: True",
+    help="If True, plot an ICESat-2 difference plot with the DEM result. This requires internet connection to pull ICESat data. Default: True.",
 )
 @click.option(
     "--report_filename",
     prompt=False,
     default=None,
-    help="PDF file to write out for report into the processing directory supplied by --directory. Default: Directory name of ASP processing",
+    help="PDF file to write out for report into the processing directory supplied by --directory. Default: Directory name of ASP processing.",
 )
 @click.option(
     "--report_title",
     prompt=False,
     default=None,
-    help="Title for the report. Default: Directory name of ASP processing",
+    help="Title for the report. Default: Directory name of ASP processing.",
 )
 def main(
     directory,
@@ -79,7 +79,7 @@ def main(
     report_filename,
     report_title,
 ):
-    print(f"\n\nProcessing ASP files in {directory}\n\n")
+    print(f"\nProcessing ASP files in {directory}\n")
 
     plots_directory = os.path.join(directory, "tmp_asp_report_plots/")
     os.makedirs(plots_directory, exist_ok=True)
@@ -92,6 +92,13 @@ def main(
 
     figure_counter = count(0)
 
+    if map_crs is None:
+        print(
+            "\nNo map projection supplied. Defaulting to EPSG:4326. If you want a different projection, supply it with the --map_crs flag.\n"
+        )
+        map_crs = "EPSG:4326"
+        add_basemap = False
+
     if add_basemap:
         ctx_kwargs = {
             "crs": map_crs,
@@ -102,23 +109,57 @@ def main(
     else:
         ctx_kwargs = {}
 
-    # Detailed hillshade plot
+    # Stereo plots
     plotter = StereoPlotter(
         directory,
         stereo_directory,
-        reference_dem,
+        reference_dem=reference_dem,
         out_dem_gsd=1,
         title="Hillshade with details",
     )
+
+    asp_dem = plotter.dem_fn
 
     plotter.plot_detailed_hillshade(
         save_dir=plots_directory,
         fig_fn=f"{next(figure_counter):02}.png",
     )
 
+    plotter.title = "Stereo DEM Results"
+    plotter.plot_dem_results(
+        save_dir=plots_directory,
+        fig_fn=f"{next(figure_counter):02}.png",
+    )
+
+    plotter.title = "Disparity (pixels)"
+    plotter.plot_disparity(
+        unit="pixels",
+        quiver=True,
+        save_dir=plots_directory,
+        fig_fn=f"{next(figure_counter):02}.png",
+    )
+
+    plotter.title = "Stereo Match Points"
+    plotter.plot_match_points(
+        save_dir=plots_directory,
+        fig_fn=f"{next(figure_counter):02}.png",
+    )
+
+    # Scene plot
+    plotter = ScenePlotter(directory, stereo_directory, title="Mapprojected Scenes")
+    plotter.plot_orthos(
+        save_dir=plots_directory, fig_fn=f"{next(figure_counter):02}.png"
+    )
+
+    # Geometry plot
+    plotter = SceneGeometryPlotter(directory)
+    plotter.dg_geom_plot(
+        save_dir=plots_directory, fig_fn=f"{next(figure_counter):02}.png"
+    )
+
     # ICESat-2 comparison
     if plot_icesat:
-        icesat = Altimetry(dem_fn=plotter.dem_fn)
+        icesat = Altimetry(dem_fn=asp_dem)
 
         icesat.pull_atl06sr(
             esa_worldcover=True,
@@ -143,20 +184,6 @@ def main(
             save_dir=plots_directory,
             fig_fn=f"{next(figure_counter):02}.png",
         )
-
-    # Geometry plot
-    plotter = SceneGeometryPlotter(directory)
-
-    plotter.dg_geom_plot(
-        save_dir=plots_directory, fig_fn=f"{next(figure_counter):02}.png"
-    )
-
-    # Scene plot
-    plotter = ScenePlotter(directory, stereo_directory, title="Mapprojected Scenes")
-
-    plotter.plot_orthos(
-        save_dir=plots_directory, fig_fn=f"{next(figure_counter):02}.png"
-    )
 
     # Bundle adjustment plots
     if bundle_adjust_directory:
@@ -232,36 +259,6 @@ def main(
             print(
                 f"\n\nNo bundle adjustment files found in directory {os.path.join(directory, bundle_adjust_directory):}. If you want bundle adjustment plots, make sure you run the tool and supply the correct directory to asp_plot.\n\n"
             )
-
-    # Stereo plots
-    plotter = StereoPlotter(
-        directory,
-        stereo_directory,
-        reference_dem,
-        out_dem_gsd=1,
-        title="Stereo Match Points",
-    )
-
-    plotter.plot_match_points(
-        save_dir=plots_directory,
-        fig_fn=f"{next(figure_counter):02}.png",
-    )
-
-    plotter.title = "Disparity (pixels)"
-
-    plotter.plot_disparity(
-        unit="pixels",
-        quiver=True,
-        save_dir=plots_directory,
-        fig_fn=f"{next(figure_counter):02}.png",
-    )
-
-    plotter.title = "Stereo DEM Results"
-
-    plotter.plot_dem_results(
-        save_dir=plots_directory,
-        fig_fn=f"{next(figure_counter):02}.png",
-    )
 
     # Compile report
     processing_parameters = ProcessingParameters(
