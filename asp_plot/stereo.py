@@ -8,6 +8,7 @@ import pandas as pd
 import rasterio as rio
 from matplotlib_scalebar.scalebar import ScaleBar
 
+from asp_plot.processing_parameters import ProcessingParameters
 from asp_plot.utils import ColorBar, Plotter, Raster, glob_file, save_figure
 
 logging.basicConfig(level=logging.WARNING)
@@ -16,12 +17,29 @@ logger = logging.getLogger(__name__)
 
 class StereoPlotter(Plotter):
     def __init__(
-        self, directory, stereo_directory, reference_dem, out_dem_gsd=1, **kwargs
+        self, directory, stereo_directory, reference_dem=None, out_dem_gsd=1, **kwargs
     ):
         super().__init__(**kwargs)
         self.directory = directory
         self.stereo_directory = stereo_directory
-        self.reference_dem = reference_dem
+
+        if reference_dem:
+            self.reference_dem = reference_dem
+        else:
+            processing_parameters = ProcessingParameters(
+                processing_directory=self.directory,
+                stereo_directory=self.stereo_directory,
+            )
+            self.reference_dem = processing_parameters.from_stereo_log(
+                search_for_reference_dem=True
+            )[-1]
+            if not self.reference_dem:
+                logger.warning(
+                    "\n\nNo reference DEM found in log files. Please supply the reference DEM you used during stereo processing (or another reference DEM) if you would like to see some difference maps.\n\n"
+                )
+        if self.reference_dem:
+            print(f"\nReference DEM: {self.reference_dem}\n")
+
         self.out_dem_gsd = out_dem_gsd
 
         self.full_directory = os.path.join(self.directory, self.stereo_directory)
@@ -31,25 +49,22 @@ class StereoPlotter(Plotter):
         self.match_point_fn = glob_file(self.full_directory, "*.match")
         self.disparity_sub_fn = glob_file(self.full_directory, "*-D_sub.tif")
         self.disparity_fn = glob_file(self.full_directory, "*-D.tif")
+
         self.dem_fn = glob_file(
             self.full_directory,
             f"*-DEM_{self.out_dem_gsd}m.tif",
             f"*{self.out_dem_gsd}m-DEM.tif",
         )
+        if not self.dem_fn:
+            raise ValueError(
+                f"\n\nNo DEM found in {self.full_directory} with GSD {self.out_dem_gsd} m. Please run stereo processing with the desired output DEM GSD or correct your inputs here.\n\n"
+            )
+        else:
+            print(f"\nASP DEM: {self.dem_fn}\n")
+
         self.intersection_error_fn = glob_file(
             self.full_directory, "*-IntersectionErr.tif"
         )
-
-    def get_diff_vs_reference(self):
-        diff_fn = glob_file(self.full_directory, "*DEM*diff.tif")
-        if diff_fn:
-            diff = Raster(diff_fn).read_array()
-        else:
-            if self.dem_fn is None or self.reference_dem is None:
-                return None
-            else:
-                diff = Raster(self.dem_fn).compute_difference(self.reference_dem)
-        return diff
 
     def read_ip_record(self, match_file):
         x, y = np.frombuffer(match_file.read(8), dtype=np.float32)
@@ -407,6 +422,23 @@ class StereoPlotter(Plotter):
         if save_dir and fig_fn:
             save_figure(fig, save_dir, fig_fn)
 
+    def get_diff_vs_reference(self):
+        diff_fn = glob_file(self.full_directory, "*DEM*diff.tif")
+        if diff_fn:
+            logger.warning(
+                f"\n\nFound a DEM of difference: {diff_fn}.\nUsing that for difference map plotting.\n\n"
+            )
+            diff = Raster(diff_fn).read_array()
+        else:
+            if not self.reference_dem:
+                return None
+            else:
+                logger.warning(
+                    f"\n\nNo DEM of difference found. Generating now using reference DEM: {self.reference_dem}.\n\n"
+                )
+                diff = Raster(self.dem_fn).compute_difference(self.reference_dem)
+        return diff
+
     def plot_dem_results(
         self, el_clim=None, ie_clim=None, diff_clim=None, save_dir=None, fig_fn=None
     ):
@@ -475,9 +507,7 @@ class StereoPlotter(Plotter):
                 cmap="RdBu",
                 cbar_label="Elevation diff. (m)",
             )
-            axa[2].set_title(
-                f"Difference with reference DEM:\n{self.reference_dem.split('/')[-1]}"
-            )
+            axa[2].set_title("Difference with reference DEM")
         else:
             axa[2].text(
                 0.5,
