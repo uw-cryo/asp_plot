@@ -6,8 +6,15 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
+from asp_plot.processing_parameters import ProcessingParameters
 from asp_plot.stereopair_metadata_parser import StereopairMetadataParser
-from asp_plot.utils import ColorBar, Plotter, glob_file, save_figure
+from asp_plot.utils import (
+    ColorBar,
+    Plotter,
+    glob_file,
+    run_subprocess_command,
+    save_figure,
+)
 
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
@@ -26,18 +33,51 @@ class ReadBundleAdjustFiles:
         ]
 
         if geodiff_files:
-            filenames = [f.replace(".csv", "-diff.csv") for f in filenames]
+            base_paths = [glob_file(self.full_directory, f) for f in filenames]
+            diff_paths = []
+            for path in base_paths:
+                diff_path = path.replace(".csv", "-diff.csv")
+                if not os.path.exists(diff_path):
+                    self.generate_geodiff(path)
+                diff_paths.append(diff_path)
+            initial_diff, final_diff = diff_paths
+            return initial_diff, final_diff
 
-        paths = [glob_file(self.full_directory, f) for f in filenames]
+        else:
+            paths = [glob_file(self.full_directory, f) for f in filenames]
+            for path in paths:
+                if path is None:
+                    raise ValueError(
+                        "\n\nInitial and final bundle adjust CSV file not found. Did you run bundle_adjust?\n\n"
+                    )
+            initial, final = paths
+            return initial, final
 
-        for path in paths:
-            if path is None:
-                raise ValueError(
-                    "\n\nInitial and final bundle adjust CSV file not found. Did you run bundle_adjust?\n\n"
-                )
+    def generate_geodiff(self, path):
+        processing_parameters = ProcessingParameters(
+            processing_directory=self.directory,
+            bundle_adjust_directory=self.bundle_adjust_directory,
+        )
+        refdem = processing_parameters.get_reference_dem(
+            processing_parameters.bundle_adjust_log
+        )
 
-        initial, final = paths
-        return initial, final
+        try:
+            command = [
+                "geodiff",
+                "--csv-format",
+                "1:lon,2:lat,3:height_above_datum",
+                f"{path}",
+                f"{refdem}",
+                "-o",
+                f"{path.replace('.csv', '')}",
+            ]
+
+            run_subprocess_command(command)
+        except Exception:
+            logger.warning(
+                f"\n\nCould not generate geodiff file for {path}. Check that the geodiff ASP tool is installed and the reference DEM {refdem} exists.\n\n"
+            )
 
     def get_residuals_gdf(self, csv_path, residuals_in_meters=True):
         cols = [

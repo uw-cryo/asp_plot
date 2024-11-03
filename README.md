@@ -52,7 +52,16 @@ Examples of the modular usage of the package can be found in the [`notebooks/` d
 
 ## CLI usage: `asp_plot`
 
-A full report and individual plots can be output via the command-line:
+A full report can be output via the command-line. At its simplest, you can run:
+
+```
+$ asp_plot --directory ./ \
+           --stereo_directory stereo
+```
+
+with only the directory where the ASP processing was done (`--directory`) and the subdirectory inside of that where the stereo files were output (`--stereo`). The reference DEM used in ASP processing will also be searched for in the logs, and used for difference maps if found.
+
+If you also ran bundle adjustment and/or would like to specify a reference DEM to use for plotting (rather than searching the logs):
 
 ```
 $ asp_plot --directory ./ \
@@ -69,29 +78,37 @@ Before that, we recommend running `asp_plot --help` for details (and defaults) o
 Usage: asp_plot [OPTIONS]
 
 Options:
-  --directory TEXT                Directory of ASP processing with scenes and
-                                  sub-directories for bundle adjustment and
-                                  stereo. Default: current directory
-  --bundle_adjust_directory TEXT  Directory of bundle adjustment files.
-                                  Default: ba
-  --stereo_directory TEXT         Directory of stereo files. Default: stereo
-  --map_crs TEXT                  Projection for bundle adjustment plots.
-                                  Default: EPSG:4326
-  --reference_dem TEXT            Reference DEM used in ASP processing. No
-                                  default. Must be supplied.
+  --directory TEXT                Required directory of ASP processing with
+                                  scenes and sub-directories for stereo and
+                                  optionally bundle adjustment. Default:
+                                  current directory.
+  --bundle_adjust_directory TEXT  Optional directory of bundle adjustment
+                                  files. If expected *residuals_pointmap.csv
+                                  files are not found in the supplied
+                                  directory, no bundle adjustment plots will
+                                  be generated. Default: None.
+  --stereo_directory TEXT         Required directory of stereo files. Default:
+                                  stereo.
+  --map_crs TEXT                  Projection for ICESat and bundle adjustment
+                                  plots. Default: None.
+  --reference_dem TEXT            Optional reference DEM used in ASP
+                                  processing. No default. If not supplied, the
+                                  logs will be examined to find it. If not
+                                  found, no difference plots will be
+                                  generated.
   --add_basemap BOOLEAN           If True, add a contextily basemap to the
                                   figure, which requires internet connection.
-                                  Default: True
+                                  Default: True.
   --plot_icesat BOOLEAN           If True, plot an ICESat-2 difference plot
                                   with the DEM result. This requires internet
                                   connection to pull ICESat data. Default:
-                                  True
+                                  True.
   --report_filename TEXT          PDF file to write out for report into the
                                   processing directory supplied by
                                   --directory. Default: Directory name of ASP
-                                  processing
+                                  processing.
   --report_title TEXT             Title for the report. Default: Directory
-                                  name of ASP processing
+                                  name of ASP processing.
 ```
 
 ## CLI usage: `csm_camera_plot`
