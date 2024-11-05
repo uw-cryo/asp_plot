@@ -194,34 +194,6 @@ def get_orbit_plot_gdf(original_camera, optimized_camera, map_crs=None, trim=Tru
     return gdf
 
 
-# def trim_gdf(gdf, near_zero_tolerance=1e-8, trim_percentage=10):
-#     """
-#     Trims a GeoDataFrame by removing the first and last entries that have a position difference magnitude close to zero.
-
-#     Args:
-#         gdf (gpd.GeoDataFrame): The GeoDataFrame to be trimmed.
-#         near_zero_tolerance (float, optional): The tolerance value for considering a position difference magnitude as close to zero. Defaults to 1e-8.
-#         trim_percentage (float, optional): Any additional percentage of the total length to trim from the start and end. Defaults to 10.
-
-#     Returns:
-#         gpd.GeoDataFrame: The trimmed GeoDataFrame.
-#     """
-#     non_zero_indices = np.where(
-#         np.abs(gdf.position_diff_magnitude) > near_zero_tolerance
-#     )[0]
-#     # Find the first non-zero value from the start
-#     start_index = non_zero_indices[0]
-#     # Find the first non-zero value from the end
-#     end_index = non_zero_indices[-1]
-#     # Apply additional trimming
-#     total_length = end_index - start_index + 1
-#     additional_trim = int(total_length * (trim_percentage / 100) / 2)
-#     start_index += additional_trim
-#     end_index -= additional_trim
-
-#     return gdf.iloc[start_index : end_index + 1].reset_index(drop=True)
-
-
 def format_stat_value(value):
     """
     Formats a numeric value as a string with appropriate precision.
