@@ -91,6 +91,11 @@ def get_orbit_plot_gdf(original_camera, optimized_camera, map_crs=None, trim=Tru
             firstQuatIndex = int(round((firstLineTime - t0) / dt))
             lastLineTime = getTimeAtLine(j, numLines - 1)
             lastQuatIndex = int(round((lastLineTime - t0) / dt))
+        else:
+            firstQuatIndex, lastQuatIndex = 0, len(optimized_positions_ecef)
+            print(
+                "Warning: Camera model is not linescan. Cannot trim to first and last image lines."
+            )
 
     if len(original_positions_ecef) != len(optimized_positions_ecef):
         original_positions_ecef = np.array(
