@@ -158,34 +158,28 @@ Options:
                                   original camera coordinates of EPSG:4978
                                   (ECEF).
   --title TEXT                    Optional short title to append to figure
-                                  output. Default: None
-  --trim BOOLEAN                  Trim the beginning and end of the
-                                  geodataframes. Default: False
-  --near_zero_tolerance FLOAT     If trim is True, the tolerance for near zero
-                                  values of the camera position differences to
-                                  trim from the beginning and end. Default:
-                                  1e-3
-  --trim_percentage INTEGER       If trim is ture, the extra percentage of the
-                                  camera positions to trim from the beginning
-                                  and end. Default: 5
+                                  output. Default: None.
+  --trim BOOLEAN                  Trim the beginning and end of the positions
+                                  plotted to the first and last camera image
+                                  lines. Default: True.
   --shared_scales BOOLEAN         If True, the position and angle difference
                                   scales are shared between for each camera.
-                                  Default: False
+                                  Default: False.
   --log_scale_positions BOOLEAN   If True, the position difference scales are
-                                  log scaled. Default: False
+                                  log scaled. Default: False.
   --log_scale_angles BOOLEAN      If True, the angle difference scales are log
-                                  scaled. Default: False
+                                  scaled. Default: False.
   --upper_magnitude_percentile INTEGER
                                   Percentile to use for the upper limit of the
-                                  mapview colorbars. Default: 95
-  --figsize TEXT                  Figure size as width,height. Default: 20,15
+                                  mapview colorbars. Default: 95.
+  --figsize TEXT                  Figure size as width,height. Default: 20,15.
   --save_dir TEXT                 Directory to save the figure. Default: None,
                                   which does not save the figure.
   --fig_fn TEXT                   Figure filename. Default:
                                   csm_camera_plot_summary_plot.png.
   --add_basemap BOOLEAN           If True, add a contextily basemap to the
                                   figure, which requires internet connection.
-                                  Default: False
+                                  Default: False.
 ```
 
 ## Development
