@@ -80,22 +80,26 @@ def get_orbit_plot_gdf(original_camera, optimized_camera, map_crs=None, trim=Tru
     original_positions_ecef = np.array(original_positions_ecef)
     optimized_positions_ecef = np.array(optimized_positions_ecef)
 
-    if trim:
-        if isLinescan(optimized_camera):
-            # Find the pose indices for the first and last image lines
-            j = read_csm_cam(optimized_camera)
-            t0 = j["m_t0Quat"]
-            dt = j["m_dtQuat"]
-            numLines = j["m_nLines"]
-            firstLineTime = getTimeAtLine(j, 0)
-            firstQuatIndex = int(round((firstLineTime - t0) / dt))
-            lastLineTime = getTimeAtLine(j, numLines - 1)
-            lastQuatIndex = int(round((lastLineTime - t0) / dt))
-        else:
-            firstQuatIndex, lastQuatIndex = 0, len(optimized_positions_ecef)
-            print(
-                "Warning: Camera model is not linescan. Cannot trim to first and last image lines."
-            )
+    if trim and isLinescan(optimized_camera):
+        # Find the pose indices for the first and last image lines
+        j = read_csm_cam(optimized_camera)
+        t0 = j["m_t0Quat"]
+        dt = j["m_dtQuat"]
+        numLines = j["m_nLines"]
+        firstLineTime = getTimeAtLine(j, 0)
+        firstQuatIndex = int(round((firstLineTime - t0) / dt))
+        lastLineTime = getTimeAtLine(j, numLines - 1)
+        lastQuatIndex = int(round((lastLineTime - t0) / dt))
+
+        # To get the first line and last image line:
+        # firstLine = getLineAtTime(firstLineTime - t0, j)
+        # lastLine = getLineAtTime(lastLineTime - t0, j)
+        # Or done below with simple interpolation to get line_at_position
+        # since we know this must follow a linear relationship
+    if not isLinescan(optimized_camera):
+        print(
+            "Warning: Camera model is not linescan. Cannot trim to first and last image lines."
+        )
 
     if len(original_positions_ecef) != len(optimized_positions_ecef):
         original_positions_ecef = np.array(
@@ -182,8 +186,10 @@ def get_orbit_plot_gdf(original_camera, optimized_camera, map_crs=None, trim=Tru
         "yaw_diff": yaw_diff,
     }
     df = pd.DataFrame(data)
-    if trim:
+    if trim and isLinescan(optimized_camera):
         df = df.iloc[int(firstQuatIndex) : int(lastQuatIndex)]
+        line_at_position = np.round(np.linspace(1, numLines, df.shape[0])).astype(int)
+        df["line_at_position"] = line_at_position
     gdf = gpd.GeoDataFrame(df, geometry="original_positions")
 
     if map_crs:
@@ -475,20 +481,36 @@ def csm_camera_summary_plot(
     )
 
     for ax in [ax1, ax2, ax3]:
+        ax.set_xlim(frame_cam1.min(), frame_cam1.max())
         ax.hlines(
             0, frame_cam1.min(), frame_cam1.max(), color="k", linestyle="-", lw=0.5
         )
         ax.set_title("Camera 1", loc="right", fontsize=10, y=0.98)
-        ax.set_xlabel("Linescan Sample", fontsize=9)
+        if "line_at_position" in gdf_cam1.columns:
+            ax.set_xlabel("Linescan Image Line Number", fontsize=9)
+            xticks = ax.get_xticks()
+            xticks = xticks[(xticks >= frame_cam1.min()) & (xticks <= frame_cam1.max())]
+            xtick_labels = [
+                (
+                    gdf_cam1.iloc[int(x)].line_at_position
+                    if int(x) < len(gdf_cam1.line_at_position)
+                    else ""
+                )
+                for x in xticks
+            ]
+            xtick_labels = [np.round(x, -1) for x in xtick_labels]
+            ax.set_xticks(xticks)
+            ax.set_xticklabels(xtick_labels)
+        else:
+            ax.set_xlabel("Position Sample", fontsize=9)
         ax.set_ylabel("Original $-$ Optimized (m)", fontsize=9)
         if shared_scales:
             ax.set_ylim(min_val_position_diff, max_val_position_diff)
         if log_scale_positions:
             ax.set_yscale("symlog")
-        ax.set_xlim(frame_cam1.min(), frame_cam1.max())
         ax.grid(True, linestyle=":", linewidth=0.5, alpha=0.8, color="gray")
         ax.legend(loc="upper right", fontsize=8)
-        ax.tick_params(axis="both", which="major", labelsize=9)
+        ax.tick_params(axis="both", which="major", labelsize=8)
 
     # Plot diffs in roll, pitch, yaw for Camera 1
     ax1 = axes[1, 1]
@@ -539,20 +561,36 @@ def csm_camera_summary_plot(
     )
 
     for ax, ax_r in [(ax1, ax1_r), (ax2, ax2_r), (ax3, ax3_r)]:
+        ax.set_xlim(frame_cam1.min(), frame_cam1.max())
         ax.hlines(
             0, frame_cam1.min(), frame_cam1.max(), color="k", linestyle="-", lw=0.5
         )
         ax.set_title("Camera 1", loc="right", fontsize=10, y=0.98)
-        ax.set_xlabel("Linescan Sample", fontsize=9)
+        if "line_at_position" in gdf_cam1.columns:
+            ax.set_xlabel("Linescan Image Line Number", fontsize=9)
+            xticks = ax.get_xticks()
+            xticks = xticks[(xticks >= frame_cam1.min()) & (xticks <= frame_cam1.max())]
+            xtick_labels = [
+                (
+                    gdf_cam1.iloc[int(x)].line_at_position
+                    if int(x) < len(gdf_cam1.line_at_position)
+                    else ""
+                )
+                for x in xticks
+            ]
+            xtick_labels = [np.round(x, -1) for x in xtick_labels]
+            ax.set_xticks(xticks)
+            ax.set_xticklabels(xtick_labels)
+        else:
+            ax.set_xlabel("Position Sample", fontsize=9)
         ax.set_ylabel("Original $-$ Optimized (deg)", fontsize=9)
         if shared_scales:
             ax.set_ylim(min_val_angle_diff, max_val_angle_diff)
         ax_r.set_ylabel("Original (deg)", fontsize=9)
         if log_scale_angles:
             ax.set_yscale("symlog")
-        ax.set_xlim(frame_cam1.min(), frame_cam1.max())
         ax.grid(True, linestyle=":", linewidth=0.5, alpha=0.8, color="gray")
-        ax.tick_params(axis="both", which="major", labelsize=9)
+        ax.tick_params(axis="both", which="major", labelsize=8)
         ax_r.tick_params(axis="both", which="major", labelsize=9)
         lines1, labels1 = ax_r.get_legend_handles_labels()
         lines2, labels2 = ax.get_legend_handles_labels()
@@ -655,20 +693,38 @@ def csm_camera_summary_plot(
         )
 
         for ax in [ax1, ax2, ax3]:
+            ax.set_xlim(frame_cam2.min(), frame_cam2.max())
             ax.hlines(
                 0, frame_cam2.min(), frame_cam2.max(), color="k", linestyle="-", lw=0.5
             )
             ax.set_title("Camera 2", loc="right", fontsize=10, y=0.98)
-            ax.set_xlabel("Linescan Sample", fontsize=9)
+            if "line_at_position" in gdf_cam2.columns:
+                ax.set_xlabel("Linescan Image Line Number", fontsize=9)
+                xticks = ax.get_xticks()
+                xticks = xticks[
+                    (xticks >= frame_cam2.min()) & (xticks <= frame_cam2.max())
+                ]
+                xtick_labels = [
+                    (
+                        gdf_cam2.iloc[int(x)].line_at_position
+                        if int(x) < len(gdf_cam2.line_at_position)
+                        else ""
+                    )
+                    for x in xticks
+                ]
+                xtick_labels = [np.round(x, -1) for x in xtick_labels]
+                ax.set_xticks(xticks)
+                ax.set_xticklabels(xtick_labels)
+            else:
+                ax.set_xlabel("Position Sample", fontsize=9)
             ax.set_ylabel("Original $-$ Optimized (m)", fontsize=9)
             if shared_scales:
                 ax.set_ylim(min_val_position_diff, max_val_position_diff)
             if log_scale_positions:
                 ax.set_yscale("symlog")
-            ax.set_xlim(frame_cam2.min(), frame_cam2.max())
             ax.grid(True, linestyle=":", linewidth=0.5, alpha=0.8, color="gray")
             ax.legend(loc="upper right", fontsize=8)
-            ax.tick_params(axis="both", which="major", labelsize=9)
+            ax.tick_params(axis="both", which="major", labelsize=8)
 
         # Plot diffs in roll, pitch, yaw for Camera 2
         ax1 = axes[3, 1]
@@ -719,20 +775,38 @@ def csm_camera_summary_plot(
         )
 
         for ax, ax_r in [(ax1, ax1_r), (ax2, ax2_r), (ax3, ax3_r)]:
+            ax.set_xlim(frame_cam2.min(), frame_cam2.max())
             ax.hlines(
                 0, frame_cam2.min(), frame_cam2.max(), color="k", linestyle="-", lw=0.5
             )
             ax.set_title("Camera 2", loc="right", fontsize=10, y=0.98)
-            ax.set_xlabel("Linescan Sample", fontsize=9)
+            if "line_at_position" in gdf_cam2.columns:
+                ax.set_xlabel("Linescan Image Line Number", fontsize=9)
+                xticks = ax.get_xticks()
+                xticks = xticks[
+                    (xticks >= frame_cam2.min()) & (xticks <= frame_cam2.max())
+                ]
+                xtick_labels = [
+                    (
+                        gdf_cam2.iloc[int(x)].line_at_position
+                        if int(x) < len(gdf_cam2.line_at_position)
+                        else ""
+                    )
+                    for x in xticks
+                ]
+                xtick_labels = [np.round(x, -1) for x in xtick_labels]
+                ax.set_xticks(xticks)
+                ax.set_xticklabels(xtick_labels)
+            else:
+                ax.set_xlabel("Position Sample", fontsize=9)
             ax.set_ylabel("Original $-$ Optimized (deg)", fontsize=9)
             if shared_scales:
                 ax.set_ylim(min_val_angle_diff, max_val_angle_diff)
             ax_r.set_ylabel("Original (deg)", fontsize=9)
             if log_scale_angles:
                 ax.set_yscale("symlog")
-            ax.set_xlim(frame_cam2.min(), frame_cam2.max())
             ax.grid(True, linestyle=":", linewidth=0.5, alpha=0.8, color="gray")
-            ax.tick_params(axis="both", which="major", labelsize=9)
+            ax.tick_params(axis="both", which="major", labelsize=8)
             ax_r.tick_params(axis="both", which="major", labelsize=9)
             lines1, labels1 = ax_r.get_legend_handles_labels()
             lines2, labels2 = ax.get_legend_handles_labels()
