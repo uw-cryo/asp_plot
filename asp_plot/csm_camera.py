@@ -32,7 +32,7 @@ def reproject_ecef(positions, to_epsg=4326):
     return np.column_stack((x, y, z))
 
 
-def get_orbit_plot_gdf(original_camera, optimized_camera, map_crs=None):
+def get_orbit_plot_gdf(original_camera, optimized_camera, map_crs=None, trim=True):
     """
     Get a GeoDataFrame containing the original and optimized camera positions, as well as the differences between them.
 
@@ -79,7 +79,18 @@ def get_orbit_plot_gdf(original_camera, optimized_camera, map_crs=None):
     original_positions_ecef = np.array(original_positions_ecef)
     optimized_positions_ecef = np.array(optimized_positions_ecef)
 
-    # Interpolate original values if lengths don't match
+    if trim:
+        if isLinescan(optimized_camera):
+            # Find the pose indices for the first and last image lines
+            j = read_csm_cam(optimized_camera)
+            t0 = j["m_t0Quat"]
+            dt = j["m_dtQuat"]
+            numLines = j["m_nLines"]
+            firstLineTime = getTimeAtLine(j, 0)
+            firstQuatIndex = int(round((firstLineTime - t0) / dt))
+            lastLineTime = getTimeAtLine(j, numLines - 1)
+            lastQuatIndex = int(round((lastLineTime - t0) / dt))
+
     if len(original_positions_ecef) != len(optimized_positions_ecef):
         original_positions_ecef = np.array(
             [
@@ -165,6 +176,8 @@ def get_orbit_plot_gdf(original_camera, optimized_camera, map_crs=None):
         "yaw_diff": yaw_diff,
     }
     df = pd.DataFrame(data)
+    if trim:
+        df = df.iloc[int(firstQuatIndex) : int(lastQuatIndex)]
     gdf = gpd.GeoDataFrame(df, geometry="original_positions")
 
     if map_crs:
@@ -175,32 +188,32 @@ def get_orbit_plot_gdf(original_camera, optimized_camera, map_crs=None):
     return gdf
 
 
-def trim_gdf(gdf, near_zero_tolerance=1e-8, trim_percentage=10):
-    """
-    Trims a GeoDataFrame by removing the first and last entries that have a position difference magnitude close to zero.
+# def trim_gdf(gdf, near_zero_tolerance=1e-8, trim_percentage=10):
+#     """
+#     Trims a GeoDataFrame by removing the first and last entries that have a position difference magnitude close to zero.
 
-    Args:
-        gdf (gpd.GeoDataFrame): The GeoDataFrame to be trimmed.
-        near_zero_tolerance (float, optional): The tolerance value for considering a position difference magnitude as close to zero. Defaults to 1e-8.
-        trim_percentage (float, optional): Any additional percentage of the total length to trim from the start and end. Defaults to 10.
+#     Args:
+#         gdf (gpd.GeoDataFrame): The GeoDataFrame to be trimmed.
+#         near_zero_tolerance (float, optional): The tolerance value for considering a position difference magnitude as close to zero. Defaults to 1e-8.
+#         trim_percentage (float, optional): Any additional percentage of the total length to trim from the start and end. Defaults to 10.
 
-    Returns:
-        gpd.GeoDataFrame: The trimmed GeoDataFrame.
-    """
-    non_zero_indices = np.where(
-        np.abs(gdf.position_diff_magnitude) > near_zero_tolerance
-    )[0]
-    # Find the first non-zero value from the start
-    start_index = non_zero_indices[0]
-    # Find the first non-zero value from the end
-    end_index = non_zero_indices[-1]
-    # Apply additional trimming
-    total_length = end_index - start_index + 1
-    additional_trim = int(total_length * (trim_percentage / 100) / 2)
-    start_index += additional_trim
-    end_index -= additional_trim
+#     Returns:
+#         gpd.GeoDataFrame: The trimmed GeoDataFrame.
+#     """
+#     non_zero_indices = np.where(
+#         np.abs(gdf.position_diff_magnitude) > near_zero_tolerance
+#     )[0]
+#     # Find the first non-zero value from the start
+#     start_index = non_zero_indices[0]
+#     # Find the first non-zero value from the end
+#     end_index = non_zero_indices[-1]
+#     # Apply additional trimming
+#     total_length = end_index - start_index + 1
+#     additional_trim = int(total_length * (trim_percentage / 100) / 2)
+#     start_index += additional_trim
+#     end_index -= additional_trim
 
-    return gdf.iloc[start_index : end_index + 1].reset_index(drop=True)
+#     return gdf.iloc[start_index : end_index + 1].reset_index(drop=True)
 
 
 def format_stat_value(value):
@@ -247,9 +260,7 @@ def csm_camera_summary_plot(
     cam2_list=None,
     map_crs=None,
     title=None,
-    trim=False,
-    near_zero_tolerance=1e-3,
-    trim_percentage=5,
+    trim=True,
     shared_scales=False,
     log_scale_positions=False,
     log_scale_angles=False,
@@ -268,9 +279,7 @@ def csm_camera_summary_plot(
         cam2_list (list, optional): A list containing the original and optimized camera files for the second camera.
         map_crs (int, optional): The EPSG code for the coordinate reference system to use for the map plots. If not provided, the plots will use the original ECEF coordinates.
         title (str, optional): An additional descriptive title to append to the overall plot title containing the camera names.
-        trim (bool, optional): Whether to trim the beginning and end of the data to remove near-zero values.
-        near_zero_tolerance (float, optional): The tolerance value for considering a value to be near zero if `trim` is True.
-        trim_percentage (float, optional): The additional percentage of data to trim from the beginning and end if `trim` is True.
+        trim (bool, optional): Whether to trim the beginning and end of the data to only the first and last image lines.
         shared_scales (bool, optional): Whether to use shared y-axis scales for the position and angle difference plots.
         log_scale_positions (bool, optional): Whether to use a logarithmic scale for the position difference plots.
         log_scale_angles (bool, optional): Whether to use a logarithmic scale for the angle difference plots.
@@ -287,13 +296,18 @@ def csm_camera_summary_plot(
 
     original_camera1, optimized_camera1 = cam1_list
     cam1_name = os.path.basename(original_camera1).split(".")[0]
-    gdf_cam1 = get_orbit_plot_gdf(original_camera1, optimized_camera1, map_crs=map_crs)
+    gdf_cam1 = get_orbit_plot_gdf(
+        original_camera1, optimized_camera1, map_crs=map_crs, trim=trim
+    )
 
     if cam2_list:
         original_camera2, optimized_camera2 = cam2_list
         cam2_name = os.path.basename(original_camera2).split(".")[0]
         gdf_cam2 = get_orbit_plot_gdf(
-            original_camera2, optimized_camera2, map_crs=map_crs
+            original_camera2,
+            optimized_camera2,
+            map_crs=map_crs,
+            trim=trim,
         )
 
     if not map_crs and add_basemap:
@@ -301,28 +315,6 @@ def csm_camera_summary_plot(
             "\nWarning: Basemap will not be added to the plot because UTM map_crs is not provided.\n"
         )
         add_basemap = False
-
-    # Trim the beginning and end of the geodataframes
-    if trim:
-        # When position changes are all zero, the trimming will fail
-        # https://github.com/uw-cryo/asp_plot/issues/54
-        if np.sum(gdf_cam1.position_diff_magnitude > 0) == 0:
-            print(
-                "\nWarning: No data to trim from the beginning and end of the camera files. Position changes are all zero.\n"
-            )
-            trim = False
-        else:
-            gdf_cam1 = trim_gdf(
-                gdf_cam1,
-                near_zero_tolerance=near_zero_tolerance,
-                trim_percentage=trim_percentage,
-            )
-            if cam2_list:
-                gdf_cam2 = trim_gdf(
-                    gdf_cam2,
-                    near_zero_tolerance=near_zero_tolerance,
-                    trim_percentage=trim_percentage,
-                )
 
     # Calculate colorbar ranges
     position_values = gdf_cam1.position_diff_magnitude[
@@ -803,9 +795,69 @@ def csm_camera_summary_plot(
 
 
 #
-# Methods below copied from orbit_plot.py in the ASP source code on 15-Aug-2024:
+# Methods below copied from orbit_plot.py in the ASP source code:
 # https://github.com/NeoGeographyToolkit/StereoPipeline/blob/master/src/asp/Tools/orbit_plot.py
 #
+
+# Add this value to an ASP pixel to get a CSM pixel
+ASP_TO_CSM_SHIFT = 0.5
+
+
+def toCsmPixel(asp_pix):
+    """
+    Convert an ASP pixel to a CSM pixel. Code copied from CsmModel.cc.
+    """
+
+    # Explicitly ensure csm_pix has float values even if the input may be int
+    csm_pix = np.array([float(asp_pix[0]), float(asp_pix[1])])
+
+    # Add the shift
+    csm_pix[0] += ASP_TO_CSM_SHIFT
+    csm_pix[1] += ASP_TO_CSM_SHIFT
+
+    return csm_pix
+
+
+def getTimeAtLine(model, line):
+    """
+    Find the time at a given line. The line count starts from 0. Code copied
+    from get_time_at_line() in CsmUtils.cc and getImageTime() in
+    UsgsAstroLsSensorModel.cpp.
+    """
+
+    # Covert the line to a CSM pixel
+    asp_pix = np.array([0.0, float(line)])
+    csm_pix = toCsmPixel(asp_pix)
+
+    referenceIndex = 0
+    time = model["m_intTimeStartTimes"][referenceIndex] + model["m_intTimes"][
+        referenceIndex
+    ] * (csm_pix[1] - model["m_intTimeLines"][referenceIndex] + 0.5)
+
+    return time
+
+
+def getLineAtTime(time, model):
+    """
+    Get the line number at a given time. This assumes a linear relationship
+    between them (rather than piecewise linear). Code copied from
+    get_line_at_time() in CsmUtils.cc.
+    """
+
+    # All dt values in model['intTimes'] (slopes) must be equal, or else
+    # the model is not linear in time.
+    for i in range(1, len(model["m_intTimeLines"])):
+        if abs(model["m_intTimes"][i] - model["m_intTimes"][0]) > 1e-10:
+            raise Exception(
+                "Expecting a linear relation between time and image lines.\n"
+            )
+
+    line0 = 0.0
+    line1 = float(model["m_nLines"]) - 1.0
+    time0 = getTimeAtLine(model, line0)
+    time1 = getTimeAtLine(model, line1)
+
+    return line0 + (line1 - line0) * (time - time0) / (time1 - time0)
 
 
 def read_frame_cam_dict(cam):
@@ -827,6 +879,7 @@ def estim_satellite_orientation(positions):
     y is the cross product of z and x.
     """
     num = len(positions)
+
     rotations = []
     for i in range(num):
         prev_i = i - 1
@@ -856,6 +909,26 @@ def estim_satellite_orientation(positions):
         rotations.append(r)
 
     return rotations
+
+
+def read_csm_cam(json_file):
+    """
+    Read a CSM model state file in JSON format.
+    """
+    with open(json_file, "r") as f:
+        data = f.read()
+
+    # Find first occurrence of open brace. This is needed because the CSM
+    # state has some text before the JSON object.
+    pos = data.find("{")
+    # do substring from pos to the end, if pos was found
+    if pos != -1:
+        data = data[pos:]
+
+    # parse the json from data
+    j = json.loads(data)
+
+    return j
 
 
 def read_tsai_cam(tsai):
@@ -907,25 +980,7 @@ def read_frame_csm_cam(json_file):
     Read rotation from a CSM Frame json state file.
     """
 
-    with open(json_file, "r") as f:
-        data = f.read()
-
-    # Find first occurrence of open brace. This is needed because the CSM
-    # state has some text before the JSON object.
-    pos = data.find("{")
-    # do substring from pos to the end, if pos was found
-    if pos != -1:
-        data = data[pos:]
-
-    # parse the json from data
-    j = json.loads(data)
-    # print the json
-    # print(json.dumps(j, indent=4, sort_keys=True))
-
-    # Print all keys in the json
-    # print("will print all keys in the json")
-    # for key in j.keys():
-    #     print(key)
+    j = read_csm_cam(json_file)
 
     # Read the entry having the translation and rotation
     params = j["m_currentParameterValue"]
@@ -945,30 +1000,12 @@ def read_frame_csm_cam(json_file):
     return dict
 
 
-def read_linescan_csm_cam(json_file):
+def read_linescan_pos_rot(json_file):
     """
-    Read rotation from a CSM linescan json state file.
+    Read positions and rotations from a CSM linescan json state file.
     """
 
-    with open(json_file, "r") as f:
-        data = f.read()
-
-    # Find first occurrence of open brace. This is needed because the CSM
-    # state has some text before the JSON object.
-    pos = data.find("{")
-    # do substring from pos to the end, if pos was found
-    if pos != -1:
-        data = data[pos:]
-
-    # parse the json from data
-    j = json.loads(data)
-    # print the json
-    # print(json.dumps(j, indent=4, sort_keys=True))
-
-    # Print all keys in the json
-    # print("will print all keys in the json")
-    # for key in j.keys():
-    #     print(key)
+    j = read_csm_cam(json_file)
 
     # Read the positions
     positions_vec = j["m_positions"]
@@ -991,7 +1028,6 @@ def read_linescan_csm_cam(json_file):
     rotations = []
     for i in range(quats.shape[0]):
         r = R.from_quat(quats[i, :])
-        # print the rotation matrix
         rotations.append(r.as_matrix())
 
     return (positions, rotations)
@@ -1047,7 +1083,7 @@ def read_positions_rotations_from_file(cam_file):
 
     if lineScan:
         # Read linescan data
-        (positions, rotations) = read_linescan_csm_cam(cam_file)
+        (positions, rotations) = read_linescan_pos_rot(cam_file)
     else:
         # read Pinhole (Frame) files in ASP .tsai or CSM .json format
         asp_dict = read_frame_cam_dict(cam_file)
@@ -1114,3 +1150,11 @@ def read_angles(orig_cams, opt_cams, ref_cams):
         opt_rotation_angles.append(angles)
 
     return (orig_rotation_angles, opt_rotation_angles)
+
+
+# def findRange(orig, opt):
+#     """
+#       Concatenate the orig and opt arrays and find the min and max values.
+#     """
+#     concat = np.sort(np.concatenate((orig, opt)))
+#     return (concat.min(), concat.max())
