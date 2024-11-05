@@ -40,6 +40,7 @@ def get_orbit_plot_gdf(original_camera, optimized_camera, map_crs=None, trim=Tru
         original_camera (list): A list containing the original cameras.
         optimized_camera (list): A list containing the optimized cameras.
         map_crs (int, optional): The EPSG code of the target coordinate system to reproject the camera positions to. If not provided, the positions will be returned in ECEF coordinates.
+        trim (bool, optional): Whether to trim the beginning and end of the data to only the first and last image lines.
 
     Returns:
         geopandas.GeoDataFrame: A GeoDataFrame containing the following columns:
