@@ -1202,11 +1202,3 @@ def read_angles(orig_cams, opt_cams, ref_cams):
         opt_rotation_angles.append(angles)
 
     return (orig_rotation_angles, opt_rotation_angles)
-
-
-# def findRange(orig, opt):
-#     """
-#       Concatenate the orig and opt arrays and find the min and max values.
-#     """
-#     concat = np.sort(np.concatenate((orig, opt)))
-#     return (concat.min(), concat.max())
