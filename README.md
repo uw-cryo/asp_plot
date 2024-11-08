@@ -209,7 +209,7 @@ When you add a new feature, add some test coverage as well.
 
 ### Package and upload
 
-Update version in `pyproject.toml` and `setup.py`, then:
+Update version in `pyproject.toml`, then:
 
 ```
 rm -rf dist/
