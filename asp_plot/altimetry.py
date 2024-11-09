@@ -31,6 +31,9 @@ class Altimetry:
         self,
         dem_fn,
         aligned_dem_fn=None,
+        atl06sr_processing_levels={},
+        atl06sr_processing_levels_filtered={},
+        # atl03sr=None,
         atl06sr=None,
         atl06sr_filtered=None,
         **kwargs,
@@ -38,16 +41,30 @@ class Altimetry:
         if not os.path.exists(dem_fn):
             raise ValueError(f"DEM file not found: {dem_fn}")
         self.dem_fn = dem_fn
+
         if atl06sr is not None and not isinstance(atl06sr, gpd.GeoDataFrame):
             raise ValueError("ATL06 must be a GeoDataFrame if provided.")
         self.atl06sr = atl06sr
+
         if atl06sr_filtered is not None and not isinstance(
             atl06sr_filtered, gpd.GeoDataFrame
         ):
             raise ValueError("Cleaned ATL06 must be a GeoDataFrame if provided.")
         self.atl06sr_filtered = atl06sr_filtered
+
+        if aligned_dem_fn is not None and not os.path.exists(aligned_dem_fn):
+            raise ValueError(f"Aligned DEM file not found: {aligned_dem_fn}")
         self.aligned_dem_fn = aligned_dem_fn
 
+        self.atl06sr_processing_levels = atl06sr_processing_levels
+        self.atl06sr_processing_levels_filtered = atl06sr_processing_levels_filtered
+
+        # TODO: Implement alongside pull_atl03sr below
+        # if atl03sr is not None and not isinstance(atl03sr, gpd.GeoDataFrame):
+        #     raise ValueError("ATL03 must be a GeoDataFrame if provided.")
+        # self.atl03sr = atl03sr
+
+    # TODO: probably remove this as functionality is subsumed by pull_atl06sr_multi_processing
     def pull_atl06sr(
         self,
         esa_worldcover=True,
@@ -82,6 +99,121 @@ class Altimetry:
             self.atl06sr.to_parquet(f"{filename}.parquet")
 
         return self.atl06sr
+
+    # TODO: Implement ATL03 pull, which needs to put in separate GDF; warning this is gonna be huge and only used for basic plots
+    # def pull_atl03sr(self, rgt, cycle, track, spot, save_to_parquet=False, filename="atl03sr_defaults"):
+    #     region = Raster(self.dem_fn).get_bounds(latlon=True)
+
+    #     parms = {
+    #         "poly": region,
+    #         # classification and checks
+    #         "pass_invalid": True, # still return photon segments that fail checks
+    #         "cnf": -2, # all photons
+    #         "atl08_class": ["atl08_noise", "atl08_ground", "atl08_canopy", "atl08_top_of_canopy", "atl08_unclassified"],
+    #         #"yapc": {"score": 0}, # all photons
+    #         # track selection
+    #         "rgt": rgt,
+    #         "cycle": cycle,
+    #         "track": track,
+    #         "spot": spot,
+    #     }
+
+    #     print(f"\nICESat-2 ATL03 request processing with parms:\n{parms}")
+    #     self.atl03sr = icesat2.atl03sp(parms)
+
+    #     if save_to_parquet:
+    #         # Need to write out this way instead of including option
+    #         # in parms due to:
+    #         self.atl03sr.to_parquet(f"{filename}.parquet")
+
+    #     return self.atl03sr
+
+    def pull_atl06sr_multi_processing(
+        self,
+        res=20,
+        len=40,
+        ats=20,
+        cnt=10,
+        maxi=5,
+        save_to_parquet=False,
+        filename="atl06sr_",
+    ):
+        region = Raster(self.dem_fn).get_bounds(latlon=True)
+
+        parms_dict = {
+            "high_confidence": {
+                "cnf": 4,
+                "srt": 3,
+            },
+            "ground": {
+                "cnf": 0,
+                "srt": 0,
+                "atl08_class": "atl08_ground",
+            },
+            "canopy": {
+                "cnf": 0,
+                "srt": 0,
+                "atl08_class": "atl08_canopy",
+            },
+            "top_of_canopy": {
+                "cnf": 0,
+                "srt": 0,
+                "atl08_class": "atl08_top_of_canopy",
+            },
+        }
+
+        for key, parms in parms_dict.items():
+            parms["poly"] = region
+            parms["res"] = res
+            parms["len"] = len
+            parms["ats"] = ats
+            parms["cnt"] = cnt
+            parms["maxi"] = maxi
+            parms["samples"] = {
+                "esa_worldcover": {
+                    "asset": "esa-worldcover-10meter",
+                }
+            }
+            print(f"\nICESat-2 ATL06 request processing for: {key}")
+            fn = f"{filename}res{res}_len{len}_{key}.parquet"
+            if os.path.exists(fn):
+                print(f"Existing file found, reading in: {fn}")
+                atl06 = gpd.read_parquet(fn)
+            else:
+                atl06 = icesat2.atl06p(parms)
+                if save_to_parquet:
+                    atl06.to_parquet(fn)
+
+            self.atl06sr_processing_levels[key] = atl06
+
+        return self.atl06sr_processing_levels
+
+    # TODO: implement generic filtering on dictionary of atl06sr_processing_levels
+    def filter_atl06sr_multi_processing(
+        self,
+        h_sigma_quantile=0.95,
+        mask_worldcover_water=True,
+        select_years=None,
+        select_months=None,
+        select_days=None,
+        save_to_parquet=False,
+        filename="atl06sr_filtered_",
+    ):
+        for key, atl06 in self.atl06sr_processing_levels.items():
+            print(f"\nFiltering ATL06 for: {key}")
+            atl06_filtered = self.filter_atl06sr(
+                h_sigma_quantile=h_sigma_quantile,
+                mask_worldcover_water=mask_worldcover_water,
+                select_years=select_years,
+                select_months=select_months,
+                select_days=select_days,
+                save_to_parquet=save_to_parquet,
+                filename=f"{filename}{key}",
+            )
+
+            self.atl06sr_processing_levels_filtered[key] = atl06_filtered
+
+        return self.atl06sr_processing_levels_filtered
 
     def filter_atl06sr(
         self,
