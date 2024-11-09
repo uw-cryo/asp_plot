@@ -181,6 +181,23 @@ class Altimetry:
                 atl06 = gpd.read_parquet(fn)
             else:
                 atl06 = icesat2.atl06p(parms)
+                # TODO: implement h_sigma and h_mean filtering here before saving
+                # not sure about h_sigma quantile... likely throws out too much.
+                # if filter:
+                # # From Aimee Gibbons:
+                # # I'd recommend anything cycle 03 and later, due to pointing issues before cycle 03.
+                # self.atl06sr_filtered = self.atl06sr[self.atl06sr["cycle"] >= 3]
+
+                # # Remove bad fits using high percentile of `h_sigma`, the error estimate for the least squares fit model.
+                # # Also need to filter out 0 values, not sure what these are caused by, but also very bad points.
+                # self.atl06sr_filtered = self.atl06sr_filtered[
+                #     self.atl06sr_filtered["h_sigma"]
+                #     < self.atl06sr_filtered["h_sigma"].quantile(h_sigma_quantile)
+                # ]
+                # self.atl06sr_filtered = self.atl06sr_filtered[
+                #     self.atl06sr_filtered["h_sigma"] != 0
+                # ]
+
                 if save_to_parquet:
                     atl06.to_parquet(fn)
 
@@ -188,32 +205,90 @@ class Altimetry:
 
         return self.atl06sr_processing_levels
 
-    # TODO: implement generic filtering on dictionary of atl06sr_processing_levels
-    def filter_atl06sr_multi_processing(
-        self,
-        h_sigma_quantile=0.95,
-        mask_worldcover_water=True,
-        select_years=None,
-        select_months=None,
-        select_days=None,
-        save_to_parquet=False,
-        filename="atl06sr_filtered_",
-    ):
-        for key, atl06 in self.atl06sr_processing_levels.items():
-            print(f"\nFiltering ATL06 for: {key}")
-            atl06_filtered = self.filter_atl06sr(
-                h_sigma_quantile=h_sigma_quantile,
-                mask_worldcover_water=mask_worldcover_water,
-                select_years=select_years,
-                select_months=select_months,
-                select_days=select_days,
-                save_to_parquet=save_to_parquet,
-                filename=f"{filename}{key}",
-            )
+    # TODO: implement generic spatio-temporal filtering on dictionary of atl06sr_processing_levels
+    # I think this should be done quickly, on the fly for a given plot, and not saved to the
+    # dictionary or to the disk. Too big a parameter space.
 
-            self.atl06sr_processing_levels_filtered[key] = atl06_filtered
+    # def spatio_temporal_filter_atl06sr_multi_processing(
+    #     self,
+    #     h_sigma_quantile=0.95,
+    #     mask_worldcover_water=True,
+    #     select_years=None,
+    #     select_months=None,
+    #     select_days=None,
+    #     save_to_parquet=False,
+    #     filename="atl06sr_filtered_",
+    # ):
+    #     for key, atl06 in self.atl06sr_processing_levels.items():
+    #         print(f"\nFiltering ATL06 for: {key}")
+    #         atl06_filtered = self.spatio_temporal_filter_atl06sr(
+    #             mask_worldcover_water=mask_worldcover_water,
+    #             select_years=select_years,
+    #             select_months=select_months,
+    #             select_days=select_days,
+    #             save_to_parquet=save_to_parquet,
+    #             filename=f"{filename}{key}",
+    #         )
 
-        return self.atl06sr_processing_levels_filtered
+    #         self.atl06sr_processing_levels_filtered[key] = atl06_filtered
+
+    #     return self.atl06sr_processing_levels_filtered
+
+    # def spatio_temporal_filter_atl06sr(self, **kwargs):
+    #     def to_csv(atl06, fn_out):
+    #         df = atl06[["geometry", "h_mean"]].copy()
+    #         df["lon"] = df["geometry"].x
+    #         df["lat"] = df["geometry"].y
+    #         df["height_above_datum"] = df["h_mean"]
+    #         df = df[["lon", "lat", "height_above_datum"]]
+    #         df.to_csv(fn_out, header=True, index=False)
+
+    #     # Mask out water using ESA WorldCover (if it exists)
+    #     # Value	Color	Description
+    #     # 10	#006400	Tree cover
+    #     # 20	#ffbb22	Shrubland
+    #     # 30	#ffff4c	Grassland
+    #     # 40	#f096ff	Cropland
+    #     # 50	#fa0000	Built-up
+    #     # 60	#b4b4b4	Bare / sparse vegetation
+    #     # 70	#f0f0f0	Snow and ice
+    #     # 80	#0064c8	Permanent water bodies
+    #     # 90	#0096a0	Herbaceous wetland
+    #     # 95	#00cf75	Mangroves
+    #     # 100	#fae6a0	Moss and lichen
+    #     if mask_worldcover_water:
+    #         if "esa_worldcover.value" not in self.atl06sr_filtered.columns:
+    #             logger.warning(
+    #                 "\nESA WorldCover not found in ATL06 dataframe. Proceeding without water masking.\n"
+    #             )
+    #         else:
+    #             self.atl06sr_filtered = self.atl06sr_filtered[
+    #                 self.atl06sr_filtered["esa_worldcover.value"] != 80
+    #             ]
+
+    #     # Filter by time
+    #     if select_years:
+    #         self.atl06sr_filtered = self.atl06sr_filtered[
+    #             self.atl06sr_filtered.index.year.isin(select_years)
+    #         ]
+    #     if select_months:
+    #         self.atl06sr_filtered = self.atl06sr_filtered[
+    #             self.atl06sr_filtered.index.month.isin(select_months)
+    #         ]
+    #     if select_days:
+    #         self.atl06sr_filtered = self.atl06sr_filtered[
+    #             self.atl06sr_filtered.index.day.isin(select_days)
+    #         ]
+
+    #     if save_to_csv:
+    #         # Used for pc_align step
+    #         to_csv(self.atl06sr_filtered, f"{filename}.csv")
+    #     if save_to_parquet:
+    #         # Need to write out this way instead of including option
+    #         # in parms due to: https://github.com/SlideRuleEarth/sliderule/issues/298
+    #         self.atl06sr_filtered.to_parquet(f"{filename}.parquet")
+
+    #     return self.atl06sr_filtered
 
     def filter_atl06sr(
         self,
