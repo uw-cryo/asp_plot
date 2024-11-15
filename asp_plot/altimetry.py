@@ -7,11 +7,13 @@ import geoutils as gu
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 import rioxarray
 import xarray as xr
 from osgeo import gdal, osr
 from sliderule import icesat2
 
+from asp_plot.stereopair_metadata_parser import StereopairMetadataParser
 from asp_plot.utils import (
     ColorBar,
     Raster,
@@ -29,28 +31,31 @@ logger = logging.getLogger(__name__)
 class Altimetry:
     def __init__(
         self,
+        directory,
         dem_fn,
         aligned_dem_fn=None,
         atl06sr_processing_levels={},
         atl06sr_processing_levels_filtered={},
         # atl03sr=None,
-        atl06sr=None,
-        atl06sr_filtered=None,
+        # atl06sr=None,
+        # atl06sr_filtered=None,
         **kwargs,
     ):
+        self.directory = directory
+
         if not os.path.exists(dem_fn):
             raise ValueError(f"DEM file not found: {dem_fn}")
         self.dem_fn = dem_fn
 
-        if atl06sr is not None and not isinstance(atl06sr, gpd.GeoDataFrame):
-            raise ValueError("ATL06 must be a GeoDataFrame if provided.")
-        self.atl06sr = atl06sr
+        # if atl06sr is not None and not isinstance(atl06sr, gpd.GeoDataFrame):
+        #     raise ValueError("ATL06 must be a GeoDataFrame if provided.")
+        # self.atl06sr = atl06sr
 
-        if atl06sr_filtered is not None and not isinstance(
-            atl06sr_filtered, gpd.GeoDataFrame
-        ):
-            raise ValueError("Cleaned ATL06 must be a GeoDataFrame if provided.")
-        self.atl06sr_filtered = atl06sr_filtered
+        # if atl06sr_filtered is not None and not isinstance(
+        #     atl06sr_filtered, gpd.GeoDataFrame
+        # ):
+        #     raise ValueError("Cleaned ATL06 must be a GeoDataFrame if provided.")
+        # self.atl06sr_filtered = atl06sr_filtered
 
         if aligned_dem_fn is not None and not os.path.exists(aligned_dem_fn):
             raise ValueError(f"Aligned DEM file not found: {aligned_dem_fn}")
@@ -206,7 +211,42 @@ class Altimetry:
                     atl06sr["esa_worldcover.value"] != value
                 ]
 
-    def temporal_filter_atl06sr(
+    # TODO: for pc_align: Spawn all four, see if they agree and provide similar translations)
+    def predefined_temporal_filter_atl06sr(self):
+        date = StereopairMetadataParser(self.directory).get_pair_dict()["cdate"]
+        original_keys = list(self.atl06sr_processing_levels_filtered.keys())
+
+        for key in original_keys:
+            atl06sr = self.atl06sr_processing_levels_filtered[key]
+
+            fifteen_day = atl06sr[abs(atl06sr.index - date) <= pd.Timedelta(days=15)]
+            fortyfive_day = atl06sr[abs(atl06sr.index - date) <= pd.Timedelta(days=45)]
+
+            image_season = date.strftime("%b")
+            if image_season in ["Dec", "Jan", "Feb"]:
+                season_filter = atl06sr[
+                    atl06sr.index.strftime("%b").isin(["Dec", "Jan", "Feb"])
+                ]
+            elif image_season in ["Mar", "Apr", "May"]:
+                season_filter = atl06sr[
+                    atl06sr.index.strftime("%b").isin(["Mar", "Apr", "May"])
+                ]
+            elif image_season in ["Jun", "Jul", "Aug"]:
+                season_filter = atl06sr[
+                    atl06sr.index.strftime("%b").isin(["Jun", "Jul", "Aug"])
+                ]
+            else:
+                season_filter = atl06sr[
+                    atl06sr.index.strftime("%b").isin(["Sep", "Oct", "Nov"])
+                ]
+
+            self.atl06sr_processing_levels_filtered[f"{key}_15_day_pad"] = fifteen_day
+            self.atl06sr_processing_levels_filtered[f"{key}_45_day_pad"] = fortyfive_day
+            self.atl06sr_processing_levels_filtered[f"{key}_seasonal_all_time"] = (
+                season_filter
+            )
+
+    def generic_temporal_filter_atl06sr(
         self, select_years=None, select_months=None, select_days=None
     ):
         for key, atl06sr in self.atl06sr_processing_levels_filtered.items():
@@ -238,16 +278,9 @@ class Altimetry:
             df = df[["lon", "lat", "height_above_datum"]]
             df.to_csv(fn_out, header=True, index=False)
 
-    # TODO: Implement some temporal filtering based on time of image collection, and have it do:
-    # closest in time
-    # ~90 day padding
-    # all time
-    # seasonal
-    # (for pc_align: Spawn all four, see if they agree and provide similar translations)
-    # How to reliably get image collection time? Maybe XML metadata? Maybe it's in the logs?
-
-    # TODO: make the plotting work again. Probably have it accept one of the keys, then just plot that data.
-    # or some default behavior where it plots all of the keys.
+    # TODO: make the plotting work again. Probably have it accept one of the keys, then just plot that data
+    # at each time stamp.
+    # or some default behavior where it plots all of the keys and all time stamps.
 
     def plot_atl06sr(
         self,
