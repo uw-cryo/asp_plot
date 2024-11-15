@@ -238,6 +238,9 @@ class Altimetry:
             df = df[["lon", "lat", "height_above_datum"]]
             df.to_csv(fn_out, header=True, index=False)
 
+    # TODO: make the plotting work again. Probably have it accept one of the keys, then just plot that data.
+    # or some default behavior where it plots all of the keys.
+
     def plot_atl06sr(
         self,
         filtered=False,
