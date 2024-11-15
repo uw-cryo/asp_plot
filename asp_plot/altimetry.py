@@ -208,8 +208,10 @@ class Altimetry:
                 ]
 
     # TODO: for pc_align: Spawn all four, see if they agree and provide similar translations)
-    def predefined_temporal_filter_atl06sr(self):
-        date = StereopairMetadataParser(self.directory).get_pair_dict()["cdate"]
+    def predefined_temporal_filter_atl06sr(self, date=None):
+        if date is None:
+            date = StereopairMetadataParser(self.directory).get_pair_dict()["cdate"]
+
         original_keys = list(self.atl06sr_processing_levels_filtered.keys())
 
         for key in original_keys:
@@ -275,13 +277,77 @@ class Altimetry:
             df = df[["lon", "lat", "height_above_datum"]]
             df.to_csv(fn_out, header=True, index=False)
 
-    # TODO: make the plotting work again. Probably have it accept one of the keys, then just plot that data
-    # at each time stamp.
-    # or some default behavior where it plots all of the keys and all time stamps.
+    def plot_atl06sr_time_stamps(
+        self,
+        key="high_confidence",
+        title="ICESat-2 ATL06-SR Time Stamps",
+        cmap="inferno",
+        map_crs="4326",
+        figsize=(15, 10),
+        save_dir=None,
+        fig_fn=None,
+        **ctx_kwargs,
+    ):
+        time_stamps = ["", "_15_day_pad", "_45_day_pad", "_seasonal"]
+
+        fig, axes = plt.subplots(2, 2, figsize=figsize)
+        axes = axes.flatten()
+
+        x_bounds = []
+        y_bounds = []
+        for ax, time_stamp in zip(axes, time_stamps):
+            key_to_plot = f"{key}{time_stamp}"
+            atl06sr = self.atl06sr_processing_levels_filtered[key_to_plot]
+            if map_crs:
+                crs = f"EPSG:{map_crs}"
+                ctx_kwargs["crs"] = f"EPSG:{map_crs}"
+            elif ctx_kwargs:
+                crs = ctx_kwargs["crs"]
+            else:
+                crs = "EPSG:4326"
+            atl06sr_sorted = atl06sr.sort_values(by="h_mean").to_crs(crs)
+            bounds = atl06sr_sorted.total_bounds
+            x_bounds.extend([bounds[0], bounds[2]])
+            y_bounds.extend([bounds[1], bounds[3]])
+
+            cb = ColorBar(perc_range=(2, 98))
+            cb.get_clim(atl06sr_sorted["h_mean"])
+            norm = cb.get_norm(lognorm=False)
+
+            atl06sr_sorted.plot(
+                ax=ax,
+                column="h_mean",
+                cmap=cmap,
+                norm=norm,
+                s=1,
+                legend=True,
+                legend_kwds={"label": "Height above datum (m)"},
+            )
+
+            ax.set_title(f"{key_to_plot} (n={atl06sr.shape[0]})", size=12)
+
+        # 5% padding
+        padding = 0.05
+        x_range = max(x_bounds) - min(x_bounds)
+        y_range = max(y_bounds) - min(y_bounds)
+        for ax in axes:
+            ax.set_xlim(
+                min(x_bounds) - padding * x_range, max(x_bounds) + padding * x_range
+            )
+            ax.set_ylim(
+                min(y_bounds) - padding * y_range, max(y_bounds) + padding * y_range
+            )
+            if ctx_kwargs:
+                ctx.add_basemap(ax=ax, **ctx_kwargs)
+
+        fig.suptitle(f"{title}", size=14)
+        fig.tight_layout()
+        if save_dir and fig_fn:
+            save_figure(fig, save_dir, fig_fn)
 
     def plot_atl06sr(
         self,
-        filtered=False,
+        key="high_confidence",
         plot_beams=False,
         plot_dem=False,
         column_name="h_mean",
@@ -291,18 +357,15 @@ class Altimetry:
         symm_clim=False,
         cmap="inferno",
         map_crs="4326",
+        figsize=(6, 4),
         save_dir=None,
         fig_fn=None,
         **ctx_kwargs,
     ):
-        if filtered:
-            atl06sr = self.atl06sr_filtered
-        else:
-            atl06sr = self.atl06sr
-
+        atl06sr = self.atl06sr_processing_levels_filtered[key]
         atl06sr_sorted = atl06sr.sort_values(by=column_name).to_crs(f"EPSG:{map_crs}")
 
-        fig, ax = plt.subplots(1, 1, figsize=(6, 4))
+        fig, ax = plt.subplots(1, 1, figsize=figsize)
 
         if plot_dem:
             ctx_kwargs = {}
@@ -362,7 +425,7 @@ class Altimetry:
         if ctx_kwargs:
             ctx.add_basemap(ax=ax, **ctx_kwargs)
 
-        fig.suptitle(title, size=10)
+        fig.suptitle(f"{title}\n{key} (n={atl06sr.shape[0]})", size=10)
         fig.tight_layout()
         if save_dir and fig_fn:
             save_figure(fig, save_dir, fig_fn)
