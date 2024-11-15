@@ -238,6 +238,14 @@ class Altimetry:
             df = df[["lon", "lat", "height_above_datum"]]
             df.to_csv(fn_out, header=True, index=False)
 
+    # TODO: Implement some temporal filtering based on time of image collection, and have it do:
+    # closest in time
+    # ~90 day padding
+    # all time
+    # seasonal
+    # (for pc_align: Spawn all four, see if they agree and provide similar translations)
+    # How to reliably get image collection time? Maybe XML metadata? Maybe it's in the logs?
+
     # TODO: make the plotting work again. Probably have it accept one of the keys, then just plot that data.
     # or some default behavior where it plots all of the keys.
 
