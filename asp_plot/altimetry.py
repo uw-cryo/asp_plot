@@ -104,7 +104,6 @@ class Altimetry:
         ats=20,
         cnt=10,
         maxi=5,
-        filter=True,
         h_sigma_quantile=0.95,
         save_to_parquet=False,
         filename="atl06sr_",
@@ -160,33 +159,30 @@ class Altimetry:
 
             self.atl06sr_processing_levels[key] = atl06sr
 
-            if filter:
-                print(f"Filtering ATL06-SR {key}")
-                fn = f"{fn_base}_filtered.parquet"
+            print(f"Filtering ATL06-SR {key}")
+            fn = f"{fn_base}_filtered.parquet"
 
-                if os.path.exists(fn):
-                    print(f"Existing file found, reading in: {fn}")
-                    atl06sr_filtered = gpd.read_parquet(fn)
-                else:
-                    # From Aimee Gibbons:
-                    # I'd recommend anything cycle 03 and later, due to pointing issues before cycle 03.
-                    atl06sr_filtered = atl06sr[atl06sr["cycle"] >= 3]
+            if os.path.exists(fn):
+                print(f"Existing file found, reading in: {fn}")
+                atl06sr_filtered = gpd.read_parquet(fn)
+            else:
+                # From Aimee Gibbons:
+                # I'd recommend anything cycle 03 and later, due to pointing issues before cycle 03.
+                atl06sr_filtered = atl06sr[atl06sr["cycle"] >= 3]
 
-                    # Remove bad fits using high percentile of `h_sigma`, the error estimate for the least squares fit model.
-                    # TODO: not sure about h_sigma quantile...might throw out too much. Maybe just remove 0 values?
-                    atl06sr_filtered = atl06sr_filtered[
-                        atl06sr_filtered["h_sigma"]
-                        < atl06sr_filtered["h_sigma"].quantile(h_sigma_quantile)
-                    ]
-                    # Also need to filter out 0 values, not sure what these are caused by, but also very bad points.
-                    atl06sr_filtered = atl06sr_filtered[
-                        atl06sr_filtered["h_sigma"] != 0
-                    ]
+                # Remove bad fits using high percentile of `h_sigma`, the error estimate for the least squares fit model.
+                # TODO: not sure about h_sigma quantile...might throw out too much. Maybe just remove 0 values?
+                atl06sr_filtered = atl06sr_filtered[
+                    atl06sr_filtered["h_sigma"]
+                    < atl06sr_filtered["h_sigma"].quantile(h_sigma_quantile)
+                ]
+                # Also need to filter out 0 values, not sure what these are caused by, but also very bad points.
+                atl06sr_filtered = atl06sr_filtered[atl06sr_filtered["h_sigma"] != 0]
 
-                    if save_to_parquet:
-                        atl06sr_filtered.to_parquet(fn)
+                if save_to_parquet:
+                    atl06sr_filtered.to_parquet(fn)
 
-                self.atl06sr_processing_levels_filtered[key] = atl06sr_filtered
+            self.atl06sr_processing_levels_filtered[key] = atl06sr_filtered
 
     def filter_esa_worldcover(self, value=80):
         # Value	Description
@@ -217,6 +213,9 @@ class Altimetry:
         original_keys = list(self.atl06sr_processing_levels_filtered.keys())
 
         for key in original_keys:
+            print(
+                f"\nFiltering ATL06 with 15 day pad, 90 day pad, and seasonal pad around {date} for: {key}"
+            )
             atl06sr = self.atl06sr_processing_levels_filtered[key]
 
             fifteen_day = atl06sr[abs(atl06sr.index - date) <= pd.Timedelta(days=15)]
@@ -242,9 +241,7 @@ class Altimetry:
 
             self.atl06sr_processing_levels_filtered[f"{key}_15_day_pad"] = fifteen_day
             self.atl06sr_processing_levels_filtered[f"{key}_45_day_pad"] = fortyfive_day
-            self.atl06sr_processing_levels_filtered[f"{key}_seasonal_all_time"] = (
-                season_filter
-            )
+            self.atl06sr_processing_levels_filtered[f"{key}_seasonal"] = season_filter
 
     def generic_temporal_filter_atl06sr(
         self, select_years=None, select_months=None, select_days=None
