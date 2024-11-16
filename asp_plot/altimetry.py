@@ -623,45 +623,57 @@ class Altimetry:
         dst_ds = None
 
     def atl06sr_to_dem_dh(self):
-        if self.atl06sr_filtered is None:
-            raise ValueError(
-                "\nPlease filter ATL06 data with filter_atl06sr function before comparing to DEM.\n"
-            )
-
         dem = rioxarray.open_rasterio(self.dem_fn, masked=True).squeeze()
         epsg = dem.rio.crs.to_epsg()
-        self.atl06sr_filtered = self.atl06sr_filtered.to_crs(f"EPSG:{epsg}")
+        for key, atl06sr in self.atl06sr_processing_levels_filtered.items():
+            atl06sr = atl06sr.to_crs(f"EPSG:{epsg}")
 
-        x = xr.DataArray(self.atl06sr_filtered.geometry.x.values, dims="z")
-        y = xr.DataArray(self.atl06sr_filtered.geometry.y.values, dims="z")
-        sample = dem.interp(x=x, y=y)
-
-        self.atl06sr_filtered["dem_height"] = sample.values
-        self.atl06sr_filtered["icesat_minus_dem"] = (
-            self.atl06sr_filtered["h_mean"] - self.atl06sr_filtered["dem_height"]
-        )
-
-        if self.aligned_dem_fn:
-            dem = rioxarray.open_rasterio(self.aligned_dem_fn, masked=True).squeeze()
-            x = xr.DataArray(self.atl06sr_filtered.geometry.x.values, dims="z")
-            y = xr.DataArray(self.atl06sr_filtered.geometry.y.values, dims="z")
+            x = xr.DataArray(atl06sr.geometry.x.values, dims="z")
+            y = xr.DataArray(atl06sr.geometry.y.values, dims="z")
             sample = dem.interp(x=x, y=y)
 
-            self.atl06sr_filtered["dem_aligned_height"] = sample.values
-            self.atl06sr_filtered["icesat_minus_dem_aligned"] = (
-                self.atl06sr_filtered["h_mean"]
-                - self.atl06sr_filtered["dem_aligned_height"]
-            )
+            atl06sr["dem_height"] = sample.values
+            atl06sr["icesat_minus_dem"] = atl06sr["h_mean"] - atl06sr["dem_height"]
+            self.atl06sr_processing_levels_filtered[key] = atl06sr
+
+        if self.aligned_dem_fn:
+            aligned_dem = rioxarray.open_rasterio(
+                self.aligned_dem_fn, masked=True
+            ).squeeze()
+            epsg = aligned_dem.rio.crs.to_epsg()
+            for key, atl06sr in self.atl06sr_processing_levels_filtered.items():
+                atl06sr = atl06sr.to_crs(f"EPSG:{epsg}")
+
+                x = xr.DataArray(atl06sr.geometry.x.values, dims="z")
+                y = xr.DataArray(atl06sr.geometry.y.values, dims="z")
+                sample = aligned_dem.interp(x=x, y=y)
+
+                atl06sr["aligned_dem_height"] = sample.values
+                atl06sr["icesat_minus_aligned_dem"] = (
+                    atl06sr["h_mean"] - atl06sr["aligned_dem_height"]
+                )
+                self.atl06sr_processing_levels_filtered[key] = atl06sr
 
     def mapview_plot_atl06sr_to_dem(
-        self, clim=None, plot_aligned=False, save_dir=None, fig_fn=None, **ctx_kwargs
+        self,
+        key="high_confidence",
+        clim=None,
+        plot_aligned=False,
+        save_dir=None,
+        fig_fn=None,
+        **ctx_kwargs,
     ):
         if plot_aligned:
-            column_name = "icesat_minus_dem_aligned"
+            column_name = "icesat_minus_aligned_dem"
         else:
             column_name = "icesat_minus_dem"
 
-        if column_name not in self.atl06sr_filtered.columns:
+        atl06sr = self.atl06sr_processing_levels_filtered[key]
+
+        if column_name not in atl06sr.columns:
+            print(
+                f"\n{column_name} not found in ATL06 dataframe: {key}. Running differencing first.\n"
+            )
             self.atl06sr_to_dem_dh()
 
         if clim is not None:
@@ -673,7 +685,7 @@ class Altimetry:
         epsg = dem.rio.crs.to_epsg()
 
         self.plot_atl06sr(
-            filtered=True,
+            key=key,
             column_name=column_name,
             cbar_label="ICESat-2 minus DEM (m)",
             clim=clim,
@@ -686,28 +698,39 @@ class Altimetry:
         )
 
     def histogram(
-        self, title="Histogram", plot_aligned=False, save_dir=None, fig_fn=None
+        self,
+        key="high_confidence",
+        title="Histogram",
+        plot_aligned=False,
+        save_dir=None,
+        fig_fn=None,
     ):
-        if "icesat_minus_dem" not in self.atl06sr_filtered.columns:
-            self.atl06sr_to_dem_dh()
-
         def _nmad(a, c=1.4826):
             return np.nanmedian(np.fabs(a - np.nanmedian(a))) * c
 
+        atl06sr = self.atl06sr_processing_levels_filtered[key]
+
+        if "icesat_minus_dem" not in atl06sr.columns:
+            print(
+                f"\n'icesat_minus_dem' not found in ATL06 dataframe: {key}. Running differencing first.\n"
+            )
+            self.atl06sr_to_dem_dh()
+            atl06sr = self.atl06sr_processing_levels_filtered[key]
+
         column_names = ["icesat_minus_dem"]
         if plot_aligned:
-            column_names.append("icesat_minus_dem_aligned")
+            column_names.append("icesat_minus_aligned_dem")
 
         fig, ax = plt.subplots(1, 1, figsize=(6, 4))
 
         for column_name in column_names:
-            med = self.atl06sr_filtered[column_name].quantile(0.50)
-            nmad = self.atl06sr_filtered[[column_name]].apply(_nmad).iloc[0]
+            med = atl06sr[column_name].quantile(0.50)
+            nmad = atl06sr[[column_name]].apply(_nmad).iloc[0]
 
-            xmin = self.atl06sr_filtered[column_name].quantile(0.01)
-            xmax = self.atl06sr_filtered[column_name].quantile(0.99)
+            xmin = atl06sr[column_name].quantile(0.01)
+            xmax = atl06sr[column_name].quantile(0.99)
             plot_kwargs = {"bins": 128, "alpha": 0.5, "range": (xmin, xmax)}
-            self.atl06sr_filtered.hist(
+            atl06sr.hist(
                 ax=ax,
                 column=column_name,
                 label=f"{column_name}, Median={med:0.2f}, NMAD={nmad:0.2f}",
@@ -718,7 +741,7 @@ class Altimetry:
         ax.set_title(None)
         ax.set_xlabel("ICESat-2 - DEM (m)")
 
-        fig.suptitle(title, size=10)
+        fig.suptitle(f"{title}\n{key} (n={atl06sr.shape[0]})", size=10)
 
         fig.tight_layout()
         if save_dir and fig_fn:

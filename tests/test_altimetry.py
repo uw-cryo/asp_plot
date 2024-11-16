@@ -58,24 +58,22 @@ class TestAltimetry:
         except Exception as e:
             pytest.fail(f"plot_atl06sr() method raised an exception: {str(e)}")
 
-    # TODO: fix or rewrite these tests:
+    def test_atl06sr_to_dem_dh(self, icesat):
+        try:
+            icesat.atl06sr_to_dem_dh()
+        except Exception as e:
+            pytest.fail(f"atl06sr_to_dem_dh() method raised an exception: {str(e)}")
 
-    # def test_atl06sr_to_dem_dh(self, icesat):
-    #     try:
-    #         icesat.atl06sr_to_dem_dh()
-    #     except Exception as e:
-    #         pytest.fail(f"atl06sr_to_dem_dh() method raised an exception: {str(e)}")
+    def test_mapview_plot_atl06sr_to_dem(self, icesat):
+        try:
+            icesat.mapview_plot_atl06sr_to_dem()
+        except Exception as e:
+            pytest.fail(
+                f"mapview_plot_atl06sr_to_dem() method raised an exception: {str(e)}"
+            )
 
-    # def test_mapview_plot_atl06sr_to_dem(self, icesat):
-    #     try:
-    #         icesat.mapview_plot_atl06sr_to_dem()
-    #     except Exception as e:
-    #         pytest.fail(
-    #             f"mapview_plot_atl06sr_to_dem() method raised an exception: {str(e)}"
-    #         )
-
-    # def test_histogram(self, icesat):
-    #     try:
-    #         icesat.histogram()
-    #     except Exception as e:
-    #         pytest.fail(f"histogram() method raised an exception: {str(e)}")
+    def test_histogram(self, icesat):
+        try:
+            icesat.histogram(key="high_confidence_45_day_pad")
+        except Exception as e:
+            pytest.fail(f"histogram() method raised an exception: {str(e)}")
