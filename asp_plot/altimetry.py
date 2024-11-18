@@ -185,6 +185,7 @@ class Altimetry:
 
             self.atl06sr_processing_levels_filtered[key] = atl06sr_filtered
 
+    # TODO: make this accept strings like water, snow, ice, vegetation, etc. and filter based on those values
     def filter_esa_worldcover(self, value=80):
         # Value	Description
         # 10	  Tree cover
