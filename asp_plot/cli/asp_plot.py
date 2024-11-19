@@ -159,28 +159,26 @@ def main(
 
     # ICESat-2 comparison
     if plot_icesat:
-        icesat = Altimetry(dem_fn=asp_dem)
+        icesat = Altimetry(directory=directory, dem_fn=asp_dem)
 
-        icesat.pull_atl06sr(
-            esa_worldcover=True,
+        icesat.pull_atl06sr_multi_processing(
             save_to_parquet=False,
         )
 
-        icesat.filter_atl06sr(
-            mask_worldcover_water=True,
-            save_to_parquet=False,
-            save_to_csv=False,
-        )
+        icesat.filter_esa_worldcover(filter_out="water")
+
+        icesat.predefined_temporal_filter_atl06sr()
 
         icesat.mapview_plot_atl06sr_to_dem(
-            title=f"Filtered ICESat-2 minus DEM (n={icesat.atl06sr_filtered.shape[0]})",
+            key="ground_seasonal",
             save_dir=plots_directory,
             fig_fn=f"{next(figure_counter):02}.png",
             **ctx_kwargs,
         )
 
         icesat.histogram(
-            title=f"Filtered ICESat-2 minus DEM (n={icesat.atl06sr_filtered.shape[0]})",
+            key="ground_seasonal",
+            plot_aligned=False,
             save_dir=plots_directory,
             fig_fn=f"{next(figure_counter):02}.png",
         )

@@ -149,7 +149,7 @@ class Altimetry:
 
             print(f"\nICESat-2 ATL06 request processing for: {key}")
             fn = f"{fn_base}.parquet"
-            print(fn)
+
             if os.path.exists(fn):
                 print(f"Existing file found, reading in: {fn}")
                 atl06sr = gpd.read_parquet(fn)
