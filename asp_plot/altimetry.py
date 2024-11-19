@@ -186,7 +186,7 @@ class Altimetry:
             self.atl06sr_processing_levels_filtered[key] = atl06sr_filtered
 
     # TODO: make this accept strings like water, snow, ice, vegetation, etc. and filter based on those values
-    def filter_esa_worldcover(self, value=80):
+    def filter_esa_worldcover(self, filter_out="water"):
         # Value	Description
         # 10	  Tree cover
         # 20	  Shrubland
@@ -199,6 +199,12 @@ class Altimetry:
         # 90	  Herbaceous wetland
         # 95	  Mangroves
         # 100	  Moss and lichen
+        if filter_out == "water":
+            value = 80
+        else:
+            logger.warning(f"\nESA WorldCover filter value not found: {filter_out}\n")
+            return
+
         for key, atl06sr in self.atl06sr_processing_levels_filtered.items():
             if "esa_worldcover.value" not in atl06sr.columns:
                 logger.warning(
