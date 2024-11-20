@@ -434,7 +434,7 @@ def csm_camera_summary_plot(
     cbar2 = plt.colorbar(
         sm2, ax=ax, extend=extend, orientation="vertical", aspect=30, pad=0.05
     )
-    cbar2.set_label("Diff Magnitude (deg)", fontsize=9)
+    cbar2.set_label("Diff Magnitude (°)", fontsize=9)
     cbar2.ax.tick_params(labelsize=9)
 
     # Camera 1 line plots
@@ -525,8 +525,7 @@ def csm_camera_summary_plot(
         linestyle="--",
         label="Original Roll",
     )
-    #Could use unit='°' to save space here
-    plot_stats_text(ax1_r, cam1_roll_diff_mean, cam1_roll_diff_std, unit='deg')
+    plot_stats_text(ax1_r, cam1_roll_diff_mean, cam1_roll_diff_std, unit='°')
 
     ax2 = axes[1, 2]
     ax2.plot(frame_cam1, gdf_cam1.pitch_diff, c="#FFA500", lw=1, label="Pitch Diff")
@@ -539,7 +538,7 @@ def csm_camera_summary_plot(
         linestyle="--",
         label="Original Pitch",
     )
-    plot_stats_text(ax2_r, cam1_pitch_diff_mean, cam1_pitch_diff_std, unit='deg')
+    plot_stats_text(ax2_r, cam1_pitch_diff_mean, cam1_pitch_diff_std, unit='°')
 
     ax3 = axes[1, 3]
     ax3.plot(frame_cam1, gdf_cam1.yaw_diff, c="#FFB347", lw=1, label="Yaw Diff")
@@ -552,7 +551,7 @@ def csm_camera_summary_plot(
         linestyle="--",
         label="Original Yaw",
     )
-    plot_stats_text(ax3_r, cam1_yaw_diff_mean, cam1_yaw_diff_std, unit='deg')
+    plot_stats_text(ax3_r, cam1_yaw_diff_mean, cam1_yaw_diff_std, unit='°')
 
     # Share y-axis for angular diff plots
     min_val_angle_diff = min(
@@ -585,10 +584,10 @@ def csm_camera_summary_plot(
             ax.set_xticklabels(xtick_labels)
         else:
             ax.set_xlabel("Position Sample", fontsize=9)
-        ax.set_ylabel("Original $-$ Optimized (deg)", fontsize=9)
+        ax.set_ylabel("Original $-$ Optimized (°)", fontsize=9)
         if shared_scales:
             ax.set_ylim(min_val_angle_diff, max_val_angle_diff)
-        ax_r.set_ylabel("Original (deg)", fontsize=9)
+        ax_r.set_ylabel("Original (°)", fontsize=9)
         if log_scale_angles:
             ax.set_yscale("symlog")
         ax.grid(True, linestyle=":", linewidth=0.5, alpha=0.8, color="gray")
@@ -648,7 +647,7 @@ def csm_camera_summary_plot(
         cbar2 = plt.colorbar(
             sm2, ax=ax, extend=extend, orientation="vertical", aspect=30, pad=0.05
         )
-        cbar2.set_label("Diff Magnitude (deg)", fontsize=9)
+        cbar2.set_label("Diff Magnitude (°)", fontsize=9)
         cbar2.ax.tick_params(labelsize=9)
 
         frame_cam2 = np.arange(gdf_cam2.shape[0])
@@ -740,7 +739,7 @@ def csm_camera_summary_plot(
             linestyle="--",
             label="Original Roll",
         )
-        plot_stats_text(ax1_r, cam2_roll_diff_mean, cam2_roll_diff_std, unit='deg')
+        plot_stats_text(ax1_r, cam2_roll_diff_mean, cam2_roll_diff_std, unit='°')
 
         ax2 = axes[3, 2]
         ax2.plot(frame_cam2, gdf_cam2.pitch_diff, c="#FFA500", lw=1, label="Pitch Diff")
@@ -753,7 +752,7 @@ def csm_camera_summary_plot(
             linestyle="--",
             label="Original Pitch",
         )
-        plot_stats_text(ax2_r, cam2_pitch_diff_mean, cam2_pitch_diff_std, unit='deg')
+        plot_stats_text(ax2_r, cam2_pitch_diff_mean, cam2_pitch_diff_std, unit='°')
 
         ax3 = axes[3, 3]
         ax3.plot(frame_cam2, gdf_cam2.yaw_diff, c="#FFB347", lw=1, label="Yaw Diff")
@@ -766,7 +765,7 @@ def csm_camera_summary_plot(
             linestyle="--",
             label="Original Yaw",
         )
-        plot_stats_text(ax3_r, cam2_yaw_diff_mean, cam2_yaw_diff_std, unit='deg')
+        plot_stats_text(ax3_r, cam2_yaw_diff_mean, cam2_yaw_diff_std, unit='°')
 
         # Share y-axis for angular diff plots
         min_val_angle_diff = min(
@@ -801,10 +800,10 @@ def csm_camera_summary_plot(
                 ax.set_xticklabels(xtick_labels)
             else:
                 ax.set_xlabel("Position Sample", fontsize=9)
-            ax.set_ylabel("Original $-$ Optimized (deg)", fontsize=9)
+            ax.set_ylabel("Original $-$ Optimized (°)", fontsize=9)
             if shared_scales:
                 ax.set_ylim(min_val_angle_diff, max_val_angle_diff)
-            ax_r.set_ylabel("Original (deg)", fontsize=9)
+            ax_r.set_ylabel("Original (°)", fontsize=9)
             if log_scale_angles:
                 ax.set_yscale("symlog")
             ax.grid(True, linestyle=":", linewidth=0.5, alpha=0.8, color="gray")
