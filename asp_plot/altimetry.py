@@ -125,8 +125,6 @@ class Altimetry:
             key: parms for key, parms in parms_dict.items() if key in processing_levels
         }
 
-        print("\n\nparms_dict: ", parms_dict)
-
         for key, parms in parms_dict.items():
             parms["poly"] = region
             parms["res"] = res
