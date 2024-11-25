@@ -185,7 +185,6 @@ class Altimetry:
 
             self.atl06sr_processing_levels_filtered[key] = atl06sr_filtered
 
-    # TODO: make this accept strings like water, snow, ice, vegetation, etc. and filter based on those values
     def filter_esa_worldcover(self, filter_out="water"):
         # Value	Description
         # 10	  Tree cover
@@ -200,7 +199,15 @@ class Altimetry:
         # 95	  Mangroves
         # 100	  Moss and lichen
         if filter_out == "water":
-            value = 80
+            values = [80]
+        elif filter_out == "snow_ice":
+            values = [70]
+        elif filter_out == "trees":
+            values = [10]
+        elif filter_out == "low_vegetation":
+            values = [20, 30, 40, 90, 95, 100]
+        elif filter_out == "built_up":
+            values = [50]
         else:
             logger.warning(f"\nESA WorldCover filter value not found: {filter_out}\n")
             return
@@ -211,9 +218,8 @@ class Altimetry:
                     f"\nESA WorldCover not found in ATL06 dataframe: {key}\n"
                 )
             else:
-                self.atl06sr_processing_levels_filtered[key] = atl06sr[
-                    atl06sr["esa_worldcover.value"] != value
-                ]
+                mask = ~atl06sr["esa_worldcover.value"].isin(values)
+                self.atl06sr_processing_levels_filtered[key] = atl06sr[mask]
 
     # TODO: for pc_align: Spawn all four, see if they agree and provide similar translations)
     def predefined_temporal_filter_atl06sr(self, date=None):
