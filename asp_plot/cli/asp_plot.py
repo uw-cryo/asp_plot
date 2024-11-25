@@ -162,6 +162,7 @@ def main(
         icesat = Altimetry(directory=directory, dem_fn=asp_dem)
 
         icesat.request_atl06sr_multi_processing(
+            processing_levels=["ground"],
             save_to_parquet=False,
         )
 

@@ -99,6 +99,7 @@ class Altimetry:
 
     def request_atl06sr_multi_processing(
         self,
+        processing_levels=["high_confidence", "ground", "canopy", "top_of_canopy"],
         res=20,
         len=40,
         ats=20,
@@ -131,6 +132,12 @@ class Altimetry:
                 "atl08_class": "atl08_top_of_canopy",
             },
         }
+
+        parms_dict = {
+            key: parms for key, parms in parms_dict.items() if key in processing_levels
+        }
+
+        print("\n\nparms_dict: ", parms_dict)
 
         for key, parms in parms_dict.items():
             parms["poly"] = region
