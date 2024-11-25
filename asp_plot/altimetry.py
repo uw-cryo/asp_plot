@@ -37,8 +37,6 @@ class Altimetry:
         atl06sr_processing_levels={},
         atl06sr_processing_levels_filtered={},
         # atl03sr=None,
-        # atl06sr=None,
-        # atl06sr_filtered=None,
         **kwargs,
     ):
         self.directory = directory
@@ -46,16 +44,6 @@ class Altimetry:
         if not os.path.exists(dem_fn):
             raise ValueError(f"DEM file not found: {dem_fn}")
         self.dem_fn = dem_fn
-
-        # if atl06sr is not None and not isinstance(atl06sr, gpd.GeoDataFrame):
-        #     raise ValueError("ATL06 must be a GeoDataFrame if provided.")
-        # self.atl06sr = atl06sr
-
-        # if atl06sr_filtered is not None and not isinstance(
-        #     atl06sr_filtered, gpd.GeoDataFrame
-        # ):
-        #     raise ValueError("Cleaned ATL06 must be a GeoDataFrame if provided.")
-        # self.atl06sr_filtered = atl06sr_filtered
 
         if aligned_dem_fn is not None and not os.path.exists(aligned_dem_fn):
             raise ValueError(f"Aligned DEM file not found: {aligned_dem_fn}")
