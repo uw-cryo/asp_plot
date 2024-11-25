@@ -1,4 +1,3 @@
-import geopandas as gpd
 import matplotlib
 import pytest
 
@@ -11,27 +10,51 @@ class TestAltimetry:
     @pytest.fixture
     def icesat(self):
         icesat = Altimetry(
+            directory="tests/test_data",
             dem_fn="tests/test_data/stereo/date_time_left_right_1m-DEM.tif",
         )
-        icesat.atl06sr_filtered = gpd.read_parquet(
-            "tests/test_data/icesat_data/atl06sr_defaults_filtered.parquet"
+        icesat.request_atl06sr_multi_processing(
+            filename="tests/test_data/icesat_data/atl06sr_",
         )
         return icesat
 
-    def test_pull_and_filter_atl06sr(self, icesat):
+    def test_filter_esa_worldcover(self, icesat):
         try:
-            icesat.pull_atl06sr(esa_worldcover=False, save_to_parquet=False)
-            icesat.filter_atl06sr(
-                mask_worldcover_water=False, save_to_parquet=False, save_to_csv=False
+            icesat.filter_esa_worldcover()
+        except Exception as e:
+            pytest.fail(f"filter_esa_worldcover() method raised an exception: {str(e)}")
+
+    def test_generic_temporal_filter_atl06sr(self, icesat):
+        try:
+            icesat.generic_temporal_filter_atl06sr(
+                select_years=[2019, 2020],
+                select_months=[1, 2, 3],
+                select_days=[1, 2, 3],
             )
         except Exception as e:
             pytest.fail(
-                f"pull_atl06sr() or filter_atl06sr() method raised an exception: {str(e)}"
+                f"generic_temporal_filter_atl06sr() method raised an exception: {str(e)}"
+            )
+
+    def test_predefined_temporal_filter_atl06sr(self, icesat):
+        try:
+            icesat.predefined_temporal_filter_atl06sr()
+        except Exception as e:
+            pytest.fail(
+                f"predefined_temporal_filter_atl06sr() method raised an exception: {str(e)}"
+            )
+
+    def test_plot_atl06sr_time_stamps(self, icesat):
+        try:
+            icesat.plot_atl06sr_time_stamps()
+        except Exception as e:
+            pytest.fail(
+                f"plot_atl06sr_time_stamps() method raised an exception: {str(e)}"
             )
 
     def test_plot_atl06sr(self, icesat):
         try:
-            icesat.plot_atl06sr(filtered=True)
+            icesat.plot_atl06sr()
         except Exception as e:
             pytest.fail(f"plot_atl06sr() method raised an exception: {str(e)}")
 
@@ -51,6 +74,6 @@ class TestAltimetry:
 
     def test_histogram(self, icesat):
         try:
-            icesat.histogram()
+            icesat.histogram(key="high_confidence_45_day_pad")
         except Exception as e:
             pytest.fail(f"histogram() method raised an exception: {str(e)}")
