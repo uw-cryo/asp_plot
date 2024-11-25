@@ -13,7 +13,7 @@ class TestAltimetry:
             directory="tests/test_data",
             dem_fn="tests/test_data/stereo/date_time_left_right_1m-DEM.tif",
         )
-        icesat.pull_atl06sr_multi_processing(
+        icesat.request_atl06sr_multi_processing(
             filename="tests/test_data/icesat_data/atl06sr_",
         )
         return icesat

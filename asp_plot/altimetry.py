@@ -64,13 +64,13 @@ class Altimetry:
         self.atl06sr_processing_levels = atl06sr_processing_levels
         self.atl06sr_processing_levels_filtered = atl06sr_processing_levels_filtered
 
-        # TODO: Implement alongside pull_atl03sr below
+        # TODO: Implement alongside request_atl03sr below
         # if atl03sr is not None and not isinstance(atl03sr, gpd.GeoDataFrame):
         #     raise ValueError("ATL03 must be a GeoDataFrame if provided.")
         # self.atl03sr = atl03sr
 
     # TODO: Implement ATL03 pull, which needs to put in separate GDF; warning this is gonna be huge and only used for basic plots
-    # def pull_atl03sr(self, rgt, cycle, track, spot, save_to_parquet=False, filename="atl03sr_defaults"):
+    # def request_atl03sr(self, rgt, cycle, track, spot, save_to_parquet=False, filename="atl03sr_defaults"):
     #     region = Raster(self.dem_fn).get_bounds(latlon=True)
 
     #     parms = {
@@ -97,7 +97,7 @@ class Altimetry:
 
     #     return self.atl03sr
 
-    def pull_atl06sr_multi_processing(
+    def request_atl06sr_multi_processing(
         self,
         res=20,
         len=40,

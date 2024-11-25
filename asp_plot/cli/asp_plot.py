@@ -54,7 +54,7 @@ from asp_plot.utils import compile_report
     "--plot_icesat",
     prompt=False,
     default=True,
-    help="If True, plot an ICESat-2 difference plot with the DEM result. This requires internet connection to pull ICESat data. Default: True.",
+    help="If True, plot an ICESat-2 difference plot with the DEM result. This requires internet connection to request ICESat data. Default: True.",
 )
 @click.option(
     "--report_filename",
@@ -161,7 +161,7 @@ def main(
     if plot_icesat:
         icesat = Altimetry(directory=directory, dem_fn=asp_dem)
 
-        icesat.pull_atl06sr_multi_processing(
+        icesat.request_atl06sr_multi_processing(
             save_to_parquet=False,
         )
 
