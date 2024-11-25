@@ -438,6 +438,12 @@ class Altimetry:
         if save_dir and fig_fn:
             save_figure(fig, save_dir, fig_fn)
 
+    # TODO: move all pc_align steps and dem translations to separate class
+    # call this alignment for different processing levels, with some minimum number
+    # of required points (a ~500 point parameter).
+    # Report all translation results to user via a dictionary and printing.
+    # If translation agrees within some tolerance (a 5% or 10% parameter) in XYZ components,
+    # apply the translation of the points found closest in time to the DEM.
     def pc_align_dem_to_atl06sr(
         self,
         max_displacement=20,
@@ -754,83 +760,84 @@ class Altimetry:
         if save_dir and fig_fn:
             save_figure(fig, save_dir, fig_fn)
 
-    def plot_atl06sr_dem_profiles(
-        self,
-        title="ICESat-2 ATL06-SR Profiles",
-        select_years=None,
-        select_months=None,
-        select_days=None,
-        only_strong_beams=True,
-        save_dir=None,
-        fig_fn=None,
-    ):
-        if "icesat_minus_dem" not in self.atl06sr_filtered.columns:
-            self.atl06sr_to_dem_dh()
+    # TODO: https://github.com/uw-cryo/asp_plot/issues/40
+    # def plot_atl06sr_dem_profiles(
+    #     self,
+    #     title="ICESat-2 ATL06-SR Profiles",
+    #     select_years=None,
+    #     select_months=None,
+    #     select_days=None,
+    #     only_strong_beams=True,
+    #     save_dir=None,
+    #     fig_fn=None,
+    # ):
+    #     if "icesat_minus_dem" not in self.atl06sr_filtered.columns:
+    #         self.atl06sr_to_dem_dh()
 
-        atl06sr = self.atl06sr_filtered
+    #     atl06sr = self.atl06sr_filtered
 
-        # Additional day, month, and year filtering
-        if select_years:
-            atl06sr = atl06sr[atl06sr.index.year.isin(select_years)]
-        if select_months:
-            atl06sr = atl06sr[atl06sr.index.month.isin(select_months)]
-        if select_days:
-            atl06sr = atl06sr[atl06sr.index.day.isin(select_days)]
+    #     # Additional day, month, and year filtering
+    #     if select_years:
+    #         atl06sr = atl06sr[atl06sr.index.year.isin(select_years)]
+    #     if select_months:
+    #         atl06sr = atl06sr[atl06sr.index.month.isin(select_months)]
+    #     if select_days:
+    #         atl06sr = atl06sr[atl06sr.index.day.isin(select_days)]
 
-        # Get day of interest
-        dates = atl06sr.index.strftime("%Y-%m-%d").unique()
+    #     # Get day of interest
+    #     dates = atl06sr.index.strftime("%Y-%m-%d").unique()
 
-        if dates.size > 1:
-            logger.warning(
-                f"\nYou are trying to plot {dates.size} ICESat-2 passes. Please apply additional day, month, and year filtering to get only one pass for plotting.\n"
-            )
-            return
-        else:
-            date = dates[0]
+    #     if dates.size > 1:
+    #         logger.warning(
+    #             f"\nYou are trying to plot {dates.size} ICESat-2 passes. Please apply additional day, month, and year filtering to get only one pass for plotting.\n"
+    #         )
+    #         return
+    #     else:
+    #         date = dates[0]
 
-        atl06sr = atl06sr[atl06sr.index.normalize() == date]
+    #     atl06sr = atl06sr[atl06sr.index.normalize() == date]
 
-        # Get unique beam strength spot numbers
-        spots = atl06sr.spot.unique()
+    #     # Get unique beam strength spot numbers
+    #     spots = atl06sr.spot.unique()
 
-        # Optionally, filter out weak beams (2, 4, 6)
-        if only_strong_beams:
-            spots = spots[spots % 2 == 1]
+    #     # Optionally, filter out weak beams (2, 4, 6)
+    #     if only_strong_beams:
+    #         spots = spots[spots % 2 == 1]
 
-        # Plot the beams
-        fig, axes = plt.subplots(spots.size, 1, figsize=(10, 12))
-        axes = axes.flatten()
-        for ii, spot in enumerate(spots):
-            ax = axes[ii]
-            spot_to_plot = atl06sr[atl06sr.spot == spot]
-            along_track_dist = abs(spot_to_plot.x_atc - spot_to_plot.x_atc.max()) / 1000
+    #     # Plot the beams
+    #     fig, axes = plt.subplots(spots.size, 1, figsize=(10, 12))
+    #     axes = axes.flatten()
+    #     for ii, spot in enumerate(spots):
+    #         ax = axes[ii]
+    #         spot_to_plot = atl06sr[atl06sr.spot == spot]
+    #         along_track_dist = abs(spot_to_plot.x_atc - spot_to_plot.x_atc.max()) / 1000
 
-            ax.scatter(
-                along_track_dist,
-                spot_to_plot.h_mean,
-                color="black",
-                s=5,
-                marker="s",
-                label="ICESat-2 ATL06",
-            )
-            ax.scatter(
-                along_track_dist,
-                spot_to_plot.dem_aligned_height,
-                color="red",
-                s=5,
-                marker="o",
-                label="DEM",
-            )
-            ax.set_axisbelow(True)
-            ax.grid(0.3)
-            ax.set_title(f"Laser Spot {spot:0.0f}")
-            ax.set_xlabel("Distance along track (km)")
-            ax.set_ylabel("Elevation (m HAE)")
-            ax.legend()
+    #         ax.scatter(
+    #             along_track_dist,
+    #             spot_to_plot.h_mean,
+    #             color="black",
+    #             s=5,
+    #             marker="s",
+    #             label="ICESat-2 ATL06",
+    #         )
+    #         ax.scatter(
+    #             along_track_dist,
+    #             spot_to_plot.dem_aligned_height,
+    #             color="red",
+    #             s=5,
+    #             marker="o",
+    #             label="DEM",
+    #         )
+    #         ax.set_axisbelow(True)
+    #         ax.grid(0.3)
+    #         ax.set_title(f"Laser Spot {spot:0.0f}")
+    #         ax.set_xlabel("Distance along track (km)")
+    #         ax.set_ylabel("Elevation (m HAE)")
+    #         ax.legend()
 
-        fig.suptitle(title)
-        fig.subplots_adjust(hspace=0.3)
+    #     fig.suptitle(title)
+    #     fig.subplots_adjust(hspace=0.3)
 
-        fig.tight_layout()
-        if save_dir and fig_fn:
-            save_figure(fig, save_dir, fig_fn)
+    #     fig.tight_layout()
+    #     if save_dir and fig_fn:
+    #         save_figure(fig, save_dir, fig_fn)
