@@ -5,6 +5,7 @@ class TestImports:
         assert asp_plot is not None
 
     def test_import_asp_plot_modules(self):
+        import asp_plot.alignment
         import asp_plot.altimetry
         import asp_plot.bundle_adjust
         import asp_plot.csm_camera
@@ -20,8 +21,10 @@ class TestImports:
         assert asp_plot.csm_camera is not None
         assert asp_plot.bundle_adjust is not None
         assert asp_plot.altimetry is not None
+        assert asp_plot.alignment is not None
 
     def test_import_asp_plot_classes(self):
+        from asp_plot.alignment import Alignment
         from asp_plot.altimetry import Altimetry
         from asp_plot.bundle_adjust import PlotBundleAdjustFiles, ReadBundleAdjustFiles
         from asp_plot.processing_parameters import ProcessingParameters
@@ -41,3 +44,4 @@ class TestImports:
         assert PlotBundleAdjustFiles is not None
         assert StereoPlotter is not None
         assert Altimetry is not None
+        assert Alignment is not None
