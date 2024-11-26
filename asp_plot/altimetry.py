@@ -89,28 +89,30 @@ class Altimetry:
         maxi=5,
         h_sigma_quantile=0.95,
         save_to_parquet=False,
-        filename="atl06sr_",
+        filename="atl06sr",
+        region=None,
     ):
-        region = Raster(self.dem_fn).get_bounds(latlon=True)
+        if not region:
+            region = Raster(self.dem_fn).get_bounds(latlon=True)
 
         parms_dict = {
             "high_confidence": {
                 "cnf": 4,
-                "srt": 3,
+                "srt": -1,
             },
             "ground": {
                 "cnf": 0,
-                "srt": 0,
+                "srt": -1,
                 "atl08_class": "atl08_ground",
             },
             "canopy": {
                 "cnf": 0,
-                "srt": 0,
+                "srt": -1,
                 "atl08_class": "atl08_canopy",
             },
             "top_of_canopy": {
                 "cnf": 0,
-                "srt": 0,
+                "srt": -1,
                 "atl08_class": "atl08_top_of_canopy",
             },
         }
@@ -132,7 +134,7 @@ class Altimetry:
                 }
             }
 
-            fn_base = f"{filename}res{res}_len{len}_cnt{cnt}_ats{ats}_maxi{maxi}_{key}"
+            fn_base = f"{filename}_res{res}_len{len}_cnt{cnt}_ats{ats}_maxi{maxi}_{key}"
 
             print(f"\nICESat-2 ATL06 request processing for: {key}")
             fn = f"{fn_base}.parquet"
@@ -172,7 +174,7 @@ class Altimetry:
 
             self.atl06sr_processing_levels_filtered[key] = atl06sr_filtered
 
-    def filter_esa_worldcover(self, filter_out="water"):
+    def filter_esa_worldcover(self, filter_out="water", retain_only=None):
         # Value	Description
         # 10	  Tree cover
         # 20	  Shrubland
@@ -185,28 +187,36 @@ class Altimetry:
         # 90	  Herbaceous wetland
         # 95	  Mangroves
         # 100	  Moss and lichen
-        if filter_out == "water":
-            values = [80]
-        elif filter_out == "snow_ice":
-            values = [70]
-        elif filter_out == "trees":
-            values = [10]
-        elif filter_out == "low_vegetation":
-            values = [20, 30, 40, 90, 95, 100]
-        elif filter_out == "built_up":
-            values = [50]
+        value_dict = {
+            "water": [80],
+            "snow_ice": [70],
+            "trees": [10],
+            "low_vegetation": [20, 30, 40, 90, 95, 100],
+            "built_up": [50],
+        }
+
+        if retain_only is not None:
+            if retain_only in value_dict:
+                values_to_keep = value_dict[retain_only]
+                for key, atl06sr in self.atl06sr_processing_levels_filtered.items():
+                    if "esa_worldcover.value" in atl06sr.columns:
+                        mask = atl06sr["esa_worldcover.value"].isin(values_to_keep)
+                        self.atl06sr_processing_levels_filtered[key] = atl06sr[mask]
+            else:
+                logger.warning(
+                    f"\nESA WorldCover retain value not found: {retain_only}\n"
+                )
+                return
+
+        elif filter_out in value_dict:
+            values_to_filter = value_dict[filter_out]
+            for key, atl06sr in self.atl06sr_processing_levels_filtered.items():
+                if "esa_worldcover.value" in atl06sr.columns:
+                    mask = ~atl06sr["esa_worldcover.value"].isin(values_to_filter)
+                    self.atl06sr_processing_levels_filtered[key] = atl06sr[mask]
         else:
             logger.warning(f"\nESA WorldCover filter value not found: {filter_out}\n")
             return
-
-        for key, atl06sr in self.atl06sr_processing_levels_filtered.items():
-            if "esa_worldcover.value" not in atl06sr.columns:
-                logger.warning(
-                    f"\nESA WorldCover not found in ATL06 dataframe: {key}\n"
-                )
-            else:
-                mask = ~atl06sr["esa_worldcover.value"].isin(values)
-                self.atl06sr_processing_levels_filtered[key] = atl06sr[mask]
 
     def predefined_temporal_filter_atl06sr(self, date=None):
         if date is None:
@@ -241,9 +251,18 @@ class Altimetry:
                     atl06sr.index.strftime("%b").isin(["Sep", "Oct", "Nov"])
                 ]
 
-            self.atl06sr_processing_levels_filtered[f"{key}_15_day_pad"] = fifteen_day
-            self.atl06sr_processing_levels_filtered[f"{key}_45_day_pad"] = fortyfive_day
-            self.atl06sr_processing_levels_filtered[f"{key}_seasonal"] = season_filter
+            if not fifteen_day.empty:
+                self.atl06sr_processing_levels_filtered[f"{key}_15_day_pad"] = (
+                    fifteen_day
+                )
+            if not fortyfive_day.empty:
+                self.atl06sr_processing_levels_filtered[f"{key}_45_day_pad"] = (
+                    fortyfive_day
+                )
+            if not season_filter.empty:
+                self.atl06sr_processing_levels_filtered[f"{key}_seasonal"] = (
+                    season_filter
+                )
 
     def generic_temporal_filter_atl06sr(
         self, select_years=None, select_months=None, select_days=None
@@ -395,6 +414,19 @@ class Altimetry:
         y_bounds = []
         for ax, time_stamp in zip(axes, time_stamps):
             key_to_plot = f"{key}{time_stamp}"
+
+            if key_to_plot not in self.atl06sr_processing_levels_filtered.keys():
+                ax.text(
+                    0.5,
+                    0.5,
+                    f"No points found for {key_to_plot}",
+                    horizontalalignment="center",
+                    verticalalignment="center",
+                    transform=ax.transAxes,
+                )
+                ax.axis("off")
+                continue
+
             atl06sr = self.atl06sr_processing_levels_filtered[key_to_plot]
             if map_crs:
                 crs = f"EPSG:{map_crs}"
@@ -428,7 +460,12 @@ class Altimetry:
         padding = 0.05
         x_range = max(x_bounds) - min(x_bounds)
         y_range = max(y_bounds) - min(y_bounds)
-        for ax in axes:
+        for ax, time_stamp in zip(axes, time_stamps):
+            key_to_plot = f"{key}{time_stamp}"
+
+            if key_to_plot not in self.atl06sr_processing_levels_filtered.keys():
+                continue
+
             ax.set_xlim(
                 min(x_bounds) - padding * x_range, max(x_bounds) + padding * x_range
             )
