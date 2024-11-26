@@ -562,7 +562,10 @@ class Altimetry:
 
     def atl06sr_to_dem_dh(self):
         dem = rioxarray.open_rasterio(self.dem_fn, masked=True).squeeze()
-        epsg = dem.rio.crs.to_epsg()
+        # TODO: this won't work for 3D CRS contained in .tif.aux.xml
+        # Ah I see! We can reproject the ICESat-2 points/gdf to the CRS of the raster maybe, without using the to_epsg code to be safe.
+        # epsg = dem.rio.crs.to_epsg()
+        epsg = "PASS A VARIABLE"
         for key, atl06sr in self.atl06sr_processing_levels_filtered.items():
             atl06sr = atl06sr.to_crs(f"EPSG:{epsg}")
 
@@ -623,7 +626,10 @@ class Altimetry:
             symm_clim = True
 
         dem = rioxarray.open_rasterio(self.dem_fn, masked=True).squeeze()
+        # TODO: this won't work for 3D CRS contained in .tif.aux.xml
+        # Ah I see! We can reproject the ICESat-2 points/gdf to the CRS of the raster maybe, without using the to_epsg code to be safe.
         epsg = dem.rio.crs.to_epsg()
+        epsg = "PASS A VARIABLE"
 
         self.plot_atl06sr(
             key=key,
