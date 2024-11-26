@@ -92,6 +92,7 @@ class Altimetry:
         filename="atl06sr",
         region=None,
     ):
+        # TODO: region wouldn't work for WV with .tif.aux.xml. Fix that.
         if not region:
             region = Raster(self.dem_fn).get_bounds(latlon=True)
 
