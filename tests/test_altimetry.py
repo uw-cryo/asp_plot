@@ -77,3 +77,9 @@ class TestAltimetry:
             icesat.histogram(key="high_confidence_45_day_pad")
         except Exception as e:
             pytest.fail(f"histogram() method raised an exception: {str(e)}")
+
+    def test_alignment_report(self, icesat):
+        try:
+            icesat.alignment_report()
+        except Exception as e:
+            pytest.fail(f"alignment_report() method raised an exception: {str(e)}")
