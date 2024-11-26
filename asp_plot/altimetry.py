@@ -208,7 +208,6 @@ class Altimetry:
                 mask = ~atl06sr["esa_worldcover.value"].isin(values)
                 self.atl06sr_processing_levels_filtered[key] = atl06sr[mask]
 
-    # TODO: for pc_align: Spawn all four, see if they agree and provide similar translations)
     def predefined_temporal_filter_atl06sr(self, date=None):
         if date is None:
             date = StereopairMetadataParser(self.directory).get_pair_dict()["cdate"]
@@ -285,7 +284,9 @@ class Altimetry:
         self,
         processing_level="high_confidence",
         minimum_points=500,
+        agreement_threshold=0.25,
         write_out_aligned_dem=False,
+        min_translation_threshold=0.1,
         key_for_aligned_dem="high_confidence",
     ):
         filtered_keys = [
@@ -318,17 +319,61 @@ class Altimetry:
                     output_prefix=f"pc_align/pc_align_{key}",
                 )
 
+        report_data = []
         for key in filtered_keys:
             report = alignment.pc_align_report(output_prefix=f"pc_align/pc_align_{key}")
-            print(f"\n{key} alignment report:\n{report}\n")
+            report_data.append({"key": key} | report)
+        alignment_report_df = pd.DataFrame(report_data)
+
+        gsd = Raster(self.dem_fn).get_gsd()
+        if (
+            alignment_report_df["translation_magnitude"].mean()
+            < min_translation_threshold * gsd
+        ):
+            write_out_aligned_dem = False
+            print(
+                f"\nTranslation magnitude is less than {min_translation_threshold*100}% of the DEM GSD. Skipping writing out aligned DEM.\n"
+            )
 
         if write_out_aligned_dem:
+            # Calculate ranges and mean for each shift component
+            x_range = (
+                alignment_report_df["x_shift"].max()
+                - alignment_report_df["x_shift"].min()
+            )
+            y_range = (
+                alignment_report_df["y_shift"].max()
+                - alignment_report_df["y_shift"].min()
+            )
+            z_range = (
+                alignment_report_df["z_shift"].max()
+                - alignment_report_df["z_shift"].min()
+            )
+            x_mean = alignment_report_df["x_shift"].mean()
+            y_mean = alignment_report_df["y_shift"].mean()
+            z_mean = alignment_report_df["z_shift"].mean()
+
+            # Check if range is more than X% of mean for any component
+            if (
+                x_range > abs(x_mean * agreement_threshold)
+                or y_range > abs(y_mean * agreement_threshold)
+                or z_range > abs(z_mean * agreement_threshold)
+            ):
+                print(
+                    f"\nWarning: Translation components vary by more than {agreement_threshold*100}% across temporal filters. The translation applied to the aligned DEM may be inaccurate.\n"
+                )
+                print(f"X shift range: {x_range:.3f} m (mean: {x_mean:.3f} m)")
+                print(f"Y shift range: {y_range:.3f} m (mean: {y_mean:.3f} m)")
+                print(f"Z shift range: {z_range:.3f} m (mean: {z_mean:.3f} m)")
+
             self.aligned_dem_fn = alignment.apply_dem_translation(
                 output_prefix=f"pc_align/pc_align_{key_for_aligned_dem}",
             )
             print(
                 f"\nWrote out {key_for_aligned_dem} aligned DEM to {self.aligned_dem_fn}\n"
             )
+
+        self.alignment_report_df = alignment_report_df
 
     def plot_atl06sr_time_stamps(
         self,
