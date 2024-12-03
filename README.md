@@ -1,5 +1,7 @@
 # asp_plot
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.14263122.svg)](https://doi.org/10.5281/zenodo.14263122)
+
 Scripts and notebooks to visualize output from the [NASA Ames Stereo Pipeline (ASP)](https://github.com/NeoGeographyToolkit/StereoPipeline).
 
 ## Motivation
