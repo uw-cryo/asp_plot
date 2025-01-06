@@ -85,9 +85,8 @@ def main(
     os.makedirs(plots_directory, exist_ok=True)
 
     if report_filename is None:
-        report_filename = (
-            f"asp_plot_report_{os.path.split(directory.rstrip('/\\'))[-1]}.pdf"
-        )
+        directory_name = os.path.split(directory.rstrip('/\\'))[-1]
+        report_filename = f"asp_plot_report_{directory_name}.pdf"
     report_pdf_path = os.path.join(directory, report_filename)
 
     figure_counter = count(0)
