@@ -81,7 +81,7 @@ class Altimetry:
 
     def request_atl06sr_multi_processing(
         self,
-        processing_levels=["high_confidence", "ground", "canopy", "top_of_canopy"],
+        processing_levels=["ground", "canopy", "top_of_canopy"],
         res=20,
         len=40,
         ats=20,
@@ -95,11 +95,10 @@ class Altimetry:
         if not region:
             region = Raster(self.dem_fn).get_bounds(latlon=True)
 
+        # See parameter discussion on: https://github.com/SlideRuleEarth/sliderule/issues/448
+        # "srt": -1 tells the server side code to look at the ATL03 confidence array for each photon
+        # and choose the confidence level that is highest across all five surface type entries.
         parms_dict = {
-            "high_confidence": {
-                "cnf": 4,
-                "srt": -1,
-            },
             "ground": {
                 "cnf": 0,
                 "srt": -1,
@@ -286,10 +285,8 @@ class Altimetry:
 
             self.atl06sr_processing_levels_filtered[key] = atl06_filtered
 
-    def to_csv_for_pc_align(
-        self, key="high_confidence", filename_prefix="atl06sr_for_pc_align"
-    ):
-        atl06sr = self.atl06sr_processing_levels_filtered[key]
+    def to_csv_for_pc_align(self, key="ground", filename_prefix="atl06sr_for_pc_align"):
+        atl06sr = self.atl06sr_processing_levels_filtered[key].to_crs("EPSG:4326")
         csv_fn = f"{filename_prefix}_{key}.csv"
         df = atl06sr[["geometry", "h_mean"]].copy()
         df["lon"] = df["geometry"].x
@@ -301,12 +298,12 @@ class Altimetry:
 
     def alignment_report(
         self,
-        processing_level="high_confidence",
+        processing_level="ground",
         minimum_points=500,
         agreement_threshold=0.25,
         write_out_aligned_dem=False,
         min_translation_threshold=0.1,
-        key_for_aligned_dem="high_confidence",
+        key_for_aligned_dem="ground",
     ):
         filtered_keys = [
             key
@@ -324,10 +321,8 @@ class Altimetry:
                 )
                 continue
 
-            if not os.path.exists(
-                glob_file(
-                    os.path.join(self.directory, "pc_align"), f"*{key}*transform.txt"
-                )
+            if not glob_file(
+                os.path.join(self.directory, "pc_align"), f"*{key}*transform.txt"
             ):
                 csv_fn = self.to_csv_for_pc_align(key=key)
 
@@ -396,7 +391,7 @@ class Altimetry:
 
     def plot_atl06sr_time_stamps(
         self,
-        key="high_confidence",
+        key="ground",
         title="ICESat-2 ATL06-SR Time Stamps",
         cmap="inferno",
         map_crs="4326",
@@ -482,7 +477,7 @@ class Altimetry:
 
     def plot_atl06sr(
         self,
-        key="high_confidence",
+        key="ground",
         plot_beams=False,
         plot_dem=False,
         column_name="h_mean",
@@ -599,7 +594,7 @@ class Altimetry:
 
     def mapview_plot_atl06sr_to_dem(
         self,
-        key="high_confidence",
+        key="ground",
         clim=None,
         plot_aligned=False,
         save_dir=None,
@@ -645,7 +640,7 @@ class Altimetry:
 
     def histogram(
         self,
-        key="high_confidence",
+        key="ground",
         title="Histogram",
         plot_aligned=False,
         save_dir=None,
