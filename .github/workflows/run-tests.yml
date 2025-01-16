@@ -26,9 +26,11 @@ jobs:
     - name: Install Micromamba
       run: |
         curl micro.mamba.pm/install.sh | bash
-        source ~/.bashrc
-        echo 'export PATH=~/.local/bin:$PATH' >> $GITHUB_ENV
+        echo 'export PATH=$HOME/.local/bin:$PATH' >> $GITHUB_ENV
+        echo 'source $HOME/.bashrc' >> $GITHUB_ENV
     - name: Create and activate environment
+      env:
+        PATH: ${{ secrets.PATH }}
       run: |
         micromamba create -n asp_plot -f environment.yml
         micromamba activate asp_plot
