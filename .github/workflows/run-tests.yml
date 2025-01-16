@@ -20,7 +20,8 @@ jobs:
     - name: Install Mamba
       run: |
         wget -qO- https://micromamba.snakepit.net/api/micromamba/linux-64/latest | tar -xvj bin/micromamba
-        ./bin/micromamba shell init -s bash
+        echo 'export PATH=$PATH:$HOME/bin' >> $GITHUB_ENV
+        ./bin/micromamba shell init -s bash -p ~/micromamba
         source ~/.bashrc
 
     - name: Create conda environment
