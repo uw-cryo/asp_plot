@@ -1,0 +1,91 @@
+ASP 3.5.0-alpha
+Build ID: 3585be8
+Build date: 2024-08-21
+
+/Users/ben/asp/dev/libexec/pc_align --max-displacement 20 --max-num-source-points 10000000 --alignment-method point-to-point --csv-format "1:lon 2:lat 3:height_above_datum" --compute-translation-only --output-prefix /Users/ben/Dropbox/UW_Shean/WV/2022/WV03_20220417_1040010074793300_1040010075633C00/pc_align/pc_align_ground /Users/ben/Dropbox/UW_Shean/WV/2022/WV03_20220417_1040010074793300_1040010075633C00/stereo/20220417_2252_1040010074793300_1040010075633C00-DEM_1m.tif atl06sr_for_pc_align_ground.csv 
+
+uname -a
+Darwin Bens-MacBook-Air-2.local 23.6.0 Darwin Kernel Version 23.6.0: Mon Jul 29 21:16:46 PDT 2024; root:xnu-10063.141.2~1/RELEASE_ARM64_T8112 x86_64
+
+sysctl -a hw 2>/dev/null | grep -E "ncpu|byteorder|memsize|cpufamily|cachesize|mmx|sse|machine|model" | grep -v ipv6
+hw.ncpu: 8
+hw.byteorder: 1234
+hw.memsize: 17179869184
+hw.perflevel0.l1icachesize: 196608
+hw.perflevel0.l1dcachesize: 131072
+hw.perflevel0.l2cachesize: 16777216
+hw.perflevel1.l1icachesize: 131072
+hw.perflevel1.l1dcachesize: 65536
+hw.perflevel1.l2cachesize: 4194304
+hw.optional.mmx: 1
+hw.optional.sse: 1
+hw.optional.sse2: 1
+hw.optional.sse3: 1
+hw.optional.supplementalsse3: 1
+hw.optional.sse4_1: 1
+hw.optional.sse4_2: 1
+hw.cpufamily: 1463508716
+hw.cachesize: 3481141248 65536 4194304 0 0 0 0 0 0 0
+hw.l1icachesize: 131072
+hw.l1dcachesize: 65536
+hw.l2cachesize: 4194304
+hw.memsize_usable: 16366043136
+
+
+
+Vision Workbench log started at 2024-11-25 15:52:26.
+
+2024-11-25 15:52:26 {0} [ console ] : Will use datum (for CSV files): Geodetic Datum --> Name: WGS_1984  Spheroid: WGS 84  Semi-major axis: 6378137  Semi-minor axis: 6356752.3142451793  Meridian: Greenwich at 0  Proj4 Str: +proj=longlat +datum=WGS84 +no_defs
+2024-11-25 15:52:26 {0} [ console ] : Computing the bounding boxes of the reference and source points using 9000000 sample points.
+2024-11-25 15:52:38 {0} [ console ] : Computation of bounding boxes took 12.5128 s
+2024-11-25 15:52:38 {0} [ console ] : Reference points box: Origin: (-156.826, 71.2694) width: 0.401829 height: 0.124855
+2024-11-25 15:52:38 {0} [ console ] : Source points box:    Origin: (-156.819, 71.2663) width: 0.395745 height: 0.120229
+2024-11-25 15:52:39 {0} [ console ] : Intersection reference box:  Origin: (-156.819, 71.2694) width: 0.3952 height: 0.117141
+2024-11-25 15:52:39 {0} [ console ] : Intersection source    box:  Origin: (-156.819, 71.2694) width: 0.3952 height: 0.117141
+2024-11-25 15:52:39 {0} [ console ] : Reading: /Users/ben/Dropbox/UW_Shean/WV/2022/WV03_20220417_1040010074793300_1040010075633C00/stereo/20220417_2252_1040010074793300_1040010075633C00-DEM_1m.tif
+2024-11-25 15:53:26 {0} [ console ] : Loaded points: 82687133
+2024-11-25 15:53:26 {0} [ console ] : Loading the reference point cloud took 47.7141 s
+2024-11-25 15:53:26 {0} [ console ] : Reading: atl06sr_for_pc_align_ground.csv
+2024-11-25 15:53:26 {0} [ console ] : Loaded points: 32711
+2024-11-25 15:53:26 {0} [ console ] : Loading the source point cloud took 0.102127 s
+2024-11-25 15:53:28 {0} [ console ] : Data shifted internally by subtracting: Vector3(-1.88009e+06,-813400,6.01997e+06)
+2024-11-25 15:53:28 {0} [ console ] : Loading reference as DEM.
+2024-11-25 15:53:28 {0} [ console ] : Building the reference cloud tree.
+2024-11-25 15:53:53 {0} [ console ] : Reference point cloud processing took 25.3101 s
+2024-11-25 15:53:53 {0} [ console ] : Filtering gross outliers
+2024-11-25 15:53:54 {0} [ console ] : Filtering gross outliers took 0.94656 s
+2024-11-25 15:53:54 {0} [ console ] : Reducing number of source points to 31461
+2024-11-25 15:53:54 {0} [ console ] : Number of errors: 31461
+2024-11-25 15:53:54 {0} [ console ] : Input: error percentile of smallest errors (meters): 16%: 0.379974, 50%: 0.613481, 84%: 0.823963
+2024-11-25 15:53:54 {0} [ console ] : Input: mean of smallest errors (meters): 25%: 0.305042, 50%: 0.422038, 75%: 0.509095, 100%: 0.664736
+2024-11-25 15:53:54 {0} [ console ] : Initial error computation took 0.12024 s
+2024-11-25 15:54:23 {0} [ console ] : Match ratio: 0.750008
+2024-11-25 15:54:23 {0} [ console ] : Alignment took 28.385 s
+2024-11-25 15:54:23 {0} [ console ] : Number of errors: 31461
+2024-11-25 15:54:23 {0} [ console ] : Output: error percentile of smallest errors (meters): 16%: 0.0449552, 50%: 0.151377, 84%: 0.332819
+2024-11-25 15:54:23 {0} [ console ] : Output: mean of smallest errors (meters): 25%: 0.0355416, 50%: 0.0730141, 75%: 0.116036, 100%: 0.267471
+2024-11-25 15:54:23 {0} [ console ] : Final error computation took 0.109296 s
+2024-11-25 15:54:23 {0} [ console ] : Alignment transform (origin is planet center):
+                  1                   0                   0 0.09275904530659318
+                  0                   1                   0  0.6802513472503051
+                  0                   0                   1 -0.5164947975426912
+                  0                   0                   0                   1
+2024-11-25 15:54:23 {0} [ console ] : 2024-11-25 15:54:23 {0} [ console ] : Centroid of source points (Cartesian, meters): Vector3(-1883148.6,-813777.62,6018971.5)
+2024-11-25 15:54:23 {0} [ console ] : Centroid of source points (lat,lon,z): Vector3(71.296448,-156.62905,2.1838833)
+2024-11-25 15:54:23 {0} [ console ] : 
+2024-11-25 15:54:23 {0} [ console ] : Translation vector (Cartesian, meters): Vector3(0.092759045,0.68025135,-0.5164948)
+2024-11-25 15:54:23 {0} [ console ] : Translation vector (North-East-Down, meters): Vector3(0.1706202,-0.58764485,0.60305496)
+2024-11-25 15:54:23 {0} [ console ] : Translation vector magnitude (meters): 0.85913504
+2024-11-25 15:54:23 {0} [ console ] : Maximum displacement of points between the source cloud with any initial transform applied to it and the source cloud after alignment to the reference: 0.85913504 m
+2024-11-25 15:54:23 {0} [ console ] : Translation vector (lat,lon,z): Vector3(1.5291556e-06,-1.6412505e-05,-0.60305493)
+2024-11-25 15:54:23 {0} [ console ] : 
+2024-11-25 15:54:23 {0} [ console ] : Transform scale - 1 = 0
+2024-11-25 15:54:23 {0} [ console ] : Euler angles (degrees): Vector3(0,-0,0)
+2024-11-25 15:54:23 {0} [ console ] : Euler angles (North-East-Down, degrees): Vector3(7.9513867e-16,-0,1.4001392e-15)
+2024-11-25 15:54:23 {0} [ console ] : Axis of rotation and angle (degrees): Vector3(nan,nan,nan) 0
+2024-11-25 15:54:23 {0} [ console ] : Writing: /Users/ben/Dropbox/UW_Shean/WV/2022/WV03_20220417_1040010074793300_1040010075633C00/pc_align/pc_align_ground-transform.txt
+2024-11-25 15:54:23 {0} [ console ] : Writing: /Users/ben/Dropbox/UW_Shean/WV/2022/WV03_20220417_1040010074793300_1040010075633C00/pc_align/pc_align_ground-inverse-transform.txt
+2024-11-25 15:54:23 {0} [ console ] : Writing: /Users/ben/Dropbox/UW_Shean/WV/2022/WV03_20220417_1040010074793300_1040010075633C00/pc_align/pc_align_ground-beg_errors.csv
+2024-11-25 15:54:23 {0} [ console ] : Writing: /Users/ben/Dropbox/UW_Shean/WV/2022/WV03_20220417_1040010074793300_1040010075633C00/pc_align/pc_align_ground-end_errors.csv
+2024-11-25 15:54:23 {0} [ console ] : Writing: /Users/ben/Dropbox/UW_Shean/WV/2022/WV03_20220417_1040010074793300_1040010075633C00/pc_align/pc_align_ground-iterationInfo.csv
+2024-11-25 15:54:23 {0} [ console ] : Saving to disk took 0.279139 s

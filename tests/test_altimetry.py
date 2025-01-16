@@ -1,3 +1,4 @@
+import geopandas as gpd
 import matplotlib
 import pytest
 
@@ -13,9 +14,18 @@ class TestAltimetry:
             directory="tests/test_data",
             dem_fn="tests/test_data/stereo/date_time_left_right_1m-DEM.tif",
         )
-        icesat.request_atl06sr_multi_processing(
-            filename="tests/test_data/icesat_data/atl06sr_",
-        )
+
+        # The actual request is fairly time consuming, thus better to be skipped for testing.
+        # icesat.request_atl06sr_multi_processing(
+        #     filename="tests/test_data/icesat_data/atl06sr_",
+        # )
+        for key in ["ground", "canopy", "top_of_canopy"]:
+            icesat.atl06sr_processing_levels[key] = gpd.read_parquet(
+                f"tests/test_data/icesat_data/atl06sr_res20_len40_cnt10_ats20_maxi5_{key}.parquet"
+            )
+            icesat.atl06sr_processing_levels_filtered[key] = gpd.read_parquet(
+                f"tests/test_data/icesat_data/atl06sr_res20_len40_cnt10_ats20_maxi5_{key}_filtered.parquet"
+            )
         return icesat
 
     def test_filter_esa_worldcover(self, icesat):
@@ -74,7 +84,7 @@ class TestAltimetry:
 
     def test_histogram(self, icesat):
         try:
-            icesat.histogram(key="high_confidence_45_day_pad")
+            icesat.histogram(key="ground_45_day_pad")
         except Exception as e:
             pytest.fail(f"histogram() method raised an exception: {str(e)}")
 
