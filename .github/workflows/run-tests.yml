@@ -3,39 +3,32 @@
 
 name: Run tests
 
-on:
-  push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
-
-permissions:
-  contents: read
-  pull-requests: write
+on: [push, pull_request]
 
 jobs:
-  build:
-
+  test:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v3
-    - name: Set up Python 3.11
-      uses: actions/setup-python@v3
+    - uses: actions/checkout@v2
+
+    - name: Set up Python
+      uses: actions/setup-python@v2
       with:
-        python-version: "3.11"
-    - name: Add conda
+        python-version: '3.8'
+
+    - name: Install Mamba
       run: |
-        echo $CONDA/bin >> $GITHUB_PATH
-    - name: Install dependencies
+        wget -qO- https://micromamba.snakepit.net/api/micromamba/linux-64/latest | tar -xvj bin/micromamba
+        ./bin/micromamba shell init -s bash -p ~/micromamba
+        source ~/.bashrc
+
+    - name: Create conda environment
       run: |
-        conda install mamba -c conda-forge
-        mamba env update --file environment.yml --name asp_plot
-        source $CONDA/etc/profile.d/conda.sh
-        conda activate asp_plot
-        pip install .
-    - name: Test with pytest
+        micromamba create -n asp_plot -f environment.yml
+        micromamba activate asp_plot
+
+    - name: Run tests
       run: |
-        source $CONDA/etc/profile.d/conda.sh
-        conda activate asp_plot
+        micromamba activate asp_plot
         pytest
