@@ -3,33 +3,43 @@
 
 name: Run tests
 
-on: [push, pull_request]
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+permissions:
+  contents: read
+  pull-requests: write
 
 jobs:
-  test:
+  build:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v2
-
-    - name: Set up Python
-      uses: actions/setup-python@v2
+    - uses: actions/checkout@v3
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v3
       with:
-        python-version: '3.8'
-
-    - name: Install Mamba
+        python-version: "3.11"
+    - name: Install Micromamba
       run: |
-        wget -qO- https://micromamba.snakepit.net/api/micromamba/linux-64/latest | tar -xvj bin/micromamba
-        echo 'export PATH=$PATH:$HOME/bin' >> $GITHUB_ENV
-        ./bin/micromamba shell init -s bash -p ~/micromamba
+        curl micro.mamba.pm/install.sh | bash
         source ~/.bashrc
-
-    - name: Create conda environment
+        echo 'export PATH=~/.local/bin:$PATH' >> $GITHUB_ENV
+    - name: Create and activate environment
       run: |
         micromamba create -n asp_plot -f environment.yml
         micromamba activate asp_plot
-
-    - name: Run tests
+        echo "CONDA_PREFIX=$(micromamba info --base)" >> $GITHUB_ENV
+    - name: Install dependencies
       run: |
-        micromamba activate asp_plot
+        source $CONDA_PREFIX/etc/profile.d/conda.sh
+        conda activate asp_plot
+        pip install .
+    - name: Test with pytest
+      run: |
+        source $CONDA_PREFIX/etc/profile.d/conda.sh
+        conda activate asp_plot
         pytest
