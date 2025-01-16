@@ -26,7 +26,7 @@ jobs:
     - name: Install Micromamba
       run: |
         curl -Ls https://micro.mamba.pm/api/micromamba/linux-64/latest | tar -xvj bin/micromamba
-        ./bin/micromamba shell init -s bash -p ~/micromamba
+        ./bin/micromamba shell init --shell bash --root-prefix ~/micromamba
         mkdir -p ~/micromamba/envs
 
     - name: Create and activate environment
@@ -36,7 +36,6 @@ jobs:
         export PATH=$PATH:~/micromamba/bin
         ./bin/micromamba create -n asp_plot -f environment.yml
         ./bin/micromamba activate asp_plot
-
     - name: Install dependencies
       shell: bash -l {0}
       run: |
