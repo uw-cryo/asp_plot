@@ -986,8 +986,8 @@ def read_csm_cam(json_file):
 
 def read_tsai_cam(tsai):
     """
-    read tsai frame model from asp and return a python dictionary containing the parameters
-    See ASP's frame camera implementation here: https://stereopipeline.readthedocs.io/en/latest/pinholemodels.html
+    read tsai frame camera model and return a python dictionary containing the parameters
+    See ASP documentation: https://stereopipeline.readthedocs.io/en/latest/pinholemodels.html
     Parameters
     ----------
     tsai: str
@@ -1002,31 +1002,51 @@ def read_tsai_cam(tsai):
     with open(tsai, "r") as f:
         content = f.readlines()
     content = [x.strip() for x in content]
-    fu = np.float64(content[2].split(" = ", 4)[1])  # focal length in x
-    fv = np.float64(content[3].split(" = ", 4)[1])  # focal length in y
-    cu = np.float64(content[4].split(" = ", 4)[1])  # optical center in x
-    cv = np.float64(content[5].split(" = ", 4)[1])  # optical center in y
+    fu = float(content[2].split(" = ", 4)[1])  # focal length in x
+    fv = float(content[3].split(" = ", 4)[1])  # focal length in y
+    cu = float(content[4].split(" = ", 4)[1])  # optical center in x
+    cv = float(content[5].split(" = ", 4)[1])  # optical center in y
     cam = content[9].split(" = ", 10)[1].split(" ")
-    cam_cen = [np.float64(x) for x in cam]  # camera center coordinates in ECEF
+    cam_cen = [float(x) for x in cam]  # camera center coordinates in ECEF
     rot = content[10].split(" = ", 10)[1].split(" ")
     rot_mat = [
-        np.float64(x) for x in rot
+        float(x) for x in rot
     ]  # rotation matrix for camera to world coordinates transformation
 
     # Reshape as 3x3 matrix
     rot_mat = np.reshape(rot_mat, (3, 3))
 
-    pitch = np.float64(content[11].split(" = ", 10)[1])  # pixel pitch
+    pitch = float(content[11].split(" = ", 10)[1])  # pixel pitch
     tsai_dict = {
         "camera": camera,
         "focal_length": (fu, fv),
         "optical_center": (cu, cv),
-        "cam_cen_ecef": cam_cen,
+        "cam_cen_ecef": Point(cam_cen),
         "rotation_matrix": rot_mat,
         "pitch": pitch,
     }
     return tsai_dict
 
+def tsai_list_to_gdf(tsai_fn_list):
+    """
+    Read a list of tsai camera files and return a GeoDataFrame
+    Parameters
+    ----------
+    tsai_fn_list: list
+        List of tsai filenames
+    Returns
+    ----------
+    output: GeoDataFrame
+        GeoPandas GeoDataFrame containing camera model parameters
+    """
+    for tsai_fn in tsai_fn_list:
+        tsai_dict = read_tsai_cam(tsai_fn)
+        tsai_dict_list.append(tsai_dict)
+
+    gdf = gpd.GeoDataFrame(tsai_dict_list, geometry='cam_cen_ecef', crs='EPSG:4978')
+    gdf.set_index('camera')
+
+    return gdf
 
 def read_frame_csm_cam(json_file):
     """
