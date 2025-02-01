@@ -162,7 +162,7 @@ class ProcessingParameters:
 
         if search_for_reference_dem:
             reference_dem = self.get_reference_dem(
-                pprc_log, starting_string="Using input DEM:"
+                pprc_log, starting_string="Input DEM:"
             )
 
             return processing_timestamp, stereo_params, run_time, reference_dem
