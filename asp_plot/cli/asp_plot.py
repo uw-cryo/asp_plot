@@ -113,7 +113,6 @@ def main(
         directory,
         stereo_directory,
         reference_dem=reference_dem,
-        out_dem_gsd=1,
         title="Hillshade with details",
     )
 

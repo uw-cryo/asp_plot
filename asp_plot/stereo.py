@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 class StereoPlotter(Plotter):
     def __init__(
-        self, directory, stereo_directory, reference_dem=None, out_dem_gsd=1, **kwargs
+        self, directory, stereo_directory, reference_dem=None, out_dem_gsd=None, **kwargs
     ):
         super().__init__(**kwargs)
         self.directory = directory
@@ -50,11 +50,18 @@ class StereoPlotter(Plotter):
         self.disparity_sub_fn = glob_file(self.full_directory, "*-D_sub.tif")
         self.disparity_fn = glob_file(self.full_directory, "*-D.tif")
 
-        self.dem_fn = glob_file(
-            self.full_directory,
-            f"*-DEM_{self.out_dem_gsd}m.tif",
-            f"*{self.out_dem_gsd}m-DEM.tif",
-        )
+        if self.out_dem_gsd is not None:
+            self.dem_fn = glob_file(
+                self.full_directory,
+                f"*-DEM_{self.out_dem_gsd}m.tif",
+                f"*{self.out_dem_gsd}m-DEM.tif",
+            )
+        else:
+            self.dem_fn = glob_file(
+                self.full_directory,
+                f"*-DEM.tif",
+            )
+
         if not self.dem_fn:
             raise ValueError(
                 f"\n\nNo DEM found in {self.full_directory} with GSD {self.out_dem_gsd} m. Please run stereo processing with the desired output DEM GSD or correct your inputs here.\n\n"
