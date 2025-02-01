@@ -6,7 +6,8 @@ import geopandas as gpd
 import numpy as np
 import pandas as pd
 from osgeo import gdal, ogr, osr
-from shapely import wkt
+from shapely import wkt, union_all
+from shapely.geometry import Polygon
 
 from asp_plot.utils import get_xml_tag, glob_file
 
@@ -42,16 +43,12 @@ class StereopairMetadataParser:
         ids = sorted(set(item for sublist in ids if sublist for item in sublist))
         return ids
 
-    def get_id_dict(self, id):
+    def get_id_dict(self, id, geteph=True):
         def list_average(list):
             return np.round(pd.Series(list, dtype=float).dropna().mean(), 2)
 
-        def geom_union(geom_list):
-            union = geom_list[0]
-            for geom in geom_list[1:]:
-                union = union.Union(geom)
-            return union
-
+        #TODO: Should restructure dictionary creation per camera file (xml) rather than ID
+        # With new logic to identify duplicates and merge
         xml_list = glob_file(self.directory, f"*{id:}*.[Xx][Mm][Ll]", all_files=True)
 
         attributes = {
@@ -67,14 +64,17 @@ class StereopairMetadataParser:
             "geom": [],
         }
 
+        #Loop through all XML files for a given CATID
         for xml in xml_list:
             for tag, lst in attributes.items():
                 if tag != "geom":
                     lst.append(get_xml_tag(xml, tag))
                 else:
-                    lst.append(self.xml2geom(xml))
+                    #This returns a Shapely Polygon geometry
+                    lst.append(self.xml2poly(xml))
 
         d = {
+            "xml_fn": xml_list[0],
             "id": str(id),
             "sensor": get_xml_tag(xml_list[0], "SATID"),
             "date": datetime.strptime(
@@ -82,9 +82,15 @@ class StereopairMetadataParser:
             ),
             "scandir": get_xml_tag(xml_list[0], "SCANDIRECTION"),
             "tdi": int(get_xml_tag(xml_list[0], "TDILEVEL")),
-            "geom": geom_union(attributes["geom"]),
+            "geom": union_all(attributes["geom"]),
         }
 
+        # Add Ephemeris GeoDataFrame and Footprint GeoDataFrame 
+        if geteph:
+            d["eph_gdf"] = self.getEphem_gdf(xml_list[0]) 
+            d["fp_gdf"] = gpd.GeoDataFrame({"idx": [0], "geometry": d['geom']}, geometry="geometry", crs='EPSG:4326')
+
+        #Compute mean values when multiple xml make up a single image ID
         for tag, lst in attributes.items():
             if tag != "geom":
                 d[tag.lower()] = list_average(lst)
@@ -136,33 +142,10 @@ class StereopairMetadataParser:
         geom_wkt = f"POLYGON(({', '.join(coords)}))"
         return geom_wkt
 
-    def xml2geom(self, xml):
-        geom_wkt = self.xml2wkt(xml)
-        geom = ogr.CreateGeometryFromWkt(geom_wkt)
-        wgs_srs = self.get_wgs_srs()
-        geom.AssignSpatialReference(wgs_srs)
-        return geom
-
-    def xml2gdf(self, xml, init_crs="EPSG:4326"):
-        poly = self.xml2poly(xml)
-        gdf = gpd.GeoDataFrame(
-            {"idx": [0], "geometry": poly}, geometry="geometry", crs=init_crs
-        )
-        return gdf
-
+    # Reads XML and returns a Shapely Polygon geometry
     def xml2poly(self, xml):
         geom_wkt = self.xml2wkt(xml)
         return wkt.loads(geom_wkt)
-
-    def get_wgs_srs(self):
-        # Define WGS84 srs
-        # mpd = 111319.9
-        wgs_srs = osr.SpatialReference()
-        wgs_srs.SetWellKnownGeogCS("WGS84")
-        # GDAL3 hack
-        if int(gdal.__version__.split(".")[0]) >= 3:
-            wgs_srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
-        return wgs_srs
 
     def pair_dict(self, id1_dict, id2_dict, pairname):
         def center_date(dt_list):
@@ -200,6 +183,8 @@ class StereopairMetadataParser:
         dt = abs(dt1 - dt2)
         p["dt"] = dt
 
+        # TODO: migrate dgtools functions for BIE, asymmetry angles
+        
         p["conv_ang"] = get_conv(
             p["id1_dict"]["meansataz"],
             p["id1_dict"]["meansatel"],
@@ -211,128 +196,39 @@ class StereopairMetadataParser:
         return p
 
     def get_pair_intersection(self, p):
+        # TODO: revist with GeoPanadas functions for overlay or cascading intersection
         def geom_intersection(geom_list):
             intsect = geom_list[0]
             valid = False
             for geom in geom_list[1:]:
-                if intsect.Intersects(geom):
+                if intsect.intersects(geom):
                     valid = True
-                    intsect = intsect.Intersection(geom)
+                    intsect = intsect.intersection(geom)
             if not valid:
                 intsect = None
             return intsect
 
-        def geom2localortho(geom):
-            wgs_srs = self.get_wgs_srs()
-            cx, cy = geom.Centroid().GetPoint_2D()
-            lon, lat, z = self.coordinate_transformation_helper(
-                cx, cy, 0, geom.GetSpatialReference(), wgs_srs
-            )
-            local_srs = osr.SpatialReference()
-            local_proj = f"+proj=ortho +lat_0={lat:0.7f} +lon_0={lon:0.7f} +datum=WGS84 +units=m +no_defs "
-            local_srs.ImportFromProj4(local_proj)
-            local_geom = geom_dup(geom)
-            geom_transform(local_geom, local_srs)
-            return local_geom
-
-        def geom_dup(geom):
-            g = ogr.CreateGeometryFromWkt(geom.ExportToWkt())
-            g.AssignSpatialReference(geom.GetSpatialReference())
-            return g
-
-        def geom_transform(geom, t_srs):
-            s_srs = geom.GetSpatialReference()
-            if not s_srs.IsSame(t_srs):
-                ct = osr.CoordinateTransformation(s_srs, t_srs)
-                geom.Transform(ct)
-                geom.AssignSpatialReference(t_srs)
-
+        def geom2local(geom, geom_crs='EPSG:4326'):
+            c = geom.centroid
+            local_proj = f"+proj=ortho +lat_0={c.y:0.7f} +lon_0={c.x:0.7f}"
+            gdf = gpd.GeoDataFrame(index=[0], crs=geom_crs, geometry=[geom])    
+            return gdf.to_crs(local_proj).geometry.squeeze()
+        
         geom1 = p["id1_dict"]["geom"]
         geom2 = p["id2_dict"]["geom"]
         intersection = geom_intersection([geom1, geom2])
         p["intersection"] = intersection
-        p["intersection_poly"] = wkt.loads(intersection.ExportToWkt())
-        intersection_local = geom2localortho(intersection)
-        local_srs = intersection_local.GetSpatialReference()
-        # This recomputes for local orthographic - important for width/height calculations
-        geom1_local = geom_dup(geom1)
-        geom_transform(geom1_local, local_srs)
-        geom2_local = geom_dup(geom2)
-        geom_transform(geom2_local, local_srs)
+        intersection_local = geom2local(intersection)
         if intersection is not None:
             # Area calc shouldn't matter too much
-            intersection_area = intersection_local.GetArea()
+            intersection_area = intersection_local.area
             p["intersection_area"] = np.round(intersection_area / 1e6, 2)
             perc = (
-                100.0 * intersection_area / geom1_local.GetArea(),
-                100 * intersection_area / geom2_local.GetArea(),
+                100.0 * intersection_area / geom2local(geom1).area,
+                100 * intersection_area / geom2local(geom2).area,
             )
             perc = (np.round(perc[0], 2), np.round(perc[1], 2))
             p["intersection_area_perc"] = perc
         else:
             p["intersection_area"] = None
             p["intersection_area_perc"] = None
-
-    def coordinate_transformation_helper(self, x, y, z, in_srs, out_srs):
-        def common_mask(ma_list, apply=False):
-            a = np.ma.array(ma_list, shrink=False)
-            mask = np.ma.getmaskarray(a).any(axis=0)
-            if apply:
-                return [np.ma.array(b, mask=mask) for b in ma_list]
-            else:
-                return mask
-
-        x = np.atleast_1d(x)
-        y = np.atleast_1d(y)
-        z = np.atleast_1d(z)
-        if x.shape != y.shape:
-            raise ValueError("Inconsistent number of x and y points")
-        valid_idx = None
-        # Handle case where we have x array, y array, but a constant z (e.g., 0.0)
-        if z.shape != x.shape:
-            # If a constant elevation is provided
-            if z.shape[0] == 1:
-                orig_z = z
-                z = np.zeros_like(x)
-                z[:] = orig_z
-                if np.ma.is_masked(x):
-                    z[np.ma.getmaskarray(x)] = np.ma.masked
-            else:
-                raise ValueError("Inconsistent number of z x/y points")
-        # If any of the inputs is masked, only transform points with all three coordinates available
-        if np.ma.is_masked(x) or np.ma.is_masked(y) or np.ma.is_masked(z):
-            x = np.ma.array(x)
-            y = np.ma.array(y)
-            z = np.ma.array(z)
-            valid_idx = ~(common_mask([x, y, z]))
-            # Prepare (x,y,z) tuples
-            xyz = np.array([x[valid_idx], y[valid_idx], z[valid_idx]]).T
-        else:
-            xyz = np.array([x.ravel(), y.ravel(), z.ravel()]).T
-        # Define coordinate transformation
-        coordinate_transformation = osr.CoordinateTransformation(in_srs, out_srs)
-        # Loop through each point
-        xyz2 = np.array(
-            [
-                coordinate_transformation.TransformPoint(xi, yi, zi)
-                for (xi, yi, zi) in xyz
-            ]
-        ).T
-        # If single input coordinate
-        if xyz2.shape[1] == 1:
-            xyz2 = xyz2.squeeze()
-            x2, y2, z2 = xyz2[0], xyz2[1], xyz2[2]
-        else:
-            # Fill in masked array
-            if valid_idx is not None:
-                x2 = np.zeros_like(x)
-                y2 = np.zeros_like(y)
-                z2 = np.zeros_like(z)
-                x2[valid_idx] = xyz2[0]
-                y2[valid_idx] = xyz2[1]
-                z2[valid_idx] = xyz2[2]
-            else:
-                x2 = xyz2[0].reshape(x.shape)
-                y2 = xyz2[1].reshape(y.shape)
-                z2 = xyz2[2].reshape(z.shape)
-        return x2, y2, z2

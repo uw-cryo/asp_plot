@@ -98,7 +98,7 @@ class SceneGeometryPlotter(StereopairMetadataParser):
             plt.tight_layout()
 
     def map_plot(
-        self, ax, p, gdf_list, map_crs="EPSG:3857", title=True, tight_layout=True
+        self, ax, p, map_crs="EPSG:3857", title=True, tight_layout=True
     ):
         """
         Plot satellite ephemeris and ground footprint for a DigitalGlobe stereo pair
@@ -113,7 +113,10 @@ class SceneGeometryPlotter(StereopairMetadataParser):
         poly_kw = {"alpha": 0.5, "edgecolor": "k", "linewidth": 0.5}
         eph_kw = {"markersize": 2}
 
-        fp1_gdf, fp2_gdf, eph1_gdf, eph2_gdf = gdf_list
+        eph1_gdf = p["id1_dict"]["eph_gdf"]
+        eph2_gdf = p["id2_dict"]["eph_gdf"]
+        fp1_gdf = p["id1_dict"]["fp_gdf"]
+        fp2_gdf = p["id2_dict"]["fp_gdf"]
 
         c_list = ["blue", "orange"]
         fp1_gdf.to_crs(map_crs).plot(ax=ax, color=c_list[0], **poly_kw)
@@ -141,15 +144,6 @@ class SceneGeometryPlotter(StereopairMetadataParser):
         # load pair information as dict
         p = self.get_pair_dict()
 
-        # TODO: Should store xml names in the pairdict
-        # Use r100 outputs from dg_mosaic
-        xml_list = sorted(
-            glob_file(self.directory, "*r100.[Xx][Mm][Ll]", all_files=True)
-        )
-
-        eph1_gdf, eph2_gdf = [self.getEphem_gdf(xml) for xml in xml_list]
-        fp1_gdf, fp2_gdf = [self.xml2gdf(xml) for xml in xml_list]
-
         fig = plt.figure(figsize=(10, 7.5))
         G = gridspec.GridSpec(nrows=1, ncols=2)
         ax0 = fig.add_subplot(G[0, 0:1], polar=True)
@@ -158,9 +152,11 @@ class SceneGeometryPlotter(StereopairMetadataParser):
         self.skyplot(ax0, p, title=False, tight_layout=False)
 
         # map_crs = 'EPSG:3857'
+
         # Use local projection to minimize distortion
+        # TODO: Centralize with function in stereopair_metadata_parser.py
         # Get Shapely polygon and compute centroid (for local projection def)
-        p_poly = wkt.loads(p["intersection"].ExportToWkt())
+        p_poly = p["intersection"]
         p_int_c = np.array(p_poly.centroid.coords.xy).ravel()
         # map_crs = '+proj=ortho +lon_0={} +lat_0={}'.format(*p_int_c)
         # Should be OK to use transverse mercator here, usually within ~2-3 deg
@@ -169,7 +165,6 @@ class SceneGeometryPlotter(StereopairMetadataParser):
         self.map_plot(
             ax1,
             p,
-            [fp1_gdf, fp2_gdf, eph1_gdf, eph2_gdf],
             map_crs=map_crs,
             title=False,
             tight_layout=False,
