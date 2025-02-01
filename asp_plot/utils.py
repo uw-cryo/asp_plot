@@ -109,6 +109,7 @@ def compile_report(
 
 
 def get_xml_tag(xml, tag, all=False):
+    #TODO: raise warning if tag not found
     import xml.etree.ElementTree as ET
 
     tree = ET.parse(xml)
