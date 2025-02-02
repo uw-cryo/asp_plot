@@ -147,15 +147,21 @@ class Altimetry:
                 }
             }
 
-            fn_base = f"{filename}_res{res}_len{len}_cnt{cnt}_ats{ats}_maxi{maxi}_{key}"
+            # TODO: write out relevant parameters in metadata, not filename
+            #fn_base = f"{filename}_res{res}_len{len}_cnt{cnt}_ats{ats}_maxi{maxi}_{key}"
+            fn_base = f"{filename}_{key}"
 
             print(f"\nICESat-2 ATL06 request processing for: {key}")
             fn = f"{fn_base}.parquet"
 
+            print(parms)
+
             if os.path.exists(fn):
                 print(f"Existing file found, reading in: {fn}")
                 atl06sr = gpd.read_parquet(fn)
+                #TODO: check that parms in file are same as request 
             else:
+                #This is the actual SlideRule call!
                 atl06sr = icesat2.atl06p(parms)
                 if save_to_parquet:
                     atl06sr.to_parquet(fn)
@@ -568,6 +574,9 @@ class Altimetry:
 
         if ctx_kwargs:
             ctx.add_basemap(ax=ax, **ctx_kwargs)
+
+        ax.set_xticks([])
+        ax.set_yticks([])
 
         fig.suptitle(f"{title}\n{key} (n={atl06sr.shape[0]})", size=10)
         fig.tight_layout()
