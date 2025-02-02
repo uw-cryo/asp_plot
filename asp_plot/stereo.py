@@ -43,12 +43,15 @@ class StereoPlotter(Plotter):
         self.out_dem_gsd = out_dem_gsd
 
         self.full_directory = os.path.join(self.directory, self.stereo_directory)
+        # TODO: these are not necessariliy orthos - run with non-mapproject workflow to test assumptions 
         self.left_ortho_sub_fn = glob_file(self.full_directory, "*-L_sub.tif")
         self.right_ortho_sub_fn = glob_file(self.full_directory, "*-R_sub.tif")
         self.left_ortho_fn = glob_file(self.full_directory, "*-L.tif")
-        self.match_point_fn = glob_file(self.full_directory, "*.match")
+        # TODO: could be other .match files present in the directory
+        # This should be standard filename for the matches between original L and R inputs
+        self.match_point_fn = glob_file(self.full_directory, "*L__R.match")
         self.disparity_sub_fn = glob_file(self.full_directory, "*-D_sub.tif")
-        self.disparity_fn = glob_file(self.full_directory, "*-D.tif")
+        self.disparity_fn = glob_file(self.full_directory, "*-F.tif")
 
         if self.out_dem_gsd is not None:
             self.dem_fn = glob_file(
@@ -138,6 +141,8 @@ class StereoPlotter(Plotter):
             and self.right_ortho_sub_fn
             and match_point_df is not None
         ):
+            # TODO: the L and R are not necessarily projected images with GSD in meters
+            # This only works with mapproject stereo workflow
             full_gsd = Raster(self.left_ortho_fn).get_gsd()
             sub_gsd = Raster(self.left_ortho_sub_fn).get_gsd()
             rescale_factor = sub_gsd / full_gsd
