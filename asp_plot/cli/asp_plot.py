@@ -160,13 +160,27 @@ def main(
         icesat = Altimetry(directory=directory, dem_fn=asp_dem)
 
         icesat.request_atl06sr_multi_processing(
-            processing_levels=["ground"],
+            processing_levels=["all", "ground"],
             save_to_parquet=False,
         )
 
         icesat.filter_esa_worldcover(filter_out="water")
 
         icesat.predefined_temporal_filter_atl06sr()
+
+        icesat.mapview_plot_atl06sr_to_dem(
+            key="all",
+            save_dir=plots_directory,
+            fig_fn=f"{next(figure_counter):02}.png",
+            **ctx_kwargs,
+        )
+
+        icesat.histogram(
+            key="all",
+            plot_aligned=False,
+            save_dir=plots_directory,
+            fig_fn=f"{next(figure_counter):02}.png",
+        )
 
         icesat.mapview_plot_atl06sr_to_dem(
             key="ground_seasonal",

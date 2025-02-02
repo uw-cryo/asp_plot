@@ -16,11 +16,8 @@ from asp_plot.alignment import Alignment
 from asp_plot.stereopair_metadata_parser import StereopairMetadataParser
 from asp_plot.utils import ColorBar, Raster, glob_file, save_figure
 
-icesat2.init("slideruleearth.io", verbose=True)
-
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
-
 
 class Altimetry:
     def __init__(
@@ -45,6 +42,9 @@ class Altimetry:
 
         self.atl06sr_processing_levels = atl06sr_processing_levels
         self.atl06sr_processing_levels_filtered = atl06sr_processing_levels_filtered
+
+        #Initialize the SlideRule session (requires active connection)
+        icesat2.init("slideruleearth.io", verbose=True)
 
         # TODO: Implement alongside request_atl03sr below
         # if atl03sr is not None and not isinstance(atl03sr, gpd.GeoDataFrame):
@@ -81,13 +81,13 @@ class Altimetry:
 
     def request_atl06sr_multi_processing(
         self,
-        processing_levels=["ground", "canopy", "top_of_canopy"],
+        processing_levels=["all", "ground", "canopy", "top_of_canopy"],
         res=20,
         len=40,
         ats=20,
         cnt=10,
-        maxi=5,
-        h_sigma_quantile=0.95,
+        maxi=6,
+        h_sigma_quantile=1.0,
         save_to_parquet=False,
         filename="atl06sr",
         region=None,
@@ -98,20 +98,35 @@ class Altimetry:
         # See parameter discussion on: https://github.com/SlideRuleEarth/sliderule/issues/448
         # "srt": -1 tells the server side code to look at the ATL03 confidence array for each photon
         # and choose the confidence level that is highest across all five surface type entries.
+        # cnf options: {"atl03_tep", "atl03_not_considered", "atl03_background", "atl03_within_10m", \
+        # "atl03_low", "atl03_medium", "atl03_high"}
+        # Note reduce count for limited number of ground photons
+
+        # TODO: isolate shared and custom parms, initialize each with shared parameters, then set custom
+        # TODO: use the WorldCover values to determine if we should report canopy or top of canopy
+        # TODO: Use more generic variable names and strings for functions that are not just limited to atl06
         parms_dict = {
-            "ground": {
-                "cnf": 0,
+            "all": {
+                "cnf": "atl03_high",
                 "srt": -1,
+                "cnt": cnt,
+            },
+            "ground": {
+                "cnf": "atl03_low",
+                "srt": -1,
+                "cnt": 5,
                 "atl08_class": "atl08_ground",
             },
             "canopy": {
-                "cnf": 0,
+                "cnf": "atl03_medium",
                 "srt": -1,
-                "atl08_class": "atl08_canopy",
+                "cnt": 5,
+                "atl08_class": ["atl08_canopy", "atl08_top_of_canopy"],
             },
             "top_of_canopy": {
-                "cnf": 0,
+                "cnf": "atl03_medium",
                 "srt": -1,
+                "cnt": 5,
                 "atl08_class": "atl08_top_of_canopy",
             },
         }
@@ -125,7 +140,6 @@ class Altimetry:
             parms["res"] = res
             parms["len"] = len
             parms["ats"] = ats
-            parms["cnt"] = cnt
             parms["maxi"] = maxi
             parms["samples"] = {
                 "esa_worldcover": {
@@ -391,7 +405,7 @@ class Altimetry:
 
     def plot_atl06sr_time_stamps(
         self,
-        key="ground",
+        key="all",
         title="ICESat-2 ATL06-SR Time Stamps",
         cmap="inferno",
         map_crs="4326",
@@ -477,7 +491,7 @@ class Altimetry:
 
     def plot_atl06sr(
         self,
-        key="ground",
+        key="all",
         plot_beams=False,
         plot_dem=False,
         column_name="h_mean",
@@ -594,7 +608,7 @@ class Altimetry:
 
     def mapview_plot_atl06sr_to_dem(
         self,
-        key="ground",
+        key="all",
         clim=None,
         plot_aligned=False,
         save_dir=None,
@@ -640,7 +654,7 @@ class Altimetry:
 
     def histogram(
         self,
-        key="ground",
+        key="all",
         title="Histogram",
         plot_aligned=False,
         save_dir=None,
