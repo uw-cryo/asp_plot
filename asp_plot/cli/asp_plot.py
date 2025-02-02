@@ -1,6 +1,7 @@
 import os
 import shutil
 from itertools import count
+from datetime import datetime, timezone
 
 import click
 import contextily as ctx
@@ -79,24 +80,33 @@ def main(
     report_filename,
     report_title,
 ):
+    #TODO: Check that specified directories exist
+
     print(f"\nProcessing ASP files in {directory}\n")
 
     plots_directory = os.path.join(directory, "tmp_asp_report_plots/")
     os.makedirs(plots_directory, exist_ok=True)
 
     if report_filename is None:
-        directory_name = os.path.split(directory.rstrip('/\\'))[-1]
-        report_filename = f"asp_plot_report_{directory_name}.pdf"
-    report_pdf_path = os.path.join(directory, report_filename)
+        #Append timestamp to avoid overwriting existing reports
+        timestamp = datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')
+        directory_tail = os.path.split(directory.rstrip('/\\'))[-1]
+        report_filename = f"asp_plot_report_{directory_tail}_{stereo_directory}_{timestamp}.pdf"
+
+    report_pdf_path = os.path.join(directory, os.path.join(stereo_directory, report_filename))
 
     figure_counter = count(0)
 
+    # TODO: map crs should be set by output DEM.tif or default to a local orthographic projection, not EPSG:4326
+
     if map_crs is None:
-        print(
-            "\nNo map projection supplied. Defaulting to EPSG:4326. If you want a different projection, supply it with the --map_crs flag.\n"
-        )
         map_crs = "EPSG:4326"
+        print(
+            f"\nNo map projection supplied. Default is {map_crs}. If you want a different projection, use the --map_crs flag.\n"
+        )
         add_basemap = False
+
+    #TODO: Centralize this in plotting utils, should not need ctx import in the CLI wrapper
 
     if add_basemap:
         ctx_kwargs = {
