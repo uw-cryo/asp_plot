@@ -245,12 +245,13 @@ class Altimetry:
 
         for key in original_keys:
             print(
-                f"\nFiltering ATL06 with 15 day pad, 90 day pad, and seasonal pad around {date} for: {key}"
+                f"\nFiltering ATL06 with 15 day pad, 45 day, 91 day pad, and seasonal pad around {date} for: {key}"
             )
             atl06sr = self.atl06sr_processing_levels_filtered[key]
 
             fifteen_day = atl06sr[abs(atl06sr.index - date) <= pd.Timedelta(days=15)]
             fortyfive_day = atl06sr[abs(atl06sr.index - date) <= pd.Timedelta(days=45)]
+            ninetyone_day = atl06sr[abs(atl06sr.index - date) <= pd.Timedelta(days=91)]
 
             image_season = date.strftime("%b")
             if image_season in ["Dec", "Jan", "Feb"]:
@@ -277,6 +278,10 @@ class Altimetry:
             if not fortyfive_day.empty:
                 self.atl06sr_processing_levels_filtered[f"{key}_45_day_pad"] = (
                     fortyfive_day
+                )
+            if not ninetyone_day.empty:
+                self.atl06sr_processing_levels_filtered[f"{key}_91_day_pad"] = (
+                    ninetyone_day
                 )
             if not season_filter.empty:
                 self.atl06sr_processing_levels_filtered[f"{key}_seasonal"] = (
