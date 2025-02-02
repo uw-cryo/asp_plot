@@ -505,6 +505,7 @@ class Altimetry:
         key="all",
         plot_beams=False,
         plot_dem=False,
+        plot_hillshade=False,
         column_name="h_mean",
         cbar_label="Height above datum (m)",
         title="ICESat-2 ATL06-SR",
@@ -524,12 +525,30 @@ class Altimetry:
 
         if plot_dem:
             ctx_kwargs = {}
-            dem_downsampled = gu.Raster(self.dem_fn, downsample=10)
+            #dem = gu.Raster(self.dem_fn, downsample=10)
+            dem = Raster(self.dem_fn)
             cb = ColorBar(perc_range=(2, 98))
-            cb.get_clim(dem_downsampled.data)
-            dem_downsampled.plot(
+            cb.get_clim(dem.data)
+            dem.plot(
                 ax=ax,
                 cmap="inferno",
+                add_cbar=False,
+                vmin=cb.clim[0],
+                vmax=cb.clim[1],
+                alpha=1,
+            )
+            ax.set_title(None)
+
+        #TODO: Centralize with other DEM and hillshade plotting
+        if plot_hillshade:
+            ctx_kwargs = {}
+            dem = Raster(self.dem_fn)
+            hs = dem.hillshade()
+            cb = ColorBar(perc_range=(2, 98))
+            cb.get_clim(hs.data)
+            hs.plot(
+                ax=ax,
+                cmap="gray",
                 add_cbar=False,
                 vmin=cb.clim[0],
                 vmax=cb.clim[1],
