@@ -215,7 +215,7 @@ def format_stat_value(value):
     return f"{value:.2e}" if abs(value) < 0.01 else f"{value:.2f}"
 
 
-def plot_stats_text(ax, mean, std, unit='m'):
+def plot_stats_text(ax, mean, std, unit="m"):
     """
     Plots a text annotation on the given axis displaying the mean and standard deviation of a value.
 
@@ -449,7 +449,7 @@ def csm_camera_summary_plot(
         lw=1,
         label="X position (easting)",
     )
-    plot_stats_text(ax1, cam1_x_position_diff_mean, cam1_x_position_diff_std, unit='m')
+    plot_stats_text(ax1, cam1_x_position_diff_mean, cam1_x_position_diff_std, unit="m")
     ax2 = axes[0, 2]
     ax2.plot(
         frame_cam1,
@@ -458,7 +458,7 @@ def csm_camera_summary_plot(
         lw=1,
         label="Y position (northing)",
     )
-    plot_stats_text(ax2, cam1_y_position_diff_mean, cam1_y_position_diff_std, unit='m')
+    plot_stats_text(ax2, cam1_y_position_diff_mean, cam1_y_position_diff_std, unit="m")
     ax3 = axes[0, 3]
     ax3.plot(
         frame_cam1,
@@ -467,7 +467,7 @@ def csm_camera_summary_plot(
         lw=1,
         label="Z position (altitude)",
     )
-    plot_stats_text(ax3, cam1_z_position_diff_mean, cam1_z_position_diff_std, unit='m')
+    plot_stats_text(ax3, cam1_z_position_diff_mean, cam1_z_position_diff_std, unit="m")
 
     # Share y-axis for position diff plots
     min_val_position_diff = min(
@@ -525,7 +525,7 @@ def csm_camera_summary_plot(
         linestyle="--",
         label="Original Roll",
     )
-    plot_stats_text(ax1_r, cam1_roll_diff_mean, cam1_roll_diff_std, unit='°')
+    plot_stats_text(ax1_r, cam1_roll_diff_mean, cam1_roll_diff_std, unit="°")
 
     ax2 = axes[1, 2]
     ax2.plot(frame_cam1, gdf_cam1.pitch_diff, c="#FFA500", lw=1, label="Pitch Diff")
@@ -538,7 +538,7 @@ def csm_camera_summary_plot(
         linestyle="--",
         label="Original Pitch",
     )
-    plot_stats_text(ax2_r, cam1_pitch_diff_mean, cam1_pitch_diff_std, unit='°')
+    plot_stats_text(ax2_r, cam1_pitch_diff_mean, cam1_pitch_diff_std, unit="°")
 
     ax3 = axes[1, 3]
     ax3.plot(frame_cam1, gdf_cam1.yaw_diff, c="#FFB347", lw=1, label="Yaw Diff")
@@ -551,7 +551,7 @@ def csm_camera_summary_plot(
         linestyle="--",
         label="Original Yaw",
     )
-    plot_stats_text(ax3_r, cam1_yaw_diff_mean, cam1_yaw_diff_std, unit='°')
+    plot_stats_text(ax3_r, cam1_yaw_diff_mean, cam1_yaw_diff_std, unit="°")
 
     # Share y-axis for angular diff plots
     min_val_angle_diff = min(
@@ -661,7 +661,9 @@ def csm_camera_summary_plot(
             lw=1,
             label="X position (easting)",
         )
-        plot_stats_text(ax1, cam2_x_position_diff_mean, cam2_x_position_diff_std, unit='m')
+        plot_stats_text(
+            ax1, cam2_x_position_diff_mean, cam2_x_position_diff_std, unit="m"
+        )
         ax2 = axes[2, 2]
         ax2.plot(
             frame_cam2,
@@ -670,7 +672,9 @@ def csm_camera_summary_plot(
             lw=1,
             label="Y position (northing)",
         )
-        plot_stats_text(ax2, cam2_y_position_diff_mean, cam2_y_position_diff_std, unit='m')
+        plot_stats_text(
+            ax2, cam2_y_position_diff_mean, cam2_y_position_diff_std, unit="m"
+        )
         ax3 = axes[2, 3]
         ax3.plot(
             frame_cam2,
@@ -679,7 +683,9 @@ def csm_camera_summary_plot(
             lw=1,
             label="Z position (altitude)",
         )
-        plot_stats_text(ax3, cam2_z_position_diff_mean, cam2_z_position_diff_std, unit='m')
+        plot_stats_text(
+            ax3, cam2_z_position_diff_mean, cam2_z_position_diff_std, unit="m"
+        )
 
         # Share y-axis for position diff plots
         min_val_position_diff = min(
@@ -739,7 +745,7 @@ def csm_camera_summary_plot(
             linestyle="--",
             label="Original Roll",
         )
-        plot_stats_text(ax1_r, cam2_roll_diff_mean, cam2_roll_diff_std, unit='°')
+        plot_stats_text(ax1_r, cam2_roll_diff_mean, cam2_roll_diff_std, unit="°")
 
         ax2 = axes[3, 2]
         ax2.plot(frame_cam2, gdf_cam2.pitch_diff, c="#FFA500", lw=1, label="Pitch Diff")
@@ -752,7 +758,7 @@ def csm_camera_summary_plot(
             linestyle="--",
             label="Original Pitch",
         )
-        plot_stats_text(ax2_r, cam2_pitch_diff_mean, cam2_pitch_diff_std, unit='°')
+        plot_stats_text(ax2_r, cam2_pitch_diff_mean, cam2_pitch_diff_std, unit="°")
 
         ax3 = axes[3, 3]
         ax3.plot(frame_cam2, gdf_cam2.yaw_diff, c="#FFB347", lw=1, label="Yaw Diff")
@@ -765,7 +771,7 @@ def csm_camera_summary_plot(
             linestyle="--",
             label="Original Yaw",
         )
-        plot_stats_text(ax3_r, cam2_yaw_diff_mean, cam2_yaw_diff_std, unit='°')
+        plot_stats_text(ax3_r, cam2_yaw_diff_mean, cam2_yaw_diff_std, unit="°")
 
         # Share y-axis for angular diff plots
         min_val_angle_diff = min(
@@ -1027,6 +1033,7 @@ def read_tsai_cam(tsai):
     }
     return tsai_dict
 
+
 def tsai_list_to_gdf(tsai_fn_list):
     """
     Read a list of tsai camera files and return a GeoDataFrame
@@ -1039,14 +1046,16 @@ def tsai_list_to_gdf(tsai_fn_list):
     output: GeoDataFrame
         GeoPandas GeoDataFrame containing camera model parameters
     """
+    tsai_dict_list = []
     for tsai_fn in tsai_fn_list:
         tsai_dict = read_tsai_cam(tsai_fn)
         tsai_dict_list.append(tsai_dict)
 
-    gdf = gpd.GeoDataFrame(tsai_dict_list, geometry='cam_cen_ecef', crs='EPSG:4978')
-    gdf.set_index('camera')
+    gdf = gpd.GeoDataFrame(tsai_dict_list, geometry="cam_cen_ecef", crs="EPSG:4978")
+    gdf.set_index("camera")
 
     return gdf
+
 
 def read_frame_csm_cam(json_file):
     """
