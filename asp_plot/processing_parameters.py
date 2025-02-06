@@ -171,10 +171,11 @@ class ProcessingParameters:
 
     def get_reference_dem(self, logfile, starting_string="DEM:"):
         reference_dem = ""
+        pattern = re.compile(starting_string, re.IGNORECASE)
         with open(logfile, "r") as file:
             for line in file:
-                if starting_string in line:
-                    reference_dem = line.split(starting_string)[1].strip()
+                if pattern.search(line):
+                    reference_dem = pattern.split(line)[1].strip()
         return reference_dem
 
     def get_run_time(self, logfiles):
