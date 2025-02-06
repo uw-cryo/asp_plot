@@ -91,6 +91,17 @@ Options:
                                   be generated. Default: None.
   --stereo_directory TEXT         Required directory of stereo files. Default:
                                   stereo.
+  --dem_filename TEXT             Optional DEM filename in the stereo
+                                  directory. Default: None, which will search
+                                  for the *-DEM.tif file in the stereo
+                                  directory. Specify it as the basename with
+                                  extension, e.g. my-custom-dem-name.tif.
+  --dem_gsd TEXT                  Optional ground sample distance of the DEM.
+                                  Default: None, which will search for the
+                                  *-DEM.tif file in the stereo directory. If
+                                  there is a GSD in the name of the file,
+                                  specify it here as a float or integer, e.g.
+                                  1, 1.5, etc.
   --map_crs TEXT                  Projection for ICESat and bundle adjustment
                                   plots. Default: None.
   --reference_dem TEXT            Optional reference DEM used in ASP
@@ -195,8 +206,17 @@ $ git clone git@github.com:uw-cryo/asp_plot.git
 $ cd asp_plot
 $ conda env create -f environment.yml
 $ conda activate asp_plot
+$ pre-commit install
 $ pip install -e .
-$ python3 setup.py install
+```
+
+**Please don't miss the `pre-commit install` step**, which does the linting prior to any commits using the `.pre-commit-config.yaml` file that is included in the repo.
+
+If you want to rebuild the package, for instance while testing changes to the CLI tool, then uninstall and reinstall via:
+
+```
+$ pip uninstall asp_plot
+$ pip install -e .
 ```
 
 ### Run tests
@@ -208,6 +228,31 @@ $ pytest
 ```
 
 When you add a new feature, add some test coverage as well.
+
+### Add a feature
+
+Checkout main and pull to get the latest changes:
+
+```
+$ git checkout main
+$ git pull
+```
+
+Create a feature branch:
+
+```
+$ git checkout -b my_feature
+```
+
+Make as many commits as you like while you work. When you are ready, submit the changes as a pull request.
+
+After some review, you may be asked to add a few tests for the new functionality. Add those in the `tests/` folder, and check that they work with:
+
+```
+$ pytest -s
+```
+
+When review of the pull request is complete [_squash_ and merge](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/about-merge-methods-on-github#squashing-your-merge-commits) the changes to `main`, combining your commits into a single, descriptive commit of _why_ the changes were made.
 
 ### Package and upload
 

@@ -18,7 +18,7 @@ from mpl_toolkits.axes_grid1 import ImageGrid
 from pygeotools.lib import iolib, timelib, geolib, malib
 from imview.lib import pltlib
 
-add_cbar = False 
+add_cbar = True
 hs = False
 
 #For DEMs
@@ -50,10 +50,13 @@ nrows = int(np.ceil(float(n)/ncols))
 #nrows = int(np.sqrt(n))+1
 #ncols = nrows
 
+#For projected images, set to True
+shared_extent=False
+
 if add_cbar:
-    grid = ImageGrid(f, 111, nrows_ncols=(nrows, ncols), axes_pad=(0.05,0.2), share_all=True, cbar_mode='single', cbar_pad=0.1, cbar_set_cax=False)
+    grid = ImageGrid(f, 111, nrows_ncols=(nrows, ncols), axes_pad=(0.05,0.2), share_all=shared_extent, cbar_mode='single', cbar_pad=0.1, cbar_set_cax=False)
 else:
-    grid = ImageGrid(f, 111, nrows_ncols=(nrows, ncols), axes_pad=(0.05,0.2), share_all=True, cbar_mode=None)
+    grid = ImageGrid(f, 111, nrows_ncols=(nrows, ncols), axes_pad=(0.05,0.2), share_all=shared_extent, cbar_mode=None)
 
 #f, axa = plt.subplots(nrows, ncols, sharex='all', sharey='all', figsize=(10,10))
 #plt.subplots_adjust(wspace=0, hspace=0.2)
@@ -76,7 +79,7 @@ else:
 #dem_clim = (2934, 3983)
 hs_clim = (1, 255)
 
-for i,dem_fn in enumerate(dem_fn_list):
+for i, dem_fn in enumerate(dem_fn_list):
     ax = grid[i]
     print(dem_fn)
     dem_ds = iolib.fn_getds(dem_fn)
@@ -88,11 +91,17 @@ for i,dem_fn in enumerate(dem_fn_list):
         else:
             dem_hs = geolib.gdaldem_mem_ds(dem_ds, 'hillshade', returnma=True)
         hs_im = ax.imshow(dem_hs, vmin=hs_clim[0], vmax=hs_clim[1], cmap='gray')
-    dt = timelib.fn_getdatetime(dem_fn)
+    #dt = timelib.fn_getdatetime(dem_fn)
+    dt = None
     if dt is not None:
         title = dt.strftime('%Y-%m-%d')
-        t = ax.set_title(title, fontdict={'fontsize':6})
-        t.set_position([0.5, 0.95])
+    else:
+        #Manually adjust based on structure of filename
+        #title = os.path.splitext(dem_fn)[0]
+        title = os.path.splitext(dem_fn)[0].split('_')[0]
+        #title = ''.join(dem_fn.split('-')[:3])
+    t = ax.set_title(title, fontdict={'fontsize':5})
+    t.set_position([0.5, 0.95])
     dem_im = ax.imshow(dem, vmin=dem_clim[0], vmax=dem_clim[1], cmap=cmap, alpha=alpha)
     #ax.set_facecolor('k') 
     ax.set_facecolor('0.5') 
@@ -109,7 +118,7 @@ if add_cbar:
     cbar_kwargs = {'extend':'both', 'alpha':1.0}
     cbar = grid.cbar_axes[0].colorbar(dem_im, **cbar_kwargs) 
     cbar.update_normal(dem_im)
-    cbar.set_label(cbar_lbl)
+    #cbar.set_label(cbar_lbl)
 
 #res = geolib.get_res(dem_ds)[0]
 #pltlib.add_scalebar(grid[-1], res=res)
