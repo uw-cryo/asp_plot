@@ -91,6 +91,11 @@ Options:
                                   be generated. Default: None.
   --stereo_directory TEXT         Required directory of stereo files. Default:
                                   stereo.
+  --dem_filename TEXT             Optional DEM filename in the stereo
+                                  directory. Default: None, which will search
+                                  for the *-DEM.tif file in the stereo
+                                  directory. Specify it as the basename with
+                                  extension, e.g. my-custom-dem-name.tif.
   --dem_gsd TEXT                  Optional ground sample distance of the DEM.
                                   Default: None, which will search for the
                                   *-DEM.tif file in the stereo directory. If

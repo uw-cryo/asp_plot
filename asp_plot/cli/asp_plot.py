@@ -33,6 +33,12 @@ from asp_plot.utils import compile_report
     help="Required directory of stereo files. Default: stereo.",
 )
 @click.option(
+    "--dem_filename",
+    prompt=False,
+    default=None,
+    help="Optional DEM filename in the stereo directory. Default: None, which will search for the *-DEM.tif file in the stereo directory. Specify it as the basename with extension, e.g. my-custom-dem-name.tif.",
+)
+@click.option(
     "--dem_gsd",
     prompt=False,
     default=None,
@@ -78,6 +84,7 @@ def main(
     directory,
     bundle_adjust_directory,
     stereo_directory,
+    dem_filename,
     dem_gsd,
     map_crs,
     reference_dem,
@@ -120,6 +127,7 @@ def main(
         directory,
         stereo_directory,
         reference_dem=reference_dem,
+        dem_fn=dem_filename,
         dem_gsd=dem_gsd,
         title="Hillshade with details",
     )

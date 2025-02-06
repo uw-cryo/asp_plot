@@ -21,6 +21,7 @@ class StereoPlotter(Plotter):
         directory,
         stereo_directory,
         dem_gsd=None,
+        dem_fn=None,
         reference_dem=None,
         **kwargs,
     ):
@@ -54,17 +55,21 @@ class StereoPlotter(Plotter):
         self.disparity_fn = glob_file(self.full_directory, "*-D.tif")
 
         self.dem_gsd = dem_gsd
-        if self.dem_gsd is not None:
-            self.dem_fn = glob_file(
-                self.full_directory,
-                f"*-DEM_{self.dem_gsd}m.tif",
-                f"*{self.dem_gsd}m-DEM.tif",
-            )
+
+        if not dem_fn:
+            if self.dem_gsd is not None:
+                self.dem_fn = glob_file(
+                    self.full_directory,
+                    f"*-DEM_{self.dem_gsd}m.tif",
+                    f"*{self.dem_gsd}m-DEM.tif",
+                )
+            else:
+                self.dem_fn = glob_file(
+                    self.full_directory,
+                    "*-DEM.tif",
+                )
         else:
-            self.dem_fn = glob_file(
-                self.full_directory,
-                "*-DEM.tif",
-            )
+            self.dem_fn = glob_file(self.full_directory, dem_fn)
 
         if not self.dem_fn:
             raise ValueError(
