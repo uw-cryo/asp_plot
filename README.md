@@ -226,6 +226,31 @@ $ pytest
 
 When you add a new feature, add some test coverage as well.
 
+### Add a feature
+
+Checkout main and pull to get the latest changes:
+
+```
+$ git checkout main
+$ git pull
+```
+
+Create a feature branch:
+
+```
+$ git checkout -b my_feature
+```
+
+Make as many commits as you like while you work. When you are ready, submit the changes as a pull request.
+
+After some review, you may be asked to add a few tests for the new functionality. Add those in the `tests/` folder, and check that they work with:
+
+```
+$ pytest -s
+```
+
+When review of the pull request is complete [_squash_ and merge](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/about-merge-methods-on-github#squashing-your-merge-commits) the changes to `main`, combining your commits into a single, descriptive commit of _why_ the changes were made.
+
 ### Package and upload
 
 Update version in `pyproject.toml`, then:
