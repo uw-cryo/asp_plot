@@ -17,7 +17,12 @@ logger = logging.getLogger(__name__)
 
 class StereoPlotter(Plotter):
     def __init__(
-        self, directory, stereo_directory, reference_dem=None, out_dem_gsd=None, **kwargs
+        self,
+        directory,
+        stereo_directory,
+        reference_dem=None,
+        out_dem_gsd=None,
+        **kwargs,
     ):
         super().__init__(**kwargs)
         self.directory = directory
@@ -59,12 +64,12 @@ class StereoPlotter(Plotter):
         else:
             self.dem_fn = glob_file(
                 self.full_directory,
-                f"*-DEM.tif",
+                "*-DEM.tif",
             )
 
         if not self.dem_fn:
             raise ValueError(
-                f"\n\nNo DEM found in {self.full_directory} with GSD {self.out_dem_gsd} m. Please run stereo processing with the desired output DEM GSD or correct your inputs here.\n\n"
+                f"\n\nDEM file not found in {self.full_directory}. Make sure it is there and possibly specify the GSD with the out_dem_gsd argument.\n\n"
             )
         else:
             print(f"\nASP DEM: {self.dem_fn}\n")
