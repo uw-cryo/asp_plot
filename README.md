@@ -206,8 +206,11 @@ $ git clone git@github.com:uw-cryo/asp_plot.git
 $ cd asp_plot
 $ conda env create -f environment.yml
 $ conda activate asp_plot
+$ pre-commit install
 $ pip install -e .
 ```
+
+**Please don't miss the `pre-commit install` step**, which does the linting prior to any commits using the `.pre-commit-config.yaml` file that is included in the repo.
 
 If you want to rebuild the package, for instance while testing changes to the CLI tool, then uninstall and reinstall via:
 
