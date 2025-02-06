@@ -12,8 +12,8 @@ class TestStereoPlotter:
         stereo_plotter = StereoPlotter(
             directory="tests/test_data",
             stereo_directory="stereo",
+            dem_gsd=1,
             reference_dem="tests/test_data/ref_dem.tif",
-            out_dem_gsd=1,
             title="Stereo Results",
         )
         return stereo_plotter
@@ -23,7 +23,28 @@ class TestStereoPlotter:
         stereo_plotter = StereoPlotter(
             directory="tests/test_data",
             stereo_directory="stereo",
-            out_dem_gsd=1,
+            dem_gsd=1,
+            title="Stereo Results",
+        )
+        return stereo_plotter
+
+    @pytest.fixture
+    def stereo_plotter_no_gsd(self):
+        stereo_plotter = StereoPlotter(
+            directory="tests/test_data",
+            stereo_directory="stereo",
+            reference_dem="tests/test_data/ref_dem.tif",
+            title="Stereo Results",
+        )
+        return stereo_plotter
+
+    @pytest.fixture
+    def stereo_plotter_dem_fn(self):
+        stereo_plotter = StereoPlotter(
+            directory="tests/test_data",
+            stereo_directory="stereo",
+            reference_dem="tests/test_data/ref_dem.tif",
+            dem_fn="date_time_left_right_1m-DEM.tif",
             title="Stereo Results",
         )
         return stereo_plotter
@@ -54,3 +75,9 @@ class TestStereoPlotter:
 
     def test_instantiate_without_reference_dem(self, stereo_plotter_no_ref_dem):
         assert stereo_plotter_no_ref_dem.reference_dem is not None
+
+    def test_instantiate_without_gsd(self, stereo_plotter_no_gsd):
+        assert stereo_plotter_no_gsd.dem_fn is not None
+
+    def test_instantiate_with_dem_fn(self, stereo_plotter_dem_fn):
+        assert stereo_plotter_dem_fn.dem_fn is not None

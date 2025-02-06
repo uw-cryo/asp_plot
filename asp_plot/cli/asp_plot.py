@@ -33,6 +33,18 @@ from asp_plot.utils import compile_report
     help="Required directory of stereo files. Default: stereo.",
 )
 @click.option(
+    "--dem_filename",
+    prompt=False,
+    default=None,
+    help="Optional DEM filename in the stereo directory. Default: None, which will search for the *-DEM.tif file in the stereo directory. Specify it as the basename with extension, e.g. my-custom-dem-name.tif.",
+)
+@click.option(
+    "--dem_gsd",
+    prompt=False,
+    default=None,
+    help="Optional ground sample distance of the DEM. Default: None, which will search for the *-DEM.tif file in the stereo directory. If there is a GSD in the name of the file, specify it here as a float or integer, e.g. 1, 1.5, etc.",
+)
+@click.option(
     "--map_crs",
     prompt=False,
     default=None,
@@ -72,6 +84,8 @@ def main(
     directory,
     bundle_adjust_directory,
     stereo_directory,
+    dem_filename,
+    dem_gsd,
     map_crs,
     reference_dem,
     add_basemap,
@@ -85,7 +99,7 @@ def main(
     os.makedirs(plots_directory, exist_ok=True)
 
     if report_filename is None:
-        directory_name = os.path.split(directory.rstrip('/\\'))[-1]
+        directory_name = os.path.split(directory.rstrip("/\\"))[-1]
         report_filename = f"asp_plot_report_{directory_name}.pdf"
     report_pdf_path = os.path.join(directory, report_filename)
 
@@ -113,7 +127,8 @@ def main(
         directory,
         stereo_directory,
         reference_dem=reference_dem,
-        out_dem_gsd=1,
+        dem_fn=dem_filename,
+        dem_gsd=dem_gsd,
         title="Hillshade with details",
     )
 
