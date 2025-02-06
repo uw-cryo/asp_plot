@@ -20,8 +20,8 @@ class StereoPlotter(Plotter):
         self,
         directory,
         stereo_directory,
+        dem_gsd=None,
         reference_dem=None,
-        out_dem_gsd=None,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -45,8 +45,6 @@ class StereoPlotter(Plotter):
         if self.reference_dem:
             print(f"\nReference DEM: {self.reference_dem}\n")
 
-        self.out_dem_gsd = out_dem_gsd
-
         self.full_directory = os.path.join(self.directory, self.stereo_directory)
         self.left_ortho_sub_fn = glob_file(self.full_directory, "*-L_sub.tif")
         self.right_ortho_sub_fn = glob_file(self.full_directory, "*-R_sub.tif")
@@ -55,11 +53,12 @@ class StereoPlotter(Plotter):
         self.disparity_sub_fn = glob_file(self.full_directory, "*-D_sub.tif")
         self.disparity_fn = glob_file(self.full_directory, "*-D.tif")
 
-        if self.out_dem_gsd is not None:
+        self.dem_gsd = dem_gsd
+        if self.dem_gsd is not None:
             self.dem_fn = glob_file(
                 self.full_directory,
-                f"*-DEM_{self.out_dem_gsd}m.tif",
-                f"*{self.out_dem_gsd}m-DEM.tif",
+                f"*-DEM_{self.dem_gsd}m.tif",
+                f"*{self.dem_gsd}m-DEM.tif",
             )
         else:
             self.dem_fn = glob_file(
@@ -69,7 +68,7 @@ class StereoPlotter(Plotter):
 
         if not self.dem_fn:
             raise ValueError(
-                f"\n\nDEM file not found in {self.full_directory}. Make sure it is there and possibly specify the GSD with the out_dem_gsd argument.\n\n"
+                f"\n\nDEM file not found in {self.full_directory}. Make sure it is there and possibly specify the GSD with the dem_gsd argument.\n\n"
             )
         else:
             print(f"\nASP DEM: {self.dem_fn}\n")

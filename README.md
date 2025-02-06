@@ -91,6 +91,12 @@ Options:
                                   be generated. Default: None.
   --stereo_directory TEXT         Required directory of stereo files. Default:
                                   stereo.
+  --dem_gsd TEXT                  Optional ground sample distance of the DEM.
+                                  Default: None, which will search for the
+                                  *-DEM.tif file in the stereo directory. If
+                                  there is a GSD in the name of the file,
+                                  specify it here as a float or integer, e.g.
+                                  1, 1.5, etc.
   --map_crs TEXT                  Projection for ICESat and bundle adjustment
                                   plots. Default: None.
   --reference_dem TEXT            Optional reference DEM used in ASP
@@ -196,7 +202,13 @@ $ cd asp_plot
 $ conda env create -f environment.yml
 $ conda activate asp_plot
 $ pip install -e .
-$ python3 setup.py install
+```
+
+If you want to rebuild the package, for instance while testing changes to the CLI tool, then uninstall and reinstall via:
+
+```
+% pip uninstall asp_plot
+% pip install -e .
 ```
 
 ### Run tests

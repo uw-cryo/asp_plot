@@ -12,8 +12,8 @@ class TestStereoPlotter:
         stereo_plotter = StereoPlotter(
             directory="tests/test_data",
             stereo_directory="stereo",
+            dem_gsd=1,
             reference_dem="tests/test_data/ref_dem.tif",
-            out_dem_gsd=1,
             title="Stereo Results",
         )
         return stereo_plotter
