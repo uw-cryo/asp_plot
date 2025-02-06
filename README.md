@@ -207,8 +207,8 @@ $ pip install -e .
 If you want to rebuild the package, for instance while testing changes to the CLI tool, then uninstall and reinstall via:
 
 ```
-% pip uninstall asp_plot
-% pip install -e .
+$ pip uninstall asp_plot
+$ pip install -e .
 ```
 
 ### Run tests
