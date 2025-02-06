@@ -51,6 +51,8 @@ class TestStereoPlotter:
         except Exception as e:
             pytest.fail(f"figure method raised an exception: {str(e)}")
 
-    def test_instantiate_without_reference_dem(self, stereo_plotter_no_ref_dem_no_gsd):
+    def test_instantiate_without_reference_dem_or_gsd(
+        self, stereo_plotter_no_ref_dem_no_gsd
+    ):
         assert stereo_plotter_no_ref_dem_no_gsd.reference_dem is not None
         assert stereo_plotter_no_ref_dem_no_gsd.dem_fn is not None
