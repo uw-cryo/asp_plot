@@ -27,6 +27,8 @@ class StereopairMetadataParser:
             catid_dicts.append(self.get_id_dict(catid, xml))
         return catid_dicts
 
+    # TODO: This method assumes that only two scenes are captured with get_catid_dicts
+    # Should be updated to support more than two scenes, or need a separate method for N scenes
     def get_pair_dict(self):
         catid_dicts = self.get_catid_dicts()
         catid1_dict, catid2_dict = catid_dicts
