@@ -16,11 +16,11 @@ class SceneGeometryPlotter(StereopairMetadataParser):
     def __init__(self, directory, **kwargs):
         super().__init__(directory=directory, **kwargs)
 
-    def get_scene_string(self, p, key="id1_dict"):
+    def get_scene_string(self, p, key="catid1_dict"):
         scene_string = (
             "\nID:%s, GSD:%0.2f, off:%0.1f, az:%0.1f, el:%0.1f, it:%0.1f, ct:%0.1f, scan:%s, tdi:%i"
             % (
-                p[key]["id"],
+                p[key]["catid"],
                 p[key]["meanproductgsd"],
                 p[key]["meanoffnadirviewangle"],
                 p[key]["meansataz"],
@@ -42,8 +42,8 @@ class SceneGeometryPlotter(StereopairMetadataParser):
             p["bh"],
             p["intersection_area"],
         )
-        title += self.get_scene_string(p, "id1_dict")
-        title += self.get_scene_string(p, "id2_dict")
+        title += self.get_scene_string(p, "catid1_dict")
+        title += self.get_scene_string(p, "catid2_dict")
         return title
 
     def skyplot(self, ax, p, title=True, tight_layout=True):
@@ -64,23 +64,23 @@ class SceneGeometryPlotter(StereopairMetadataParser):
 
         ax.plot(0, 0, marker="o", color="k")
         ax.plot(
-            np.radians(p["id1_dict"]["meansataz"]),
-            (90 - p["id1_dict"]["meansatel"]),
-            label=p["id1_dict"]["id"],
+            np.radians(p["catid1_dict"]["meansataz"]),
+            (90 - p["catid1_dict"]["meansatel"]),
+            label=p["catid1_dict"]["catid"],
             **plot_kw,
         )
         ax.plot(
-            np.radians(p["id2_dict"]["meansataz"]),
-            (90 - p["id2_dict"]["meansatel"]),
-            label=p["id2_dict"]["id"],
+            np.radians(p["catid2_dict"]["meansataz"]),
+            (90 - p["catid2_dict"]["meansatel"]),
+            label=p["catid2_dict"]["catid"],
             **plot_kw,
         )
         ax.plot(
             [
-                np.radians(p["id1_dict"]["meansataz"]),
-                np.radians(p["id2_dict"]["meansataz"]),
+                np.radians(p["catid1_dict"]["meansataz"]),
+                np.radians(p["catid2_dict"]["meansataz"]),
             ],
-            [90 - p["id1_dict"]["meansatel"], 90 - p["id2_dict"]["meansatel"]],
+            [90 - p["catid1_dict"]["meansatel"], 90 - p["catid2_dict"]["meansatel"]],
             color="k",
             ls="--",
             lw=0.5,
@@ -110,19 +110,19 @@ class SceneGeometryPlotter(StereopairMetadataParser):
         poly_kw = {"alpha": 0.5, "edgecolor": "k", "linewidth": 0.5}
         eph_kw = {"markersize": 2}
 
-        eph1_gdf = p["id1_dict"]["eph_gdf"]
-        eph2_gdf = p["id2_dict"]["eph_gdf"]
-        fp1_gdf = p["id1_dict"]["fp_gdf"]
-        fp2_gdf = p["id2_dict"]["fp_gdf"]
+        eph1_gdf = p["catid1_dict"]["eph_gdf"]
+        eph2_gdf = p["catid2_dict"]["eph_gdf"]
+        fp1_gdf = p["catid1_dict"]["fp_gdf"]
+        fp2_gdf = p["catid2_dict"]["fp_gdf"]
 
         c_list = ["blue", "orange"]
         fp1_gdf.to_crs(map_crs).plot(ax=ax, color=c_list[0], **poly_kw)
         fp2_gdf.to_crs(map_crs).plot(ax=ax, color=c_list[1], **poly_kw)
         eph1_gdf.to_crs(map_crs).plot(
-            ax=ax, label=p["id1_dict"]["id"], color=c_list[0], **eph_kw
+            ax=ax, label=p["catid1_dict"]["catid"], color=c_list[0], **eph_kw
         )
         eph2_gdf.to_crs(map_crs).plot(
-            ax=ax, label=p["id2_dict"]["id"], color=c_list[1], **eph_kw
+            ax=ax, label=p["catid2_dict"]["catid"], color=c_list[1], **eph_kw
         )
 
         start_kw = {"markersize": 5, "facecolor": "w", "edgecolor": "k"}
@@ -187,7 +187,7 @@ class ScenePlotter(Plotter):
             ortho_ma = Raster(self.left_ortho_sub_fn).read_array()
             self.plot_array(ax=axa[0], array=ortho_ma, cmap="gray", add_cbar=False)
             axa[0].set_title(
-                f"Left image\n{p['id1_dict']['id']}, {p['id1_dict']['meanproductgsd']:0.2f} m"
+                f"Left image\n{p['catid1_dict']['catid']}, {p['catid1_dict']['meanproductgsd']:0.2f} m"
             )
         else:
             axa[0].text(
@@ -203,7 +203,7 @@ class ScenePlotter(Plotter):
             ortho_ma = Raster(self.right_ortho_sub_fn).read_array()
             self.plot_array(ax=axa[1], array=ortho_ma, cmap="gray", add_cbar=False)
             axa[1].set_title(
-                f"Right image\n{p['id2_dict']['id']}, {p['id2_dict']['meanproductgsd']:0.2f} m"
+                f"Right image\n{p['catid2_dict']['catid']}, {p['catid2_dict']['meanproductgsd']:0.2f} m"
             )
         else:
             axa[1].text(

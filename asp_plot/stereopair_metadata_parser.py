@@ -20,20 +20,18 @@ class StereopairMetadataParser:
     def __init__(self, directory):
         self.directory = directory
 
-    # TODO: N scenes
-    # def get_scene_dict(self):
-    #    return self.scene_dict()
+    def get_catid_dicts(self):
+        catid_xmls = self.get_catid_xmls()
+        catid_dicts = []
+        for catid, xml in catid_xmls.items():
+            catid_dicts.append(self.get_id_dict(catid, xml))
+        return catid_dicts
 
     def get_pair_dict(self):
-        catid_xmls = self.get_catid_xmls()
-
-        id_dicts = []
-        for catid, xml in catid_xmls.items():
-            id_dicts.append(self.get_id_dict(catid, xml))
-
-        id1_dict, id2_dict = id_dicts
+        catid_dicts = self.get_catid_dicts()
+        catid1_dict, catid2_dict = catid_dicts
         pairname = os.path.split(self.directory.rstrip("/\\"))[-1]
-        return self.pair_dict(id1_dict, id2_dict, pairname)
+        return self.pair_dict(catid1_dict, catid2_dict, pairname)
 
     def get_catid_xmls(self):
         image_list = glob_file(self.directory, "*.[Xx][Mm][Ll]", all_files=True)
@@ -79,7 +77,7 @@ class StereopairMetadataParser:
 
         d = {
             "xml_fn": xml,
-            "id": catid,
+            "catid": catid,
             "sensor": get_xml_tag(xml, "SATID"),
             "date": datetime.strptime(
                 get_xml_tag(xml, "FIRSTLINETIME"), "%Y-%m-%dT%H:%M:%S.%fZ"
@@ -155,7 +153,7 @@ class StereopairMetadataParser:
         geom_wkt = self.xml2wkt(xml)
         return wkt.loads(geom_wkt)
 
-    def pair_dict(self, id1_dict, id2_dict, pairname):
+    def pair_dict(self, catid1_dict, catid2_dict, pairname):
         def center_date(dt_list):
             dt_list_sort = sorted(dt_list)
             dt_list_sort_rel = [dt - dt_list_sort[0] for dt in dt_list_sort]
@@ -178,26 +176,26 @@ class StereopairMetadataParser:
             return np.round(bh, 2)
 
         p = {}
-        p["id1_dict"] = id1_dict
-        p["id2_dict"] = id2_dict
+        p["catid1_dict"] = catid1_dict
+        p["catid2_dict"] = catid2_dict
         p["pairname"] = pairname
 
         self.get_pair_intersection(p)
 
-        cdate = center_date([p["id1_dict"]["date"], p["id2_dict"]["date"]])
+        cdate = center_date([p["catid1_dict"]["date"], p["catid2_dict"]["date"]])
         p["cdate"] = cdate
-        dt1 = p["id1_dict"]["date"]
-        dt2 = p["id2_dict"]["date"]
+        dt1 = p["catid1_dict"]["date"]
+        dt2 = p["catid2_dict"]["date"]
         dt = abs(dt1 - dt2)
         p["dt"] = dt
 
         # TODO: migrate dgtools functions for BIE, asymmetry angles
 
         p["conv_ang"] = get_conv(
-            p["id1_dict"]["meansataz"],
-            p["id1_dict"]["meansatel"],
-            p["id2_dict"]["meansataz"],
-            p["id2_dict"]["meansatel"],
+            p["catid1_dict"]["meansataz"],
+            p["catid1_dict"]["meansatel"],
+            p["catid2_dict"]["meansataz"],
+            p["catid2_dict"]["meansatel"],
         )
 
         p["bh"] = get_bh(p["conv_ang"])
@@ -234,8 +232,8 @@ class StereopairMetadataParser:
             gdf = gpd.GeoDataFrame(index=[0], crs=geom_crs, geometry=[geom])
             return gdf.to_crs(local_proj).geometry.squeeze()
 
-        geom1 = p["id1_dict"]["geom"]
-        geom2 = p["id2_dict"]["geom"]
+        geom1 = p["catid1_dict"]["geom"]
+        geom2 = p["catid2_dict"]["geom"]
         intersection = geom_intersection([geom1, geom2])
         p["intersection"] = intersection
         intersection_local = geom2local(intersection)
