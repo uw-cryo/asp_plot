@@ -5,9 +5,8 @@ from datetime import datetime, timedelta
 import geopandas as gpd
 import numpy as np
 import pandas as pd
-from osgeo import gdal, ogr, osr
-from shapely import wkt, union_all
-from shapely.geometry import Polygon
+from osgeo import osr
+from shapely import union_all, wkt
 
 from asp_plot.utils import get_xml_tag, glob_file
 
@@ -16,9 +15,14 @@ logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
 
+# TODO: If this supports N scenes, should rename to SceneMetadataParser or something
 class StereopairMetadataParser:
     def __init__(self, directory):
         self.directory = directory
+
+    # TODO: N scenes
+    # def get_scene_dict(self):
+    #    return self.scene_dict()
 
     def get_pair_dict(self):
         ids = self.get_ids()
@@ -47,7 +51,7 @@ class StereopairMetadataParser:
         def list_average(list):
             return np.round(pd.Series(list, dtype=float).dropna().mean(), 2)
 
-        #TODO: Should restructure dictionary creation per camera file (xml) rather than ID
+        # TODO: Should restructure dictionary creation per camera file (xml) rather than ID
         # With new logic to identify duplicates and merge
         xml_list = glob_file(self.directory, f"*{id:}*.[Xx][Mm][Ll]", all_files=True)
 
@@ -64,13 +68,13 @@ class StereopairMetadataParser:
             "geom": [],
         }
 
-        #Loop through all XML files for a given CATID
+        # Loop through all XML files for a given CATID
         for xml in xml_list:
             for tag, lst in attributes.items():
                 if tag != "geom":
                     lst.append(get_xml_tag(xml, tag))
                 else:
-                    #This returns a Shapely Polygon geometry
+                    # This returns a Shapely Polygon geometry
                     lst.append(self.xml2poly(xml))
 
         d = {
@@ -85,12 +89,16 @@ class StereopairMetadataParser:
             "geom": union_all(attributes["geom"]),
         }
 
-        # Add Ephemeris GeoDataFrame and Footprint GeoDataFrame 
+        # Add Ephemeris GeoDataFrame and Footprint GeoDataFrame
         if geteph:
-            d["eph_gdf"] = self.getEphem_gdf(xml_list[0]) 
-            d["fp_gdf"] = gpd.GeoDataFrame({"idx": [0], "geometry": d['geom']}, geometry="geometry", crs='EPSG:4326')
+            d["eph_gdf"] = self.getEphem_gdf(xml_list[0])
+            d["fp_gdf"] = gpd.GeoDataFrame(
+                {"idx": [0], "geometry": d["geom"]},
+                geometry="geometry",
+                crs="EPSG:4326",
+            )
 
-        #Compute mean values when multiple xml make up a single image ID
+        # Compute mean values when multiple xml make up a single image ID
         for tag, lst in attributes.items():
             if tag != "geom":
                 d[tag.lower()] = list_average(lst)
@@ -184,7 +192,7 @@ class StereopairMetadataParser:
         p["dt"] = dt
 
         # TODO: migrate dgtools functions for BIE, asymmetry angles
-        
+
         p["conv_ang"] = get_conv(
             p["id1_dict"]["meansataz"],
             p["id1_dict"]["meansatel"],
@@ -194,6 +202,19 @@ class StereopairMetadataParser:
 
         p["bh"] = get_bh(p["conv_ang"])
         return p
+
+    def get_centroid_projection(self, geom, proj_type="tmerc"):
+        """Get local projection centered on geometry centroid
+
+        Args:
+            geom: Shapely geometry object
+            proj_type: Type of projection ('tmerc' or 'ortho')
+
+        Returns:
+            str: Proj4 string for local projection
+        """
+        centroid = geom.centroid
+        return f"+proj={proj_type} +lat_0={centroid.y:0.7f} +lon_0={centroid.x:0.7f}"
 
     def get_pair_intersection(self, p):
         # TODO: revist with GeoPanadas functions for overlay or cascading intersection
@@ -208,12 +229,11 @@ class StereopairMetadataParser:
                 intsect = None
             return intsect
 
-        def geom2local(geom, geom_crs='EPSG:4326'):
-            c = geom.centroid
-            local_proj = f"+proj=ortho +lat_0={c.y:0.7f} +lon_0={c.x:0.7f}"
-            gdf = gpd.GeoDataFrame(index=[0], crs=geom_crs, geometry=[geom])    
+        def geom2local(geom, geom_crs="EPSG:4326"):
+            local_proj = self.get_centroid_projection(geom, proj_type="ortho")
+            gdf = gpd.GeoDataFrame(index=[0], crs=geom_crs, geometry=[geom])
             return gdf.to_crs(local_proj).geometry.squeeze()
-        
+
         geom1 = p["id1_dict"]["geom"]
         geom2 = p["id2_dict"]["geom"]
         intersection = geom_intersection([geom1, geom2])

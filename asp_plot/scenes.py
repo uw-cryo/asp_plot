@@ -4,7 +4,6 @@ import os
 import matplotlib.gridspec as gridspec
 import matplotlib.pyplot as plt
 import numpy as np
-from shapely import wkt
 
 from asp_plot.stereopair_metadata_parser import StereopairMetadataParser
 from asp_plot.utils import Plotter, Raster, glob_file, save_figure
@@ -97,9 +96,7 @@ class SceneGeometryPlotter(StereopairMetadataParser):
         if tight_layout:
             plt.tight_layout()
 
-    def map_plot(
-        self, ax, p, map_crs="EPSG:3857", title=True, tight_layout=True
-    ):
+    def map_plot(self, ax, p, map_crs="EPSG:3857", title=True, tight_layout=True):
         """
         Plot satellite ephemeris and ground footprint for a DigitalGlobe stereo pair
         # stitched together from David's notebook: https://github.com/dshean/dgtools/blob/master/notebooks/dg_pair_geom_eph_analysis.ipynb
@@ -154,13 +151,8 @@ class SceneGeometryPlotter(StereopairMetadataParser):
         # map_crs = 'EPSG:3857'
 
         # Use local projection to minimize distortion
-        # TODO: Centralize with function in stereopair_metadata_parser.py
-        # Get Shapely polygon and compute centroid (for local projection def)
-        p_poly = p["intersection"]
-        p_int_c = np.array(p_poly.centroid.coords.xy).ravel()
-        # map_crs = '+proj=ortho +lon_0={} +lat_0={}'.format(*p_int_c)
         # Should be OK to use transverse mercator here, usually within ~2-3 deg
-        map_crs = "+proj=tmerc +lon_0={} +lat_0={}".format(*p_int_c)
+        map_crs = self.get_centroid_projection(p["intersection"], proj_type="tmerc")
 
         self.map_plot(
             ax1,
