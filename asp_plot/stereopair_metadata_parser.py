@@ -50,6 +50,7 @@ class StereopairMetadataParser:
 
         # TODO: need to improve logic and looping here and in get_id_dict for dictionary creation when
         # there are multiple XML files for a given scene
+        # use ~/Dropbox/UW_Shean/WV/antarctica/tiled_xmls_example for testing this
 
         return catid_xmls
 
