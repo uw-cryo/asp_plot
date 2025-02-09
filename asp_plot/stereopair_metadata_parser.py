@@ -151,8 +151,8 @@ class StereopairMetadataParser:
         geom_wkt = f"POLYGON(({', '.join(coords)}))"
         return geom_wkt
 
-    # Reads XML and returns a Shapely Polygon geometry
     def xml2poly(self, xml):
+        """Reads XML and returns a Shapely Polygon geometry"""
         geom_wkt = self.xml2wkt(xml)
         return wkt.loads(geom_wkt)
 
@@ -331,17 +331,14 @@ class StereopairMetadataParser:
         return f"+proj={proj_type} +lat_0={centroid.y:0.7f} +lon_0={centroid.x:0.7f}"
 
     def get_pair_intersection(self, p):
-        # TODO: revist with GeoPanadas functions for overlay or cascading intersection
         def geom_intersection(geom_list):
-            intsect = geom_list[0]
-            valid = False
-            for geom in geom_list[1:]:
-                if intsect.intersects(geom):
-                    valid = True
-                    intsect = intsect.intersection(geom)
-            if not valid:
-                intsect = None
-            return intsect
+            gdfs = [
+                gpd.GeoDataFrame(geometry=[geom], crs="EPSG:4326") for geom in geom_list
+            ]
+            result = gdfs[0]
+            for gdf in gdfs[1:]:
+                result = gpd.overlay(result, gdf, how="intersection")
+            return result.geometry.iloc[0] if not result.empty else None
 
         def geom2local(geom, geom_crs="EPSG:4326"):
             local_proj = self.get_centroid_projection(geom, proj_type="ortho")
