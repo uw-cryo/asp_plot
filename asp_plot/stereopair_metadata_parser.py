@@ -25,35 +25,37 @@ class StereopairMetadataParser:
     #    return self.scene_dict()
 
     def get_pair_dict(self):
-        ids = self.get_ids()
-        id1_dict = self.get_id_dict(ids[0])
-        id2_dict = self.get_id_dict(ids[1])
+        catid_xmls = self.get_catid_xmls()
+
+        id_dicts = []
+        for catid, xml in catid_xmls.items():
+            id_dicts.append(self.get_id_dict(catid, xml))
+
+        id1_dict, id2_dict = id_dicts
         pairname = os.path.split(self.directory.rstrip("/\\"))[-1]
         return self.pair_dict(id1_dict, id2_dict, pairname)
 
-    def get_ids(self):
-        def get_id(filename):
-            import re
-
-            ids = re.findall("10[123456][0-9a-fA-F]+00", filename)
-            return list(set(ids))
-
+    def get_catid_xmls(self):
         image_list = glob_file(self.directory, "*.[Xx][Mm][Ll]", all_files=True)
         if not image_list:
             raise ValueError(
                 "\n\nMissing XML camera files in directory. Cannot extract metadata without these.\n\n"
             )
-        ids = [get_id(f) for f in image_list]
-        ids = sorted(set(item for sublist in ids if sublist for item in sublist))
-        return ids
 
-    def get_id_dict(self, id, geteph=True):
+        # Get CATIDs
+        catid_xmls = {}
+        for xml_file in image_list:
+            catid = get_xml_tag(xml_file, "CATID")
+            catid_xmls[catid] = xml_file
+
+        # TODO: need to improve logic and looping here and in get_id_dict for dictionary creation when
+        # there are multiple XML files for a given scene
+
+        return catid_xmls
+
+    def get_id_dict(self, catid, xml, geteph=True):
         def list_average(list):
             return np.round(pd.Series(list, dtype=float).dropna().mean(), 2)
-
-        # TODO: Should restructure dictionary creation per camera file (xml) rather than ID
-        # With new logic to identify duplicates and merge
-        xml_list = glob_file(self.directory, f"*{id:}*.[Xx][Mm][Ll]", all_files=True)
 
         attributes = {
             "MEANSATAZ": [],
@@ -68,30 +70,28 @@ class StereopairMetadataParser:
             "geom": [],
         }
 
-        # Loop through all XML files for a given CATID
-        for xml in xml_list:
-            for tag, lst in attributes.items():
-                if tag != "geom":
-                    lst.append(get_xml_tag(xml, tag))
-                else:
-                    # This returns a Shapely Polygon geometry
-                    lst.append(self.xml2poly(xml))
+        for tag, lst in attributes.items():
+            if tag != "geom":
+                lst.append(get_xml_tag(xml, tag))
+            else:
+                # This returns a Shapely Polygon geometry
+                lst.append(self.xml2poly(xml))
 
         d = {
-            "xml_fn": xml_list[0],
-            "id": str(id),
-            "sensor": get_xml_tag(xml_list[0], "SATID"),
+            "xml_fn": xml,
+            "id": catid,
+            "sensor": get_xml_tag(xml, "SATID"),
             "date": datetime.strptime(
-                get_xml_tag(xml_list[0], "FIRSTLINETIME"), "%Y-%m-%dT%H:%M:%S.%fZ"
+                get_xml_tag(xml, "FIRSTLINETIME"), "%Y-%m-%dT%H:%M:%S.%fZ"
             ),
-            "scandir": get_xml_tag(xml_list[0], "SCANDIRECTION"),
-            "tdi": int(get_xml_tag(xml_list[0], "TDILEVEL")),
+            "scandir": get_xml_tag(xml, "SCANDIRECTION"),
+            "tdi": int(get_xml_tag(xml, "TDILEVEL")),
             "geom": union_all(attributes["geom"]),
         }
 
         # Add Ephemeris GeoDataFrame and Footprint GeoDataFrame
         if geteph:
-            d["eph_gdf"] = self.getEphem_gdf(xml_list[0])
+            d["eph_gdf"] = self.getEphem_gdf(xml)
             d["fp_gdf"] = gpd.GeoDataFrame(
                 {"idx": [0], "geometry": d["geom"]},
                 geometry="geometry",

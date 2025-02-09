@@ -148,8 +148,6 @@ class SceneGeometryPlotter(StereopairMetadataParser):
 
         self.skyplot(ax0, p, title=False, tight_layout=False)
 
-        # map_crs = 'EPSG:3857'
-
         # Use local projection to minimize distortion
         # Should be OK to use transverse mercator here, usually within ~2-3 deg
         map_crs = self.get_centroid_projection(p["intersection"], proj_type="tmerc")
