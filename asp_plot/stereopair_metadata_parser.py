@@ -178,6 +178,83 @@ class StereopairMetadataParser:
             bh = 2 * np.tan(np.deg2rad(conv_ang / 2.0))
             return np.round(bh, 2)
 
+        def get_bie(az1, el1, az2, el2):
+            """Calculate Bisector Elevation Angle for stereo pair
+
+            From Jeong and Kim 2014: https://www.ingentaconnect.com/content/asprs/pers/2014/00000080/00000007/art00004?crawler=true
+
+            Parameters
+            ------------
+            el1: numeric
+                satellite elevation angle during acquisition of first image
+            az1: numeric
+                satellite azimuth angle during acquisition of first image
+            el2: numeric
+                satellite elevation angle during acquisition of second image
+            az2: numeric
+                satellite azimuth angle during acquisition of second image
+
+            Returns
+            ------------
+            bie: numeric
+                Bisector Elevation Angle for input stereo pair
+            """
+            num = np.sin(np.deg2rad(el1)) + np.sin(np.deg2rad(el2))
+            denom = np.sqrt(2) * np.sqrt(
+                1
+                + np.cos(np.deg2rad(az1 - az2))
+                * np.cos(np.deg2rad(el1))
+                * np.cos(np.deg2rad(el2))
+                + np.sin(np.deg2rad(el1)) * np.sin(np.deg2rad(el2))
+            )
+            bie = np.rad2deg(np.arcsin(num / denom))
+            return np.round(bie, 2)
+
+        def get_asymmetry_angle(sat1_pos, sat2_pos, ground_point):
+            """Calculate asymmetry angle between satellite positions and ground point
+
+            Parameters
+            ------------
+            sat1_pos: np.array
+                3-D position of satellite during acquisition of first image (in ECEF)
+            sat2_pos: np.array
+                3-D position of satellite during acquisition of second image (in ECEF)
+            ground_point: np.array
+                3-D position of ground point viewed by both satellites (in ECEF)
+
+            Returns
+            ------------
+            asymmetry_angle: numeric
+                asymmetry_angle for the stereo pair in degrees
+            """
+            R = ground_point  # radius vector for ground point
+            R01 = sat1_pos  # radius vector for satellite position at time t1
+            R02 = sat2_pos  # radius vector for satellite position at time t2
+            L1 = R - R01  # first pointing vector
+            L2 = R - R02  # second pointing vector
+            q1 = -L1 / np.linalg.norm(L1)  # first pointing (unit) vector
+            q2 = -L2 / np.linalg.norm(L2)  # second pointing (unit) vector
+            Zt = R / np.linalg.norm(
+                R
+            )  # geocentric radius vector for ground point (from origin to up)
+
+            # calculate projection of geocentric vector radius vector on the convergence plane (contd. on next line)
+            # convergence plane is formed by the two pointing vectors and the baseline vector
+            A = np.cross(q1.tolist(), q2.tolist()) / np.linalg.norm(
+                np.cross(q1.tolist(), q2.tolist())
+            )
+            num = np.cross(A, np.cross(Zt, A))
+            denom = np.linalg.norm(num)
+            Zt_si = num / denom
+
+            # calculate bisector for convergence angles
+            B = (q1 + q2) / np.linalg.norm((q1 + q2))
+
+            # find angle between bisector angle and projection of geocentric ground point radius vector on the convergence plane
+            asymmetry_angle = np.rad2deg(np.arccos(np.dot(B, Zt_si)))
+            return np.round(asymmetry_angle, 2)
+
+        # Create the pair dictionary and fill it in
         p = {}
         p["catid1_dict"] = catid1_dict
         p["catid2_dict"] = catid2_dict
@@ -192,8 +269,6 @@ class StereopairMetadataParser:
         dt = abs(dt1 - dt2)
         p["dt"] = dt
 
-        # TODO: migrate dgtools functions for BIE, asymmetry angles
-
         p["conv_ang"] = get_conv(
             p["catid1_dict"]["meansataz"],
             p["catid1_dict"]["meansatel"],
@@ -202,6 +277,44 @@ class StereopairMetadataParser:
         )
 
         p["bh"] = get_bh(p["conv_ang"])
+
+        p["bie"] = get_bie(
+            p["catid1_dict"]["meansataz"],
+            p["catid1_dict"]["meansatel"],
+            p["catid2_dict"]["meansataz"],
+            p["catid2_dict"]["meansatel"],
+        )
+
+        if "eph_gdf" in p["catid1_dict"] and "eph_gdf" in p["catid2_dict"]:
+            sat1_pos = (
+                p["catid1_dict"]["eph_gdf"]
+                .iloc[len(p["catid1_dict"]["eph_gdf"]) // 2][["x", "y", "z"]]
+                .values
+            )
+            sat2_pos = (
+                p["catid2_dict"]["eph_gdf"]
+                .iloc[len(p["catid2_dict"]["eph_gdf"]) // 2][["x", "y", "z"]]
+                .values
+            )
+
+            # Use intersection centroid as ground point
+            if p["intersection"] is not None:
+                ground_point = (
+                    gpd.GeoDataFrame(
+                        geometry=[p["intersection"].centroid], crs="EPSG:4326"
+                    )
+                    .to_crs("EPSG:4978")
+                    .geometry.values[0]
+                    .coords[0]
+                )
+
+                # We set the z-coordinate to 0.0, instead of relying on DEM search with internet connection
+                ground_point = np.array([ground_point[0], ground_point[1], 0.0])
+
+                p["asymmetry_angle"] = get_asymmetry_angle(
+                    sat1_pos, sat2_pos, ground_point
+                )
+
         return p
 
     def get_centroid_projection(self, geom, proj_type="tmerc"):

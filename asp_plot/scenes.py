@@ -37,10 +37,15 @@ class SceneGeometryPlotter(StereopairMetadataParser):
         title = p["pairname"]
         title += "\nCenter datetime: %s" % p["cdate"]
         title += "\nTime offset: %s" % str(p["dt"])
-        title += "\nConv. angle: %0.2f, B:H ratio: %0.2f, Int. area: %0.2f km2" % (
-            p["conv_ang"],
-            p["bh"],
-            p["intersection_area"],
+        title += (
+            "\nConv. angle: %0.2f, B:H ratio: %0.2f, BIE: %0.2f, Assym Angle: %0.2f, Int. area: %0.2f km2"
+            % (
+                p["conv_ang"],
+                p["bh"],
+                p["bie"],
+                p["asymmetry_angle"],
+                p["intersection_area"],
+            )
         )
         title += self.get_scene_string(p, "catid1_dict")
         title += self.get_scene_string(p, "catid2_dict")
