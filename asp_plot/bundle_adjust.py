@@ -112,7 +112,7 @@ class ReadBundleAdjustFiles:
         if residuals_in_meters:
             p = StereopairMetadataParser(self.directory).get_pair_dict()
             mean_gsd = np.average(
-                [p["id1_dict"]["meanproductgsd"], p["id2_dict"]["meanproductgsd"]]
+                [p["catid1_dict"]["meanproductgsd"], p["catid2_dict"]["meanproductgsd"]]
             )
             resid_gdf["mean_residual_meters"] = (
                 resid_gdf["mean_residual"].values * mean_gsd
