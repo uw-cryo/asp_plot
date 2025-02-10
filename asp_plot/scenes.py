@@ -101,7 +101,6 @@ class SceneGeometryPlotter(StereopairMetadataParser):
         if tight_layout:
             plt.tight_layout()
 
-
     def map_plot(self, ax, p, map_crs="EPSG:3857", title=True, tight_layout=True):
         """
         Plot satellite ephemeris and ground footprint for a DigitalGlobe stereo pair

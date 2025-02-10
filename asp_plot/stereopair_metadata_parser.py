@@ -151,7 +151,6 @@ class StereopairMetadataParser:
         geom_wkt = f"POLYGON(({', '.join(coords)}))"
         return geom_wkt
 
-
     def xml2poly(self, xml):
         """Reads XML and returns a Shapely Polygon geometry"""
         geom_wkt = self.xml2wkt(xml)
@@ -270,8 +269,6 @@ class StereopairMetadataParser:
         dt = abs(dt1 - dt2)
         p["dt"] = dt
 
-        # TODO: migrate dgtools functions for BIE, asymmetry angles
-        
         p["conv_ang"] = get_conv(
             p["catid1_dict"]["meansataz"],
             p["catid1_dict"]["meansatel"],
@@ -334,7 +331,6 @@ class StereopairMetadataParser:
         return f"+proj={proj_type} +lat_0={centroid.y:0.7f} +lon_0={centroid.x:0.7f}"
 
     def get_pair_intersection(self, p):
-        # TODO: revist with GeoPanadas functions for overlay or cascading intersection
         def geom_intersection(geom_list):
             gdfs = [
                 gpd.GeoDataFrame(geometry=[geom], crs="EPSG:4326") for geom in geom_list
