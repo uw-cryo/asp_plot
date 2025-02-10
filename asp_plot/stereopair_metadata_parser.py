@@ -5,9 +5,8 @@ from datetime import datetime, timedelta
 import geopandas as gpd
 import numpy as np
 import pandas as pd
-from osgeo import gdal, ogr, osr
-from shapely import wkt, union_all
-from shapely.geometry import Polygon
+from osgeo import osr
+from shapely import union_all, wkt
 
 from asp_plot.utils import get_xml_tag, glob_file
 
@@ -16,40 +15,48 @@ logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
 
+# TODO: If this supports N scenes, should rename to SceneMetadataParser or something
 class StereopairMetadataParser:
     def __init__(self, directory):
         self.directory = directory
 
+    def get_catid_dicts(self):
+        catid_xmls = self.get_catid_xmls()
+        catid_dicts = []
+        for catid, xml in catid_xmls.items():
+            catid_dicts.append(self.get_id_dict(catid, xml))
+        return catid_dicts
+
+    # TODO: This method assumes that only two scenes are captured with get_catid_dicts
+    # Should be updated to support more than two scenes, or need a separate method for N scenes
     def get_pair_dict(self):
-        ids = self.get_ids()
-        id1_dict = self.get_id_dict(ids[0])
-        id2_dict = self.get_id_dict(ids[1])
+        catid_dicts = self.get_catid_dicts()
+        catid1_dict, catid2_dict = catid_dicts
         pairname = os.path.split(self.directory.rstrip("/\\"))[-1]
-        return self.pair_dict(id1_dict, id2_dict, pairname)
+        return self.pair_dict(catid1_dict, catid2_dict, pairname)
 
-    def get_ids(self):
-        def get_id(filename):
-            import re
-
-            ids = re.findall("10[123456][0-9a-fA-F]+00", filename)
-            return list(set(ids))
-
+    def get_catid_xmls(self):
         image_list = glob_file(self.directory, "*.[Xx][Mm][Ll]", all_files=True)
         if not image_list:
             raise ValueError(
                 "\n\nMissing XML camera files in directory. Cannot extract metadata without these.\n\n"
             )
-        ids = [get_id(f) for f in image_list]
-        ids = sorted(set(item for sublist in ids if sublist for item in sublist))
-        return ids
 
-    def get_id_dict(self, id, geteph=True):
+        # Get CATIDs
+        catid_xmls = {}
+        for xml_file in image_list:
+            catid = get_xml_tag(xml_file, "CATID")
+            catid_xmls[catid] = xml_file
+
+        # TODO: need to improve logic and looping here and in get_id_dict for dictionary creation when
+        # there are multiple XML files for a given scene
+        # use ~/Dropbox/UW_Shean/WV/antarctica/tiled_xmls_example for testing this
+
+        return catid_xmls
+
+    def get_id_dict(self, catid, xml, geteph=True):
         def list_average(list):
             return np.round(pd.Series(list, dtype=float).dropna().mean(), 2)
-
-        #TODO: Should restructure dictionary creation per camera file (xml) rather than ID
-        # With new logic to identify duplicates and merge
-        xml_list = glob_file(self.directory, f"*{id:}*.[Xx][Mm][Ll]", all_files=True)
 
         attributes = {
             "MEANSATAZ": [],
@@ -64,33 +71,35 @@ class StereopairMetadataParser:
             "geom": [],
         }
 
-        #Loop through all XML files for a given CATID
-        for xml in xml_list:
-            for tag, lst in attributes.items():
-                if tag != "geom":
-                    lst.append(get_xml_tag(xml, tag))
-                else:
-                    #This returns a Shapely Polygon geometry
-                    lst.append(self.xml2poly(xml))
+        for tag, lst in attributes.items():
+            if tag != "geom":
+                lst.append(get_xml_tag(xml, tag))
+            else:
+                # This returns a Shapely Polygon geometry
+                lst.append(self.xml2poly(xml))
 
         d = {
-            "xml_fn": xml_list[0],
-            "id": str(id),
-            "sensor": get_xml_tag(xml_list[0], "SATID"),
+            "xml_fn": xml,
+            "catid": catid,
+            "sensor": get_xml_tag(xml, "SATID"),
             "date": datetime.strptime(
-                get_xml_tag(xml_list[0], "FIRSTLINETIME"), "%Y-%m-%dT%H:%M:%S.%fZ"
+                get_xml_tag(xml, "FIRSTLINETIME"), "%Y-%m-%dT%H:%M:%S.%fZ"
             ),
-            "scandir": get_xml_tag(xml_list[0], "SCANDIRECTION"),
-            "tdi": int(get_xml_tag(xml_list[0], "TDILEVEL")),
+            "scandir": get_xml_tag(xml, "SCANDIRECTION"),
+            "tdi": int(get_xml_tag(xml, "TDILEVEL")),
             "geom": union_all(attributes["geom"]),
         }
 
-        # Add Ephemeris GeoDataFrame and Footprint GeoDataFrame 
+        # Add Ephemeris GeoDataFrame and Footprint GeoDataFrame
         if geteph:
-            d["eph_gdf"] = self.getEphem_gdf(xml_list[0]) 
-            d["fp_gdf"] = gpd.GeoDataFrame({"idx": [0], "geometry": d['geom']}, geometry="geometry", crs='EPSG:4326')
+            d["eph_gdf"] = self.getEphem_gdf(xml)
+            d["fp_gdf"] = gpd.GeoDataFrame(
+                {"idx": [0], "geometry": d["geom"]},
+                geometry="geometry",
+                crs="EPSG:4326",
+            )
 
-        #Compute mean values when multiple xml make up a single image ID
+        # Compute mean values when multiple xml make up a single image ID
         for tag, lst in attributes.items():
             if tag != "geom":
                 d[tag.lower()] = list_average(lst)
@@ -142,12 +151,13 @@ class StereopairMetadataParser:
         geom_wkt = f"POLYGON(({', '.join(coords)}))"
         return geom_wkt
 
-    # Reads XML and returns a Shapely Polygon geometry
+
     def xml2poly(self, xml):
+        """Reads XML and returns a Shapely Polygon geometry"""
         geom_wkt = self.xml2wkt(xml)
         return wkt.loads(geom_wkt)
 
-    def pair_dict(self, id1_dict, id2_dict, pairname):
+    def pair_dict(self, catid1_dict, catid2_dict, pairname):
         def center_date(dt_list):
             dt_list_sort = sorted(dt_list)
             dt_list_sort_rel = [dt - dt_list_sort[0] for dt in dt_list_sort]
@@ -169,53 +179,178 @@ class StereopairMetadataParser:
             bh = 2 * np.tan(np.deg2rad(conv_ang / 2.0))
             return np.round(bh, 2)
 
+        def get_bie(az1, el1, az2, el2):
+            """Calculate Bisector Elevation Angle for stereo pair
+
+            From Jeong and Kim 2014: https://www.ingentaconnect.com/content/asprs/pers/2014/00000080/00000007/art00004?crawler=true
+
+            Parameters
+            ------------
+            el1: numeric
+                satellite elevation angle during acquisition of first image
+            az1: numeric
+                satellite azimuth angle during acquisition of first image
+            el2: numeric
+                satellite elevation angle during acquisition of second image
+            az2: numeric
+                satellite azimuth angle during acquisition of second image
+
+            Returns
+            ------------
+            bie: numeric
+                Bisector Elevation Angle for input stereo pair
+            """
+            num = np.sin(np.deg2rad(el1)) + np.sin(np.deg2rad(el2))
+            denom = np.sqrt(2) * np.sqrt(
+                1
+                + np.cos(np.deg2rad(az1 - az2))
+                * np.cos(np.deg2rad(el1))
+                * np.cos(np.deg2rad(el2))
+                + np.sin(np.deg2rad(el1)) * np.sin(np.deg2rad(el2))
+            )
+            bie = np.rad2deg(np.arcsin(num / denom))
+            return np.round(bie, 2)
+
+        def get_asymmetry_angle(sat1_pos, sat2_pos, ground_point):
+            """Calculate asymmetry angle between satellite positions and ground point
+
+            Parameters
+            ------------
+            sat1_pos: np.array
+                3-D position of satellite during acquisition of first image (in ECEF)
+            sat2_pos: np.array
+                3-D position of satellite during acquisition of second image (in ECEF)
+            ground_point: np.array
+                3-D position of ground point viewed by both satellites (in ECEF)
+
+            Returns
+            ------------
+            asymmetry_angle: numeric
+                asymmetry_angle for the stereo pair in degrees
+            """
+            R = ground_point  # radius vector for ground point
+            R01 = sat1_pos  # radius vector for satellite position at time t1
+            R02 = sat2_pos  # radius vector for satellite position at time t2
+            L1 = R - R01  # first pointing vector
+            L2 = R - R02  # second pointing vector
+            q1 = -L1 / np.linalg.norm(L1)  # first pointing (unit) vector
+            q2 = -L2 / np.linalg.norm(L2)  # second pointing (unit) vector
+            Zt = R / np.linalg.norm(
+                R
+            )  # geocentric radius vector for ground point (from origin to up)
+
+            # calculate projection of geocentric vector radius vector on the convergence plane (contd. on next line)
+            # convergence plane is formed by the two pointing vectors and the baseline vector
+            A = np.cross(q1.tolist(), q2.tolist()) / np.linalg.norm(
+                np.cross(q1.tolist(), q2.tolist())
+            )
+            num = np.cross(A, np.cross(Zt, A))
+            denom = np.linalg.norm(num)
+            Zt_si = num / denom
+
+            # calculate bisector for convergence angles
+            B = (q1 + q2) / np.linalg.norm((q1 + q2))
+
+            # find angle between bisector angle and projection of geocentric ground point radius vector on the convergence plane
+            asymmetry_angle = np.rad2deg(np.arccos(np.dot(B, Zt_si)))
+            return np.round(asymmetry_angle, 2)
+
+        # Create the pair dictionary and fill it in
         p = {}
-        p["id1_dict"] = id1_dict
-        p["id2_dict"] = id2_dict
+        p["catid1_dict"] = catid1_dict
+        p["catid2_dict"] = catid2_dict
         p["pairname"] = pairname
 
         self.get_pair_intersection(p)
 
-        cdate = center_date([p["id1_dict"]["date"], p["id2_dict"]["date"]])
+        cdate = center_date([p["catid1_dict"]["date"], p["catid2_dict"]["date"]])
         p["cdate"] = cdate
-        dt1 = p["id1_dict"]["date"]
-        dt2 = p["id2_dict"]["date"]
+        dt1 = p["catid1_dict"]["date"]
+        dt2 = p["catid2_dict"]["date"]
         dt = abs(dt1 - dt2)
         p["dt"] = dt
 
         # TODO: migrate dgtools functions for BIE, asymmetry angles
         
         p["conv_ang"] = get_conv(
-            p["id1_dict"]["meansataz"],
-            p["id1_dict"]["meansatel"],
-            p["id2_dict"]["meansataz"],
-            p["id2_dict"]["meansatel"],
+            p["catid1_dict"]["meansataz"],
+            p["catid1_dict"]["meansatel"],
+            p["catid2_dict"]["meansataz"],
+            p["catid2_dict"]["meansatel"],
         )
 
         p["bh"] = get_bh(p["conv_ang"])
+
+        p["bie"] = get_bie(
+            p["catid1_dict"]["meansataz"],
+            p["catid1_dict"]["meansatel"],
+            p["catid2_dict"]["meansataz"],
+            p["catid2_dict"]["meansatel"],
+        )
+
+        if "eph_gdf" in p["catid1_dict"] and "eph_gdf" in p["catid2_dict"]:
+            sat1_pos = (
+                p["catid1_dict"]["eph_gdf"]
+                .iloc[len(p["catid1_dict"]["eph_gdf"]) // 2][["x", "y", "z"]]
+                .values
+            )
+            sat2_pos = (
+                p["catid2_dict"]["eph_gdf"]
+                .iloc[len(p["catid2_dict"]["eph_gdf"]) // 2][["x", "y", "z"]]
+                .values
+            )
+
+            # Use intersection centroid as ground point
+            if p["intersection"] is not None:
+                ground_point = (
+                    gpd.GeoDataFrame(
+                        geometry=[p["intersection"].centroid], crs="EPSG:4326"
+                    )
+                    .to_crs("EPSG:4978")
+                    .geometry.values[0]
+                    .coords[0]
+                )
+
+                # We set the z-coordinate to 0.0, instead of relying on DEM search with internet connection
+                ground_point = np.array([ground_point[0], ground_point[1], 0.0])
+
+                p["asymmetry_angle"] = get_asymmetry_angle(
+                    sat1_pos, sat2_pos, ground_point
+                )
+
         return p
+
+    def get_centroid_projection(self, geom, proj_type="tmerc"):
+        """Get local projection centered on geometry centroid
+
+        Args:
+            geom: Shapely geometry object
+            proj_type: Type of projection ('tmerc' or 'ortho')
+
+        Returns:
+            str: Proj4 string for local projection
+        """
+        centroid = geom.centroid
+        return f"+proj={proj_type} +lat_0={centroid.y:0.7f} +lon_0={centroid.x:0.7f}"
 
     def get_pair_intersection(self, p):
         # TODO: revist with GeoPanadas functions for overlay or cascading intersection
         def geom_intersection(geom_list):
-            intsect = geom_list[0]
-            valid = False
-            for geom in geom_list[1:]:
-                if intsect.intersects(geom):
-                    valid = True
-                    intsect = intsect.intersection(geom)
-            if not valid:
-                intsect = None
-            return intsect
+            gdfs = [
+                gpd.GeoDataFrame(geometry=[geom], crs="EPSG:4326") for geom in geom_list
+            ]
+            result = gdfs[0]
+            for gdf in gdfs[1:]:
+                result = gpd.overlay(result, gdf, how="intersection")
+            return result.geometry.iloc[0] if not result.empty else None
 
-        def geom2local(geom, geom_crs='EPSG:4326'):
-            c = geom.centroid
-            local_proj = f"+proj=ortho +lat_0={c.y:0.7f} +lon_0={c.x:0.7f}"
-            gdf = gpd.GeoDataFrame(index=[0], crs=geom_crs, geometry=[geom])    
+        def geom2local(geom, geom_crs="EPSG:4326"):
+            local_proj = self.get_centroid_projection(geom, proj_type="ortho")
+            gdf = gpd.GeoDataFrame(index=[0], crs=geom_crs, geometry=[geom])
             return gdf.to_crs(local_proj).geometry.squeeze()
-        
-        geom1 = p["id1_dict"]["geom"]
-        geom2 = p["id2_dict"]["geom"]
+
+        geom1 = p["catid1_dict"]["geom"]
+        geom2 = p["catid2_dict"]["geom"]
         intersection = geom_intersection([geom1, geom2])
         p["intersection"] = intersection
         intersection_local = geom2local(intersection)

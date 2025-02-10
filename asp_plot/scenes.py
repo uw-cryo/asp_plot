@@ -4,7 +4,6 @@ import os
 import matplotlib.gridspec as gridspec
 import matplotlib.pyplot as plt
 import numpy as np
-from shapely import wkt
 
 from asp_plot.stereopair_metadata_parser import StereopairMetadataParser
 from asp_plot.utils import Plotter, Raster, glob_file, save_figure
@@ -17,11 +16,11 @@ class SceneGeometryPlotter(StereopairMetadataParser):
     def __init__(self, directory, **kwargs):
         super().__init__(directory=directory, **kwargs)
 
-    def get_scene_string(self, p, key="id1_dict"):
+    def get_scene_string(self, p, key="catid1_dict"):
         scene_string = (
             "\nID:%s, GSD:%0.2f, off:%0.1f, az:%0.1f, el:%0.1f, it:%0.1f, ct:%0.1f, scan:%s, tdi:%i"
             % (
-                p[key]["id"],
+                p[key]["catid"],
                 p[key]["meanproductgsd"],
                 p[key]["meanoffnadirviewangle"],
                 p[key]["meansataz"],
@@ -38,13 +37,18 @@ class SceneGeometryPlotter(StereopairMetadataParser):
         title = p["pairname"]
         title += "\nCenter datetime: %s" % p["cdate"]
         title += "\nTime offset: %s" % str(p["dt"])
-        title += "\nConv. angle: %0.2f, B:H ratio: %0.2f, Int. area: %0.2f km2" % (
-            p["conv_ang"],
-            p["bh"],
-            p["intersection_area"],
+        title += (
+            "\nConv. angle: %0.2f, B:H ratio: %0.2f, BIE: %0.2f, Assym Angle: %0.2f, Int. area: %0.2f km2"
+            % (
+                p["conv_ang"],
+                p["bh"],
+                p["bie"],
+                p["asymmetry_angle"],
+                p["intersection_area"],
+            )
         )
-        title += self.get_scene_string(p, "id1_dict")
-        title += self.get_scene_string(p, "id2_dict")
+        title += self.get_scene_string(p, "catid1_dict")
+        title += self.get_scene_string(p, "catid2_dict")
         return title
 
     def skyplot(self, ax, p, title=True, tight_layout=True):
@@ -65,23 +69,23 @@ class SceneGeometryPlotter(StereopairMetadataParser):
 
         ax.plot(0, 0, marker="o", color="k")
         ax.plot(
-            np.radians(p["id1_dict"]["meansataz"]),
-            (90 - p["id1_dict"]["meansatel"]),
-            label=p["id1_dict"]["id"],
+            np.radians(p["catid1_dict"]["meansataz"]),
+            (90 - p["catid1_dict"]["meansatel"]),
+            label=p["catid1_dict"]["catid"],
             **plot_kw,
         )
         ax.plot(
-            np.radians(p["id2_dict"]["meansataz"]),
-            (90 - p["id2_dict"]["meansatel"]),
-            label=p["id2_dict"]["id"],
+            np.radians(p["catid2_dict"]["meansataz"]),
+            (90 - p["catid2_dict"]["meansatel"]),
+            label=p["catid2_dict"]["catid"],
             **plot_kw,
         )
         ax.plot(
             [
-                np.radians(p["id1_dict"]["meansataz"]),
-                np.radians(p["id2_dict"]["meansataz"]),
+                np.radians(p["catid1_dict"]["meansataz"]),
+                np.radians(p["catid2_dict"]["meansataz"]),
             ],
-            [90 - p["id1_dict"]["meansatel"], 90 - p["id2_dict"]["meansatel"]],
+            [90 - p["catid1_dict"]["meansatel"], 90 - p["catid2_dict"]["meansatel"]],
             color="k",
             ls="--",
             lw=0.5,
@@ -97,9 +101,8 @@ class SceneGeometryPlotter(StereopairMetadataParser):
         if tight_layout:
             plt.tight_layout()
 
-    def map_plot(
-        self, ax, p, map_crs="EPSG:3857", title=True, tight_layout=True
-    ):
+
+    def map_plot(self, ax, p, map_crs="EPSG:3857", title=True, tight_layout=True):
         """
         Plot satellite ephemeris and ground footprint for a DigitalGlobe stereo pair
         # stitched together from David's notebook: https://github.com/dshean/dgtools/blob/master/notebooks/dg_pair_geom_eph_analysis.ipynb
@@ -113,19 +116,19 @@ class SceneGeometryPlotter(StereopairMetadataParser):
         poly_kw = {"alpha": 0.5, "edgecolor": "k", "linewidth": 0.5}
         eph_kw = {"markersize": 2}
 
-        eph1_gdf = p["id1_dict"]["eph_gdf"]
-        eph2_gdf = p["id2_dict"]["eph_gdf"]
-        fp1_gdf = p["id1_dict"]["fp_gdf"]
-        fp2_gdf = p["id2_dict"]["fp_gdf"]
+        eph1_gdf = p["catid1_dict"]["eph_gdf"]
+        eph2_gdf = p["catid2_dict"]["eph_gdf"]
+        fp1_gdf = p["catid1_dict"]["fp_gdf"]
+        fp2_gdf = p["catid2_dict"]["fp_gdf"]
 
         c_list = ["blue", "orange"]
         fp1_gdf.to_crs(map_crs).plot(ax=ax, color=c_list[0], **poly_kw)
         fp2_gdf.to_crs(map_crs).plot(ax=ax, color=c_list[1], **poly_kw)
         eph1_gdf.to_crs(map_crs).plot(
-            ax=ax, label=p["id1_dict"]["id"], color=c_list[0], **eph_kw
+            ax=ax, label=p["catid1_dict"]["catid"], color=c_list[0], **eph_kw
         )
         eph2_gdf.to_crs(map_crs).plot(
-            ax=ax, label=p["id2_dict"]["id"], color=c_list[1], **eph_kw
+            ax=ax, label=p["catid2_dict"]["catid"], color=c_list[1], **eph_kw
         )
 
         start_kw = {"markersize": 5, "facecolor": "w", "edgecolor": "k"}
@@ -151,16 +154,9 @@ class SceneGeometryPlotter(StereopairMetadataParser):
 
         self.skyplot(ax0, p, title=False, tight_layout=False)
 
-        # map_crs = 'EPSG:3857'
-
         # Use local projection to minimize distortion
-        # TODO: Centralize with function in stereopair_metadata_parser.py
-        # Get Shapely polygon and compute centroid (for local projection def)
-        p_poly = p["intersection"]
-        p_int_c = np.array(p_poly.centroid.coords.xy).ravel()
-        # map_crs = '+proj=ortho +lon_0={} +lat_0={}'.format(*p_int_c)
         # Should be OK to use transverse mercator here, usually within ~2-3 deg
-        map_crs = "+proj=tmerc +lon_0={} +lat_0={}".format(*p_int_c)
+        map_crs = self.get_centroid_projection(p["intersection"], proj_type="tmerc")
 
         self.map_plot(
             ax1,
@@ -197,7 +193,7 @@ class ScenePlotter(Plotter):
             ortho_ma = Raster(self.left_ortho_sub_fn).read_array()
             self.plot_array(ax=axa[0], array=ortho_ma, cmap="gray", add_cbar=False)
             axa[0].set_title(
-                f"Left image\n{p['id1_dict']['id']}, {p['id1_dict']['meanproductgsd']:0.2f} m"
+                f"Left image\n{p['catid1_dict']['catid']}, {p['catid1_dict']['meanproductgsd']:0.2f} m"
             )
         else:
             axa[0].text(
@@ -213,7 +209,7 @@ class ScenePlotter(Plotter):
             ortho_ma = Raster(self.right_ortho_sub_fn).read_array()
             self.plot_array(ax=axa[1], array=ortho_ma, cmap="gray", add_cbar=False)
             axa[1].set_title(
-                f"Right image\n{p['id2_dict']['id']}, {p['id2_dict']['meanproductgsd']:0.2f} m"
+                f"Right image\n{p['catid2_dict']['catid']}, {p['catid2_dict']['meanproductgsd']:0.2f} m"
             )
         else:
             axa[1].text(

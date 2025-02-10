@@ -115,9 +115,13 @@ def get_xml_tag(xml, tag, all=False):
     tree = ET.parse(xml)
     if all:
         elem = tree.findall(".//%s" % tag)
+        if not elem:
+            raise ValueError(f"Tag '{tag}' not found in {xml}")
         elem = [i.text for i in elem]
     else:
         elem = tree.find(".//%s" % tag)
+        if elem is None:
+            raise ValueError(f"Tag '{tag}' not found in {xml}")
         elem = elem.text
 
     return elem
