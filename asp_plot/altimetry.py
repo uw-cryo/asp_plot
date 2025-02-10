@@ -16,8 +16,11 @@ from asp_plot.alignment import Alignment
 from asp_plot.stereopair_metadata_parser import StereopairMetadataParser
 from asp_plot.utils import ColorBar, Raster, glob_file, save_figure
 
+icesat2.init("slideruleearth.io", verbose=True)
+
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
+
 
 class Altimetry:
     def __init__(
@@ -42,9 +45,6 @@ class Altimetry:
 
         self.atl06sr_processing_levels = atl06sr_processing_levels
         self.atl06sr_processing_levels_filtered = atl06sr_processing_levels_filtered
-
-        #Initialize the SlideRule session (requires active connection)
-        icesat2.init("slideruleearth.io", verbose=True)
 
         # TODO: Implement alongside request_atl03sr below
         # if atl03sr is not None and not isinstance(atl03sr, gpd.GeoDataFrame):
@@ -81,13 +81,13 @@ class Altimetry:
 
     def request_atl06sr_multi_processing(
         self,
-        processing_levels=["all", "ground", "canopy", "top_of_canopy"],
+        processing_levels=["ground", "canopy", "top_of_canopy"],
         res=20,
         len=40,
         ats=20,
         cnt=10,
-        maxi=6,
-        h_sigma_quantile=1.0,
+        maxi=5,
+        h_sigma_quantile=0.95,
         save_to_parquet=False,
         filename="atl06sr",
         region=None,
@@ -98,35 +98,20 @@ class Altimetry:
         # See parameter discussion on: https://github.com/SlideRuleEarth/sliderule/issues/448
         # "srt": -1 tells the server side code to look at the ATL03 confidence array for each photon
         # and choose the confidence level that is highest across all five surface type entries.
-        # cnf options: {"atl03_tep", "atl03_not_considered", "atl03_background", "atl03_within_10m", \
-        # "atl03_low", "atl03_medium", "atl03_high"}
-        # Note reduce count for limited number of ground photons
-
-        # TODO: isolate shared and custom parms, initialize each with shared parameters, then set custom
-        # TODO: use the WorldCover values to determine if we should report canopy or top of canopy
-        # TODO: Use more generic variable names and strings for functions that are not just limited to atl06
         parms_dict = {
-            "all": {
-                "cnf": "atl03_high",
-                "srt": -1,
-                "cnt": cnt,
-            },
             "ground": {
-                "cnf": "atl03_low",
+                "cnf": 0,
                 "srt": -1,
-                "cnt": 5,
                 "atl08_class": "atl08_ground",
             },
             "canopy": {
-                "cnf": "atl03_medium",
+                "cnf": 0,
                 "srt": -1,
-                "cnt": 5,
-                "atl08_class": ["atl08_canopy", "atl08_top_of_canopy"],
+                "atl08_class": "atl08_canopy",
             },
             "top_of_canopy": {
-                "cnf": "atl03_medium",
+                "cnf": 0,
                 "srt": -1,
-                "cnt": 5,
                 "atl08_class": "atl08_top_of_canopy",
             },
         }
@@ -140,6 +125,7 @@ class Altimetry:
             parms["res"] = res
             parms["len"] = len
             parms["ats"] = ats
+            parms["cnt"] = cnt
             parms["maxi"] = maxi
             parms["samples"] = {
                 "esa_worldcover": {
@@ -147,21 +133,15 @@ class Altimetry:
                 }
             }
 
-            # TODO: write out relevant parameters in metadata, not filename
-            #fn_base = f"{filename}_res{res}_len{len}_cnt{cnt}_ats{ats}_maxi{maxi}_{key}"
-            fn_base = f"{filename}_{key}"
+            fn_base = f"{filename}_res{res}_len{len}_cnt{cnt}_ats{ats}_maxi{maxi}_{key}"
 
             print(f"\nICESat-2 ATL06 request processing for: {key}")
             fn = f"{fn_base}.parquet"
 
-            print(parms)
-
             if os.path.exists(fn):
                 print(f"Existing file found, reading in: {fn}")
                 atl06sr = gpd.read_parquet(fn)
-                #TODO: check that parms in file are same as request 
             else:
-                #This is the actual SlideRule call!
                 atl06sr = icesat2.atl06p(parms)
                 if save_to_parquet:
                     atl06sr.to_parquet(fn)
@@ -245,13 +225,12 @@ class Altimetry:
 
         for key in original_keys:
             print(
-                f"\nFiltering ATL06 with 15 day pad, 45 day, 91 day pad, and seasonal pad around {date} for: {key}"
+                f"\nFiltering ATL06 with 15 day pad, 90 day pad, and seasonal pad around {date} for: {key}"
             )
             atl06sr = self.atl06sr_processing_levels_filtered[key]
 
             fifteen_day = atl06sr[abs(atl06sr.index - date) <= pd.Timedelta(days=15)]
             fortyfive_day = atl06sr[abs(atl06sr.index - date) <= pd.Timedelta(days=45)]
-            ninetyone_day = atl06sr[abs(atl06sr.index - date) <= pd.Timedelta(days=91)]
 
             image_season = date.strftime("%b")
             if image_season in ["Dec", "Jan", "Feb"]:
@@ -278,10 +257,6 @@ class Altimetry:
             if not fortyfive_day.empty:
                 self.atl06sr_processing_levels_filtered[f"{key}_45_day_pad"] = (
                     fortyfive_day
-                )
-            if not ninetyone_day.empty:
-                self.atl06sr_processing_levels_filtered[f"{key}_91_day_pad"] = (
-                    ninetyone_day
                 )
             if not season_filter.empty:
                 self.atl06sr_processing_levels_filtered[f"{key}_seasonal"] = (
@@ -416,7 +391,7 @@ class Altimetry:
 
     def plot_atl06sr_time_stamps(
         self,
-        key="all",
+        key="ground",
         title="ICESat-2 ATL06-SR Time Stamps",
         cmap="inferno",
         map_crs="4326",
@@ -502,10 +477,9 @@ class Altimetry:
 
     def plot_atl06sr(
         self,
-        key="all",
+        key="ground",
         plot_beams=False,
         plot_dem=False,
-        plot_hillshade=False,
         column_name="h_mean",
         cbar_label="Height above datum (m)",
         title="ICESat-2 ATL06-SR",
@@ -525,30 +499,12 @@ class Altimetry:
 
         if plot_dem:
             ctx_kwargs = {}
-            #dem = gu.Raster(self.dem_fn, downsample=10)
-            dem = Raster(self.dem_fn)
+            dem_downsampled = gu.Raster(self.dem_fn, downsample=10)
             cb = ColorBar(perc_range=(2, 98))
-            cb.get_clim(dem.data)
-            dem.plot(
+            cb.get_clim(dem_downsampled.data)
+            dem_downsampled.plot(
                 ax=ax,
                 cmap="inferno",
-                add_cbar=False,
-                vmin=cb.clim[0],
-                vmax=cb.clim[1],
-                alpha=1,
-            )
-            ax.set_title(None)
-
-        #TODO: Centralize with other DEM and hillshade plotting
-        if plot_hillshade:
-            ctx_kwargs = {}
-            dem = Raster(self.dem_fn)
-            hs = dem.hillshade()
-            cb = ColorBar(perc_range=(2, 98))
-            cb.get_clim(hs.data)
-            hs.plot(
-                ax=ax,
-                cmap="gray",
                 add_cbar=False,
                 vmin=cb.clim[0],
                 vmax=cb.clim[1],
@@ -599,9 +555,6 @@ class Altimetry:
         if ctx_kwargs:
             ctx.add_basemap(ax=ax, **ctx_kwargs)
 
-        ax.set_xticks([])
-        ax.set_yticks([])
-
         fig.suptitle(f"{title}\n{key} (n={atl06sr.shape[0]})", size=10)
         fig.tight_layout()
         if save_dir and fig_fn:
@@ -641,7 +594,7 @@ class Altimetry:
 
     def mapview_plot_atl06sr_to_dem(
         self,
-        key="all",
+        key="ground",
         clim=None,
         plot_aligned=False,
         save_dir=None,
@@ -687,7 +640,7 @@ class Altimetry:
 
     def histogram(
         self,
-        key="all",
+        key="ground",
         title="Histogram",
         plot_aligned=False,
         save_dir=None,
