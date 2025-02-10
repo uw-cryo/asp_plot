@@ -269,8 +269,6 @@ class StereopairMetadataParser:
         dt = abs(dt1 - dt2)
         p["dt"] = dt
 
-        # TODO: migrate dgtools functions for BIE, asymmetry angles
-        
         p["conv_ang"] = get_conv(
             p["catid1_dict"]["meansataz"],
             p["catid1_dict"]["meansatel"],
@@ -333,7 +331,6 @@ class StereopairMetadataParser:
         return f"+proj={proj_type} +lat_0={centroid.y:0.7f} +lon_0={centroid.x:0.7f}"
 
     def get_pair_intersection(self, p):
-        # TODO: revist with GeoPanadas functions for overlay or cascading intersection
         def geom_intersection(geom_list):
             gdfs = [
                 gpd.GeoDataFrame(geometry=[geom], crs="EPSG:4326") for geom in geom_list
@@ -350,7 +347,6 @@ class StereopairMetadataParser:
 
         geom1 = p["catid1_dict"]["geom"]
         geom2 = p["catid2_dict"]["geom"]
-
         intersection = geom_intersection([geom1, geom2])
         p["intersection"] = intersection
         intersection_local = geom2local(intersection)

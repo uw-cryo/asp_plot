@@ -1,7 +1,7 @@
 import os
 import shutil
-from itertools import count
 from datetime import datetime, timezone
+from itertools import count
 
 import click
 import contextily as ctx
@@ -94,7 +94,7 @@ def main(
     report_filename,
     report_title,
 ):
-    #TODO: Check that specified directories exist
+    # TODO: Check that specified directories exist
 
     print(f"\nProcessing ASP files in {directory}\n")
 
@@ -102,12 +102,16 @@ def main(
     os.makedirs(plots_directory, exist_ok=True)
 
     if report_filename is None:
-        #Append timestamp to avoid overwriting existing reports
-        timestamp = datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')
-        directory_tail = os.path.split(directory.rstrip('/\\'))[-1]
-        report_filename = f"asp_plot_report_{directory_tail}_{stereo_directory}_{timestamp}.pdf"
+        # Append timestamp to avoid overwriting existing reports
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        directory_tail = os.path.split(directory.rstrip("/\\"))[-1]
+        report_filename = (
+            f"asp_plot_report_{directory_tail}_{stereo_directory}_{timestamp}.pdf"
+        )
 
-    report_pdf_path = os.path.join(directory, os.path.join(stereo_directory, report_filename))
+    report_pdf_path = os.path.join(
+        directory, os.path.join(stereo_directory, report_filename)
+    )
 
     figure_counter = count(0)
 
@@ -120,7 +124,7 @@ def main(
         )
         add_basemap = False
 
-    #TODO: Centralize this in plotting utils, should not need ctx import in the CLI wrapper
+    # TODO: Centralize this in plotting utils, should not need ctx import in the CLI wrapper
 
     if add_basemap:
         ctx_kwargs = {
@@ -186,27 +190,13 @@ def main(
         icesat = Altimetry(directory=directory, dem_fn=asp_dem)
 
         icesat.request_atl06sr_multi_processing(
-            processing_levels=["all", "ground"],
+            processing_levels=["ground"],
             save_to_parquet=False,
         )
 
         icesat.filter_esa_worldcover(filter_out="water")
 
         icesat.predefined_temporal_filter_atl06sr()
-
-        icesat.mapview_plot_atl06sr_to_dem(
-            key="all",
-            save_dir=plots_directory,
-            fig_fn=f"{next(figure_counter):02}.png",
-            **ctx_kwargs,
-        )
-
-        icesat.histogram(
-            key="all",
-            plot_aligned=False,
-            save_dir=plots_directory,
-            fig_fn=f"{next(figure_counter):02}.png",
-        )
 
         icesat.mapview_plot_atl06sr_to_dem(
             key="ground_seasonal",
