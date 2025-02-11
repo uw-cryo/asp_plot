@@ -109,6 +109,7 @@ def main(
             f"asp_plot_report_{directory_tail}_{stereo_directory}_{timestamp}.pdf"
         )
 
+    # TODO: resolves https://github.com/uw-cryo/asp_plot/issues/79
     report_pdf_path = os.path.join(
         directory, os.path.join(stereo_directory, report_filename)
     )
@@ -116,6 +117,7 @@ def main(
     figure_counter = count(0)
 
     # TODO: map crs should be set by output DEM.tif or default to a local orthographic projection, not EPSG:4326
+    #  https://github.com/uw-cryo/asp_plot/issues/76
 
     if map_crs is None:
         map_crs = "EPSG:4326"
