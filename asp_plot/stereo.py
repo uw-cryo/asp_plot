@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 import rasterio as rio
 from matplotlib_scalebar.scalebar import ScaleBar
+from osgeo import gdal
 
 from asp_plot.processing_parameters import ProcessingParameters
 from asp_plot.utils import ColorBar, Plotter, Raster, glob_file, save_figure
@@ -47,13 +48,17 @@ class StereoPlotter(Plotter):
             print(f"\nReference DEM: {self.reference_dem}\n")
 
         self.full_directory = os.path.join(self.directory, self.stereo_directory)
-        # TODO: these are not necessariliy orthos - run with non-mapproject workflow to test assumptions 
+        self.left_ortho_fn = glob_file(self.full_directory, "*-L.tif")
+        # Set processing flag if the left image is not mapprojected
+        self.orthos = self.is_mapprojected(self.left_ortho_fn)
         self.left_ortho_sub_fn = glob_file(self.full_directory, "*-L_sub.tif")
         self.right_ortho_sub_fn = glob_file(self.full_directory, "*-R_sub.tif")
-        self.left_ortho_fn = glob_file(self.full_directory, "*-L.tif")
-        # TODO: could be other .match files present in the directory
-        # This should be standard filename for the matches between original L and R inputs
-        self.match_point_fn = glob_file(self.full_directory, "*L__R.match")
+
+        # There may be multiple match files if stereo was run with --num-matches-from-disparity.
+        # In that case, filter out the match file one with `disp` in filename.
+        match_files = glob_file(self.full_directory, "*.match", all_files=True)
+        self.match_point_fn = [f for f in match_files if "-disp-" not in f][0]
+
         self.disparity_sub_fn = glob_file(self.full_directory, "*-D_sub.tif")
         self.disparity_fn = glob_file(self.full_directory, "*-F.tif")
 
@@ -84,6 +89,14 @@ class StereoPlotter(Plotter):
         self.intersection_error_fn = glob_file(
             self.full_directory, "*-IntersectionErr.tif"
         )
+
+    def is_mapprojected(self, filename):
+        """Check if there is mapprojection information"""
+        with gdal.Open(filename) as ds:
+            if ds.GetProjection() == "":
+                return False
+            else:
+                return True
 
     def read_ip_record(self, match_file):
         x, y = np.frombuffer(match_file.read(8), dtype=np.float32)
