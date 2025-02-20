@@ -94,22 +94,19 @@ def main(
     report_filename,
     report_title,
 ):
-    # TODO: Check that specified directories exist
-
     print(f"\nProcessing ASP files in {directory}\n")
 
     plots_directory = os.path.join(directory, "tmp_asp_report_plots/")
     os.makedirs(plots_directory, exist_ok=True)
 
-    if report_filename is None:
-        # Append timestamp to avoid overwriting existing reports
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-        directory_tail = os.path.split(directory.rstrip("/\\"))[-1]
-        report_filename = (
-            f"asp_plot_report_{directory_tail}_{stereo_directory}_{timestamp}.pdf"
-        )
+    if report_title is None:
+        report_title = os.path.split(directory.rstrip("/\\"))[-1]
 
-    # TODO: resolves https://github.com/uw-cryo/asp_plot/issues/79
+    if report_filename is None:
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        report_filename = f"asp_plot_report_{report_title}_{timestamp}.pdf"
+
+    # Save output report in the same directory as processed DEM
     report_pdf_path = os.path.join(
         directory, os.path.join(stereo_directory, report_filename)
     )
@@ -118,7 +115,6 @@ def main(
 
     # TODO: map crs should be set by output DEM.tif or default to a local orthographic projection, not EPSG:4326
     #  https://github.com/uw-cryo/asp_plot/issues/76
-
     if map_crs is None:
         map_crs = "EPSG:4326"
         print(
@@ -127,7 +123,6 @@ def main(
         add_basemap = False
 
     # TODO: Centralize this in plotting utils, should not need ctx import in the CLI wrapper
-
     if add_basemap:
         ctx_kwargs = {
             "crs": map_crs,
