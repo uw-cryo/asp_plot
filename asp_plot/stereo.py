@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 import rasterio as rio
 from matplotlib_scalebar.scalebar import ScaleBar
+from osgeo import gdal
 
 from asp_plot.processing_parameters import ProcessingParameters
 from asp_plot.utils import ColorBar, Plotter, Raster, glob_file, save_figure
@@ -47,11 +48,20 @@ class StereoPlotter(Plotter):
             print(f"\nReference DEM: {self.reference_dem}\n")
 
         self.full_directory = os.path.join(self.directory, self.stereo_directory)
-        self.left_ortho_sub_fn = glob_file(self.full_directory, "*-L_sub.tif")
-        self.right_ortho_sub_fn = glob_file(self.full_directory, "*-R_sub.tif")
-        self.left_ortho_fn = glob_file(self.full_directory, "*-L.tif")
-        self.match_point_fn = glob_file(self.full_directory, "*.match")
+        self.left_image_fn = glob_file(self.full_directory, "*-L.tif")
+        # Set processing flag if the left image is not mapprojected
+        self.orthos = self.is_mapprojected(self.left_image_fn)
+        self.left_image_sub_fn = glob_file(self.full_directory, "*-L_sub.tif")
+        self.right_image_sub_fn = glob_file(self.full_directory, "*-R_sub.tif")
+
+        # There may be multiple match files if stereo was run with --num-matches-from-disparity.
+        # In that case, filter out the match file with `-disp-` in filename.
+        match_files = glob_file(self.full_directory, "*.match", all_files=True)
+        self.match_point_fn = [f for f in match_files if "-disp-" not in f][0]
+
         self.disparity_sub_fn = glob_file(self.full_directory, "*-D_sub.tif")
+        # We only need the full disparity file to retrieve the GSD for plotting
+        # and rescaling below.
         self.disparity_fn = glob_file(self.full_directory, "*-D.tif")
 
         self.dem_gsd = dem_gsd
@@ -81,6 +91,14 @@ class StereoPlotter(Plotter):
         self.intersection_error_fn = glob_file(
             self.full_directory, "*-IntersectionErr.tif"
         )
+
+    def is_mapprojected(self, filename):
+        """Check if there is mapprojection information"""
+        with gdal.Open(filename) as ds:
+            if ds.GetProjection() == "":
+                return False
+            else:
+                return True
 
     def read_ip_record(self, match_file):
         x, y = np.frombuffer(match_file.read(8), dtype=np.float32)
@@ -143,21 +161,31 @@ class StereoPlotter(Plotter):
         fig, axa = plt.subplots(1, 2, figsize=(10, 5))
 
         if (
-            self.left_ortho_sub_fn
-            and self.right_ortho_sub_fn
+            self.left_image_sub_fn
+            and self.right_image_sub_fn
             and match_point_df is not None
         ):
-            full_gsd = Raster(self.left_ortho_fn).get_gsd()
-            sub_gsd = Raster(self.left_ortho_sub_fn).get_gsd()
-            rescale_factor = sub_gsd / full_gsd
-
-            left_image = Raster(self.left_ortho_sub_fn).read_array()
-            right_image = Raster(self.right_ortho_sub_fn).read_array()
+            # If the images are not mapprojected, we only show the distribution of match points
+            # and not the underlying images, which are rotated and difficult to plot.
+            # We can revisit plotting the non-mapprojected images later, but it is challenging,
+            # and likely not worthwhile, as the distribution of match points is what we are interested in.
+            if self.orthos:
+                full_gsd = Raster(self.left_image_fn).get_gsd()
+                sub_gsd = Raster(self.left_image_sub_fn).get_gsd()
+                rescale_factor = sub_gsd / full_gsd
+                left_image = Raster(self.left_image_sub_fn).read_array()
+                right_image = Raster(self.right_image_sub_fn).read_array()
+            else:
+                # These are small hacks to make the match point plot work if the images are not
+                # mapprojected and thus not being shown.
+                rescale_factor = 1
+                left_image = np.zeros((1, 1))
+                right_image = np.zeros((1, 1))
 
             self.plot_array(ax=axa[0], array=left_image, cmap="gray", add_cbar=False)
-            axa[0].set_title(f"Left image (n={match_point_df.shape[0]})")
+            axa[0].set_title(f"Left (n={match_point_df.shape[0]})")
             self.plot_array(ax=axa[1], array=right_image, cmap="gray", add_cbar=False)
-            axa[1].set_title("Right image")
+            axa[1].set_title("Right (scenes also shown if mapprojected)")
 
             axa[0].scatter(
                 match_point_df["x1"] / rescale_factor,
@@ -304,7 +332,9 @@ class StereoPlotter(Plotter):
         gsd = raster.get_gsd()
         hs = raster.hillshade()
         ie = Raster(self.intersection_error_fn).read_array()
-        image = Raster(self.left_ortho_fn)
+        # We only show the corresponding image if it is mapprojected
+        if self.orthos:
+            image = Raster(self.left_image_fn)
 
         # Full hillshade with DEM overlay
         self.plot_array(ax=ax_top, array=hs, cmap="gray", add_cbar=False)
@@ -417,13 +447,23 @@ class StereoPlotter(Plotter):
                     transform, (idx[0] + 1) * subset_size, (idx[1] + 1) * subset_size
                 )
 
-            image_subset = image.read_raster_subset((ul_x, lr_y, lr_x, ul_y))
-            clim = [image_subset.min(), np.percentile(image_subset, 95)]
-            self.plot_array(
-                ax=ax_img, array=image_subset, clim=clim, cmap="gray", add_cbar=False
-            )
+            # We only show the corresponding image if it is mapprojected
+            if self.orthos:
+                image_subset = image.read_raster_subset((ul_x, lr_y, lr_x, ul_y))
+                clim = [image_subset.min(), np.percentile(image_subset, 95)]
+                self.plot_array(
+                    ax=ax_img,
+                    array=image_subset,
+                    clim=clim,
+                    cmap="gray",
+                    add_cbar=False,
+                )
+                axes_to_modify = [ax_hs, ax_img]
+            else:
+                plt.delaxes(ax_img)
+                axes_to_modify = [ax_hs]
 
-            for ax in [ax_hs, ax_img]:
+            for ax in axes_to_modify:
                 ax.set_xticks([])
                 ax.set_yticks([])
                 ax.set_title(None)
