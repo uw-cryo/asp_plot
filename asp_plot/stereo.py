@@ -48,11 +48,11 @@ class StereoPlotter(Plotter):
             print(f"\nReference DEM: {self.reference_dem}\n")
 
         self.full_directory = os.path.join(self.directory, self.stereo_directory)
-        self.left_ortho_fn = glob_file(self.full_directory, "*-L.tif")
+        self.left_image_fn = glob_file(self.full_directory, "*-L.tif")
         # Set processing flag if the left image is not mapprojected
-        self.orthos = self.is_mapprojected(self.left_ortho_fn)
-        self.left_ortho_sub_fn = glob_file(self.full_directory, "*-L_sub.tif")
-        self.right_ortho_sub_fn = glob_file(self.full_directory, "*-R_sub.tif")
+        self.orthos = self.is_mapprojected(self.left_image_fn)
+        self.left_image_sub_fn = glob_file(self.full_directory, "*-L_sub.tif")
+        self.right_image_sub_fn = glob_file(self.full_directory, "*-R_sub.tif")
 
         # There may be multiple match files if stereo was run with --num-matches-from-disparity.
         # In that case, filter out the match file one with `disp` in filename.
@@ -159,23 +159,31 @@ class StereoPlotter(Plotter):
         fig, axa = plt.subplots(1, 2, figsize=(10, 5))
 
         if (
-            self.left_ortho_sub_fn
-            and self.right_ortho_sub_fn
+            self.left_image_sub_fn
+            and self.right_image_sub_fn
             and match_point_df is not None
         ):
-            # TODO: the L and R are not necessarily projected images with GSD in meters
-            # This only works with mapproject stereo workflow
-            full_gsd = Raster(self.left_ortho_fn).get_gsd()
-            sub_gsd = Raster(self.left_ortho_sub_fn).get_gsd()
-            rescale_factor = sub_gsd / full_gsd
-
-            left_image = Raster(self.left_ortho_sub_fn).read_array()
-            right_image = Raster(self.right_ortho_sub_fn).read_array()
+            # If the images are not mapprojected, we only show the distribution of match points
+            # and not the underlying images, which are rotated and difficult to plot.
+            # We can revisit plotting the non-mapprojected images later, but it is challenging,
+            # and likely not worthwhile, as the distribution of match points is what we are interested in.
+            if self.orthos:
+                full_gsd = Raster(self.left_image_fn).get_gsd()
+                sub_gsd = Raster(self.left_image_sub_fn).get_gsd()
+                rescale_factor = sub_gsd / full_gsd
+                left_image = Raster(self.left_image_sub_fn).read_array()
+                right_image = Raster(self.right_image_sub_fn).read_array()
+            else:
+                # These are small hacks to make the match point plot work if the images are not
+                # mapprojected and thus not being shown.
+                rescale_factor = 1
+                left_image = np.zeros((1, 1))
+                right_image = np.zeros((1, 1))
 
             self.plot_array(ax=axa[0], array=left_image, cmap="gray", add_cbar=False)
-            axa[0].set_title(f"Left image (n={match_point_df.shape[0]})")
+            axa[0].set_title(f"Left (n={match_point_df.shape[0]})")
             self.plot_array(ax=axa[1], array=right_image, cmap="gray", add_cbar=False)
-            axa[1].set_title("Right image")
+            axa[1].set_title("Right (scenes also shown if mapprojected)")
 
             axa[0].scatter(
                 match_point_df["x1"] / rescale_factor,
@@ -322,7 +330,7 @@ class StereoPlotter(Plotter):
         gsd = raster.get_gsd()
         hs = raster.hillshade()
         ie = Raster(self.intersection_error_fn).read_array()
-        image = Raster(self.left_ortho_fn)
+        image = Raster(self.left_image_fn)
 
         # Full hillshade with DEM overlay
         self.plot_array(ax=ax_top, array=hs, cmap="gray", add_cbar=False)
@@ -435,6 +443,7 @@ class StereoPlotter(Plotter):
                     transform, (idx[0] + 1) * subset_size, (idx[1] + 1) * subset_size
                 )
 
+            # TODO: use self.orthos to conditionally set this up
             image_subset = image.read_raster_subset((ul_x, lr_y, lr_x, ul_y))
             clim = [image_subset.min(), np.percentile(image_subset, 95)]
             self.plot_array(
