@@ -55,12 +55,14 @@ class StereoPlotter(Plotter):
         self.right_image_sub_fn = glob_file(self.full_directory, "*-R_sub.tif")
 
         # There may be multiple match files if stereo was run with --num-matches-from-disparity.
-        # In that case, filter out the match file one with `disp` in filename.
+        # In that case, filter out the match file with `-disp-` in filename.
         match_files = glob_file(self.full_directory, "*.match", all_files=True)
         self.match_point_fn = [f for f in match_files if "-disp-" not in f][0]
 
         self.disparity_sub_fn = glob_file(self.full_directory, "*-D_sub.tif")
-        self.disparity_fn = glob_file(self.full_directory, "*-F.tif")
+        # We only need the full disparity file to retrieve the GSD for plotting
+        # and rescaling below.
+        self.disparity_fn = glob_file(self.full_directory, "*-D.tif")
 
         self.dem_gsd = dem_gsd
 
@@ -330,7 +332,9 @@ class StereoPlotter(Plotter):
         gsd = raster.get_gsd()
         hs = raster.hillshade()
         ie = Raster(self.intersection_error_fn).read_array()
-        image = Raster(self.left_image_fn)
+        # We only show the corresponding image if it is mapprojected
+        if self.orthos:
+            image = Raster(self.left_image_fn)
 
         # Full hillshade with DEM overlay
         self.plot_array(ax=ax_top, array=hs, cmap="gray", add_cbar=False)
@@ -443,14 +447,23 @@ class StereoPlotter(Plotter):
                     transform, (idx[0] + 1) * subset_size, (idx[1] + 1) * subset_size
                 )
 
-            # TODO: use self.orthos to conditionally set this up
-            image_subset = image.read_raster_subset((ul_x, lr_y, lr_x, ul_y))
-            clim = [image_subset.min(), np.percentile(image_subset, 95)]
-            self.plot_array(
-                ax=ax_img, array=image_subset, clim=clim, cmap="gray", add_cbar=False
-            )
+            # We only show the corresponding image if it is mapprojected
+            if self.orthos:
+                image_subset = image.read_raster_subset((ul_x, lr_y, lr_x, ul_y))
+                clim = [image_subset.min(), np.percentile(image_subset, 95)]
+                self.plot_array(
+                    ax=ax_img,
+                    array=image_subset,
+                    clim=clim,
+                    cmap="gray",
+                    add_cbar=False,
+                )
+                axes_to_modify = [ax_hs, ax_img]
+            else:
+                plt.delaxes(ax_img)
+                axes_to_modify = [ax_hs]
 
-            for ax in [ax_hs, ax_img]:
+            for ax in axes_to_modify:
                 ax.set_xticks([])
                 ax.set_yticks([])
                 ax.set_title(None)
