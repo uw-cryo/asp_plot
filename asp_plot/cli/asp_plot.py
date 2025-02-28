@@ -61,7 +61,7 @@ from asp_plot.utils import compile_report
     "--add_basemap",
     prompt=False,
     default=True,
-    help="If True, add a contextily basemap to the figure, which requires internet connection. Default: True.",
+    help="If True, add a basemaps to the figures, which requires internet connection. Default: True.",
 )
 @click.option(
     "--plot_icesat",
@@ -177,7 +177,7 @@ def main(
     )
 
     # Geometry plot
-    plotter = SceneGeometryPlotter(directory)
+    plotter = SceneGeometryPlotter(directory, add_basemap=add_basemap)
     plotter.dg_geom_plot(
         save_dir=plots_directory, fig_fn=f"{next(figure_counter):02}.png"
     )
