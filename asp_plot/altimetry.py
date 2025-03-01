@@ -214,18 +214,12 @@ class Altimetry:
             # Also need to filter out 0 values, not sure what these are caused by, but also very bad points.
             atl06sr_filtered = atl06sr_filtered[atl06sr_filtered["h_sigma"] != 0]
 
-            if save_to_parquet:
-                atl06sr_filtered.to_parquet(fn)
-
             self.atl06sr_processing_levels_filtered[key] = atl06sr_filtered
 
     def _save_to_parquet(self, fn, df, parms):
         """Save SlideRule dataframe to parquet including SlideRule parameters"""
         # We could save the parameters to the parquet metadata, but this
-        # was proving rather difficult. The file sizes are manageable, and
-        # keeping the parameters in the dataframe is more flexible. Whereby,
-        # the processing parameters are available for every point in the dataframe
-        # if filtering is done later.
+        # was proving rather difficult.
         parms_copy = parms.copy()
         parms_copy["poly"] = str(parms_copy["poly"])
         df["sliderule_parameters"] = json.dumps(parms_copy)
@@ -543,7 +537,6 @@ class Altimetry:
         key="all",
         plot_beams=False,
         plot_dem=False,
-        plot_hillshade=False,
         column_name="h_mean",
         cbar_label="Height above datum (m)",
         title="ICESat-2 ATL06-SR",
@@ -563,11 +556,11 @@ class Altimetry:
 
         if plot_dem:
             ctx_kwargs = {}
-            dem = gu.Raster(self.dem_fn, downsample=10)
-            # dem = Raster(self.dem_fn)
+            # We downsample to speed plotting. This is not carried over into any analysis.
+            dem_downsampled = gu.Raster(self.dem_fn, downsample=10)
             cb = ColorBar(perc_range=(2, 98))
-            cb.get_clim(dem.data)
-            dem.plot(
+            cb.get_clim(dem_downsampled.data)
+            dem_downsampled.plot(
                 ax=ax,
                 cmap="inferno",
                 add_cbar=False,
@@ -577,22 +570,7 @@ class Altimetry:
             )
             ax.set_title(None)
 
-        # TODO: Centralize with other DEM and hillshade plotting
-        if plot_hillshade:
-            ctx_kwargs = {}
-            dem = Raster(self.dem_fn)
-            hs = dem.hillshade()
-            cb = ColorBar(perc_range=(2, 98))
-            cb.get_clim(hs.data)
-            hs.plot(
-                ax=ax,
-                cmap="gray",
-                add_cbar=False,
-                vmin=cb.clim[0],
-                vmax=cb.clim[1],
-                alpha=1,
-            )
-            ax.set_title(None)
+        # TODO: Implement optional hillshade plotting
 
         if plot_beams:
             color_dict = {
