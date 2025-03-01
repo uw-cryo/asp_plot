@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 
@@ -18,6 +19,7 @@ from asp_plot.utils import ColorBar, Raster, glob_file, save_figure
 
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
+
 
 class Altimetry:
     def __init__(
@@ -43,7 +45,7 @@ class Altimetry:
         self.atl06sr_processing_levels = atl06sr_processing_levels
         self.atl06sr_processing_levels_filtered = atl06sr_processing_levels_filtered
 
-        #Initialize the SlideRule session (requires active connection)
+        # Initialize the SlideRule session (requires active connection)
         icesat2.init("slideruleearth.io", verbose=True)
 
         # TODO: Implement alongside request_atl03sr below
@@ -100,12 +102,30 @@ class Altimetry:
         # and choose the confidence level that is highest across all five surface type entries.
         # cnf options: {"atl03_tep", "atl03_not_considered", "atl03_background", "atl03_within_10m", \
         # "atl03_low", "atl03_medium", "atl03_high"}
-        # Note reduce count for limited number of ground photons
+        # Note reduced count for limited number of ground photons
 
-        # TODO: isolate shared and custom parms, initialize each with shared parameters, then set custom
         # TODO: use the WorldCover values to determine if we should report canopy or top of canopy
+        #   This is tricky, and not clear yet how to go about this. For now, just request all processing levels.
+
         # TODO: Use more generic variable names and strings for functions that are not just limited to atl06
-        parms_dict = {
+        #   This can be done when we implement additional requests for other data types
+
+        # Shared parameters for all processing levels
+        shared_parms = {
+            "poly": region,
+            "res": res,
+            "len": len,
+            "ats": ats,
+            "maxi": maxi,
+            "samples": {
+                "esa_worldcover": {
+                    "asset": "esa-worldcover-10meter",
+                }
+            },
+        }
+
+        # Custom parameters for each processing level
+        custom_parms = {
             "all": {
                 "cnf": "atl03_high",
                 "srt": -1,
@@ -121,7 +141,7 @@ class Altimetry:
                 "cnf": "atl03_medium",
                 "srt": -1,
                 "cnt": 5,
-                "atl08_class": ["atl08_canopy", "atl08_top_of_canopy"],
+                "atl08_class": "atl08_canopy",
             },
             "top_of_canopy": {
                 "cnf": "atl03_medium",
@@ -131,24 +151,16 @@ class Altimetry:
             },
         }
 
-        parms_dict = {
-            key: parms for key, parms in parms_dict.items() if key in processing_levels
+        # Filter custom_parms to only include requested processing levels
+        custom_parms = {
+            key: parms
+            for key, parms in custom_parms.items()
+            if key in processing_levels
         }
 
-        for key, parms in parms_dict.items():
-            parms["poly"] = region
-            parms["res"] = res
-            parms["len"] = len
-            parms["ats"] = ats
-            parms["maxi"] = maxi
-            parms["samples"] = {
-                "esa_worldcover": {
-                    "asset": "esa-worldcover-10meter",
-                }
-            }
+        for key, custom_parm in custom_parms.items():
+            parms = {**shared_parms, **custom_parm}
 
-            # TODO: write out relevant parameters in metadata, not filename
-            #fn_base = f"{filename}_res{res}_len{len}_cnt{cnt}_ats{ats}_maxi{maxi}_{key}"
             fn_base = f"{filename}_{key}"
 
             print(f"\nICESat-2 ATL06 request processing for: {key}")
@@ -156,42 +168,68 @@ class Altimetry:
 
             print(parms)
 
+            # Check for existing file with matching parameters
             if os.path.exists(fn):
                 print(f"Existing file found, reading in: {fn}")
                 atl06sr = gpd.read_parquet(fn)
-                #TODO: check that parms in file are same as request 
+
+                # Check for parameters in the column
+                if "sliderule_parameters" in atl06sr.columns:
+                    try:
+                        file_parms = json.loads(atl06sr["sliderule_parameters"].iloc[0])
+                        parms_copy = parms.copy()
+                        parms_copy["poly"] = str(parms_copy["poly"])
+
+                        if str(parms_copy) != str(file_parms):
+                            print("Parameters don't match request. Regenerating...")
+                            atl06sr = icesat2.atl06p(parms)
+                            if save_to_parquet:
+                                self._save_to_parquet(fn, atl06sr, parms)
+                    except Exception as e:
+                        print(f"Error checking sliderule_parameters column: {e}")
+                else:
+                    print("No parameters column found, regenerating...")
+                    atl06sr = icesat2.atl06p(parms)
+                    if save_to_parquet:
+                        self._save_to_parquet(fn, atl06sr, parms)
             else:
-                #This is the actual SlideRule call!
                 atl06sr = icesat2.atl06p(parms)
                 if save_to_parquet:
-                    atl06sr.to_parquet(fn)
+                    self._save_to_parquet(fn, atl06sr, parms)
 
             self.atl06sr_processing_levels[key] = atl06sr
 
             print(f"Filtering ATL06-SR {key}")
-            fn = f"{fn_base}_filtered.parquet"
 
-            if os.path.exists(fn):
-                print(f"Existing file found, reading in: {fn}")
-                atl06sr_filtered = gpd.read_parquet(fn)
-            else:
-                # From Aimee Gibbons:
-                # I'd recommend anything cycle 03 and later, due to pointing issues before cycle 03.
-                atl06sr_filtered = atl06sr[atl06sr["cycle"] >= 3]
+            # From Aimee Gibbons:
+            # I'd recommend anything cycle 03 and later, due to pointing issues before cycle 03.
+            atl06sr_filtered = atl06sr[atl06sr["cycle"] >= 3]
 
-                # Remove bad fits using high percentile of `h_sigma`, the error estimate for the least squares fit model.
-                # TODO: not sure about h_sigma quantile...might throw out too much. Maybe just remove 0 values?
-                atl06sr_filtered = atl06sr_filtered[
-                    atl06sr_filtered["h_sigma"]
-                    < atl06sr_filtered["h_sigma"].quantile(h_sigma_quantile)
-                ]
-                # Also need to filter out 0 values, not sure what these are caused by, but also very bad points.
-                atl06sr_filtered = atl06sr_filtered[atl06sr_filtered["h_sigma"] != 0]
+            # Remove bad fits using high percentile of `h_sigma`, the error estimate for the least squares fit model.
+            # TODO: not sure about h_sigma quantile...might throw out too much. Maybe just remove 0 values?
+            atl06sr_filtered = atl06sr_filtered[
+                atl06sr_filtered["h_sigma"]
+                < atl06sr_filtered["h_sigma"].quantile(h_sigma_quantile)
+            ]
+            # Also need to filter out 0 values, not sure what these are caused by, but also very bad points.
+            atl06sr_filtered = atl06sr_filtered[atl06sr_filtered["h_sigma"] != 0]
 
-                if save_to_parquet:
-                    atl06sr_filtered.to_parquet(fn)
+            if save_to_parquet:
+                atl06sr_filtered.to_parquet(fn)
 
             self.atl06sr_processing_levels_filtered[key] = atl06sr_filtered
+
+    def _save_to_parquet(self, fn, df, parms):
+        """Save SlideRule dataframe to parquet including SlideRule parameters"""
+        # We could save the parameters to the parquet metadata, but this
+        # was proving rather difficult. The file sizes are manageable, and
+        # keeping the parameters in the dataframe is more flexible. Whereby,
+        # the processing parameters are available for every point in the dataframe
+        # if filtering is done later.
+        parms_copy = parms.copy()
+        parms_copy["poly"] = str(parms_copy["poly"])
+        df["sliderule_parameters"] = json.dumps(parms_copy)
+        df.to_parquet(fn)
 
     def filter_esa_worldcover(self, filter_out="water", retain_only=None):
         # Value	Description
@@ -525,8 +563,8 @@ class Altimetry:
 
         if plot_dem:
             ctx_kwargs = {}
-            #dem = gu.Raster(self.dem_fn, downsample=10)
-            dem = Raster(self.dem_fn)
+            dem = gu.Raster(self.dem_fn, downsample=10)
+            # dem = Raster(self.dem_fn)
             cb = ColorBar(perc_range=(2, 98))
             cb.get_clim(dem.data)
             dem.plot(
@@ -539,7 +577,7 @@ class Altimetry:
             )
             ax.set_title(None)
 
-        #TODO: Centralize with other DEM and hillshade plotting
+        # TODO: Centralize with other DEM and hillshade plotting
         if plot_hillshade:
             ctx_kwargs = {}
             dem = Raster(self.dem_fn)
