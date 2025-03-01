@@ -109,9 +109,9 @@ Options:
                                   logs will be examined to find it. If not
                                   found, no difference plots will be
                                   generated.
-  --add_basemap BOOLEAN           If True, add a contextily basemap to the
-                                  figure, which requires internet connection.
-                                  Default: True.
+  --add_basemap BOOLEAN           If True, add a basemaps to the figures,
+                                  which requires internet connection. Default:
+                                  True.
   --plot_icesat BOOLEAN           If True, plot an ICESat-2 difference plot
                                   with the DEM result. This requires internet
                                   connection to pull ICESat data. Default:
@@ -123,6 +123,16 @@ Options:
   --report_title TEXT             Title for the report. Default: Directory
                                   name of ASP processing.
 ```
+
+### Running without internet connection
+
+If you add these two flags as `False` to the `asp_plot` command, you can run it without internet connection:
+
+```
+--add_basemap False --plot_icesat False
+```
+
+Otherwise, basemaps will be fetched using contextly and ICESat-2 data will be fetched by SlideRule.
 
 ## CLI usage: `csm_camera_plot`
 

@@ -13,8 +13,9 @@ logger = logging.getLogger(__name__)
 
 
 class SceneGeometryPlotter(StereopairMetadataParser):
-    def __init__(self, directory, **kwargs):
+    def __init__(self, directory, add_basemap=True, **kwargs):
         super().__init__(directory=directory, **kwargs)
+        self.add_basemap = add_basemap
 
     def get_scene_string(self, p, key="catid1_dict"):
         scene_string = (
@@ -110,7 +111,6 @@ class SceneGeometryPlotter(StereopairMetadataParser):
         ax: matplotlib sublot axes object
         gdf_list: list of necessary GeoDataFrame objects
         """
-        import contextily as ctx
 
         poly_kw = {"alpha": 0.5, "edgecolor": "k", "linewidth": 0.5}
         eph_kw = {"markersize": 2}
@@ -134,7 +134,10 @@ class SceneGeometryPlotter(StereopairMetadataParser):
         eph1_gdf.iloc[0:2].to_crs(map_crs).plot(ax=ax, **start_kw)
         eph2_gdf.iloc[0:2].to_crs(map_crs).plot(ax=ax, **start_kw)
 
-        ctx.add_basemap(ax, crs=map_crs, attribution=False)
+        if self.add_basemap:
+            import contextily as ctx
+
+            ctx.add_basemap(ax, crs=map_crs, attribution=False)
 
         ax.legend(loc="best", prop={"size": 6})
         if title:

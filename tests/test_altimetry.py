@@ -19,12 +19,12 @@ class TestAltimetry:
         # icesat.request_atl06sr_multi_processing(
         #     filename="tests/test_data/icesat_data/atl06sr_",
         # )
-        for key in ["ground", "canopy", "top_of_canopy"]:
+        for key in ["all", "ground", "canopy", "top_of_canopy"]:
             icesat.atl06sr_processing_levels[key] = gpd.read_parquet(
-                f"tests/test_data/icesat_data/atl06sr_res20_len40_cnt10_ats20_maxi5_{key}.parquet"
+                f"tests/test_data/icesat_data/atl06sr_{key}.parquet"
             )
-            icesat.atl06sr_processing_levels_filtered[key] = gpd.read_parquet(
-                f"tests/test_data/icesat_data/atl06sr_res20_len40_cnt10_ats20_maxi5_{key}_filtered.parquet"
+            icesat.atl06sr_processing_levels_filtered[key] = (
+                icesat.atl06sr_processing_levels[key]
             )
         return icesat
 
