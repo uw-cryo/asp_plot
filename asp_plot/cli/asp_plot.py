@@ -61,7 +61,7 @@ from asp_plot.utils import compile_report
     "--add_basemap",
     prompt=False,
     default=True,
-    help="If True, add a contextily basemap to the figure, which requires internet connection. Default: True.",
+    help="If True, add a basemaps to the figures, which requires internet connection. Default: True.",
 )
 @click.option(
     "--plot_icesat",
@@ -177,7 +177,7 @@ def main(
     )
 
     # Geometry plot
-    plotter = SceneGeometryPlotter(directory)
+    plotter = SceneGeometryPlotter(directory, add_basemap=add_basemap)
     plotter.dg_geom_plot(
         save_dir=plots_directory, fig_fn=f"{next(figure_counter):02}.png"
     )
@@ -187,13 +187,27 @@ def main(
         icesat = Altimetry(directory=directory, dem_fn=asp_dem)
 
         icesat.request_atl06sr_multi_processing(
-            processing_levels=["ground"],
+            processing_levels=["all", "ground"],
             save_to_parquet=False,
         )
 
         icesat.filter_esa_worldcover(filter_out="water")
 
         icesat.predefined_temporal_filter_atl06sr()
+
+        icesat.mapview_plot_atl06sr_to_dem(
+            key="all",
+            save_dir=plots_directory,
+            fig_fn=f"{next(figure_counter):02}.png",
+            **ctx_kwargs,
+        )
+
+        icesat.histogram(
+            key="all",
+            plot_aligned=False,
+            save_dir=plots_directory,
+            fig_fn=f"{next(figure_counter):02}.png",
+        )
 
         icesat.mapview_plot_atl06sr_to_dem(
             key="ground_seasonal",

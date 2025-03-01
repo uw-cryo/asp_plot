@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 
@@ -15,8 +16,6 @@ from sliderule import icesat2
 from asp_plot.alignment import Alignment
 from asp_plot.stereopair_metadata_parser import StereopairMetadataParser
 from asp_plot.utils import ColorBar, Raster, glob_file, save_figure
-
-icesat2.init("slideruleearth.io", verbose=True)
 
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
@@ -45,6 +44,9 @@ class Altimetry:
 
         self.atl06sr_processing_levels = atl06sr_processing_levels
         self.atl06sr_processing_levels_filtered = atl06sr_processing_levels_filtered
+
+        # Initialize the SlideRule session (requires active connection)
+        icesat2.init("slideruleearth.io", verbose=True)
 
         # TODO: Implement alongside request_atl03sr below
         # if atl03sr is not None and not isinstance(atl03sr, gpd.GeoDataFrame):
@@ -81,13 +83,13 @@ class Altimetry:
 
     def request_atl06sr_multi_processing(
         self,
-        processing_levels=["ground", "canopy", "top_of_canopy"],
+        processing_levels=["all", "ground", "canopy", "top_of_canopy"],
         res=20,
         len=40,
         ats=20,
         cnt=10,
-        maxi=5,
-        h_sigma_quantile=0.95,
+        maxi=6,
+        h_sigma_quantile=1.0,
         save_to_parquet=False,
         filename="atl06sr",
         region=None,
@@ -98,80 +100,130 @@ class Altimetry:
         # See parameter discussion on: https://github.com/SlideRuleEarth/sliderule/issues/448
         # "srt": -1 tells the server side code to look at the ATL03 confidence array for each photon
         # and choose the confidence level that is highest across all five surface type entries.
-        parms_dict = {
-            "ground": {
-                "cnf": 0,
+        # cnf options: {"atl03_tep", "atl03_not_considered", "atl03_background", "atl03_within_10m", \
+        # "atl03_low", "atl03_medium", "atl03_high"}
+        # Note reduced count for limited number of ground photons
+
+        # TODO: use the WorldCover values to determine if we should report canopy or top of canopy
+        #   This is tricky, and not clear yet how to go about this. For now, just request all processing levels.
+
+        # TODO: Use more generic variable names and strings for functions that are not just limited to atl06
+        #   This can be done when we implement additional requests for other data types
+
+        # Shared parameters for all processing levels
+        shared_parms = {
+            "poly": region,
+            "res": res,
+            "len": len,
+            "ats": ats,
+            "maxi": maxi,
+            "samples": {
+                "esa_worldcover": {
+                    "asset": "esa-worldcover-10meter",
+                }
+            },
+        }
+
+        # Custom parameters for each processing level
+        custom_parms = {
+            "all": {
+                "cnf": "atl03_high",
                 "srt": -1,
+                "cnt": cnt,
+            },
+            "ground": {
+                "cnf": "atl03_low",
+                "srt": -1,
+                "cnt": 5,
                 "atl08_class": "atl08_ground",
             },
             "canopy": {
-                "cnf": 0,
+                "cnf": "atl03_medium",
                 "srt": -1,
+                "cnt": 5,
                 "atl08_class": "atl08_canopy",
             },
             "top_of_canopy": {
-                "cnf": 0,
+                "cnf": "atl03_medium",
                 "srt": -1,
+                "cnt": 5,
                 "atl08_class": "atl08_top_of_canopy",
             },
         }
 
-        parms_dict = {
-            key: parms for key, parms in parms_dict.items() if key in processing_levels
+        # Filter custom_parms to only include requested processing levels
+        custom_parms = {
+            key: parms
+            for key, parms in custom_parms.items()
+            if key in processing_levels
         }
 
-        for key, parms in parms_dict.items():
-            parms["poly"] = region
-            parms["res"] = res
-            parms["len"] = len
-            parms["ats"] = ats
-            parms["cnt"] = cnt
-            parms["maxi"] = maxi
-            parms["samples"] = {
-                "esa_worldcover": {
-                    "asset": "esa-worldcover-10meter",
-                }
-            }
+        for key, custom_parm in custom_parms.items():
+            parms = {**shared_parms, **custom_parm}
 
-            fn_base = f"{filename}_res{res}_len{len}_cnt{cnt}_ats{ats}_maxi{maxi}_{key}"
+            fn_base = f"{filename}_{key}"
 
             print(f"\nICESat-2 ATL06 request processing for: {key}")
             fn = f"{fn_base}.parquet"
 
+            print(parms)
+
+            # Check for existing file with matching parameters
             if os.path.exists(fn):
                 print(f"Existing file found, reading in: {fn}")
                 atl06sr = gpd.read_parquet(fn)
+
+                # Check for parameters in the column
+                if "sliderule_parameters" in atl06sr.columns:
+                    try:
+                        file_parms = json.loads(atl06sr["sliderule_parameters"].iloc[0])
+                        parms_copy = parms.copy()
+                        parms_copy["poly"] = str(parms_copy["poly"])
+
+                        if str(parms_copy) != str(file_parms):
+                            print("Parameters don't match request. Regenerating...")
+                            atl06sr = icesat2.atl06p(parms)
+                            if save_to_parquet:
+                                self._save_to_parquet(fn, atl06sr, parms)
+                    except Exception as e:
+                        print(f"Error checking sliderule_parameters column: {e}")
+                else:
+                    print("No parameters column found, regenerating...")
+                    atl06sr = icesat2.atl06p(parms)
+                    if save_to_parquet:
+                        self._save_to_parquet(fn, atl06sr, parms)
             else:
                 atl06sr = icesat2.atl06p(parms)
                 if save_to_parquet:
-                    atl06sr.to_parquet(fn)
+                    self._save_to_parquet(fn, atl06sr, parms)
 
             self.atl06sr_processing_levels[key] = atl06sr
 
             print(f"Filtering ATL06-SR {key}")
-            fn = f"{fn_base}_filtered.parquet"
 
-            if os.path.exists(fn):
-                print(f"Existing file found, reading in: {fn}")
-                atl06sr_filtered = gpd.read_parquet(fn)
-            else:
-                # From Aimee Gibbons:
-                # I'd recommend anything cycle 03 and later, due to pointing issues before cycle 03.
-                atl06sr_filtered = atl06sr[atl06sr["cycle"] >= 3]
+            # From Aimee Gibbons:
+            # I'd recommend anything cycle 03 and later, due to pointing issues before cycle 03.
+            atl06sr_filtered = atl06sr[atl06sr["cycle"] >= 3]
 
-                # Remove bad fits using high percentile of `h_sigma`, the error estimate for the least squares fit model.
-                # TODO: not sure about h_sigma quantile...might throw out too much. Maybe just remove 0 values?
-                atl06sr_filtered = atl06sr_filtered[
-                    atl06sr_filtered["h_sigma"]
-                    < atl06sr_filtered["h_sigma"].quantile(h_sigma_quantile)
-                ]
-                # Also need to filter out 0 values, not sure what these are caused by, but also very bad points.
-                atl06sr_filtered = atl06sr_filtered[atl06sr_filtered["h_sigma"] != 0]
-
-                if save_to_parquet:
-                    atl06sr_filtered.to_parquet(fn)
+            # Remove bad fits using high percentile of `h_sigma`, the error estimate for the least squares fit model.
+            # TODO: not sure about h_sigma quantile...might throw out too much. Maybe just remove 0 values?
+            atl06sr_filtered = atl06sr_filtered[
+                atl06sr_filtered["h_sigma"]
+                < atl06sr_filtered["h_sigma"].quantile(h_sigma_quantile)
+            ]
+            # Also need to filter out 0 values, not sure what these are caused by, but also very bad points.
+            atl06sr_filtered = atl06sr_filtered[atl06sr_filtered["h_sigma"] != 0]
 
             self.atl06sr_processing_levels_filtered[key] = atl06sr_filtered
+
+    def _save_to_parquet(self, fn, df, parms):
+        """Save SlideRule dataframe to parquet including SlideRule parameters"""
+        # We could save the parameters to the parquet metadata, but this
+        # was proving rather difficult.
+        parms_copy = parms.copy()
+        parms_copy["poly"] = str(parms_copy["poly"])
+        df["sliderule_parameters"] = json.dumps(parms_copy)
+        df.to_parquet(fn)
 
     def filter_esa_worldcover(self, filter_out="water", retain_only=None):
         # Value	Description
@@ -225,12 +277,13 @@ class Altimetry:
 
         for key in original_keys:
             print(
-                f"\nFiltering ATL06 with 15 day pad, 90 day pad, and seasonal pad around {date} for: {key}"
+                f"\nFiltering ATL06 with 15 day pad, 45 day, 91 day pad, and seasonal pad around {date} for: {key}"
             )
             atl06sr = self.atl06sr_processing_levels_filtered[key]
 
             fifteen_day = atl06sr[abs(atl06sr.index - date) <= pd.Timedelta(days=15)]
             fortyfive_day = atl06sr[abs(atl06sr.index - date) <= pd.Timedelta(days=45)]
+            ninetyone_day = atl06sr[abs(atl06sr.index - date) <= pd.Timedelta(days=91)]
 
             image_season = date.strftime("%b")
             if image_season in ["Dec", "Jan", "Feb"]:
@@ -257,6 +310,10 @@ class Altimetry:
             if not fortyfive_day.empty:
                 self.atl06sr_processing_levels_filtered[f"{key}_45_day_pad"] = (
                     fortyfive_day
+                )
+            if not ninetyone_day.empty:
+                self.atl06sr_processing_levels_filtered[f"{key}_91_day_pad"] = (
+                    ninetyone_day
                 )
             if not season_filter.empty:
                 self.atl06sr_processing_levels_filtered[f"{key}_seasonal"] = (
@@ -391,7 +448,7 @@ class Altimetry:
 
     def plot_atl06sr_time_stamps(
         self,
-        key="ground",
+        key="all",
         title="ICESat-2 ATL06-SR Time Stamps",
         cmap="inferno",
         map_crs="4326",
@@ -477,7 +534,7 @@ class Altimetry:
 
     def plot_atl06sr(
         self,
-        key="ground",
+        key="all",
         plot_beams=False,
         plot_dem=False,
         column_name="h_mean",
@@ -499,6 +556,7 @@ class Altimetry:
 
         if plot_dem:
             ctx_kwargs = {}
+            # We downsample to speed plotting. This is not carried over into any analysis.
             dem_downsampled = gu.Raster(self.dem_fn, downsample=10)
             cb = ColorBar(perc_range=(2, 98))
             cb.get_clim(dem_downsampled.data)
@@ -511,6 +569,8 @@ class Altimetry:
                 alpha=1,
             )
             ax.set_title(None)
+
+        # TODO: Implement optional hillshade plotting
 
         if plot_beams:
             color_dict = {
@@ -555,6 +615,9 @@ class Altimetry:
         if ctx_kwargs:
             ctx.add_basemap(ax=ax, **ctx_kwargs)
 
+        ax.set_xticks([])
+        ax.set_yticks([])
+
         fig.suptitle(f"{title}\n{key} (n={atl06sr.shape[0]})", size=10)
         fig.tight_layout()
         if save_dir and fig_fn:
@@ -594,7 +657,7 @@ class Altimetry:
 
     def mapview_plot_atl06sr_to_dem(
         self,
-        key="ground",
+        key="all",
         clim=None,
         plot_aligned=False,
         save_dir=None,
@@ -640,7 +703,7 @@ class Altimetry:
 
     def histogram(
         self,
-        key="ground",
+        key="all",
         title="Histogram",
         plot_aligned=False,
         save_dir=None,
