@@ -103,7 +103,9 @@ Options:
                                   specify it here as a float or integer, e.g.
                                   1, 1.5, etc.
   --map_crs TEXT                  Projection for ICESat and bundle adjustment
-                                  plots. Default: None.
+                                  plots. As EPSG:XXXX. Default: None, which
+                                  will use the projection of the ASP DEM, and
+                                  fall back on EPSG:4326 if not found.
   --reference_dem TEXT            Optional reference DEM used in ASP
                                   processing. No default. If not supplied, the
                                   logs will be examined to find it. If not
@@ -150,7 +152,7 @@ But, for more meaningful positions we at least recommend specifying a `map_crs` 
 ```
 $ csm_camera_plot --original_cameras path/to/original_camera_1,path/to/original_camera_2 \
                       --optimized_cameras path/to/optimized_camera_1,path/to/optimized_camera_2 \
-                      --map_crs 32728
+                      --map_crs EPSG:32728
                       --save_dir path/to/save_directory/
 ```
 
@@ -159,7 +161,7 @@ If a second camera is not supplied, the tool will happily plot just the single c
 ```
 $ csm_camera_plot --original_cameras path/to/original_camera_1 \
                       --optimized_cameras path/to/optimized_camera_1 \
-                      --map_crs 32728
+                      --map_crs EPSG:32728
                       --save_dir path/to/save_directory/
 ```
 
@@ -176,7 +178,7 @@ Options:
   --optimized_cameras TEXT        Optimized camera files, supplied as comma
                                   separated list 'path/to/optimized_camera_1,path/to/optimized_camera_2'.
                                   No default. Must be supplied.
-  --map_crs TEXT                  UTM EPSG code for map projection. If not
+  --map_crs TEXT                  UTM EPSG code for map projection. As EPSG:XXXX. If not
                                   supplied, the map will be plotted in
                                   original camera coordinates of EPSG:4978
                                   (ECEF).
