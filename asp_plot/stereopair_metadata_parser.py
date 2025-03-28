@@ -42,6 +42,19 @@ class StereopairMetadataParser:
                 "\n\nMissing XML camera files in directory. Cannot extract metadata without these.\n\n"
             )
 
+        # TODO: need to improve logic and looping here and in get_id_dict for dictionary creation when
+        # there are multiple XML files for a given scene
+        # use ~/Dropbox/UW_Shean/WV/antarctica/tiled_xmls_example for testing this
+        if image_list > 2:
+            # look through the CATIDs with get_xml_tag(xml_file, "CATID")
+            # create a set of CATIDs
+            # run dg_mosaic with `run_subprocess_command` on each XML list for a given CATID
+            # then create the new image list with just the two combined CATIDs
+            # then run the rest of the code
+            print(
+                "n\nMore than two XML files found in directory. Mosaicing before proceeding.\n\n"
+            )
+
         # Get CATIDs
         catid_xmls = {}
         for xml_file in image_list:
