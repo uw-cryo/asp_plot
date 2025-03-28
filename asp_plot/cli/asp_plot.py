@@ -121,27 +121,14 @@ def main(
         dem_gsd=dem_gsd,
     ).dem_fn
 
-    # Set map CRS from output DEM or use a local orthographic projection
+    # Set map CRS from output DEM
     if map_crs is None:
-        # First try to get CRS from the DEM
         if asp_dem and os.path.exists(asp_dem):
             try:
                 dem_raster = Raster(asp_dem)
                 epsg_code = dem_raster.get_epsg_code()
-                if epsg_code:
-                    map_crs = f"EPSG:{epsg_code}"
-                    print(f"\nUsing map projection from DEM: {map_crs}\n")
-                else:
-                    # Get bounds for a local orthographic projection
-                    bounds = dem_raster.get_bounds(latlon=True, json_format=False)
-                    if bounds:
-                        # Calculate centroid for orthographic projection
-                        cent_lon = (bounds[0] + bounds[2]) / 2
-                        cent_lat = (bounds[1] + bounds[3]) / 2
-                        map_crs = f"+proj=ortho +lat_0={cent_lat} +lon_0={cent_lon}"
-                        print(
-                            f"\nUsing local orthographic projection centered at {cent_lat:.4f}, {cent_lon:.4f}\n"
-                        )
+                map_crs = f"EPSG:{epsg_code}"
+                print(f"\nUsing map projection from DEM: {map_crs}\n")
             except Exception as e:
                 print(
                     f"\nError getting projection from DEM: {e}. Using default projection EPSG:4326. If you want a different projection, use the --map_crs flag.\n"
