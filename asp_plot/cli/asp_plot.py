@@ -155,7 +155,6 @@ def main(
         dem_gsd=dem_gsd,
         title="Hillshade with details",
     )
-    # asp_dem = plotter.dem_fn
 
     plotter.plot_detailed_hillshade(
         save_dir=plots_directory,
