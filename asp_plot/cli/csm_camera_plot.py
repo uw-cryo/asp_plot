@@ -21,7 +21,7 @@ from asp_plot.csm_camera import csm_camera_summary_plot
     "--map_crs",
     prompt=False,
     default=None,
-    help="UTM EPSG code for map projection. If not supplied, the map will be plotted in original camera coordinates of EPSG:4978 (ECEF).",
+    help="UTM EPSG code for map projection. As EPSG:XXXX. If not supplied, the map will be plotted in original camera coordinates of EPSG:4978 (ECEF).",
 )
 @click.option(
     "--title",
@@ -109,7 +109,7 @@ def main(
         cam2_list = None
 
     ctx_kwargs = {
-        "crs": f"EPSG:{map_crs}",
+        "crs": map_crs,
         "source": ctx.providers.Esri.WorldImagery,
         "attribution_size": 0,
         "alpha": 0.5,
