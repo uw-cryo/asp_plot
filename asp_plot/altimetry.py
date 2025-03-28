@@ -451,7 +451,7 @@ class Altimetry:
         key="all",
         title="ICESat-2 ATL06-SR Time Stamps",
         cmap="inferno",
-        map_crs="4326",
+        map_crs="EPSG:4326",
         figsize=(15, 10),
         save_dir=None,
         fig_fn=None,
@@ -481,8 +481,8 @@ class Altimetry:
 
             atl06sr = self.atl06sr_processing_levels_filtered[key_to_plot]
             if map_crs:
-                crs = f"EPSG:{map_crs}"
-                ctx_kwargs["crs"] = f"EPSG:{map_crs}"
+                crs = map_crs
+                ctx_kwargs["crs"] = map_crs
             elif ctx_kwargs:
                 crs = ctx_kwargs["crs"]
             else:
@@ -543,14 +543,14 @@ class Altimetry:
         clim=None,
         symm_clim=False,
         cmap="inferno",
-        map_crs="4326",
+        map_crs="EPSG:4326",
         figsize=(6, 4),
         save_dir=None,
         fig_fn=None,
         **ctx_kwargs,
     ):
         atl06sr = self.atl06sr_processing_levels_filtered[key]
-        atl06sr_sorted = atl06sr.sort_values(by=column_name).to_crs(f"EPSG:{map_crs}")
+        atl06sr_sorted = atl06sr.sort_values(by=column_name).to_crs(map_crs)
 
         fig, ax = plt.subplots(1, 1, figsize=figsize)
 
@@ -662,6 +662,7 @@ class Altimetry:
         plot_aligned=False,
         save_dir=None,
         fig_fn=None,
+        map_crs=None,
         **ctx_kwargs,
     ):
         if plot_aligned:
@@ -685,8 +686,10 @@ class Altimetry:
         else:
             symm_clim = True
 
-        dem = rioxarray.open_rasterio(self.dem_fn, masked=True).squeeze()
-        epsg = dem.rio.crs.to_epsg()
+        if not map_crs:
+            dem = rioxarray.open_rasterio(self.dem_fn, masked=True).squeeze()
+            epsg = dem.rio.crs.to_epsg()
+            map_crs = f"EPSG:{epsg}"
 
         self.plot_atl06sr(
             key=key,
@@ -695,7 +698,7 @@ class Altimetry:
             clim=clim,
             symm_clim=symm_clim,
             cmap="RdBu",
-            map_crs=epsg,
+            map_crs=map_crs,
             save_dir=save_dir,
             fig_fn=fig_fn,
             **ctx_kwargs,

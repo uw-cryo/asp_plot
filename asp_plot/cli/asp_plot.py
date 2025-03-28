@@ -11,7 +11,7 @@ from asp_plot.bundle_adjust import PlotBundleAdjustFiles, ReadBundleAdjustFiles
 from asp_plot.processing_parameters import ProcessingParameters
 from asp_plot.scenes import SceneGeometryPlotter, ScenePlotter
 from asp_plot.stereo import StereoPlotter
-from asp_plot.utils import compile_report
+from asp_plot.utils import Raster, compile_report
 
 
 @click.command()
@@ -49,7 +49,7 @@ from asp_plot.utils import compile_report
     "--map_crs",
     prompt=False,
     default=None,
-    help="Projection for ICESat and bundle adjustment plots. Default: None.",
+    help="Projection for ICESat and bundle adjustment plots. As EPSG:XXXX. Default: None, which will use the projection of the ASP DEM, and fall back on EPSG:4326 if not found.",
 )
 @click.option(
     "--reference_dem",
@@ -113,14 +113,27 @@ def main(
 
     figure_counter = count(0)
 
-    # TODO: map crs should be set by output DEM.tif or default to a local orthographic projection, not EPSG:4326
-    #  https://github.com/uw-cryo/asp_plot/issues/76
+    asp_dem = StereoPlotter(
+        directory,
+        stereo_directory,
+        reference_dem=reference_dem,
+        dem_fn=dem_filename,
+        dem_gsd=dem_gsd,
+    ).dem_fn
+
+    # Set map CRS from output DEM
     if map_crs is None:
-        map_crs = "EPSG:4326"
-        print(
-            f"\nNo map projection supplied. Default is {map_crs}. If you want a different projection, use the --map_crs flag.\n"
-        )
-        add_basemap = False
+        if asp_dem and os.path.exists(asp_dem):
+            try:
+                dem_raster = Raster(asp_dem)
+                epsg_code = dem_raster.get_epsg_code()
+                map_crs = f"EPSG:{epsg_code}"
+                print(f"\nUsing map projection from DEM: {map_crs}\n")
+            except Exception as e:
+                print(
+                    f"\nError getting projection from DEM: {e}. Using default projection EPSG:4326. If you want a different projection, use the --map_crs flag.\n"
+                )
+                map_crs = "EPSG:4326"
 
     # TODO: Centralize this in plotting utils, should not need ctx import in the CLI wrapper
     if add_basemap:
@@ -142,8 +155,6 @@ def main(
         dem_gsd=dem_gsd,
         title="Hillshade with details",
     )
-
-    asp_dem = plotter.dem_fn
 
     plotter.plot_detailed_hillshade(
         save_dir=plots_directory,
@@ -199,6 +210,7 @@ def main(
             key="all",
             save_dir=plots_directory,
             fig_fn=f"{next(figure_counter):02}.png",
+            map_crs=map_crs,
             **ctx_kwargs,
         )
 
@@ -213,6 +225,7 @@ def main(
             key="ground_seasonal",
             save_dir=plots_directory,
             fig_fn=f"{next(figure_counter):02}.png",
+            map_crs=map_crs,
             **ctx_kwargs,
         )
 
