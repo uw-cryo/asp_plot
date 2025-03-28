@@ -69,7 +69,6 @@ If you also ran bundle adjustment and/or would like to specify a reference DEM t
 $ asp_plot --directory ./ \
            --bundle_adjust_directory ba \
            --stereo_directory stereo \
-           --map_crs EPSG:32604 \
            --reference_dem ref_dem.tif
 ```
 
