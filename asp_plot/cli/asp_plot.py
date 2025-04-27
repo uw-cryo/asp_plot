@@ -9,8 +9,9 @@ import contextily as ctx
 from asp_plot.altimetry import Altimetry
 from asp_plot.bundle_adjust import PlotBundleAdjustFiles, ReadBundleAdjustFiles
 from asp_plot.processing_parameters import ProcessingParameters
-from asp_plot.scenes import SceneGeometryPlotter, ScenePlotter
+from asp_plot.scenes import ScenePlotter
 from asp_plot.stereo import StereoPlotter
+from asp_plot.stereo_geometry import StereoGeometryPlotter
 from asp_plot.utils import Raster, compile_report
 
 
@@ -188,7 +189,7 @@ def main(
     )
 
     # Geometry plot
-    plotter = SceneGeometryPlotter(directory, add_basemap=add_basemap)
+    plotter = StereoGeometryPlotter(directory, add_basemap=add_basemap)
     plotter.dg_geom_plot(
         save_dir=plots_directory, fig_fn=f"{next(figure_counter):02}.png"
     )

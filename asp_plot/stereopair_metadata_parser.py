@@ -110,7 +110,7 @@ class StereopairMetadataParser:
 
             output_xmls.append(output_xml_r100)
 
-        # Then create the new image list with just the mosaiced XML files
+        # Then create the new image list with just the mosaicked XML files
         self.image_list = []
         for output_xml in output_xmls:
             self.image_list.append(output_xml)
