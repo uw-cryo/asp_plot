@@ -95,6 +95,13 @@ def main(
     report_filename,
     report_title,
 ):
+    """
+    Generate a comprehensive report of ASP processing results.
+
+    Creates a series of diagnostic plots for stereo processing, bundle adjustment,
+    ICESat-2 comparisons, and more. All plots are combined into a single PDF report
+    with processing parameters and summary information.
+    """
     print(f"\nProcessing ASP files in {directory}\n")
 
     plots_directory = os.path.join(directory, "tmp_asp_report_plots/")
