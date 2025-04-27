@@ -12,12 +12,53 @@ logger = logging.getLogger(__name__)
 
 
 class Alignment:
+    """
+    Perform DEM alignment using point cloud alignment techniques.
+
+    This class provides functionality to align DEMs to reference datasets,
+    particularly ICESat-2 ATL06SR altimetry data, using point cloud
+    alignment methods. It includes methods to run the alignment process,
+    extract alignment statistics, and apply the alignment transformation
+    to the DEM.
+
+    Attributes
+    ----------
+    directory : str
+        Root directory for alignments and outputs
+    dem_fn : str
+        Path to the DEM file to be aligned
+
+    Examples
+    --------
+    >>> alignment = Alignment('/path/to/directory', '/path/to/dem.tif')
+    >>> alignment.pc_align_dem_to_atl06sr(atl06sr_csv='/path/to/icesat2_data.csv')
+    >>> report = alignment.pc_align_report()
+    >>> aligned_dem = alignment.apply_dem_translation()
+    """
+
     def __init__(
         self,
         directory,
         dem_fn,
         **kwargs,
     ):
+        """
+        Initialize the Alignment object.
+
+        Parameters
+        ----------
+        directory : str
+            Root directory for alignments and outputs
+        dem_fn : str
+            Path to the DEM file to be aligned
+        **kwargs : dict, optional
+            Additional keyword arguments for future extensions
+
+        Raises
+        ------
+        ValueError
+            If the DEM file does not exist
+        """
         self.directory = directory
 
         if not os.path.exists(dem_fn):
@@ -32,6 +73,37 @@ class Alignment:
         atl06sr_csv=None,
         output_prefix="pc_align/pc_align",
     ):
+        """
+        Align DEM to ICESat-2 ATL06SR data using point cloud alignment.
+
+        Runs the ASP pc_align tool to align the DEM to ICESat-2 ATL06SR
+        altimetry data. The resulting transformation parameters are saved
+        to log files for later application.
+
+        Parameters
+        ----------
+        max_displacement : float, optional
+            Maximum expected displacement in meters, default is 20
+        max_source_points : int, optional
+            Maximum number of source points to use, default is 10,000,000
+        alignment_method : str, optional
+            Method for alignment, default is "point-to-point"
+        atl06sr_csv : str, optional
+            Path to the ATL06SR CSV file, default is None
+        output_prefix : str, optional
+            Prefix for output files, default is "pc_align/pc_align"
+
+        Raises
+        ------
+        ValueError
+            If the ATL06SR CSV file is not provided or does not exist
+
+        Notes
+        -----
+        The ATL06SR CSV file must be formatted with columns for longitude,
+        latitude, and height above datum. This can be created using the
+        to_csv_for_pc_align() function in the Altimetry module.
+        """
         if atl06sr_csv is None or not os.path.exists(atl06sr_csv):
             raise ValueError(
                 f"\nATL06 filtered CSV file not found: {atl06sr_csv}\nWe need this to run pc_align. It can be created with the to_csv_for_pc_align() function in the Altimetry module.\n"
@@ -63,6 +135,32 @@ class Alignment:
         run_subprocess_command(command)
 
     def pc_align_report(self, output_prefix="pc_align/pc_align"):
+        """
+        Extract alignment statistics from pc_align log files.
+
+        Parses the pc_align log file to extract error percentiles,
+        translation vectors, and other alignment metrics.
+
+        Parameters
+        ----------
+        output_prefix : str, optional
+            Prefix for pc_align output files, default is "pc_align/pc_align"
+
+        Returns
+        -------
+        dict
+            Dictionary containing alignment metrics:
+            - p16_beg, p50_beg, p84_beg: Error percentiles before alignment
+            - p16_end, p50_end, p84_end: Error percentiles after alignment
+            - x_shift, y_shift, z_shift: Translation vector components in ECEF
+            - translation_magnitude: Magnitude of translation vector
+
+        Notes
+        -----
+        This method expects the log file to contain specific keyword patterns
+        that match the pc_align output format. If the log format changes,
+        this parser may need to be updated.
+        """
         pc_align_log = glob_file(self.directory, f"{output_prefix}-log-pc_align*.txt")
 
         with open(pc_align_log, "r") as file:
@@ -103,6 +201,34 @@ class Alignment:
         return report
 
     def apply_dem_translation(self, output_prefix="pc_align/pc_align"):
+        """
+        Apply the pc_align translation to the DEM.
+
+        Creates a translated version of the DEM by applying the transformation
+        parameters extracted from pc_align log files. This method directly
+        modifies the DEM's geotransform and pixel values without resampling.
+
+        Parameters
+        ----------
+        output_prefix : str, optional
+            Prefix for pc_align output files, default is "pc_align/pc_align"
+
+        Returns
+        -------
+        str
+            Path to the translated DEM file
+
+        Raises
+        ------
+        ValueError
+            If the log file does not contain necessary translation information
+
+        Notes
+        -----
+        This method is faster and more precise than using point2dem
+        to generate a new DEM from translated point cloud, as it directly
+        applies the translation to the DEM's metadata and pixel values.
+        """
         pc_align_log = glob_file(self.directory, f"{output_prefix}-log-pc_align*.txt")
 
         src = Raster(self.dem_fn)
@@ -176,6 +302,36 @@ class Alignment:
         return aligned_dem_fn
 
     def get_proj_shift(self, src_c, src_shift, s_srs, t_srs, inv_trans=True):
+        """
+        Calculate projection shift between coordinate systems.
+
+        Transforms a shift vector from one coordinate system to another,
+        accounting for the non-linearity of coordinate transformations.
+
+        Parameters
+        ----------
+        src_c : numpy.ndarray
+            Source point coordinates in source coordinate system
+        src_shift : numpy.ndarray
+            Shift vector in source coordinate system
+        s_srs : osr.SpatialReference
+            Source spatial reference system
+        t_srs : osr.SpatialReference
+            Target spatial reference system
+        inv_trans : bool, optional
+            Whether to invert the transformation direction, default is True
+
+        Returns
+        -------
+        numpy.ndarray
+            Shift vector in target coordinate system
+
+        Notes
+        -----
+        This is a helper method used by apply_dem_translation to convert
+        shifts between coordinate systems. The method handles both same-system
+        transformations and cross-system transformations.
+        """
         if s_srs.IsSame(t_srs):
             proj_shift = src_shift
         else:

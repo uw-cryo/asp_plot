@@ -17,6 +17,45 @@ logger = logging.getLogger(__name__)
 
 
 class StereoPlotter(Plotter):
+    """
+    Visualize and analyze stereo processing results from ASP.
+
+    This class provides methods for plotting and analyzing various outputs
+    from ASP stereo processing, including DEMs, disparity maps, match points,
+    and difference maps with reference DEMs.
+
+    Attributes
+    ----------
+    directory : str
+        Root directory for ASP processing
+    stereo_directory : str
+        Directory containing stereo processing outputs
+    dem_gsd : float or None
+        Ground sample distance of the DEM in meters
+    dem_fn : str or None
+        Path to the DEM file
+    reference_dem : str or None
+        Path to the reference DEM file
+    dem : numpy.ma.MaskedArray or None
+        DEM data, loaded when needed
+    dem_extent : tuple or None
+        Extent of the DEM for plotting
+    dem_hs : numpy.ma.MaskedArray or None
+        Hillshade of the DEM, generated when needed
+    ref_dem : numpy.ma.MaskedArray or None
+        Reference DEM data, loaded when needed
+    ref_dem_extent : tuple or None
+        Extent of the reference DEM for plotting
+    dem_diff : numpy.ma.MaskedArray or None
+        Difference between DEM and reference DEM
+
+    Examples
+    --------
+    >>> plotter = StereoPlotter('/path/to/asp', 'stereo', reference_dem='ref_dem.tif')
+    >>> plotter.plot_dem_results(save_dir='plots', fig_fn='dem_results.png')
+    >>> plotter.plot_disparity(save_dir='plots', fig_fn='disparity.png')
+    """
+
     def __init__(
         self,
         directory,
@@ -26,6 +65,29 @@ class StereoPlotter(Plotter):
         reference_dem=None,
         **kwargs,
     ):
+        """
+        Initialize the StereoPlotter.
+
+        Parameters
+        ----------
+        directory : str
+            Root directory for ASP processing
+        stereo_directory : str
+            Directory containing stereo processing outputs
+        dem_gsd : float, optional
+            Ground sample distance of the DEM in meters
+        dem_fn : str, optional
+            Path to the DEM file, default is None (automatically detected)
+        reference_dem : str, optional
+            Path to the reference DEM file, default is None (no reference)
+        **kwargs
+            Additional keyword arguments passed to Plotter
+
+        Notes
+        -----
+        If dem_fn is not provided, the class will try to find a DEM in the
+        stereo directory with a pattern like *-DEM.tif or *_dem.tif.
+        """
         super().__init__(**kwargs)
         self.directory = directory
         self.stereo_directory = stereo_directory
@@ -93,7 +155,25 @@ class StereoPlotter(Plotter):
         )
 
     def is_mapprojected(self, filename):
-        """Check if there is mapprojection information"""
+        """
+        Check if an image has map projection information.
+
+        Parameters
+        ----------
+        filename : str
+            Path to the image file to check
+
+        Returns
+        -------
+        bool
+            True if the image has map projection information, False otherwise
+
+        Notes
+        -----
+        This method uses GDAL to check if the image has projection information.
+        It's used to determine if orthoimages are map-projected, which affects
+        how they are displayed in plots.
+        """
         with gdal.Open(filename) as ds:
             if ds.GetProjection() == "":
                 return False
@@ -101,6 +181,31 @@ class StereoPlotter(Plotter):
                 return True
 
     def read_ip_record(self, match_file):
+        """
+        Read an interest point record from a binary match file.
+
+        Parameters
+        ----------
+        match_file : file object
+            Open binary match file positioned at the start of an interest point record
+
+        Returns
+        -------
+        list
+            List containing the interest point record fields, including:
+            - x, y: Floating point coordinates
+            - xi, yi: Integer coordinates
+            - orientation, scale, interest: Feature descriptors
+            - polarity: Boolean flag
+            - octave, scale_lvl: Feature scale information
+            - ndesc: Number of descriptor values
+            - desc: Feature descriptor values
+
+        Notes
+        -----
+        This method is used to parse the binary ASP match file format,
+        which contains interest points from both images in a stereo pair.
+        """
         x, y = np.frombuffer(match_file.read(8), dtype=np.float32)
         xi, yi = np.frombuffer(match_file.read(8), dtype=np.int32)
         orientation, scale, interest = np.frombuffer(
@@ -127,6 +232,26 @@ class StereoPlotter(Plotter):
         return iprec
 
     def get_match_point_df(self):
+        """
+        Convert a binary match file to a DataFrame of match points.
+
+        Reads the binary match file produced by ASP stereo processing
+        and converts it to a DataFrame containing matched interest points
+        from the left and right images.
+
+        Returns
+        -------
+        pandas.DataFrame or None
+            DataFrame with columns 'x1', 'y1', 'x2', 'y2' representing
+            the coordinates of matched points in the left and right images,
+            or None if the match file doesn't exist
+
+        Notes
+        -----
+        This method converts the binary match file to a CSV file with the
+        same base name but '.csv' extension, then reads that CSV file into
+        a DataFrame. If the CSV file already exists, it is read directly.
+        """
         out_csv = (
             os.path.splitext(self.match_point_fn)[0] + ".csv"
             if self.match_point_fn
@@ -156,6 +281,30 @@ class StereoPlotter(Plotter):
         )
 
     def plot_match_points(self, save_dir=None, fig_fn=None):
+        """
+        Plot match points between the left and right images.
+
+        Creates a figure with two subplots showing the left and right
+        orthoimages (if they are map-projected) with match points overlaid.
+
+        Parameters
+        ----------
+        save_dir : str or None, optional
+            Directory to save the figure, default is None (don't save)
+        fig_fn : str or None, optional
+            Filename for the saved figure, default is None
+
+        Returns
+        -------
+        None
+            Displays the plot and optionally saves it
+
+        Notes
+        -----
+        If the images are not map-projected, only the match points are shown,
+        not the underlying images. The match points are displayed as small red
+        circles on both images.
+        """
         match_point_df = self.get_match_point_df()
 
         fig, axa = plt.subplots(1, 2, figsize=(10, 5))
@@ -232,6 +381,44 @@ class StereoPlotter(Plotter):
     def plot_disparity(
         self, unit="pixels", remove_bias=True, quiver=True, save_dir=None, fig_fn=None
     ):
+        """
+        Plot disparity maps from stereo processing.
+
+        Creates a figure with three subplots showing the x and y components
+        of the disparity map and the disparity magnitude, with optional
+        quiver plot overlay.
+
+        Parameters
+        ----------
+        unit : str, optional
+            Unit for disparity values, either 'pixels' or 'meters', default is 'pixels'
+        remove_bias : bool, optional
+            Whether to remove the median offset from disparity values, default is True
+        quiver : bool, optional
+            Whether to overlay a quiver plot on the disparity magnitude plot,
+            default is True
+        save_dir : str or None, optional
+            Directory to save the figure, default is None (don't save)
+        fig_fn : str or None, optional
+            Filename for the saved figure, default is None
+
+        Returns
+        -------
+        None
+            Displays the plot and optionally saves it
+
+        Raises
+        ------
+        ValueError
+            If unit is not 'pixels' or 'meters'
+
+        Notes
+        -----
+        The disparity map shows the pixel offset between corresponding points
+        in the left and right images. This can be displayed in pixel units or
+        converted to meters using the image GSD. The quiver plot shows the
+        direction and magnitude of the disparity vectors.
+        """
         if unit not in ["pixels", "meters"]:
             raise ValueError(
                 "\n\nUnit for disparity plot must be either 'pixels' or 'meters'\n\n"
@@ -309,6 +496,39 @@ class StereoPlotter(Plotter):
         save_dir=None,
         fig_fn=None,
     ):
+        """
+        Create a detailed plot with DEM hillshade and subsets.
+
+        Generates a detailed figure showing the full DEM hillshade with
+        color overlay, plus three smaller subsets highlighting areas with
+        different levels of intersection error. If the images are map-projected,
+        it also shows the corresponding optical image for each subset.
+
+        Parameters
+        ----------
+        intersection_error_percentiles : list, optional
+            Percentiles of intersection error to use for selecting subsets,
+            default is [16, 50, 84]
+        subset_km : float, optional
+            Size of the subset areas in kilometers, default is 1
+        save_dir : str or None, optional
+            Directory to save the figure, default is None (don't save)
+        fig_fn : str or None, optional
+            Filename for the saved figure, default is None
+
+        Returns
+        -------
+        None
+            Displays the plot and optionally saves it
+
+        Notes
+        -----
+        This method creates a detailed visualization with a large overview
+        map at the top and six smaller subplots below (three hillshades and
+        three optical images). The subsets are chosen based on the variance
+        of intersection error, representing areas with different quality
+        levels in the DEM.
+        """
         # Set up the plot
         fig = plt.figure(figsize=(10, 15), dpi=220)
         gs = gridspec.GridSpec(3, 3, height_ratios=[2, 1, 1])
@@ -479,6 +699,25 @@ class StereoPlotter(Plotter):
             save_figure(fig, save_dir, fig_fn)
 
     def get_diff_vs_reference(self):
+        """
+        Get the difference between the DEM and a reference DEM.
+
+        Tries to find an existing DEM difference file, or generates
+        a difference on-the-fly if a reference DEM is available.
+
+        Returns
+        -------
+        numpy.ma.MaskedArray or None
+            Masked array containing the difference between the DEM and
+            reference DEM, or None if no reference DEM is available
+
+        Notes
+        -----
+        This method first looks for a DEM difference file with a pattern
+        like *DEM*diff.tif. If found, it uses that. Otherwise, it computes
+        the difference between the DEM and reference DEM on-the-fly using
+        the Raster.compute_difference method.
+        """
         diff_fn = glob_file(self.full_directory, "*DEM*diff.tif")
         if diff_fn:
             logger.warning(
@@ -498,6 +737,41 @@ class StereoPlotter(Plotter):
     def plot_dem_results(
         self, el_clim=None, ie_clim=None, diff_clim=None, save_dir=None, fig_fn=None
     ):
+        """
+        Plot DEM results with hillshade, error, and difference maps.
+
+        Creates a figure with three subplots showing the DEM with hillshade,
+        intersection error, and difference with reference DEM.
+
+        Parameters
+        ----------
+        el_clim : tuple or None, optional
+            Color limits for elevation, default is None (auto)
+        ie_clim : tuple or None, optional
+            Color limits for intersection error, default is None (auto)
+        diff_clim : tuple or None, optional
+            Color limits for difference map, default is None (auto)
+        save_dir : str or None, optional
+            Directory to save the figure, default is None (don't save)
+        fig_fn : str or None, optional
+            Filename for the saved figure, default is None
+
+        Returns
+        -------
+        None
+            Displays the plot and optionally saves it
+
+        Notes
+        -----
+        This method creates a comprehensive visualization of the stereo
+        DEM results, including:
+        1. The DEM with hillshade overlay
+        2. Triangulation intersection error
+        3. Difference with reference DEM (if available)
+
+        If any required files are missing, the corresponding subplot will
+        display a message instead.
+        """
         print("Plotting DEM results. This can take a minute for large inputs.")
         fig, axa = plt.subplots(1, 3, figsize=(10, 3), dpi=220)
         fig.suptitle(self.title, size=10)

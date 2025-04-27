@@ -18,7 +18,42 @@ logger = logging.getLogger(__name__)
 
 # TODO: When this supports N scenes, should rename to StereoMetadataParser
 class StereopairMetadataParser:
+    """
+    Parse metadata from satellite sensor XML files for stereo pairs.
+
+    This class parses Digital Globe/Maxar or similar satellite XML files to extract
+    metadata and compute stereo geometry parameters. It handles single XML files
+    as well as multiple XML files per scene, where mosaicking is required.
+
+    Attributes
+    ----------
+    directory : str
+        Path to directory containing XML files
+    image_list : list
+        List of XML files found in the directory
+
+    Examples
+    --------
+    >>> parser = StereopairMetadataParser('/path/to/stereo/directory')
+    >>> pair_dict = parser.get_pair_dict()
+    >>> print(f"Convergence angle: {pair_dict['conv_ang']}")
+    >>> print(f"Base-to-height ratio: {pair_dict['bh']}")
+    """
+
     def __init__(self, directory):
+        """
+        Initialize the StereopairMetadataParser.
+
+        Parameters
+        ----------
+        directory : str
+            Path to directory containing XML camera model files
+
+        Raises
+        ------
+        ValueError
+            If no XML files are found in the directory
+        """
         self.directory = directory
 
         self.image_list = glob_file(self.directory, "*.[Xx][Mm][Ll]", all_files=True)
@@ -36,12 +71,38 @@ class StereopairMetadataParser:
     # TODO: This method assumes that only two scenes are captured with get_catid_dicts
     # Should be updated to support more than two scenes, or need a separate method for N scenes
     def get_pair_dict(self):
+        """
+        Get a dictionary with all stereo pair information.
+
+        Creates a comprehensive dictionary containing stereo pair information,
+        including convergence angle, base-to-height ratio, bisector elevation angle,
+        asymmetry angle, and more.
+
+        Returns
+        -------
+        dict
+            Dictionary with stereo pair information and geometry parameters
+
+        Notes
+        -----
+        Currently only supports exactly two scenes. Future versions will support N scenes.
+        """
         catid_dicts = self.get_catid_dicts()
         catid1_dict, catid2_dict = catid_dicts
         pairname = os.path.split(self.directory.rstrip("/\\"))[-1]
         return self.pair_dict(catid1_dict, catid2_dict, pairname)
 
     def get_catid_dicts(self):
+        """
+        Get dictionaries of metadata for each catalog ID.
+
+        Builds dictionaries of metadata for each catalog ID found in the XML files.
+
+        Returns
+        -------
+        list
+            List of dictionaries, one for each catalog ID, containing metadata
+        """
         catid_xmls = self.get_catid_xmls()
         catid_dicts = []
         for catid, xml in catid_xmls.items():
@@ -49,6 +110,22 @@ class StereopairMetadataParser:
         return catid_dicts
 
     def get_catid_xmls(self):
+        """
+        Get XML files associated with each catalog ID.
+
+        Checks for multiple XML files for each catalog ID and handles mosaicking
+        if needed.
+
+        Returns
+        -------
+        dict
+            Dictionary mapping catalog IDs to XML file paths
+
+        Notes
+        -----
+        If more than two XML files are found, they will be mosaicked using
+        dg_mosaic before proceeding.
+        """
         # First check for multiple XML files and dg_mosaic if needed
         if len(self.image_list) > 2:
             print(
@@ -69,6 +146,23 @@ class StereopairMetadataParser:
         return catid_xmls
 
     def mosaic_multiple_xmls(self):
+        """
+        Mosaic multiple XML files for each catalog ID.
+
+        Uses dg_mosaic to merge multiple XML files for the same catalog ID
+        into a single XML file. This is needed when a scene is composed of
+        multiple image tiles.
+
+        Returns
+        -------
+        None
+            Updates the image_list attribute with mosaicked XML files
+
+        Notes
+        -----
+        Requires dg_mosaic from the NASA Ames Stereo Pipeline to be installed
+        and available in the system path.
+        """
         # Drop existing *.r100.* and *.r50.* files from image_list if they are present
         self.image_list = [
             file
@@ -116,7 +210,35 @@ class StereopairMetadataParser:
             self.image_list.append(output_xml)
 
     def get_id_dict(self, catid, xml, geteph=True):
+        """
+        Get a dictionary of metadata for a specific catalog ID.
+
+        Extracts metadata from XML file for a given catalog ID, including
+        satellite parameters, acquisition angles, and geometry.
+
+        Parameters
+        ----------
+        catid : str
+            Catalog ID for the satellite image
+        xml : str
+            Path to the XML file
+        geteph : bool, optional
+            Whether to extract ephemeris data, default is True
+
+        Returns
+        -------
+        dict
+            Dictionary containing metadata for the catalog ID
+
+        Notes
+        -----
+        The dictionary includes satellite ID, acquisition date, scan direction,
+        TDI level, geometry information, and various mean angles and parameters.
+        If geteph is True, also includes ephemeris and footprint GeoDataFrames.
+        """
+
         def list_average(list):
+            """Calculate average of values in a list, handling NaN values."""
             return np.round(pd.Series(list, dtype=float).dropna().mean(), 2)
 
         attributes = {
@@ -168,6 +290,27 @@ class StereopairMetadataParser:
         return d
 
     def getEphem(self, xml):
+        """
+        Extract ephemeris data from XML file.
+
+        Retrieves satellite ephemeris (position and velocity) data from the XML file.
+
+        Parameters
+        ----------
+        xml : str
+            Path to the XML file
+
+        Returns
+        -------
+        numpy.ndarray
+            Array containing ephemeris data with columns:
+            point_num, Xpos, Ypos, Zpos, Xvel, Yvel, Zvel, and covariance matrix elements
+
+        Notes
+        -----
+        All coordinates are in Earth-Centered Fixed (ECF) reference frame.
+        Units are meters for positions, meters/sec for velocities, and m^2 for covariance.
+        """
         e = get_xml_tag(xml, "EPHEMLIST", all=True)
         # Could get fancy with structured array here
         # point_num, Xpos, Ypos, Zpos, Xvel, Yvel, Zvel, covariance matrix (6 elements)
@@ -176,6 +319,26 @@ class StereopairMetadataParser:
         return np.array([i.split() for i in e], dtype=np.float64)
 
     def getEphem_gdf(self, xml):
+        """
+        Create a GeoDataFrame from ephemeris data.
+
+        Converts ephemeris data to a GeoDataFrame with time index and Point geometry.
+
+        Parameters
+        ----------
+        xml : str
+            Path to the XML file
+
+        Returns
+        -------
+        geopandas.GeoDataFrame
+            GeoDataFrame with ephemeris data and Point geometries in EPSG:4978
+
+        Notes
+        -----
+        The GeoDataFrame uses EPSG:4978 (Earth-Centered Earth-Fixed) CRS and
+        has a time index corresponding to the acquisition times.
+        """
         names = [
             "index",
         ]
@@ -196,6 +359,27 @@ class StereopairMetadataParser:
         return eph_gdf
 
     def xml2wkt(self, xml):
+        """
+        Convert XML corner coordinates to WKT polygon string.
+
+        Extracts corner coordinates from XML file and converts them to a
+        Well-Known Text (WKT) polygon string.
+
+        Parameters
+        ----------
+        xml : str
+            Path to the XML file
+
+        Returns
+        -------
+        str
+            WKT polygon string representation of image footprint
+
+        Notes
+        -----
+        Uses ULLON/ULLAT, URLON/URLAT, LRLON/LRLAT, LLLON/LLLAT tags
+        (Upper-Left, Upper-Right, Lower-Right, Lower-Left corners).
+        """
         tags = [
             ("ULLON", "ULLAT"),
             ("URLON", "URLAT"),
@@ -213,7 +397,21 @@ class StereopairMetadataParser:
         return geom_wkt
 
     def xml2poly(self, xml):
-        """Reads XML and returns a Shapely Polygon geometry"""
+        """
+        Convert XML corner coordinates to Shapely Polygon.
+
+        Reads XML file and converts corner coordinates to a Shapely Polygon geometry.
+
+        Parameters
+        ----------
+        xml : str
+            Path to the XML file
+
+        Returns
+        -------
+        shapely.geometry.Polygon
+            Polygon geometry representing the image footprint
+        """
         geom_wkt = self.xml2wkt(xml)
         return wkt.loads(geom_wkt)
 
@@ -379,20 +577,65 @@ class StereopairMetadataParser:
         return p
 
     def get_centroid_projection(self, geom, proj_type="tmerc"):
-        """Get local projection centered on geometry centroid
+        """
+        Get a local projection centered on geometry centroid.
 
-        Args:
-            geom: Shapely geometry object
-            proj_type: Type of projection ('tmerc' or 'ortho')
+        Creates a custom projection string centered on the centroid of the input
+        geometry, which minimizes distortion for local analyses.
 
-        Returns:
-            str: Proj4 string for local projection
+        Parameters
+        ----------
+        geom : shapely.geometry.BaseGeometry
+            Shapely geometry object whose centroid will be used as projection center
+        proj_type : str, optional
+            Type of projection to use, default is "tmerc" (Transverse Mercator)
+            Other options include "ortho" (Orthographic)
+
+        Returns
+        -------
+        str
+            Proj4 string for local projection centered on geometry centroid
+
+        Examples
+        --------
+        >>> parser = StereopairMetadataParser('/path/to/stereo/directory')
+        >>> pair_dict = parser.get_pair_dict()
+        >>> local_proj = parser.get_centroid_projection(pair_dict['intersection'])
+        >>> print(local_proj)
+        +proj=tmerc +lat_0=XX.XXXXXXX +lon_0=XX.XXXXXXX
         """
         centroid = geom.centroid
         return f"+proj={proj_type} +lat_0={centroid.y:0.7f} +lon_0={centroid.x:0.7f}"
 
     def get_pair_intersection(self, p):
+        """
+        Calculate intersection geometry and area for a stereo pair.
+
+        Computes the intersection between two image footprints, calculates its area,
+        and the percentage of each image covered by the intersection.
+
+        Parameters
+        ----------
+        p : dict
+            Stereo pair dictionary to update with intersection information
+
+        Returns
+        -------
+        None
+            Updates the input dictionary with intersection geometry and area information
+
+        Notes
+        -----
+        The dictionary 'p' is updated with the following keys:
+        - intersection: Shapely geometry representing the intersection
+        - intersection_area: Area in square kilometers
+        - intersection_area_perc: Tuple with percentages of each image covered by the intersection
+
+        Areas are calculated in a local orthographic projection to minimize distortion.
+        """
+
         def geom_intersection(geom_list):
+            """Find the intersection of multiple geometries."""
             gdfs = [
                 gpd.GeoDataFrame(geometry=[geom], crs="EPSG:4326") for geom in geom_list
             ]
@@ -402,6 +645,7 @@ class StereopairMetadataParser:
             return result.geometry.iloc[0] if not result.empty else None
 
         def geom2local(geom, geom_crs="EPSG:4326"):
+            """Convert geometry to a local projection for accurate area calculation."""
             local_proj = self.get_centroid_projection(geom, proj_type="ortho")
             gdf = gpd.GeoDataFrame(index=[0], crs=geom_crs, geometry=[geom])
             return gdf.to_crs(local_proj).geometry.squeeze()

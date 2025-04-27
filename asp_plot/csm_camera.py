@@ -18,14 +18,25 @@ from asp_plot.utils import save_figure
 
 def reproject_ecef(positions, to_epsg=4326):
     """
-    Reproject a set of ECEF (Earth-Centered, Earth-Fixed) coordinates to a specified EPSG coordinate system.
+    Reproject ECEF coordinates to a specified EPSG coordinate system.
 
-    Args:
-        positions (numpy.ndarray): A 2D array of ECEF coordinates, where each row represents a point.
-        to_epsg (int): The EPSG code of the target coordinate system to reproject to. Defaults to 4326 (WGS84).
+    Parameters
+    ----------
+    positions : numpy.ndarray
+        A 2D array of ECEF coordinates, where each row represents a point
+    to_epsg : int, optional
+        The EPSG code of the target coordinate system, default is 4326 (WGS84)
 
-    Returns:
-        numpy.ndarray: A 2D array of reprojected coordinates in the target EPSG coordinate system.
+    Returns
+    -------
+    numpy.ndarray
+        A 2D array of reprojected coordinates in the target EPSG coordinate system
+
+    Notes
+    -----
+    ECEF (Earth-Centered, Earth-Fixed) coordinates are a 3D Cartesian coordinate
+    system with the origin at the center of the Earth. This function converts
+    those coordinates to a different coordinate system specified by an EPSG code.
     """
     transformer = Transformer.from_crs("EPSG:4978", f"EPSG:{to_epsg}")
     x, y, z = transformer.transform(positions[:, 0], positions[:, 1], positions[:, 2])
@@ -34,31 +45,32 @@ def reproject_ecef(positions, to_epsg=4326):
 
 def get_orbit_plot_gdf(original_camera, optimized_camera, map_crs=None, trim=True):
     """
-    Get a GeoDataFrame containing the original and optimized camera positions, as well as the differences between them.
+    Create a GeoDataFrame containing camera positions and orientation differences.
 
-    Args:
-        original_camera (list): A list containing the original cameras.
-        optimized_camera (list): A list containing the optimized cameras.
-        map_crs (int, optional): The EPSG code of the target coordinate system to reproject the camera positions to. If not provided, the positions will be returned in ECEF coordinates.
-        trim (bool, optional): Whether to trim the beginning and end of the data to only the first and last image lines.
+    Parameters
+    ----------
+    original_camera : str
+        Path to the original camera file
+    optimized_camera : str
+        Path to the optimized camera file
+    map_crs : int or None, optional
+        EPSG code for the target coordinate system, default is None (keep ECEF)
+    trim : bool, optional
+        Whether to trim data to only the first and last image lines for linescan
+        cameras, default is True
 
-    Returns:
-        geopandas.GeoDataFrame: A GeoDataFrame containing the following columns:
-            - original_positions: A shapely.geometry.Point for each original camera position.
-            - position_diff_magnitude: The magnitude of the difference between the original and optimized camera positions.
-            - x_position_diff: The difference in the x-coordinate between the original and optimized camera positions.
-            - y_position_diff: The difference in the y-coordinate between the original and optimized camera positions.
-            - z_position_diff: The difference in the z-coordinate between the original and optimized camera positions.
-            - angular_diff_magnitude: The magnitude of the difference between the original and optimized camera rotation angles.
-            - original_roll: The roll angle of the original camera.
-            - original_pitch: The pitch angle of the original camera.
-            - original_yaw: The yaw angle of the original camera.
-            - optimized_roll: The roll angle of the optimized camera.
-            - optimized_pitch: The pitch angle of the optimized camera.
-            - optimized_yaw: The yaw angle of the optimized camera.
-            - roll_diff: The difference in roll angle between the original and optimized cameras.
-            - pitch_diff: The difference in pitch angle between the original and optimized cameras.
-            - yaw_diff: The difference in yaw angle between the original and optimized cameras.
+    Returns
+    -------
+    geopandas.GeoDataFrame
+        A GeoDataFrame containing camera positions and orientation data with
+        columns for position differences, angle differences, and original values
+
+    Notes
+    -----
+    This function compares the original and optimized camera models and
+    calculates the differences in position and orientation. For linescan
+    cameras, it optionally trims the data to only include samples corresponding
+    to the actual image lines.
     """
     # orbit_plot.py method to get angles in NED
     # https://github.com/NeoGeographyToolkit/StereoPipeline/blob/master/src/asp/Tools/orbit_plot.py#L412
@@ -202,31 +214,45 @@ def get_orbit_plot_gdf(original_camera, optimized_camera, map_crs=None, trim=Tru
 
 def format_stat_value(value):
     """
-    Formats a numeric value as a string with appropriate precision.
+    Format a numeric value with appropriate precision.
 
-    If the absolute value of the input value is less than 0.01, the value is formatted using scientific notation with 2 decimal places. Otherwise, the value is formatted as a fixed-point number with 2 decimal places.
+    Parameters
+    ----------
+    value : float
+        The numeric value to format
 
-    Args:
-        value (float): The numeric value to be formatted.
+    Returns
+    -------
+    str
+        Formatted string representation of the value
 
-    Returns:
-        str: The formatted string representation of the input value.
+    Notes
+    -----
+    Uses scientific notation for very small values (abs(value) < 0.01)
+    and fixed-point notation with 2 decimal places otherwise.
     """
     return f"{value:.2e}" if abs(value) < 0.01 else f"{value:.2f}"
 
 
 def plot_stats_text(ax, mean, std, unit="m"):
     """
-    Plots a text annotation on the given axis displaying the mean and standard deviation of a value.
+    Add a text annotation showing statistics to a plot.
 
-    Args:
-        ax (matplotlib.axes.Axes): The axis on which to plot the text annotation.
-        mean (float): The mean value to display.
-        std (float): The standard deviation value to display.
-        unit (str): Unit to use for display. Default is 'm'
+    Parameters
+    ----------
+    ax : matplotlib.axes.Axes
+        The axis on which to add the text
+    mean : float
+        Mean value to display
+    std : float
+        Standard deviation value to display
+    unit : str, optional
+        Unit to use for display, default is 'm'
 
-    Returns:
-        None
+    Notes
+    -----
+    The text is displayed in the lower left corner of the plot with
+    a white background box for readability.
     """
     stats_text = f"{format_stat_value(mean)} ± {format_stat_value(std)} {unit}"
     ax.text(
@@ -257,26 +283,47 @@ def csm_camera_summary_plot(
     **ctx_kwargs,
 ):
     """
-    Generates a summary plot comparing the position and angle changes between the original and optimized camera parameters for one or two cameras.
+    Generate a comprehensive summary plot comparing camera parameters.
 
-    Args:
-        cam1_list (list): A list containing the original and optimized camera files for the first camera.
-        cam2_list (list, optional): A list containing the original and optimized camera files for the second camera.
-        map_crs (int, optional): The EPSG code for the coordinate reference system to use for the map plots. If not provided, the plots will use the original ECEF coordinates.
-        title (str, optional): An additional descriptive title to append to the overall plot title containing the camera names.
-        trim (bool, optional): Whether to trim the beginning and end of the data to only the first and last image lines.
-        shared_scales (bool, optional): Whether to use shared y-axis scales for the position and angle difference plots.
-        log_scale_positions (bool, optional): Whether to use a logarithmic scale for the position difference plots.
-        log_scale_angles (bool, optional): Whether to use a logarithmic scale for the angle difference plots.
-        upper_magnitude_percentile (int, optional): The upper percentile to use for the colorbar ranges for the mapview plots.
-        figsize (tuple, optional): The size of the figure to generate.
-        save_dir (str, optional): The directory to save the generated figure to.
-        fig_fn (str, optional): The filename to use for the saved figure.
-        add_basemap (bool, optional): Whether to add a basemap to the map plots.
-        **ctx_kwargs: Additional keyword arguments to pass to the `ctx.add_basemap` function.
+    Parameters
+    ----------
+    cam1_list : list
+        List containing paths to the original and optimized camera files for the first camera
+    cam2_list : list or None, optional
+        List containing paths to the original and optimized camera files for the second camera,
+        default is None
+    map_crs : int or None, optional
+        EPSG code for the coordinate reference system for map plots, default is None (use ECEF)
+    title : str or None, optional
+        Additional title text to append to the default title, default is None
+    trim : bool, optional
+        Whether to trim data to image lines for linescan cameras, default is True
+    shared_scales : bool, optional
+        Whether to use the same y-axis scale for all position/angle plots, default is False
+    log_scale_positions : bool, optional
+        Whether to use logarithmic scale for position difference plots, default is False
+    log_scale_angles : bool, optional
+        Whether to use logarithmic scale for angle difference plots, default is False
+    upper_magnitude_percentile : int, optional
+        Percentile for setting colorbar upper limit, default is 95
+    figsize : tuple, optional
+        Figure size (width, height) in inches, default is (20, 15)
+    save_dir : str or None, optional
+        Directory to save the plot, default is None (don't save)
+    fig_fn : str or None, optional
+        Filename for the saved plot, default is None
+    add_basemap : bool, optional
+        Whether to add a basemap to map plots, default is False
+    **ctx_kwargs
+        Additional keyword arguments passed to contextily.add_basemap()
 
-    Returns:
-        None
+    Notes
+    -----
+    This function creates a comprehensive visualization comparing original and
+    optimized camera parameters. It shows the spatial distribution of position
+    and orientation differences, as well as detailed plots of individual
+    components (x, y, z, roll, pitch, yaw). If two cameras are provided, the
+    comparison is shown for both cameras in a larger figure.
     """
 
     original_camera1, optimized_camera1 = cam1_list
@@ -864,9 +911,24 @@ ASP_TO_CSM_SHIFT = 0.5
 
 def toCsmPixel(asp_pix):
     """
-    Convert an ASP pixel to a CSM pixel. Code copied from CsmModel.cc.
-    """
+    Convert an ASP pixel coordinate to a CSM pixel coordinate.
 
+    Parameters
+    ----------
+    asp_pix : array-like
+        ASP pixel coordinates as [x, y]
+
+    Returns
+    -------
+    numpy.ndarray
+        CSM pixel coordinates
+
+    Notes
+    -----
+    ASP and CSM use slightly different pixel coordinate conventions.
+    CSM pixel coordinates are shifted by 0.5 pixels relative to ASP.
+    Code copied from CsmModel.cc in ASP.
+    """
     # Explicitly ensure csm_pix has float values even if the input may be int
     csm_pix = np.array([float(asp_pix[0]), float(asp_pix[1])])
 
@@ -879,11 +941,26 @@ def toCsmPixel(asp_pix):
 
 def getTimeAtLine(model, line):
     """
-    Find the time at a given line. The line count starts from 0. Code copied
-    from get_time_at_line() in CsmUtils.cc and getImageTime() in
-    UsgsAstroLsSensorModel.cpp.
-    """
+    Find the time at a given line in a linescan camera model.
 
+    Parameters
+    ----------
+    model : dict
+        CSM camera model parameters
+    line : int
+        Line number in the image (0-based)
+
+    Returns
+    -------
+    float
+        Time corresponding to the given line
+
+    Notes
+    -----
+    The time is computed using the linear mapping between line number
+    and time defined in the CSM model. Code adapted from get_time_at_line()
+    in CsmUtils.cc and getImageTime() in UsgsAstroLsSensorModel.cpp.
+    """
     # Covert the line to a CSM pixel
     asp_pix = np.array([0.0, float(line)])
     csm_pix = toCsmPixel(asp_pix)
@@ -898,11 +975,31 @@ def getTimeAtLine(model, line):
 
 def getLineAtTime(time, model):
     """
-    Get the line number at a given time. This assumes a linear relationship
-    between them (rather than piecewise linear). Code copied from
-    get_line_at_time() in CsmUtils.cc.
-    """
+    Get the line number at a given time in a linescan camera model.
 
+    Parameters
+    ----------
+    time : float
+        Time to convert to line number
+    model : dict
+        CSM camera model parameters
+
+    Returns
+    -------
+    float
+        Line number corresponding to the given time
+
+    Raises
+    ------
+    Exception
+        If the model does not have a linear relationship between time and lines
+
+    Notes
+    -----
+    This function computes the line number in the image corresponding
+    to the given time, assuming a linear relationship between time and
+    line number. Code adapted from get_line_at_time() in CsmUtils.cc.
+    """
     # All dt values in model['intTimes'] (slopes) must be equal, or else
     # the model is not linear in time.
     for i in range(1, len(model["m_intTimeLines"])):
@@ -920,7 +1017,24 @@ def getLineAtTime(time, model):
 
 
 def read_frame_cam_dict(cam):
+    """
+    Read a frame camera model file into a dictionary.
 
+    Parameters
+    ----------
+    cam : str
+        Path to the camera file (.tsai or .json)
+
+    Returns
+    -------
+    dict
+        Dictionary containing camera parameters
+
+    Raises
+    ------
+    Exception
+        If the file extension is not recognized
+    """
     # Invoke the appropriate reader for .tsai and .json frame cameras
     if cam.endswith(".tsai"):
         return read_tsai_cam(cam)
@@ -932,10 +1046,24 @@ def read_frame_cam_dict(cam):
 
 def estim_satellite_orientation(positions):
     """
-    Given a list of satellite positions, estimate the satellite
-    orientation at each position. The x axis is the direction of
-    motion, z points roughly down while perpendicular to x, and
-    y is the cross product of z and x.
+    Estimate satellite orientation at each position.
+
+    Parameters
+    ----------
+    positions : list of array-like
+        List of satellite positions in ECEF coordinates
+
+    Returns
+    -------
+    list of numpy.ndarray
+        List of rotation matrices representing satellite orientation
+
+    Notes
+    -----
+    For each position, computes a local coordinate system where:
+    - x axis is the direction of motion
+    - z points roughly down (towards Earth center)
+    - y is perpendicular to both x and z
     """
     num = len(positions)
 
@@ -973,6 +1101,22 @@ def estim_satellite_orientation(positions):
 def read_csm_cam(json_file):
     """
     Read a CSM model state file in JSON format.
+
+    Parameters
+    ----------
+    json_file : str
+        Path to the CSM JSON state file
+
+    Returns
+    -------
+    dict
+        Dictionary containing the CSM model parameters
+
+    Notes
+    -----
+    CSM JSON files sometimes have text before the actual JSON content.
+    This function handles that by finding the first open brace and
+    parsing the JSON from that point.
     """
     with open(json_file, "r") as f:
         data = f.read()
@@ -992,17 +1136,24 @@ def read_csm_cam(json_file):
 
 def read_tsai_cam(tsai):
     """
-    read tsai frame camera model and return a python dictionary containing the parameters
-    See ASP documentation: https://stereopipeline.readthedocs.io/en/latest/pinholemodels.html
+    Read a TSAI frame camera model into a dictionary.
+
     Parameters
     ----------
-    tsai: str
-        path to ASP frame camera model
+    tsai : str
+        Path to ASP frame camera model file (.tsai)
+
     Returns
-    ----------
-    output: dictionary
-        dictionary containing camera model parameters
-    #TODO: support distortion model
+    -------
+    dict
+        Dictionary containing camera model parameters
+
+    Notes
+    -----
+    TSAI is a camera model format used by ASP. It contains parameters such as
+    focal length, optical center, camera position, and orientation. See ASP
+    documentation for more details:
+    https://stereopipeline.readthedocs.io/en/latest/pinholemodels.html
     """
     camera = os.path.basename(tsai)
     with open(tsai, "r") as f:
@@ -1036,15 +1187,18 @@ def read_tsai_cam(tsai):
 
 def tsai_list_to_gdf(tsai_fn_list):
     """
-    Read a list of tsai camera files and return a GeoDataFrame
+    Convert a list of TSAI camera files to a GeoDataFrame.
+
     Parameters
     ----------
-    tsai_fn_list: list
-        List of tsai filenames
+    tsai_fn_list : list of str
+        List of paths to TSAI camera files
+
     Returns
-    ----------
-    output: GeoDataFrame
-        GeoPandas GeoDataFrame containing camera model parameters
+    -------
+    geopandas.GeoDataFrame
+        GeoDataFrame containing camera model parameters with
+        a Point geometry column for camera centers
     """
     tsai_dict_list = []
     for tsai_fn in tsai_fn_list:
@@ -1059,9 +1213,25 @@ def tsai_list_to_gdf(tsai_fn_list):
 
 def read_frame_csm_cam(json_file):
     """
-    Read rotation from a CSM Frame json state file.
-    """
+    Read position and orientation from a CSM Frame camera file.
 
+    Parameters
+    ----------
+    json_file : str
+        Path to the CSM JSON state file
+
+    Returns
+    -------
+    dict
+        Dictionary containing camera center and rotation matrix
+
+    Notes
+    -----
+    This function extracts the camera position and orientation from a
+    CSM frame camera model. The camera position is given by the first three
+    parameters, and the orientation is represented as a quaternion that
+    is converted to a rotation matrix.
+    """
     j = read_csm_cam(json_file)
 
     # Read the entry having the translation and rotation
@@ -1084,9 +1254,26 @@ def read_frame_csm_cam(json_file):
 
 def read_linescan_pos_rot(json_file):
     """
-    Read positions and rotations from a CSM linescan json state file.
-    """
+    Read positions and rotations from a CSM linescan camera file.
 
+    Parameters
+    ----------
+    json_file : str
+        Path to the CSM JSON state file
+
+    Returns
+    -------
+    tuple
+        Tuple containing (positions, rotations) where:
+        - positions is a list of camera positions
+        - rotations is a list of rotation matrices
+
+    Notes
+    -----
+    Linescan cameras have different positions and orientations for each
+    line in the image. This function extracts the full list of positions
+    and orientations from the CSM model.
+    """
     j = read_csm_cam(json_file)
 
     # Read the positions
@@ -1117,7 +1304,22 @@ def read_linescan_pos_rot(json_file):
 
 def isLinescan(cam_file):
     """
-    Read the first line from cam_file which tells if the sensor is linescan.
+    Check if a camera file is for a linescan sensor.
+
+    Parameters
+    ----------
+    cam_file : str
+        Path to the camera file
+
+    Returns
+    -------
+    bool
+        True if the camera is a linescan sensor, False otherwise
+
+    Notes
+    -----
+    This function reads the first line of the camera file to check if
+    it contains the string "LINE_SCAN", which indicates a linescan camera.
     """
     lineScan = False
     with open(cam_file, "r") as f:
@@ -1129,7 +1331,27 @@ def isLinescan(cam_file):
 
 
 def roll_pitch_yaw(rot_mat, ref_rot_mat):
+    """
+    Calculate roll, pitch, and yaw angles relative to a reference orientation.
 
+    Parameters
+    ----------
+    rot_mat : numpy.ndarray
+        Rotation matrix for the camera
+    ref_rot_mat : numpy.ndarray
+        Reference rotation matrix
+
+    Returns
+    -------
+    numpy.ndarray
+        Array of Euler angles [roll, pitch, yaw] in degrees
+
+    Notes
+    -----
+    This function calculates the orientation of a camera relative to a
+    reference orientation, and returns the result as Euler angles in
+    roll, pitch, yaw (rotation around x, y, z axes) in degrees.
+    """
     # Rotate about z axis by 90 degrees. This must be synched up with
     # sat_sim. This will be a problem for non-sat_sim cameras.
     T = np.zeros((3, 3), float)
@@ -1146,17 +1368,47 @@ def roll_pitch_yaw(rot_mat, ref_rot_mat):
 
 def poly_fit(X, Y):
     """
-    Fit a polynomial of degree 1 and return the fitted Y values.
+    Fit a linear polynomial to data and return the fitted values.
+
+    Parameters
+    ----------
+    X : array-like
+        Independent variable values
+    Y : array-like
+        Dependent variable values
+
+    Returns
+    -------
+    numpy.ndarray
+        Fitted Y values from a degree 1 polynomial fit
     """
     fit = np.poly1d(np.polyfit(X, Y, 1))
     return fit(X)
 
 
-# Read the positions and rotations from the given files. For linescan we will
-# have a single camera, but with many poses in it. For Pinhole we we will have
-# many cameras, each with a single pose.
 def read_positions_rotations_from_file(cam_file):
+    """
+    Read positions and rotations from a camera file.
 
+    Parameters
+    ----------
+    cam_file : str
+        Path to the camera file
+
+    Returns
+    -------
+    tuple
+        Tuple containing (positions, rotations) where:
+        - positions is a list of camera positions
+        - rotations is a list of rotation matrices
+
+    Notes
+    -----
+    This function handles both linescan and frame cameras. For linescan
+    cameras, it returns multiple positions and rotations corresponding
+    to different lines in the image. For frame cameras, it returns a
+    single position and rotation.
+    """
     # Read the first line from cam_file
     lineScan = isLinescan(cam_file)
 
@@ -1178,9 +1430,32 @@ def read_positions_rotations_from_file(cam_file):
     return (positions, rotations)
 
 
-# Read the positions and rotations from the given files
 def read_positions_rotations(cams):
+    """
+    Read positions and rotations from multiple camera files.
 
+    Parameters
+    ----------
+    cams : list of str
+        List of paths to camera files
+
+    Returns
+    -------
+    tuple
+        Tuple containing (positions, rotations) where:
+        - positions is a list of camera positions
+        - rotations is a list of rotation matrices
+
+    Raises
+    ------
+    SystemExit
+        If the number of positions and rotations don't match
+
+    Notes
+    -----
+    This function reads all the camera files and concatenates their
+    positions and rotations into single lists.
+    """
     (positions, rotations) = ([], [])
     for i in range(len(cams)):
         (p, r) = read_positions_rotations_from_file(cams[i])
@@ -1196,9 +1471,38 @@ def read_positions_rotations(cams):
     return (positions, rotations)
 
 
-# Get rotations, then convert to NED.  That's why the loops below.
 def read_angles(orig_cams, opt_cams, ref_cams):
+    """
+    Extract and convert camera orientations to roll, pitch, yaw angles.
 
+    Parameters
+    ----------
+    orig_cams : list of str
+        List of paths to original camera files
+    opt_cams : list of str
+        List of paths to optimized camera files
+    ref_cams : list of str
+        List of paths to reference camera files (can be empty)
+
+    Returns
+    -------
+    tuple
+        Tuple containing (orig_rotation_angles, opt_rotation_angles) where:
+        - orig_rotation_angles is a list of Euler angles for original cameras
+        - opt_rotation_angles is a list of Euler angles for optimized cameras
+
+    Raises
+    ------
+    SystemExit
+        If the number of original and reference cameras don't match
+
+    Notes
+    -----
+    This function extracts the orientation of cameras and converts them
+    to Euler angles (roll, pitch, yaw) relative to a reference orientation.
+    If reference cameras are not provided, it estimates the reference
+    orientation from the camera positions.
+    """
     # orig_cams and ref_cams must be the same size
     if len(ref_cams) > 0 and len(orig_cams) != len(ref_cams):
         print(
