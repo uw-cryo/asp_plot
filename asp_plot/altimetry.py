@@ -22,6 +22,39 @@ logger = logging.getLogger(__name__)
 
 
 class Altimetry:
+    """
+    Process and analyze ICESat-2 ATL06-SR altimetry data with ASP DEMs.
+
+    This class provides functionality to request, filter, and analyze
+    ICESat-2 ATL06-SR altimetry data in conjunction with ASP-generated
+    DEMs. It includes methods to request data from the SlideRule API,
+    filter based on various criteria, align DEMs to altimetry data,
+    and visualize the results.
+
+    Attributes
+    ----------
+    directory : str
+        Root directory for outputs and analysis
+    dem_fn : str
+        Path to the DEM file to analyze
+    aligned_dem_fn : str or None
+        Path to the aligned DEM file if available
+    atl06sr_processing_levels : dict
+        Dictionary of ATL06-SR data for different processing levels
+    atl06sr_processing_levels_filtered : dict
+        Dictionary of filtered ATL06-SR data for different processing levels
+    alignment_report_df : pandas.DataFrame or None
+        DataFrame containing alignment reports when available
+
+    Examples
+    --------
+    >>> altimetry = Altimetry('/path/to/directory', '/path/to/dem.tif')
+    >>> altimetry.request_atl06sr_multi_processing(save_to_parquet=True)
+    >>> altimetry.filter_esa_worldcover(filter_out="water")
+    >>> altimetry.alignment_report()
+    >>> altimetry.mapview_plot_atl06sr_to_dem()
+    """
+
     def __init__(
         self,
         directory,
@@ -32,6 +65,34 @@ class Altimetry:
         # atl03sr=None,
         **kwargs,
     ):
+        """
+        Initialize the Altimetry object.
+
+        Parameters
+        ----------
+        directory : str
+            Root directory for outputs and analysis
+        dem_fn : str
+            Path to the DEM file to analyze
+        aligned_dem_fn : str, optional
+            Path to an already aligned DEM file, default is None
+        atl06sr_processing_levels : dict, optional
+            Pre-loaded ATL06-SR data for different processing levels, default is empty dict
+        atl06sr_processing_levels_filtered : dict, optional
+            Pre-loaded filtered ATL06-SR data, default is empty dict
+        **kwargs : dict, optional
+            Additional keyword arguments for future extensions
+
+        Raises
+        ------
+        ValueError
+            If the DEM file or aligned DEM file (if provided) does not exist
+
+        Notes
+        -----
+        Initializes a SlideRule session, which requires an active internet connection.
+        This can be modified to work offline with pre-downloaded datasets.
+        """
         self.directory = directory
 
         if not os.path.exists(dem_fn):
@@ -94,6 +155,51 @@ class Altimetry:
         filename="atl06sr",
         region=None,
     ):
+        """
+        Request ICESat-2 ATL06-SR data for multiple processing levels.
+
+        Downloads ATL06-SR data from the SlideRule API for specified
+        processing levels (surface types), with options to filter and
+        save the results. Each processing level targets different surface
+        types like ground, canopy, etc.
+
+        Parameters
+        ----------
+        processing_levels : list, optional
+            List of processing levels to request, default is
+            ["all", "ground", "canopy", "top_of_canopy"]
+        res : int, optional
+            ATL06-SR segment resolution in meters, default is 20
+        len : int, optional
+            ATL06-SR segment length in meters, default is 40
+        ats : int, optional
+            Along-track sigma, default is 20
+        cnt : int, optional
+            Minimum number of photons for segment, default is 10
+        maxi : int, optional
+            Maximum iterations for surface fit, default is 6
+        h_sigma_quantile : float, optional
+            Quantile for filtering by h_sigma, default is 1.0
+        save_to_parquet : bool, optional
+            Whether to save results to parquet files, default is False
+        filename : str, optional
+            Base filename for saved data, default is "atl06sr"
+        region : list or None, optional
+            Region bounds as [minx, miny, maxx, maxy] in lat/lon,
+            default is None (derived from DEM)
+
+        Returns
+        -------
+        None
+            Results are stored in the class attributes
+
+        Notes
+        -----
+        This method makes SlideRule API calls which require internet connectivity.
+        It also samples ESA WorldCover data for land cover classification of the
+        ICESat-2 data points. The method includes filtering to improve data quality
+        by removing points with high uncertainty and from early mission cycles.
+        """
         if not region:
             region = Raster(self.dem_fn).get_bounds(latlon=True)
 
@@ -217,7 +323,23 @@ class Altimetry:
             self.atl06sr_processing_levels_filtered[key] = atl06sr_filtered
 
     def _save_to_parquet(self, fn, df, parms):
-        """Save SlideRule dataframe to parquet including SlideRule parameters"""
+        """
+        Save SlideRule dataframe to parquet including SlideRule parameters.
+
+        Parameters
+        ----------
+        fn : str
+            Filename to save to
+        df : pandas.DataFrame
+            DataFrame to save
+        parms : dict
+            SlideRule parameters used to generate the data
+
+        Notes
+        -----
+        Creates a copy of parameters with polygon coordinates converted to string
+        for JSON serialization, and stores these in a column of the DataFrame.
+        """
         # We could save the parameters to the parquet metadata, but this
         # was proving rather difficult.
         parms_copy = parms.copy()
@@ -226,6 +348,44 @@ class Altimetry:
         df.to_parquet(fn)
 
     def filter_esa_worldcover(self, filter_out="water", retain_only=None):
+        """
+        Filter ATL06-SR data based on ESA WorldCover land cover classes.
+
+        Filters the data points based on ESA WorldCover classification,
+        either by removing specific land cover types or retaining only
+        specific types.
+
+        Parameters
+        ----------
+        filter_out : str, optional
+            Land cover type to filter out, default is "water".
+            Options include "water", "snow_ice", "trees", "low_vegetation", "built_up"
+        retain_only : str or None, optional
+            If specified, retain only points of this land cover type,
+            default is None
+
+        Returns
+        -------
+        None
+            Results are stored in the class attributes
+
+        Notes
+        -----
+        This method uses the ESA WorldCover land cover classification,
+        which was sampled when requesting the ATL06-SR data. The classification
+        values are:
+        - 10: Tree cover
+        - 20: Shrubland
+        - 30: Grassland
+        - 40: Cropland
+        - 50: Built-up
+        - 60: Bare / sparse vegetation
+        - 70: Snow and ice
+        - 80: Permanent water bodies
+        - 90: Herbaceous wetland
+        - 95: Mangroves
+        - 100: Moss and lichen
+        """
         # Value	Description
         # 10	  Tree cover
         # 20	  Shrubland
@@ -270,6 +430,34 @@ class Altimetry:
             return
 
     def predefined_temporal_filter_atl06sr(self, date=None):
+        """
+        Apply predefined temporal filters to ATL06-SR data.
+
+        Creates multiple temporally filtered versions of the ATL06-SR data
+        based on a reference date, including:
+        - 15-day window around the date
+        - 45-day window around the date
+        - 91-day window around the date
+        - Seasonal filter (same season as the reference date)
+
+        Parameters
+        ----------
+        date : datetime or None, optional
+            Reference date for filtering. If None, extracts date from
+            stereopair metadata, default is None
+
+        Returns
+        -------
+        None
+            Results are stored in the class attributes with new keys
+            indicating the temporal filter applied
+
+        Notes
+        -----
+        This method is particularly useful for DEM validation and alignment,
+        as it provides multiple temporal windows to analyze the stability
+        of the terrain and to identify optimal temporal windows for alignment.
+        """
         if date is None:
             date = StereopairMetadataParser(self.directory).get_pair_dict()["cdate"]
 
@@ -323,6 +511,34 @@ class Altimetry:
     def generic_temporal_filter_atl06sr(
         self, select_years=None, select_months=None, select_days=None
     ):
+        """
+        Apply custom temporal filters to ATL06-SR data.
+
+        Filters the data based on specific years, months, or days,
+        allowing for custom temporal filtering not covered by the
+        predefined filters.
+
+        Parameters
+        ----------
+        select_years : list or None, optional
+            Years to keep (e.g., [2019, 2020]), default is None
+        select_months : list or None, optional
+            Months to keep (1-12), default is None
+        select_days : list or None, optional
+            Days of month to keep (1-31), default is None
+
+        Returns
+        -------
+        None
+            Results are filtered in-place in the class attributes
+
+        Notes
+        -----
+        This method modifies the existing filtered data rather than
+        creating new entries with different keys. At least one of
+        the filter parameters should be provided for the method
+        to have any effect.
+        """
         for key, atl06sr in self.atl06sr_processing_levels_filtered.items():
             print(f"\nFiltering ATL06 for: {key}")
             atl06_filtered = atl06sr
@@ -343,6 +559,31 @@ class Altimetry:
             self.atl06sr_processing_levels_filtered[key] = atl06_filtered
 
     def to_csv_for_pc_align(self, key="ground", filename_prefix="atl06sr_for_pc_align"):
+        """
+        Export ATL06-SR data to CSV format for use with pc_align.
+
+        Creates a CSV file from the filtered ATL06-SR data that is formatted
+        for use with the ASP pc_align tool, containing longitude, latitude,
+        and height above datum.
+
+        Parameters
+        ----------
+        key : str, optional
+            Processing level to export, default is "ground"
+        filename_prefix : str, optional
+            Prefix for the output CSV file, default is "atl06sr_for_pc_align"
+
+        Returns
+        -------
+        str
+            Path to the created CSV file
+
+        Notes
+        -----
+        The ASP pc_align tool requires input data in a specific format.
+        This method converts the ATL06-SR GeoDataFrame to the required
+        CSV format with columns for longitude, latitude, and height.
+        """
         atl06sr = self.atl06sr_processing_levels_filtered[key].to_crs("EPSG:4326")
         csv_fn = f"{filename_prefix}_{key}.csv"
         df = atl06sr[["geometry", "h_mean"]].copy()
@@ -362,6 +603,43 @@ class Altimetry:
         min_translation_threshold=0.1,
         key_for_aligned_dem="ground",
     ):
+        """
+        Generate alignment reports and optionally align the DEM.
+
+        Runs pc_align between the DEM and filtered ATL06-SR data for all
+        temporal variations of a given processing level, generates reports
+        of the alignment results, and optionally creates an aligned DEM.
+
+        Parameters
+        ----------
+        processing_level : str, optional
+            Base processing level to use, default is "ground"
+        minimum_points : int, optional
+            Minimum number of points required for alignment, default is 500
+        agreement_threshold : float, optional
+            Threshold for agreement between different temporal alignments,
+            as a fraction of the mean shift, default is 0.25
+        write_out_aligned_dem : bool, optional
+            Whether to create an aligned DEM, default is False
+        min_translation_threshold : float, optional
+            Minimum translation magnitude as a fraction of the DEM GSD
+            to warrant creating an aligned DEM, default is 0.1
+        key_for_aligned_dem : str, optional
+            Which temporal filter key to use for alignment if
+            write_out_aligned_dem is True, default is "ground"
+
+        Returns
+        -------
+        None
+            Sets self.alignment_report_df and optionally self.aligned_dem_fn
+
+        Notes
+        -----
+        This method performs both the pc_align operations and analysis of the
+        alignment results. It checks for consistency across temporal filters
+        and only creates an aligned DEM if the translation is significant enough
+        and consistent across temporal windows.
+        """
         filtered_keys = [
             key
             for key in self.atl06sr_processing_levels_filtered.keys()
@@ -457,6 +735,43 @@ class Altimetry:
         fig_fn=None,
         **ctx_kwargs,
     ):
+        """
+        Plot ATL06-SR data for different temporal filters.
+
+        Creates a 2x2 grid of plots showing ATL06-SR data for different
+        temporal filters (unfiltered, 15-day, 45-day, and seasonal)
+        colored by height.
+
+        Parameters
+        ----------
+        key : str, optional
+            Base processing level to plot, default is "all"
+        title : str, optional
+            Plot title, default is "ICESat-2 ATL06-SR Time Stamps"
+        cmap : str, optional
+            Matplotlib colormap for elevation, default is "inferno"
+        map_crs : str, optional
+            Coordinate reference system for mapping, default is "EPSG:4326"
+        figsize : tuple, optional
+            Figure size as (width, height), default is (15, 10)
+        save_dir : str or None, optional
+            Directory to save figure, default is None (don't save)
+        fig_fn : str or None, optional
+            Filename for saved figure, default is None
+        **ctx_kwargs : dict, optional
+            Additional arguments for contextily basemap
+
+        Returns
+        -------
+        None
+            Displays the plot and optionally saves it
+
+        Notes
+        -----
+        This method requires the filtered data to have been created using
+        the predefined_temporal_filter_atl06sr method for the temporal
+        variations to be available.
+        """
         time_stamps = ["", "_15_day_pad", "_45_day_pad", "_seasonal"]
 
         fig, axes = plt.subplots(2, 2, figsize=figsize)
@@ -549,6 +864,55 @@ class Altimetry:
         fig_fn=None,
         **ctx_kwargs,
     ):
+        """
+        Plot ATL06-SR data on a map with customizable options.
+
+        Creates a map view of ATL06-SR data with options to color by various
+        attributes, highlight different laser beams, overlay on the DEM,
+        and add contextual basemaps.
+
+        Parameters
+        ----------
+        key : str, optional
+            Processing level to plot, default is "all"
+        plot_beams : bool, optional
+            Whether to color points by ICESat-2 beam, default is False
+        plot_dem : bool, optional
+            Whether to plot the DEM as a background, default is False
+        column_name : str, optional
+            Column to use for point coloring, default is "h_mean"
+        cbar_label : str, optional
+            Colorbar label, default is "Height above datum (m)"
+        title : str, optional
+            Plot title, default is "ICESat-2 ATL06-SR"
+        clim : tuple or None, optional
+            Color limits as (min, max), default is None (auto)
+        symm_clim : bool, optional
+            Whether to use symmetric color limits, default is False
+        cmap : str, optional
+            Matplotlib colormap, default is "inferno"
+        map_crs : str, optional
+            Coordinate reference system for mapping, default is "EPSG:4326"
+        figsize : tuple, optional
+            Figure size as (width, height), default is (6, 4)
+        save_dir : str or None, optional
+            Directory to save figure, default is None (don't save)
+        fig_fn : str or None, optional
+            Filename for saved figure, default is None
+        **ctx_kwargs : dict, optional
+            Additional arguments for contextily basemap
+
+        Returns
+        -------
+        None
+            Displays the plot and optionally saves it
+
+        Notes
+        -----
+        When plot_beams is True, points are colored by ICESat-2 laser spot
+        number, with strong beams (1, 3, 5) in darker colors and
+        weak beams (2, 4, 6) in lighter colors.
+        """
         atl06sr = self.atl06sr_processing_levels_filtered[key]
         atl06sr_sorted = atl06sr.sort_values(by=column_name).to_crs(map_crs)
 
@@ -624,6 +988,32 @@ class Altimetry:
             save_figure(fig, save_dir, fig_fn)
 
     def atl06sr_to_dem_dh(self):
+        """
+        Calculate height differences between ATL06-SR data and DEMs.
+
+        Interpolates DEM heights at ATL06-SR point locations and calculates
+        the difference between ICESat-2 heights and DEM heights. If an aligned
+        DEM is available, also calculates differences against it.
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        None
+            Adds columns to the filtered ATL06-SR data:
+            - dem_height: Interpolated height from the original DEM
+            - icesat_minus_dem: Height difference (ICESat-2 - DEM)
+            - aligned_dem_height: Interpolated height from aligned DEM (if available)
+            - icesat_minus_aligned_dem: Height difference with aligned DEM (if available)
+
+        Notes
+        -----
+        This method performs bilinear interpolation of DEM values at
+        ATL06-SR point locations using xarray and rioxarray. It handles
+        coordinate system conversions automatically.
+        """
         dem = rioxarray.open_rasterio(self.dem_fn, masked=True).squeeze()
         epsg = dem.rio.crs.to_epsg()
         for key, atl06sr in self.atl06sr_processing_levels_filtered.items():
@@ -665,6 +1055,42 @@ class Altimetry:
         map_crs=None,
         **ctx_kwargs,
     ):
+        """
+        Plot height differences between ATL06-SR data and DEMs.
+
+        Creates a map visualization of the height differences between
+        ICESat-2 ATL06-SR data and either the original or aligned DEM.
+
+        Parameters
+        ----------
+        key : str, optional
+            Processing level to plot, default is "all"
+        clim : tuple or None, optional
+            Color limits as (min, max), default is None (auto)
+        plot_aligned : bool, optional
+            Whether to plot differences with aligned DEM, default is False
+        save_dir : str or None, optional
+            Directory to save figure, default is None (don't save)
+        fig_fn : str or None, optional
+            Filename for saved figure, default is None
+        map_crs : str or None, optional
+            Coordinate reference system for mapping, default is None
+            (use DEM's CRS)
+        **ctx_kwargs : dict, optional
+            Additional arguments for contextily basemap
+
+        Returns
+        -------
+        None
+            Displays the plot and optionally saves it
+
+        Notes
+        -----
+        If the height differences haven't been calculated yet,
+        this method calls atl06sr_to_dem_dh() to calculate them.
+        The plot uses a divergent colormap (RdBu) to highlight
+        positive and negative differences.
+        """
         if plot_aligned:
             column_name = "icesat_minus_aligned_dem"
             if not self.aligned_dem_fn:
@@ -712,6 +1138,40 @@ class Altimetry:
         save_dir=None,
         fig_fn=None,
     ):
+        """
+        Plot histograms of height differences between ATL06-SR data and DEMs.
+
+        Creates histograms of the height differences between ICESat-2 ATL06-SR
+        data and DEMs, with statistics including median and normalized median
+        absolute deviation (NMAD).
+
+        Parameters
+        ----------
+        key : str, optional
+            Processing level to plot, default is "all"
+        title : str, optional
+            Plot title, default is "Histogram"
+        plot_aligned : bool, optional
+            Whether to include differences with aligned DEM, default is False
+        save_dir : str or None, optional
+            Directory to save figure, default is None (don't save)
+        fig_fn : str or None, optional
+            Filename for saved figure, default is None
+
+        Returns
+        -------
+        None
+            Displays the plot and optionally saves it
+
+        Notes
+        -----
+        If the height differences haven't been calculated yet,
+        this method calls atl06sr_to_dem_dh() to calculate them.
+        NMAD is a robust measure of dispersion that is less sensitive
+        to outliers than standard deviation, calculated as
+        1.4826 * median(abs(x - median(x))).
+        """
+
         def _nmad(a, c=1.4826):
             return np.nanmedian(np.fabs(a - np.nanmedian(a))) * c
 

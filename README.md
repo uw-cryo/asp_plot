@@ -343,7 +343,7 @@ Before uploading a new release:
 
 1. Update version in `pyproject.toml` following semantic versioning rules
 2. Update the CHANGELOG.md with the new version and date
-3. Create and push a git tag for the version (e.g., `git tag v1.0.0`)
+3. Create and push a git tag for the version (e.g., `git tag v1.0.0 && git push origin v1.0.0`)
 
 Then build and upload the package:
 
