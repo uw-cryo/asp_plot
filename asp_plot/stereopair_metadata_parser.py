@@ -16,7 +16,7 @@ logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
 
-# TODO: If this supports N scenes, should rename to SceneMetadataParser or something
+# TODO: When this supports N scenes, should rename to StereoMetadataParser
 class StereopairMetadataParser:
     def __init__(self, directory):
         self.directory = directory
@@ -52,7 +52,7 @@ class StereopairMetadataParser:
         # First check for multiple XML files and dg_mosaic if needed
         if len(self.image_list) > 2:
             print(
-                "\nMore than two XML files found in directory. Mosaicing before proceeding.\n"
+                "\nMore than two XML files found in directory. Mosaicking before proceeding.\n"
             )
             self.mosaic_multiple_xmls()
 
