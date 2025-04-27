@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 from datetime import datetime, timedelta
 
 import geopandas as gpd
@@ -8,24 +9,29 @@ import pandas as pd
 from osgeo import osr
 from shapely import union_all, wkt
 
-from asp_plot.utils import get_xml_tag, glob_file
+from asp_plot.utils import get_xml_tag, glob_file, run_subprocess_command
 
 osr.UseExceptions()
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
 
-# TODO: If this supports N scenes, should rename to SceneMetadataParser or something
+# TODO: When this supports N scenes, should rename to StereoMetadataParser
 class StereopairMetadataParser:
     def __init__(self, directory):
         self.directory = directory
 
-    def get_catid_dicts(self):
-        catid_xmls = self.get_catid_xmls()
-        catid_dicts = []
-        for catid, xml in catid_xmls.items():
-            catid_dicts.append(self.get_id_dict(catid, xml))
-        return catid_dicts
+        self.image_list = glob_file(self.directory, "*.[Xx][Mm][Ll]", all_files=True)
+
+        # Drop potential *ortho*.xml files from image_list
+        self.image_list = [
+            file for file in self.image_list if not re.search(r".*ortho.*\.xml", file)
+        ]
+
+        if not self.image_list:
+            raise ValueError(
+                "\n\nMissing XML camera files in directory. Cannot extract metadata without these.\n\n"
+            )
 
     # TODO: This method assumes that only two scenes are captured with get_catid_dicts
     # Should be updated to support more than two scenes, or need a separate method for N scenes
@@ -35,16 +41,24 @@ class StereopairMetadataParser:
         pairname = os.path.split(self.directory.rstrip("/\\"))[-1]
         return self.pair_dict(catid1_dict, catid2_dict, pairname)
 
+    def get_catid_dicts(self):
+        catid_xmls = self.get_catid_xmls()
+        catid_dicts = []
+        for catid, xml in catid_xmls.items():
+            catid_dicts.append(self.get_id_dict(catid, xml))
+        return catid_dicts
+
     def get_catid_xmls(self):
-        image_list = glob_file(self.directory, "*.[Xx][Mm][Ll]", all_files=True)
-        if not image_list:
-            raise ValueError(
-                "\n\nMissing XML camera files in directory. Cannot extract metadata without these.\n\n"
+        # First check for multiple XML files and dg_mosaic if needed
+        if len(self.image_list) > 2:
+            print(
+                "\nMore than two XML files found in directory. Mosaicking before proceeding.\n"
             )
+            self.mosaic_multiple_xmls()
 
         # Get CATIDs
         catid_xmls = {}
-        for xml_file in image_list:
+        for xml_file in self.image_list:
             catid = get_xml_tag(xml_file, "CATID")
             catid_xmls[catid] = xml_file
 
@@ -53,6 +67,53 @@ class StereopairMetadataParser:
         # use ~/Dropbox/UW_Shean/WV/antarctica/tiled_xmls_example for testing this
 
         return catid_xmls
+
+    def mosaic_multiple_xmls(self):
+        # Drop existing *.r100.* and *.r50.* files from image_list if they are present
+        self.image_list = [
+            file
+            for file in self.image_list
+            if not re.search(r"\.r100\..*|\.r50\..*", file)
+        ]
+
+        # Group XML files by CATID
+        catid_xml_dict = {}
+        for xml_file in self.image_list:
+            catid = get_xml_tag(xml_file, "CATID")
+            if catid not in catid_xml_dict:
+                catid_xml_dict[catid] = []
+            catid_xml_dict[catid].append(xml_file)
+
+        # Convert lists to space-separated strings
+        catid_xml_dict = {
+            catid: " ".join(xml_files) for catid, xml_files in catid_xml_dict.items()
+        }
+
+        # Run dg_mosaic with: dg_mosaic --skip-tif-gen --output-prefix <NAME> <SPACE SEPARATED XML FILES>
+        output_xmls = []
+        for catid, xml_files in catid_xml_dict.items():
+            output_xml = os.path.join(self.directory, f"{catid}_asp_plot_dg_mosaic")
+            output_xml_r100 = f"{output_xml}.r100.xml"
+
+            if not os.path.exists(output_xml_r100):
+                # Build the command string instead of a list, needed for subprocess call, .split() below
+                command = (
+                    f"dg_mosaic --skip-tif-gen --output-prefix {output_xml} {xml_files}"
+                )
+
+                print(f"\nRunning dg_mosaic with command: {command}\n")
+
+                # Run the command
+                run_subprocess_command(command.split())
+            else:
+                print(f"\nUsing existing mosaicked XML file: {output_xml_r100}\n")
+
+            output_xmls.append(output_xml_r100)
+
+        # Then create the new image list with just the mosaicked XML files
+        self.image_list = []
+        for output_xml in output_xmls:
+            self.image_list.append(output_xml)
 
     def get_id_dict(self, catid, xml, geteph=True):
         def list_average(list):
