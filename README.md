@@ -11,11 +11,12 @@ Our objective is to release a modular Python package with a command-line interfa
 
 ## Status
 
-This is a work in progress.
+As of version 1.0.0, ASP Plot provides a stable set of tools for visualizing ASP processing results.
+The package follows semantic versioning, and all changes are documented in the [CHANGELOG](CHANGELOG.md).
 
 The directory `original_code/` contains initial notebooks compiled from recent projects using sample stereo images from the Maxar WorldView, Planet SkySat-C and BlackSky Global constellations.
 
-The functionality of these notebooks is being ported to the `asp_plot/` directory, which is the package `asp_plot`.
+The functionality of these notebooks has been ported to the `asp_plot/` directory, which is the package `asp_plot`.
 
 ## Files you will need from ASP processing
 
@@ -326,9 +327,25 @@ $ pytest -s
 
 When review of the pull request is complete [_squash_ and merge](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/about-merge-methods-on-github#squashing-your-merge-commits) the changes to `main`, combining your commits into a single, descriptive commit of _why_ the changes were made.
 
+### Versioning and CHANGELOG
+
+This project follows [Semantic Versioning](https://semver.org/) which uses a three-part version number: MAJOR.MINOR.PATCH.
+
+- MAJOR: Incompatible API changes
+- MINOR: Added functionality in a backwards compatible manner
+- PATCH: Backwards compatible bug fixes and minor enhancements
+
+All notable changes are documented in the [CHANGELOG.md](CHANGELOG.md) file in the repository root. When contributing changes, please add an entry to the CHANGELOG.
+
 ### Package and upload
 
-Update version in `pyproject.toml`, then:
+Before uploading a new release:
+
+1. Update version in `pyproject.toml` following semantic versioning rules
+2. Update the CHANGELOG.md with the new version and date
+3. Create and push a git tag for the version (e.g., `git tag v1.0.0`)
+
+Then build and upload the package:
 
 ```
 rm -rf dist/
