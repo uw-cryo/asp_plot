@@ -12,6 +12,7 @@ logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
 
+# TODO: move this to scene_geometry_plotter.py
 class SceneGeometryPlotter(StereopairMetadataParser):
     def __init__(self, directory, add_basemap=True, **kwargs):
         super().__init__(directory=directory, **kwargs)
