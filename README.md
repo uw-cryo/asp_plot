@@ -11,11 +11,12 @@ Our objective is to release a modular Python package with a command-line interfa
 
 ## Status
 
-This is a work in progress.
+As of version 1.0.0, ASP Plot provides a stable set of tools for visualizing ASP processing results.
+The package follows semantic versioning, and all changes are documented in the [CHANGELOG](CHANGELOG.md).
 
 The directory `original_code/` contains initial notebooks compiled from recent projects using sample stereo images from the Maxar WorldView, Planet SkySat-C and BlackSky Global constellations.
 
-The functionality of these notebooks is being ported to the `asp_plot/` directory, which is the package `asp_plot`.
+The functionality of these notebooks has been ported to the `asp_plot/` directory, which is the package `asp_plot`.
 
 ## Files you will need from ASP processing
 
@@ -78,6 +79,12 @@ Before that, we recommend running `asp_plot --help` for details (and defaults) o
  $ asp_plot --help
 Usage: asp_plot [OPTIONS]
 
+  Generate a comprehensive report of ASP processing results.
+
+  Creates a series of diagnostic plots for stereo processing, bundle adjustment,
+  ICESat-2 comparisons, and more. All plots are combined into a single PDF report
+  with processing parameters and summary information.
+
 Options:
   --directory TEXT                Required directory of ASP processing with
                                   scenes and sub-directories for stereo and
@@ -123,6 +130,7 @@ Options:
                                   processing.
   --report_title TEXT             Title for the report. Default: Directory
                                   name of ASP processing.
+  --help                          Show this message and exit.
 ```
 
 ### Running without internet connection
@@ -134,6 +142,53 @@ If you add these two flags as `False` to the `asp_plot` command, you can run it 
 ```
 
 Otherwise, basemaps will be fetched using contextly and ICESat-2 data will be fetched by SlideRule.
+
+## CLI usage: `stereo_geom`
+
+The `stereo_geom` command-line tool creates visualizations of stereo geometry for satellite imagery based on the XML camera files. It produces a combined plot with a skyplot showing satellite viewing angles and a map view showing the footprints and satellite positions.
+
+At its simplest, you can run:
+
+```
+$ stereo_geom --directory /path/to/directory/with/xml/files
+```
+
+By default, the tool will save the output as `<directory_name>_stereo_geom.png` in the input directory. You can customize the output location and filename:
+
+```
+$ stereo_geom --directory /path/to/directory/with/xml/files \
+              --output_directory /path/to/save/plots \
+              --output_filename custom_output.png
+```
+
+The tool can also add a basemap to the map view (requires internet connection):
+
+```
+$ stereo_geom --directory /path/to/directory/with/xml/files \
+              --add_basemap True
+```
+
+For more details on the available options, run:
+
+```
+$ stereo_geom --help
+Usage: stereo_geom [OPTIONS]
+
+  Generate stereo geometry plots for DigitalGlobe/Maxar XML files. This tool
+  creates a skyplot and map visualization of the satellite positions and
+  ground footprints.
+
+Options:
+  --directory TEXT         Directory containing XML files for stereo geometry
+                           analysis. Default: current directory.
+  --add_basemap BOOLEAN    If True, add a basemap to the figures, which
+                           requires internet connection. Default: True.
+  --output_directory TEXT  Directory to save the output plot. Default: Input
+                           directory.
+  --output_filename TEXT   Filename for the output plot. Default: Directory
+                           name with _stereo_geom.png suffix.
+  --help                   Show this message and exit.
+```
 
 ## CLI usage: `csm_camera_plot`
 
@@ -170,6 +225,12 @@ And there are many more options that can also be modified, by examining `csm_cam
  $ csm_camera_plot --help
 Usage: csm_camera_plot [OPTIONS]
 
+  Create diagnostic plots for CSM camera model adjustments.
+
+  Analyzes the changes between original and optimized camera models after bundle
+  adjustment or jitter correction. Generates plots showing position and angle differences
+  along the satellite trajectory, as well as a mapview of the camera footprints.
+
 Options:
   --original_cameras TEXT         Original camera files, supplied as comma
                                   separated list 'path/to/original_camera_1,path/to/original_camera_2'.
@@ -204,6 +265,7 @@ Options:
   --add_basemap BOOLEAN           If True, add a contextily basemap to the
                                   figure, which requires internet connection.
                                   Default: False.
+  --help                          Show this message and exit.
 ```
 
 ## Development
@@ -265,9 +327,25 @@ $ pytest -s
 
 When review of the pull request is complete [_squash_ and merge](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/about-merge-methods-on-github#squashing-your-merge-commits) the changes to `main`, combining your commits into a single, descriptive commit of _why_ the changes were made.
 
+### Versioning and CHANGELOG
+
+This project follows [Semantic Versioning](https://semver.org/) which uses a three-part version number: MAJOR.MINOR.PATCH.
+
+- MAJOR: Incompatible API changes
+- MINOR: Added functionality in a backwards compatible manner
+- PATCH: Backwards compatible bug fixes and minor enhancements
+
+All notable changes are documented in the [CHANGELOG.md](CHANGELOG.md) file in the repository root. When contributing changes, please add an entry to the CHANGELOG.
+
 ### Package and upload
 
-Update version in `pyproject.toml`, then:
+Before uploading a new release:
+
+1. Update version in `pyproject.toml` following semantic versioning rules
+2. Update the CHANGELOG.md with the new version and date
+3. Create and push a git tag for the version (e.g., `git tag v1.0.0`)
+
+Then build and upload the package:
 
 ```
 rm -rf dist/

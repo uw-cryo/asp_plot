@@ -99,6 +99,13 @@ def main(
     fig_fn,
     add_basemap,
 ):
+    """
+    Create diagnostic plots for CSM camera model adjustments.
+
+    Analyzes the changes between original and optimized camera models after bundle
+    adjustment or jitter correction. Generates plots showing position and angle differences
+    along the satellite trajectory, as well as a mapview of the camera footprints.
+    """
     original_cameras = original_cameras.split(",")
     optimized_cameras = optimized_cameras.split(",")
 
