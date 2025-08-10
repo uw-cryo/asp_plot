@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "asp_plot"
-version = "1.0.1"
+version = "1.0.2"
 license = {text = "BSD-3-Clause"}
 authors = [
   { name="Ben Purinton", email="purinton@uw.edu" },

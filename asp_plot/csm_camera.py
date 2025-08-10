@@ -199,7 +199,10 @@ def get_orbit_plot_gdf(original_camera, optimized_camera, map_crs=None, trim=Tru
     }
     df = pd.DataFrame(data)
     if trim and isLinescan(optimized_camera):
-        df = df.iloc[int(firstQuatIndex) : int(lastQuatIndex)]
+        if firstQuatIndex < lastQuatIndex:
+            df = df.iloc[int(firstQuatIndex) : int(lastQuatIndex)]
+        else:
+            df = df.iloc[int(lastQuatIndex) : int(firstQuatIndex)]
         line_at_position = np.round(np.linspace(1, numLines, df.shape[0])).astype(int)
         df["line_at_position"] = line_at_position
     gdf = gpd.GeoDataFrame(df, geometry="original_positions")

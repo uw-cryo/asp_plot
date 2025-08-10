@@ -39,7 +39,7 @@ from asp_plot.csm_camera import csm_camera_summary_plot
     "--shared_scales",
     prompt=False,
     default=False,
-    help="If True, the position and angle difference scales are shared between for each camera. Default: False.",
+    help="If True, the position and angle difference scales are shared between each camera. Default: False.",
 )
 @click.option(
     "--log_scale_positions",
@@ -125,7 +125,7 @@ def main(
     csm_camera_summary_plot(
         cam1_list,
         cam2_list,
-        map_crs,
+        map_crs.split(":")[-1] if map_crs else None,
         title=title,
         trim=trim,
         shared_scales=shared_scales,
