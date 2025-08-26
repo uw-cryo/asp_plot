@@ -289,6 +289,7 @@ class StereopairMetadataParser:
 
         return d
 
+    #TODO: consider merging the getEphem and getAtt methods, return single GDF 
     def getEphem(self, xml):
         """
         Extract ephemeris data from XML file.
@@ -318,6 +319,30 @@ class StereopairMetadataParser:
         # All coordinates are ECF, meters, meters/sec, m^2
         return np.array([i.split() for i in e], dtype=np.float64)
 
+    def getAtt(self, xml):
+        """
+        Extract attitude data from XML file.
+
+        Retrieves satellite attitude (orientation) data from the XML file.
+
+        Parameters
+        ----------
+        xml : str
+            Path to the XML file
+
+        Returns
+        -------
+        numpy.ndarray
+            Array containing ephemeris data with columns:
+            point_num, q1, q2, q3, q4, and covariance matrix elements
+
+        Notes
+        -----
+        All rotations are in Earth-Centered Fixed (ECF) reference frame.
+        """
+        e = get_xml_tag(xml, "ATTLIST", all=True)
+        return np.array([i.split() for i in e], dtype=np.float64)
+
     def getEphem_gdf(self, xml):
         """
         Create a GeoDataFrame from ephemeris data.
@@ -339,12 +364,30 @@ class StereopairMetadataParser:
         The GeoDataFrame uses EPSG:4978 (Earth-Centered Earth-Fixed) CRS and
         has a time index corresponding to the acquisition times.
         """
+
+        """
+        From DG ISD:
+        Folowing are the upper-right elements of the position covariance
+        matrix for this point:
+		(1,1) element (Float);
+		(1,2) element (Float);
+		(1,3) element (Float);
+		(2,2) element (Float);
+		(2,3) element (Float);
+		(3,3) element (Float); 
+        Positon variances and covariances are in m2
+        """
+        #Eventually store these as a square matrix in a dataframe column
+        #cov_indices = [(1,1), (1,2), (1,3), (2,2), (2,3), (3,3)] 
+        cov_indices = ['11', '12', '13', '22', '23', '33'] 
+
         names = [
             "index",
         ]
         names.extend(["x", "y", "z"])
         names.extend(["dx", "dy", "dz"])
-        names.extend(["{}_cov".format(n) for n in names[1:7]])
+        #names.extend(["{}_cov".format(n) for n in names[1:7]])
+        names.extend(["cov_{}".format(n) for n in cov_indices])
         e = self.getEphem(xml)
         t0 = pd.to_datetime(get_xml_tag(xml, "STARTTIME"))
         dt = pd.Timedelta(float(get_xml_tag(xml, "TIMEINTERVAL")), unit="s")
@@ -356,7 +399,66 @@ class StereopairMetadataParser:
             geometry=gpd.points_from_xy(eph_df["x"], eph_df["y"], eph_df["z"]),
             crs="EPSG:4978",
         )
+        #eph_gdf['cov_trace_std'] = np.sqrt(eph_gdf['cov_11']+eph_gdf['cov_22']+eph_gdf['cov_33'])
         return eph_gdf
+
+    def getAtt_df(self, xml):
+        """
+        Create a DataFrame from attitude data.
+
+        Converts attitude data to a DataFrame with time index.
+
+        Parameters
+        ----------
+        xml : str
+            Path to the XML file
+
+        Returns
+        -------
+        pandas.DataFrame
+            DataFrame with attitude data 
+
+        Notes
+        -----
+        """
+
+        """
+        From DG ISD:
+        Following is the attitude quaternion for this point:
+        q1 (Double);
+        q2 (Double);
+        q3 (Double);
+        q4 (Double);
+        Following are the upper-right elements of the attitude
+        quaternion covariance matrix for this point:
+        (1,1) element (Float)
+        (1,2) element (Float)
+        (1,3) element (Float)
+        (1,4) element (Float)
+        (2,2) element (Float)
+        (2,3) element (Float)
+        (2,4) element (Float)
+        (3,3) element (Float)
+        (3,4) element (Float)
+        (4,4) element (Float)
+        """
+        #Eventually store these as a square matrix in a dataframe column
+        #cov_indices = [(1,1), (1,2), (1,3), (1,4), (2,2), (2,3), (2,4), (3,3), (3,4), (4,4)] 
+        cov_indices = ['11', '12', '13', '14', '22', '23', '24', '33', '34', '44'] 
+
+        names = [
+            "index",
+        ]
+        names.extend(["q1", "q2", "q3", "q4"])
+        #names.extend(["{}_cov".format(n) for n in names[1:7]])
+        names.extend(["cov_{}".format(n) for n in cov_indices])
+        e = self.getAtt(xml)
+        t0 = pd.to_datetime(get_xml_tag(xml, "STARTTIME"))
+        dt = pd.Timedelta(float(get_xml_tag(xml, "TIMEINTERVAL")), unit="s")
+        att_df = pd.DataFrame(e, columns=names)
+        att_df["time"] = t0 + att_df.index * dt
+        att_df.set_index("time", inplace=True)
+        return att_df
 
     def xml2wkt(self, xml):
         """
