@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Refactored `Raster` class to remove dependency on `geoutils`
 - `load_and_diff_rasters()` now directly uses `rasterio.warp.reproject()` instead of geoutils
+- `compute_difference()` now returns `(this_raster - second_raster)` and uses this raster's grid as reference (was previously reversed)
 - `compute_difference()` no longer saves by default (use `save=True` to enable)
 - Updated `altimetry.py` to use native rasterio plotting instead of geoutils
 
