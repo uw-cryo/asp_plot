@@ -9,6 +9,7 @@ dependencies:
   - pip
   - numpy
   - rasterio
+  - rioxarray
   - matplotlib
   - fiona
   - pandas
@@ -17,8 +18,6 @@ dependencies:
   - contextily
   - matplotlib-scalebar
   - click
-  - geoutils>=0.1.9
-  - xdem
   - sliderule
   - pip:
     - markdown-pdf

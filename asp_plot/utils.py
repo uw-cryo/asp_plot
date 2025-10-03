@@ -4,7 +4,6 @@ import os
 import subprocess
 
 import contextily as ctx
-import geoutils as gu
 import matplotlib.colors
 import matplotlib.image as mpimg
 import matplotlib.pyplot as plt
@@ -491,6 +490,12 @@ class Raster:
         Path to the raster file
     ds : rasterio.DatasetReader
         Open rasterio dataset
+    downsample : int or float
+        Downsampling factor for reading data
+    data : numpy.ma.MaskedArray or None
+        Cached raster data (loaded on demand)
+    transform : affine.Affine
+        Affine transform for the raster (adjusted if downsampled)
 
     Examples
     --------
@@ -499,9 +504,12 @@ class Raster:
     >>> hillshade = raster.hillshade()
     >>> epsg = raster.get_epsg_code()
     >>> gsd = raster.get_gsd()
+    >>> # Downsample for faster plotting
+    >>> raster_ds = Raster("path/to/dem.tif", downsample=10)
+    >>> raster_ds.plot(ax=ax, cmap="viridis")
     """
 
-    def __init__(self, fn):
+    def __init__(self, fn, downsample=1):
         """
         Initialize the Raster object.
 
@@ -509,9 +517,67 @@ class Raster:
         ----------
         fn : str
             Path to the raster file
+        downsample : int or float, optional
+            Downsampling factor for reading data, default is 1 (no downsampling)
         """
         self.fn = fn
         self.ds = rio.open(fn)
+        self.downsample = downsample
+        self._data = None
+        self._transform = self.ds.transform
+
+    @property
+    def data(self):
+        """
+        Lazy-loaded raster data.
+
+        Returns
+        -------
+        numpy.ma.MaskedArray
+            Raster data (loaded on first access)
+        """
+        if self._data is None:
+            self._data = self.read_array()
+        return self._data
+
+    @property
+    def transform(self):
+        """
+        Get the affine transform for the raster.
+
+        Returns
+        -------
+        affine.Affine
+            Affine transform (adjusted for downsampling if applicable)
+        """
+        return self._transform
+
+    def _calculate_downsampled_shape(self):
+        """
+        Calculate the output shape for downsampled reading.
+
+        Returns
+        -------
+        tuple or None
+            (height, width) if downsampling is needed, None otherwise
+
+        Notes
+        -----
+        Also updates the internal transform to account for downsampling.
+        """
+        if self.downsample == 1:
+            return None
+
+        height = int(np.ceil(self.ds.height / self.downsample))
+        width = int(np.ceil(self.ds.width / self.downsample))
+
+        # Update transform for downsampled data
+        res = tuple(np.asarray(self.ds.res) * self.downsample)
+        self._transform = rio.transform.from_origin(
+            self.ds.bounds.left, self.ds.bounds.top, res[0], res[1]
+        )
+
+        return (height, width)
 
     def read_array(self, b=1, extent=False):
         """
@@ -533,8 +599,16 @@ class Raster:
         Notes
         -----
         No-data values are properly masked, and invalid values are fixed.
+        If downsample > 1, reads a downsampled version of the raster.
         """
-        a = self.ds.read(b, masked=True)
+        # Calculate downsampled shape if needed
+        out_shape = self._calculate_downsampled_shape()
+
+        if out_shape is not None:
+            a = self.ds.read(b, out_shape=out_shape, masked=True)
+        else:
+            a = self.ds.read(b, masked=True)
+
         ndv = self.get_ndv()
         ma = np.ma.fix_invalid(np.ma.masked_equal(a, ndv))
         out = ma
@@ -667,7 +741,7 @@ class Raster:
             hillshade = np.ma.masked_equal(hs_ds.ReadAsArray(), 0)
         return hillshade
 
-    def compute_difference(self, second_fn):
+    def compute_difference(self, second_fn, save=False):
         """
         Compute the difference between this raster and another.
 
@@ -675,6 +749,8 @@ class Raster:
         ----------
         second_fn : str
             Path to the second raster file
+        save : bool, optional
+            Whether to save the difference raster to disk, default is False
 
         Returns
         -------
@@ -683,23 +759,143 @@ class Raster:
 
         Notes
         -----
-        Uses geoutils to align rasters before differencing.
-        Saves the difference raster to disk with "_diff.tif" suffix.
+        Aligns rasters to the grid of the second raster before differencing.
+        If save=True, saves the difference raster with "_diff.tif" suffix.
         """
-        fn_list = [self.fn, second_fn]
-        outdir = os.path.dirname(os.path.abspath(self.fn))
-
-        outprefix = (
-            os.path.splitext(os.path.split(self.fn)[1])[0]
-            + "_"
-            + os.path.splitext(os.path.split(second_fn)[1])[0]
+        # Load and align rasters, with second raster as reference (cropped to intersection)
+        diff_data, dst_transform, dst_crs, nodata = self.load_and_diff_rasters(
+            self.fn, second_fn
         )
 
-        rasters = gu.raster.load_multiple_rasters(fn_list, ref_grid=1)
-        diff = rasters[1] - rasters[0]
-        dst_fn = os.path.join(outdir, outprefix + "_diff.tif")
-        diff.save(dst_fn)
-        return diff.data
+        # Optionally save difference raster
+        if save:
+            outdir = os.path.dirname(os.path.abspath(self.fn))
+            outprefix = (
+                os.path.splitext(os.path.split(self.fn)[1])[0]
+                + "_"
+                + os.path.splitext(os.path.split(second_fn)[1])[0]
+            )
+            dst_fn = os.path.join(outdir, outprefix + "_diff.tif")
+
+            # Save with the intersection's grid parameters
+            height, width = diff_data.shape
+            profile = {
+                "driver": "GTiff",
+                "dtype": rio.float32,
+                "width": width,
+                "height": height,
+                "count": 1,
+                "crs": dst_crs,
+                "transform": dst_transform,
+                "nodata": nodata,
+                "compress": "lzw",
+            }
+
+            with rio.open(dst_fn, "w", **profile) as dst:
+                dst.write(diff_data.filled(nodata).astype(rio.float32), 1)
+
+        return diff_data
+
+    @staticmethod
+    def save_raster(data, output_fn, reference_fn, dtype=None, nodata=None):
+        """
+        Save a numpy array as a GeoTIFF using a reference raster's profile.
+
+        Parameters
+        ----------
+        data : numpy.ndarray
+            Data array to save
+        output_fn : str
+            Output file path
+        reference_fn : str
+            Reference raster file to copy metadata from
+        dtype : numpy.dtype or str, optional
+            Data type for output raster, default is None (uses float32)
+        nodata : int or float, optional
+            No-data value for output raster, default is None (uses reference nodata)
+
+        Returns
+        -------
+        None
+
+        Notes
+        -----
+        Copies CRS, transform, and other metadata from the reference raster.
+        Useful for saving processed data that should align with an existing raster.
+
+        Examples
+        --------
+        >>> diff = raster1.data - raster2.data
+        >>> Raster.save_raster(diff, "difference.tif", reference_fn="raster2.tif")
+        """
+        with rio.open(reference_fn) as ref_ds:
+            profile = ref_ds.profile.copy()
+            profile.update(count=1)
+
+            # Set dtype
+            if dtype is None:
+                dtype = rio.float32
+            profile.update(dtype=dtype)
+
+            # Set nodata
+            if nodata is not None:
+                profile.update(nodata=nodata)
+
+            with rio.open(output_fn, "w", **profile) as dst:
+                dst.write(data.astype(profile["dtype"]), 1)
+
+    @staticmethod
+    def load_and_diff_rasters(first_fn, second_fn):
+        """
+        Load two rasters, align them, and compute their difference.
+
+        Parameters
+        ----------
+        first_fn : str
+            Path to the first raster file
+        second_fn : str
+            Path to the second raster file (used as reference grid)
+
+        Returns
+        -------
+        tuple
+            (difference array (second_raster - first_raster), transform, CRS, nodata)
+
+        Notes
+        -----
+        The first raster is reprojected and resampled to match the second raster's
+        grid before differencing. Both rasters are cropped to their intersection first
+        (matching geoutils behavior). Uses rioxarray for efficient reprojection.
+        """
+        # Load rasters with rioxarray
+        first = rioxarray.open_rasterio(first_fn, masked=True).squeeze()
+        second = rioxarray.open_rasterio(second_fn, masked=True).squeeze()
+
+        # Get first raster's bounds in second raster's CRS
+        first_bounds_in_ref_crs = first.rio.transform_bounds(second.rio.crs)
+
+        # Clip second raster to first raster's bounds (intersection)
+        second_clipped = second.rio.clip_box(*first_bounds_in_ref_crs)
+
+        # Reproject first raster to match clipped second raster's grid
+        first_reproj = first.rio.reproject_match(second_clipped)
+
+        # Compute difference: second - first
+        diff = second_clipped - first_reproj
+
+        # Extract metadata
+        dst_transform = second_clipped.rio.transform()
+        dst_crs = second_clipped.rio.crs
+        nodata = (
+            second.rio.encoded_nodata
+            if second.rio.encoded_nodata is not None
+            else -9999
+        )
+
+        # Convert to numpy masked array
+        diff_array = np.ma.masked_invalid(diff.values)
+
+        return diff_array, dst_transform, dst_crs, nodata
 
 
 class Plotter:
