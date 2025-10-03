@@ -731,9 +731,12 @@ class StereoPlotter(Plotter):
                 logger.warning(
                     f"\n\nNo DEM of difference found. Generating now using reference DEM: {self.reference_dem}.\n\n"
                 )
-                diff = Raster(self.dem_fn).compute_difference(
-                    self.reference_dem, save=True
+                # Swap order so ASP DEM grid is used as reference (not the coarser reference DEM)
+                diff = Raster(self.reference_dem).compute_difference(
+                    self.dem_fn, save=True
                 )
+                # Difference is (second - first), but we want (ASP - reference), so negate
+                diff = -diff
         return diff
 
     def plot_dem_results(
