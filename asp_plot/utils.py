@@ -755,15 +755,15 @@ class Raster:
         Returns
         -------
         numpy.ndarray
-            Difference array (this_raster - second_raster)
+            Difference array (second_raster - this_raster)
 
         Notes
         -----
-        Aligns rasters to the grid of this raster before differencing.
+        Aligns rasters to the grid of the second raster before differencing.
         If save=True, saves the difference raster with "_diff.tif" suffix.
         """
-        # Load and align rasters, with this raster as reference
-        diff_data = self.load_and_diff_rasters(second_fn, self.fn)
+        # Load and align rasters, with second raster as reference
+        diff_data = self.load_and_diff_rasters(self.fn, second_fn)
 
         # Optionally save difference raster
         if save:
@@ -774,6 +774,7 @@ class Raster:
                 + os.path.splitext(os.path.split(second_fn)[1])[0]
             )
             dst_fn = os.path.join(outdir, outprefix + "_diff.tif")
+            # Use second_fn as reference since that's the grid we used for differencing
             self.save_raster(diff_data, dst_fn, reference_fn=second_fn)
 
         return diff_data
