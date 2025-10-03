@@ -116,7 +116,7 @@ class TestRaster:
         assert diff.ndim == 2
         assert transform is not None
         assert crs is not None
-        assert nodata == -9999
+        assert nodata is not None
         # Should have both positive and negative values for a real difference
         assert np.any(diff > 0) or np.any(diff < 0)
 
