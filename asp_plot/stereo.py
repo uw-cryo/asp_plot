@@ -848,7 +848,7 @@ class StereoPlotter(Plotter):
                 verticalalignment="center",
                 transform=axa[2].transAxes,
             )
-        axa[2].set_title("Difference with reference DEM")
+        axa[2].set_title("Reference DEM $-$ Stereo DEM")
 
         fig.tight_layout()
         if save_dir and fig_fn:
