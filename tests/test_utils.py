@@ -109,9 +109,14 @@ class TestRaster:
 
     def test_load_and_diff_rasters(self, test_dem, test_ref_dem):
         """Test static method for loading and differencing rasters."""
-        diff = Raster.load_and_diff_rasters(test_dem, test_ref_dem)
+        diff, transform, crs, nodata = Raster.load_and_diff_rasters(
+            test_dem, test_ref_dem
+        )
         assert isinstance(diff, np.ma.MaskedArray)
         assert diff.ndim == 2
+        assert transform is not None
+        assert crs is not None
+        assert nodata == -9999
         # Should have both positive and negative values for a real difference
         assert np.any(diff > 0) or np.any(diff < 0)
 
