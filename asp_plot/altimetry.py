@@ -4,11 +4,11 @@ import os
 
 import contextily as ctx
 import geopandas as gpd
-import geoutils as gu
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import rasterio as rio
 import rioxarray
 import xarray as xr
 from sliderule import icesat2
@@ -921,13 +921,15 @@ class Altimetry:
         if plot_dem:
             ctx_kwargs = {}
             # We downsample to speed plotting. This is not carried over into any analysis.
-            dem_downsampled = gu.Raster(self.dem_fn, downsample=10)
+            dem_downsampled = Raster(self.dem_fn, downsample=10)
             cb = ColorBar(perc_range=(2, 98))
             cb.get_clim(dem_downsampled.data)
-            dem_downsampled.plot(
+            # Plot using rasterio's show function
+            rio.plot.show(
+                dem_downsampled.data,
+                transform=dem_downsampled.transform,
                 ax=ax,
                 cmap="inferno",
-                add_cbar=False,
                 vmin=cb.clim[0],
                 vmax=cb.clim[1],
                 alpha=1,
