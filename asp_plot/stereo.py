@@ -731,7 +731,6 @@ class StereoPlotter(Plotter):
                 logger.warning(
                     f"\n\nNo DEM of difference found. Generating now using reference DEM: {self.reference_dem}.\n\n"
                 )
-                # Use ASP DEM as the base raster so its grid is used as reference
                 diff = Raster(self.dem_fn).compute_difference(
                     self.reference_dem, save=True
                 )
