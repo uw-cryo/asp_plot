@@ -731,7 +731,9 @@ class StereoPlotter(Plotter):
                 logger.warning(
                     f"\n\nNo DEM of difference found. Generating now using reference DEM: {self.reference_dem}.\n\n"
                 )
-                diff = Raster(self.dem_fn).compute_difference(self.reference_dem)
+                diff = Raster(self.dem_fn).compute_difference(
+                    self.reference_dem, save=True
+                )
         return diff
 
     def plot_dem_results(
