@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2025-10-03
+
+### Added
+- `downsample` parameter to `Raster` class for efficient downsampled reading
+- Lazy-loaded `data` property on `Raster` class using `@property` decorator
+- `save_raster()` static method for flexible raster saving with reference metadata
+- Optional `save` parameter (default `False`) to `compute_difference()` method
+- `_calculate_downsampled_shape()` private method for modular downsampling logic
+- Comprehensive test suite for `Raster` and `ColorBar` classes (21 new tests in `test_utils.py`)
+- Explicit `rioxarray` dependency to `environment.yml` (was previously an implicit dependency via geoutils)
+
+### Changed
+- Refactored `Raster` class to remove dependency on `geoutils`
+- `load_and_diff_rasters()` now directly uses `rasterio.warp.reproject()` instead of geoutils
+- `compute_difference()` no longer saves by default (use `save=True` to enable)
+- Updated `altimetry.py` to use native rasterio plotting instead of geoutils
+
+### Removed
+- Dependency on `geoutils` (>=0.1.9)
+- Dependency on `xdem` (was unused)
+
+### Internal
+- Extracted downsampling logic into reusable private method
+- Added properties for `data` and `transform` with lazy loading
+- Improved separation of concerns between data loading and file I/O
+
 ## [1.0.2] - 2025-08-09
 
 ### Fixed
