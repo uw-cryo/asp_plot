@@ -865,98 +865,37 @@ class Raster:
         -----
         The first raster is reprojected and resampled to match the second raster's
         grid before differencing. Both rasters are cropped to their intersection first
-        (matching geoutils behavior). This replaces geoutils.raster.load_multiple_rasters.
+        (matching geoutils behavior). Uses rioxarray for efficient reprojection.
         """
-        # Step 1: Calculate intersection of both rasters
-        with rio.open(first_fn) as first_ds, rio.open(second_fn) as second_ds:
-            # Get bounds of first raster in second raster's CRS
-            first_bounds_in_ref_crs = rio.warp.transform_bounds(
-                first_ds.crs, second_ds.crs, *first_ds.bounds, densify_pts=5000
-            )
+        # Load rasters with rioxarray
+        first = rioxarray.open_rasterio(first_fn, masked=True).squeeze()
+        second = rioxarray.open_rasterio(second_fn, masked=True).squeeze()
 
-            # Calculate intersection
-            intersection = (
-                max(first_bounds_in_ref_crs[0], second_ds.bounds.left),
-                max(first_bounds_in_ref_crs[1], second_ds.bounds.bottom),
-                min(first_bounds_in_ref_crs[2], second_ds.bounds.right),
-                min(first_bounds_in_ref_crs[3], second_ds.bounds.top),
-            )
+        # Get first raster's bounds in second raster's CRS
+        first_bounds_in_ref_crs = first.rio.transform_bounds(second.rio.crs)
 
-            # Check if intersection is valid
-            if intersection[0] >= intersection[2] or intersection[1] >= intersection[3]:
-                raise ValueError("Rasters do not intersect")
+        # Clip second raster to first raster's bounds (intersection)
+        second_clipped = second.rio.clip_box(*first_bounds_in_ref_crs)
 
-            # Step 2: Calculate cropped dimensions based on reference raster's grid
-            ref_res = second_ds.res
-            ref_crs = second_ds.crs
-
-            # Align intersection bounds to reference grid
-            left = (
-                second_ds.bounds.left
-                + np.floor((intersection[0] - second_ds.bounds.left) / ref_res[0])
-                * ref_res[0]
-            )
-            bottom = second_ds.bounds.bottom + np.floor(
-                (intersection[1] - second_ds.bounds.bottom) / abs(ref_res[1])
-            ) * abs(ref_res[1])
-            right = (
-                second_ds.bounds.left
-                + np.ceil((intersection[2] - second_ds.bounds.left) / ref_res[0])
-                * ref_res[0]
-            )
-            top = second_ds.bounds.bottom + np.ceil(
-                (intersection[3] - second_ds.bounds.bottom) / abs(ref_res[1])
-            ) * abs(ref_res[1])
-
-            aligned_intersection = (left, bottom, right, top)
-
-            # Calculate output dimensions
-            dst_width = int(
-                np.round(
-                    (aligned_intersection[2] - aligned_intersection[0]) / ref_res[0]
-                )
-            )
-            dst_height = int(
-                np.round(
-                    (aligned_intersection[3] - aligned_intersection[1])
-                    / abs(ref_res[1])
-                )
-            )
-
-            # Create output transform
-            dst_transform = rio.transform.from_bounds(
-                aligned_intersection[0],
-                aligned_intersection[1],
-                aligned_intersection[2],
-                aligned_intersection[3],
-                dst_width,
-                dst_height,
-            )
-
-        # Step 3: Reproject both rasters to the cropped reference grid
-        rasters_data = []
-        for fn in [first_fn, second_fn]:
-            with rio.open(fn) as src:
-                data = np.empty((dst_height, dst_width), dtype=np.float32)
-                rio.warp.reproject(
-                    source=rio.band(src, 1),
-                    destination=data,
-                    src_transform=src.transform,
-                    src_crs=src.crs,
-                    dst_transform=dst_transform,
-                    dst_crs=ref_crs,
-                    resampling=rio.warp.Resampling.bilinear,
-                    src_nodata=src.nodata,
-                    dst_nodata=-9999,
-                )
-                # Convert to masked array
-                data = np.ma.masked_equal(data, -9999)
-                rasters_data.append(data)
+        # Reproject first raster to match clipped second raster's grid
+        first_reproj = first.rio.reproject_match(second_clipped)
 
         # Compute difference: second - first
-        diff = rasters_data[1] - rasters_data[0]
+        diff = second_clipped - first_reproj
 
-        return diff, dst_transform, ref_crs, -9999
+        # Extract metadata
+        dst_transform = second_clipped.rio.transform()
+        dst_crs = second_clipped.rio.crs
+        nodata = (
+            second.rio.encoded_nodata
+            if second.rio.encoded_nodata is not None
+            else -9999
+        )
+
+        # Convert to numpy masked array
+        diff_array = np.ma.masked_invalid(diff.values)
+
+        return diff_array, dst_transform, dst_crs, nodata
 
 
 class Plotter:

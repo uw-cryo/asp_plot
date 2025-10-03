@@ -18,7 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Refactored `Raster` class to remove dependency on `geoutils`
-- `load_and_diff_rasters()` now directly uses `rasterio.warp.reproject()` instead of geoutils, with automatic cropping to intersection
+- `load_and_diff_rasters()` now uses `rioxarray` for efficient reprojection and cropping (matching geoutils behavior with simpler implementation)
 - `compute_difference()` no longer saves by default (use `save=True` to enable)
 - Difference rasters are now cropped to the intersection of both input rasters (matching geoutils behavior)
 - Updated `altimetry.py` to use native rasterio plotting instead of geoutils
