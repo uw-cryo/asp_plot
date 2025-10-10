@@ -133,6 +133,6 @@ dmypy.json
 *.profraw
 *.DS_Store
 scratch/
-notebooks/*.parquet
-notebooks/*.csv
+notebooks/**/*.parquet
+notebooks/**/*.csv
 CLAUDE*
