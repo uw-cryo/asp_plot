@@ -8,9 +8,9 @@ import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import rasterio as rio
 import rioxarray
 import xarray as xr
+from rasterio import plot as rioplot
 from sliderule import icesat2
 
 from asp_plot.alignment import Alignment
@@ -925,7 +925,7 @@ class Altimetry:
             cb = ColorBar(perc_range=(2, 98))
             cb.get_clim(dem_downsampled.data)
             # Plot using rasterio's show function
-            rio.plot.show(
+            rioplot.show(
                 dem_downsampled.data,
                 transform=dem_downsampled.transform,
                 ax=ax,
