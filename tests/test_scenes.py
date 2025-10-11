@@ -21,3 +21,9 @@ class TestScenePlotter:
             scene_plotter.plot_orthos()
         except Exception as e:
             pytest.fail(f"figure method raised an exception: {str(e)}")
+
+    def test_plot_scenes(self, scene_plotter):
+        try:
+            scene_plotter.plot_scenes()
+        except Exception as e:
+            pytest.fail(f"figure method raised an exception: {str(e)}")
