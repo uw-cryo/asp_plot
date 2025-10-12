@@ -7,7 +7,6 @@ import numpy as np
 import pandas as pd
 import rasterio as rio
 from matplotlib_scalebar.scalebar import ScaleBar
-from osgeo import gdal
 
 from asp_plot.processing_parameters import ProcessingParameters
 from asp_plot.utils import ColorBar, Plotter, Raster, glob_file, save_figure
@@ -112,7 +111,7 @@ class StereoPlotter(Plotter):
         self.full_directory = os.path.join(self.directory, self.stereo_directory)
         self.left_image_fn = glob_file(self.full_directory, "*-L.tif")
         # Set processing flag if the left image is not mapprojected
-        self.orthos = self.is_mapprojected(self.left_image_fn)
+        self.orthos = False if Raster(self.left_image_fn).transform is None else True
         self.left_image_sub_fn = glob_file(self.full_directory, "*-L_sub.tif")
         self.right_image_sub_fn = glob_file(self.full_directory, "*-R_sub.tif")
 
@@ -153,32 +152,6 @@ class StereoPlotter(Plotter):
         self.intersection_error_fn = glob_file(
             self.full_directory, "*-IntersectionErr.tif"
         )
-
-    def is_mapprojected(self, filename):
-        """
-        Check if an image has map projection information.
-
-        Parameters
-        ----------
-        filename : str
-            Path to the image file to check
-
-        Returns
-        -------
-        bool
-            True if the image has map projection information, False otherwise
-
-        Notes
-        -----
-        This method uses GDAL to check if the image has projection information.
-        It's used to determine if orthoimages are map-projected, which affects
-        how they are displayed in plots.
-        """
-        with gdal.Open(filename) as ds:
-            if ds.GetProjection() == "":
-                return False
-            else:
-                return True
 
     def read_ip_record(self, match_file):
         """
@@ -334,7 +307,7 @@ class StereoPlotter(Plotter):
             self.plot_array(ax=axa[0], array=left_image, cmap="gray", add_cbar=False)
             axa[0].set_title(f"Left (n={match_point_df.shape[0]})")
             self.plot_array(ax=axa[1], array=right_image, cmap="gray", add_cbar=False)
-            axa[1].set_title("Right (scenes also shown if mapprojected)")
+            axa[1].set_title("Right (scenes shown only if mapprojected)")
 
             axa[0].scatter(
                 match_point_df["x1"] / rescale_factor,

@@ -50,7 +50,10 @@ And finally, install the `asp_plot` package and CLI tools with pip:
 
 ## Notebook example usage
 
-Examples of the modular usage of the package can be found in the `notebooks/` directory. Example notebooks are separated by sensor type, e.g. `notebooks/WorldView`.
+Examples of the modular usage of the package can be found in the `notebooks/` directory. Example notebooks are separated by sensor type, e.g.:
+
+- `notebooks/WorldView` for WorldView example processing
+- `notebooks/LRO_NAC` for Lunar Reconnaissance Orbiter Narrow Angle Camera example processing
 
 ## CLI usage: `asp_plot`
 
@@ -123,6 +126,10 @@ Options:
                                   with the DEM result. This requires internet
                                   connection to pull ICESat data. Default:
                                   True.
+  --plot_geometry BOOLEAN         If True, plot the stereo geometry. Default:
+                                  True.
+  --subset_km FLOAT               Size in km of the subset to plot for the
+                                  detailed hillshade. Default: 1 km.
   --report_filename TEXT          PDF file to write out for report into the
                                   processing directory supplied by
                                   --directory. Default: Directory name of ASP
