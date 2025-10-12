@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2025-10-12
+
+### Added
+- Support for non-terrestrial (planetary) ASP processing, tested with Lunar Reconnaissance Orbiter (LRO) Narrow Angle Camera (NAC) data
+- New `--plot_geometry` CLI flag to optionally skip stereo geometry plots (default: True)
+- New `--subset_km` CLI flag to configure hillshade subset size in kilometers (default: 1.0 km)
+- Example notebook for LRO NAC processing in `notebooks/LRO_NAC/`
+- Detection and handling of non-georeferenced (raw, non-map-projected) raster data
+
+### Changed
+- **API change**: `ScenePlotter.plot_orthos()` renamed to `ScenePlotter.plot_scenes()` for sensor-agnostic naming
+- `ScenePlotter` no longer depends on `StereopairMetadataParser`, making it compatible with non-Earth sensors
+- Scene plots now automatically detect and display whether images are map-projected or raw
+- Scene plot titles now show filenames instead of Earth-specific metadata (catalog ID, GSD)
+- `Raster.transform` property now returns `None` for non-georeferenced images (identity transform) instead of identity Affine
+- Suppressed `NotGeoreferencedWarning` when opening non-georeferenced rasters
+- Match points plot clarification text updated: "scenes shown only if mapprojected"
+
+### Removed
+- `StereoPlotter.is_mapprojected()` method - replaced with simpler `Raster.transform` check
+
+### Internal
+- Simplified map-projection detection logic using `Raster.transform is None` check
+
 ## [1.1.1] - 2025-10-10
 
 ### Changed
