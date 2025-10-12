@@ -50,7 +50,10 @@ And finally, install the `asp_plot` package and CLI tools with pip:
 
 ## Notebook example usage
 
-Examples of the modular usage of the package can be found in the `notebooks/` directory. Example notebooks are separated by sensor type, e.g. `notebooks/WorldView`.
+Examples of the modular usage of the package can be found in the `notebooks/` directory. Example notebooks are separated by sensor type, e.g.:
+
+- `notebooks/WorldView` for WorldView example processing
+- `notebooks/LRO_NAC` for Lunar Reconnaissance Orbiter Narrow Angle Camera example processing
 
 ## CLI usage: `asp_plot`
 
