@@ -190,8 +190,8 @@ def main(
     )
 
     # Scene plot
-    plotter = ScenePlotter(directory, stereo_directory, title="Mapprojected Scenes")
-    plotter.plot_orthos(
+    plotter = ScenePlotter(directory, stereo_directory, title="Stereo Scenes")
+    plotter.plot_scenes(
         save_dir=plots_directory, fig_fn=f"{next(figure_counter):02}.png"
     )
 
