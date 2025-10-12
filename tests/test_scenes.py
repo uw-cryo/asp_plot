@@ -12,12 +12,11 @@ class TestScenePlotter:
         scene_plotter = ScenePlotter(
             directory="tests/test_data",
             stereo_directory="stereo",
-            title="Mapprojected Scenes",
         )
         return scene_plotter
 
-    def test_plot_orthos(self, scene_plotter):
+    def test_plot_scenes(self, scene_plotter):
         try:
-            scene_plotter.plot_orthos()
+            scene_plotter.plot_scenes()
         except Exception as e:
             pytest.fail(f"figure method raised an exception: {str(e)}")

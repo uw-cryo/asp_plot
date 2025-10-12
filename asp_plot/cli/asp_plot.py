@@ -71,6 +71,18 @@ from asp_plot.utils import Raster, compile_report
     help="If True, plot an ICESat-2 difference plot with the DEM result. This requires internet connection to request ICESat data. Default: True.",
 )
 @click.option(
+    "--plot_geometry",
+    prompt=False,
+    default=True,
+    help="If True, plot the stereo geometry. Default: True.",
+)
+@click.option(
+    "--subset_km",
+    prompt=False,
+    default=1.0,
+    help="Size in km of the subset to plot for the detailed hillshade. Default: 1 km.",
+)
+@click.option(
     "--report_filename",
     prompt=False,
     default=None,
@@ -92,6 +104,8 @@ def main(
     reference_dem,
     add_basemap,
     plot_icesat,
+    plot_geometry,
+    subset_km,
     report_filename,
     report_title,
 ):
@@ -165,6 +179,7 @@ def main(
     )
 
     plotter.plot_detailed_hillshade(
+        subset_km=subset_km,
         save_dir=plots_directory,
         fig_fn=f"{next(figure_counter):02}.png",
     )
@@ -190,16 +205,17 @@ def main(
     )
 
     # Scene plot
-    plotter = ScenePlotter(directory, stereo_directory, title="Mapprojected Scenes")
-    plotter.plot_orthos(
+    plotter = ScenePlotter(directory, stereo_directory, title="Stereo Scenes")
+    plotter.plot_scenes(
         save_dir=plots_directory, fig_fn=f"{next(figure_counter):02}.png"
     )
 
     # Geometry plot
-    plotter = StereoGeometryPlotter(directory, add_basemap=add_basemap)
-    plotter.dg_geom_plot(
-        save_dir=plots_directory, fig_fn=f"{next(figure_counter):02}.png"
-    )
+    if plot_geometry:
+        plotter = StereoGeometryPlotter(directory, add_basemap=add_basemap)
+        plotter.dg_geom_plot(
+            save_dir=plots_directory, fig_fn=f"{next(figure_counter):02}.png"
+        )
 
     # ICESat-2 comparison
     if plot_icesat:

@@ -2,6 +2,7 @@ import glob
 import logging
 import os
 import subprocess
+import warnings
 
 import contextily as ctx
 import matplotlib.colors
@@ -13,6 +14,7 @@ import rioxarray
 from markdown_pdf import MarkdownPdf, Section
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from osgeo import gdal
+from rasterio.errors import NotGeoreferencedWarning
 from rasterio.windows import Window, from_bounds
 
 logger = logging.getLogger(__name__)
@@ -521,7 +523,9 @@ class Raster:
             Downsampling factor for reading data, default is 1 (no downsampling)
         """
         self.fn = fn
-        self.ds = rio.open(fn)
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=NotGeoreferencedWarning)
+            self.ds = rio.open(fn)
         self.downsample = downsample
         self._data = None
         self._transform = self.ds.transform
@@ -549,8 +553,14 @@ class Raster:
         -------
         affine.Affine
             Affine transform (adjusted for downsampling if applicable)
+            or None if the transform is identity (not georeferenced)
         """
-        return self._transform
+        from affine import Affine
+
+        if self._transform == Affine.identity():
+            return None
+        else:
+            return self._transform
 
     def _calculate_downsampled_shape(self):
         """
