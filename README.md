@@ -123,6 +123,10 @@ Options:
                                   with the DEM result. This requires internet
                                   connection to pull ICESat data. Default:
                                   True.
+  --plot_geometry BOOLEAN         If True, plot the stereo geometry. Default:
+                                  True.
+  --subset_km FLOAT               Size in km of the subset to plot for the
+                                  detailed hillshade. Default: 1 km.
   --report_filename TEXT          PDF file to write out for report into the
                                   processing directory supplied by
                                   --directory. Default: Directory name of ASP
