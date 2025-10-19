@@ -477,6 +477,9 @@ class StereoPlotter(Plotter):
         different levels of intersection error. If the images are map-projected,
         it also shows the corresponding optical image for each subset.
 
+        If the intersection error file is missing, it falls back to a plain
+        hillshade plot without the detailed subsets.
+
         Parameters
         ----------
         intersection_error_percentiles : list, optional
@@ -502,6 +505,35 @@ class StereoPlotter(Plotter):
         of intersection error, representing areas with different quality
         levels in the DEM.
         """
+        if not self.intersection_error_fn:
+            logger.warning(
+                "\n\nIntersection error file not found. Plotting hillshade without details.\n\n"
+            )
+            fig, ax = plt.subplots(1, 1, figsize=(6, 4), dpi=220)
+            fig.suptitle(self.title, size=10)
+
+            raster = Raster(self.dem_fn)
+            dem = raster.read_array()
+            gsd = raster.get_gsd()
+            hs = raster.hillshade()
+            self.plot_array(ax=ax, array=hs, cmap="gray", add_cbar=False)
+            self.plot_array(
+                ax=ax,
+                array=dem,
+                cmap="viridis",
+                cbar_label="Elevation (m HAE)",
+                alpha=0.5,
+            )
+
+            scalebar = ScaleBar(gsd)
+            ax.add_artist(scalebar)
+
+            fig.tight_layout()
+            if save_dir and fig_fn:
+                save_figure(fig, save_dir, fig_fn)
+
+            return
+
         # Set up the plot
         fig = plt.figure(figsize=(10, 15), dpi=220)
         gs = gridspec.GridSpec(3, 3, height_ratios=[2, 1, 1])
