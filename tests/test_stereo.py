@@ -49,6 +49,11 @@ class TestStereoPlotter:
         )
         return stereo_plotter
 
+    @pytest.fixture
+    def stereo_plotter_without_intersection_error(self, stereo_plotter):
+        stereo_plotter.intersection_error_fn = None
+        return stereo_plotter
+
     def test_plot_match_points(self, stereo_plotter):
         try:
             stereo_plotter.plot_match_points()
@@ -70,6 +75,14 @@ class TestStereoPlotter:
     def test_plot_detailed_hillshade(self, stereo_plotter):
         try:
             stereo_plotter.plot_detailed_hillshade(subset_km=10)
+        except Exception as e:
+            pytest.fail(f"figure method raised an exception: {str(e)}")
+
+    def test_plot_detailed_hillshade_no_intersection_error(
+        self, stereo_plotter_without_intersection_error
+    ):
+        try:
+            stereo_plotter_without_intersection_error.plot_detailed_hillshade()
         except Exception as e:
             pytest.fail(f"figure method raised an exception: {str(e)}")
 
