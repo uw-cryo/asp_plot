@@ -54,6 +54,7 @@ Examples of the modular usage of the package can be found in the `notebooks/` di
 
 - `notebooks/WorldView` for WorldView example processing
 - `notebooks/LRO_NAC` for Lunar Reconnaissance Orbiter Narrow Angle Camera example processing
+- etc.
 
 ## CLI usage: `asp_plot`
 
