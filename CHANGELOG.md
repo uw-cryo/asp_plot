@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Added a regular hillshade fallback to `StereoPlotter.plot_detailed_hillshade()` for the case where `*-IntersectionErr.tif` was not produced and is not available for detailed hillshade plots.
 
+### Internal
+- Extracted common hillshade plotting logic in `StereoPlotter` to utility function.
+
 ## [1.2.0] - 2025-10-12
 
 ### Added

@@ -516,17 +516,7 @@ class StereoPlotter(Plotter):
             dem = raster.read_array()
             gsd = raster.get_gsd()
             hs = raster.hillshade()
-            self.plot_array(ax=ax, array=hs, cmap="gray", add_cbar=False)
-            self.plot_array(
-                ax=ax,
-                array=dem,
-                cmap="viridis",
-                cbar_label="Elevation (m HAE)",
-                alpha=0.5,
-            )
-
-            scalebar = ScaleBar(gsd)
-            ax.add_artist(scalebar)
+            self._plot_hillshade_with_overlay(ax, dem, hs, gsd)
 
             fig.tight_layout()
             if save_dir and fig_fn:
@@ -562,17 +552,8 @@ class StereoPlotter(Plotter):
             image = Raster(self.left_image_fn)
 
         # Full hillshade with DEM overlay
-        self.plot_array(ax=ax_top, array=hs, cmap="gray", add_cbar=False)
-        self.plot_array(
-            ax=ax_top,
-            array=dem,
-            cmap="viridis",
-            cbar_label="Elevation (m HAE)",
-            alpha=0.5,
-        )
+        self._plot_hillshade_with_overlay(ax_top, dem, hs, gsd)
         ax_top.set_title(self.title, size=14)
-        scalebar = ScaleBar(gsd)
-        ax_top.add_artist(scalebar)
 
         # Calculate subset size in pixels
         subset_size = int(subset_km * 1000 / gsd)
@@ -654,14 +635,7 @@ class StereoPlotter(Plotter):
                 idx[0] * subset_size : (idx[0] + 1) * subset_size,
                 idx[1] * subset_size : (idx[1] + 1) * subset_size,
             ]
-            self.plot_array(ax=ax_hs, array=hs_subset, cmap="gray", add_cbar=False)
-            self.plot_array(
-                ax=ax_hs,
-                array=dem_subset,
-                cmap="viridis",
-                cbar_label="Elevation (m HAE)",
-                alpha=0.5,
-            )
+            self._plot_hillshade_with_overlay(ax_hs, dem_subset, hs_subset, gsd)
 
             with rio.open(self.dem_fn) as src:
                 transform = src.transform
@@ -695,9 +669,6 @@ class StereoPlotter(Plotter):
                 for spine in ax.spines.values():
                     spine.set_color(color)
                     spine.set_linewidth(4)
-
-            scalebar = ScaleBar(gsd)
-            ax_hs.add_artist(scalebar)
 
         fig.tight_layout()
         if save_dir and fig_fn:
@@ -740,6 +711,46 @@ class StereoPlotter(Plotter):
                     self.reference_dem, save=True
                 )
         return diff
+
+    def _plot_hillshade_with_overlay(
+        self, ax, dem, hillshade, gsd, clim=None, add_scalebar=True
+    ):
+        """
+        Plot hillshade with semi-transparent DEM overlay.
+
+        Parameters
+        ----------
+        ax : matplotlib.axes.Axes
+            Axes to plot on
+        dem : numpy.ndarray
+            DEM array to overlay
+        hillshade : numpy.ndarray
+            Hillshade array (grayscale background)
+        gsd : float
+            Ground sample distance in meters for scalebar
+        clim : tuple or None, optional
+            Color limits for DEM, default is None (auto)
+        add_scalebar : bool, optional
+            Whether to add a scalebar to the plot, default is True
+
+        Notes
+        -----
+        This is a helper method to reduce code duplication across plotting
+        methods. It creates the standard hillshade + DEM visualization used
+        throughout the StereoPlotter class.
+        """
+        self.plot_array(ax=ax, array=hillshade, cmap="gray", add_cbar=False)
+        self.plot_array(
+            ax=ax,
+            array=dem,
+            clim=clim,
+            cmap="viridis",
+            cbar_label="Elevation (m HAE)",
+            alpha=0.5,
+        )
+        if add_scalebar:
+            scalebar = ScaleBar(gsd)
+            ax.add_artist(scalebar)
 
     def plot_dem_results(
         self, el_clim=None, ie_clim=None, diff_clim=None, save_dir=None, fig_fn=None
@@ -787,20 +798,8 @@ class StereoPlotter(Plotter):
             raster = Raster(self.dem_fn)
             dem = raster.read_array()
             gsd = raster.get_gsd()
-
             hs = raster.hillshade()
-            self.plot_array(ax=axa[0], array=hs, cmap="gray", add_cbar=False)
-            self.plot_array(
-                ax=axa[0],
-                array=dem,
-                clim=el_clim,
-                cmap="viridis",
-                cbar_label="Elevation (m HAE)",
-                alpha=0.5,
-            )
-
-            scalebar = ScaleBar(gsd)
-            axa[0].add_artist(scalebar)
+            self._plot_hillshade_with_overlay(axa[0], dem, hs, gsd, clim=el_clim)
         else:
             axa[0].text(
                 0.5,
