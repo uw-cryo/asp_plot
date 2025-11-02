@@ -4,6 +4,10 @@
 
 Scripts and notebooks to visualize output from the [NASA Ames Stereo Pipeline (ASP)](https://github.com/NeoGeographyToolkit/StereoPipeline).
 
+> [!IMPORTANT]
+> [View an example WorldView-3 report here](https://www.bendirt.com/assets/documents/asp_plot_example_report.pdf).
+>
+
 ## Motivation
 
 Our objective is to release a modular Python package with a command-line interface (CLI) that can be run automatically on an ASP output directory to prepare a set of standard diagnostic plots, publication-quality output figures, and a pdf report with relevant information, similar to the reports prepared by many commercial SfM software packages (e.g., Agisoft Metashape, Pix4DMapper).
