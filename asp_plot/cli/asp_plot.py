@@ -235,6 +235,9 @@ def main(
 
         icesat.filter_esa_worldcover(filter_out="water")
 
+        if capture_date is not None:
+            capture_date = datetime.strptime(capture_date, "%Y-%m-%d").date()
+
         icesat.predefined_temporal_filter_atl06sr(date=capture_date)
 
         icesat.mapview_plot_atl06sr_to_dem(
