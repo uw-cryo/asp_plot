@@ -131,6 +131,12 @@ Options:
                                   with the DEM result. This requires internet
                                   connection to pull ICESat data. Default:
                                   True.
+  --icesat_filter_date TEXT       The central date (YYYY-MM-DD) to temporally
+                                  filter ICESat-2 ATL06 data around. This
+                                  should be the capture date of the scenes.
+                                  Default: None, which attempts to read scene
+                                  capture date from metadata (currently only
+                                  works for WorldView scenes).
   --plot_geometry BOOLEAN         If True, plot the stereo geometry. Default:
                                   True.
   --subset_km FLOAT               Size in km of the subset to plot for the

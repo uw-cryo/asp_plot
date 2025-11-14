@@ -406,22 +406,29 @@ class StereoPlotter(Plotter):
             dx = raster.read_array(b=1)
             dy = raster.read_array(b=2)
 
+            # Combine masks from both bands to ensure consistency
+            # This handles cases where one band might have valid data but the other doesn't
+            combined_mask = np.ma.mask_or(dx.mask, dy.mask)
+            dx.mask = combined_mask
+            dy.mask = combined_mask
+
             full_gsd = Raster(self.disparity_fn).get_gsd()
             rescale_factor = sub_gsd / full_gsd
-            dx *= rescale_factor
-            dy *= rescale_factor
+            dx = dx * rescale_factor
+            dy = dy * rescale_factor
 
             if unit == "meters":
-                dx *= full_gsd
-                dy *= full_gsd
+                dx = dx * full_gsd
+                dy = dy * full_gsd
 
             if remove_bias:
                 dx_offset = np.ma.median(dx)
                 dy_offset = np.ma.median(dy)
-                dx -= dx_offset
-                dy -= dy_offset
+                dx = dx - dx_offset
+                dy = dy - dy_offset
 
-            dm = np.sqrt(abs(dx**2 + dy**2))
+            # Compute magnitude while preserving mask (combine masks from both dx and dy)
+            dm = np.ma.sqrt(dx**2 + dy**2)
             clim = ColorBar(symm=True).get_clim(dm)
 
             self.plot_array(
@@ -649,7 +656,11 @@ class StereoPlotter(Plotter):
             # We only show the corresponding image if it is mapprojected
             if self.orthos:
                 image_subset = image.read_raster_subset((ul_x, lr_y, lr_x, ul_y))
-                clim = [image_subset.min(), np.percentile(image_subset, 95)]
+                # Use masked array operations to exclude nodata values from clim calculation
+                clim = [
+                    np.ma.min(image_subset),
+                    np.percentile(image_subset.compressed(), 95),
+                ]
                 self.plot_array(
                     ax=ax_img,
                     array=image_subset,

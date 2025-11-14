@@ -641,12 +641,18 @@ class Raster:
 
         Returns
         -------
-        numpy.ndarray
-            Subset of raster data
+        numpy.ma.MaskedArray
+            Masked array of subset raster data with nodata values masked
+
+        Notes
+        -----
+        No-data values are properly masked, similar to read_array()
         """
         window = from_bounds(*bbox, self.ds.transform)
-        subset = self.ds.read(b, window=window)
-        return subset
+        subset = self.ds.read(b, window=window, masked=True)
+        ndv = self.get_ndv()
+        ma = np.ma.fix_invalid(np.ma.masked_equal(subset, ndv))
+        return ma
 
     def get_ndv(self):
         """

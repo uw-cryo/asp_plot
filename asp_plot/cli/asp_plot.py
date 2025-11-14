@@ -71,6 +71,12 @@ from asp_plot.utils import Raster, compile_report
     help="If True, plot an ICESat-2 difference plot with the DEM result. This requires internet connection to request ICESat data. Default: True.",
 )
 @click.option(
+    "--icesat_filter_date",
+    prompt=False,
+    default=None,
+    help="The central date (YYYY-MM-DD) to temporally filter ICESat-2 ATL06 data around. This should be the capture date of the scenes. Default: None, which attempts to read scene capture date from metadata (currently only works for WorldView scenes).",
+)
+@click.option(
     "--plot_geometry",
     prompt=False,
     default=True,
@@ -104,6 +110,7 @@ def main(
     reference_dem,
     add_basemap,
     plot_icesat,
+    icesat_filter_date,
     plot_geometry,
     subset_km,
     report_filename,
@@ -223,12 +230,17 @@ def main(
 
         icesat.request_atl06sr_multi_processing(
             processing_levels=["all", "ground"],
-            save_to_parquet=False,
+            save_to_parquet=True,
         )
 
         icesat.filter_esa_worldcover(filter_out="water")
 
-        icesat.predefined_temporal_filter_atl06sr()
+        if icesat_filter_date is not None:
+            icesat_filter_date = datetime.strptime(
+                icesat_filter_date, "%Y-%m-%d"
+            ).date()
+
+        icesat.predefined_temporal_filter_atl06sr(date=icesat_filter_date)
 
         icesat.mapview_plot_atl06sr_to_dem(
             key="all",
