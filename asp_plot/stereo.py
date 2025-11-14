@@ -649,7 +649,11 @@ class StereoPlotter(Plotter):
             # We only show the corresponding image if it is mapprojected
             if self.orthos:
                 image_subset = image.read_raster_subset((ul_x, lr_y, lr_x, ul_y))
-                clim = [image_subset.min(), np.percentile(image_subset, 95)]
+                # Use masked array operations to exclude nodata values from clim calculation
+                clim = [
+                    np.ma.min(image_subset),
+                    np.percentile(image_subset.compressed(), 95),
+                ]
                 self.plot_array(
                     ax=ax_img,
                     array=image_subset,
