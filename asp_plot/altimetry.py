@@ -460,6 +460,9 @@ class Altimetry:
         """
         if date is None:
             date = StereopairMetadataParser(self.directory).get_pair_dict()["cdate"]
+        else:
+            # Convert to pandas Timestamp to ensure compatibility with DatetimeIndex operations
+            date = pd.Timestamp(date)
 
         original_keys = list(self.atl06sr_processing_levels_filtered.keys())
 
