@@ -219,10 +219,20 @@ class ReadBundleAdjustFiles:
         )
 
         if residuals_in_meters:
-            p = StereopairMetadataParser(self.directory).get_pair_dict()
-            mean_gsd = np.average(
-                [p["catid1_dict"]["meanproductgsd"], p["catid2_dict"]["meanproductgsd"]]
-            )
+            try:
+                p = StereopairMetadataParser(self.directory).get_pair_dict()
+                mean_gsd = np.average(
+                    [
+                        p["catid1_dict"]["meanproductgsd"],
+                        p["catid2_dict"]["meanproductgsd"],
+                    ]
+                )
+            except Exception:
+                logger.warning(
+                    "\n\nCould not read stereopair metadata to get mean GSD. Residuals will remain in pixels.\n\n"
+                )
+                mean_gsd = 1.0
+
             resid_gdf["mean_residual_meters"] = (
                 resid_gdf["mean_residual"].values * mean_gsd
             )
