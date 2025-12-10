@@ -701,11 +701,11 @@ class StereoPlotter(Plotter):
         Notes
         -----
         This method first looks for a DEM difference file with a pattern
-        like *DEM*diff.tif. If found, it uses that. Otherwise, it computes
+        like *diff.tif. If found, it uses that. Otherwise, it computes
         the difference between the DEM and reference DEM on-the-fly using
         the Raster.compute_difference method.
         """
-        diff_fn = glob_file(self.full_directory, "*DEM*diff.tif")
+        diff_fn = glob_file(self.full_directory, "*diff.tif")
         if diff_fn:
             logger.warning(
                 f"\n\nFound a DEM of difference: {diff_fn}.\nUsing that for difference map plotting.\n\n"
