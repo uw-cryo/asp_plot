@@ -103,6 +103,11 @@ class ReadBundleAdjustFiles:
                 diff_path = path.replace(".csv", "-diff.csv")
                 if not os.path.exists(diff_path):
                     self.generate_geodiff(path)
+                if not os.path.exists(diff_path):
+                    raise ValueError(
+                        f"\n\nGeodiff file {diff_path} could not be generated. "
+                        "Check that geodiff is installed and a reference DEM was used in bundle_adjust.\n\n"
+                    )
                 diff_paths.append(diff_path)
             initial_diff, final_diff = diff_paths
             return initial_diff, final_diff
@@ -144,13 +149,19 @@ class ReadBundleAdjustFiles:
             processing_parameters.bundle_adjust_log
         )
 
+        if not refdem:
+            logger.warning(
+                f"\n\nNo reference DEM found in bundle_adjust log. This would only exist if you ran bundle_adjust with the advanced `--mapproj-dem ref_dem.tif` flag. Cannot generate geodiff for {path}.\n\n"
+            )
+            return
+
         try:
             command = [
                 "geodiff",
                 "--csv-format",
-                "1:lon,2:lat,3:height_above_datum",
-                f"{path}",
+                "1:lon 2:lat 3:height_above_datum",
                 f"{refdem}",
+                f"{path}",
                 "-o",
                 f"{path.replace('.csv', '')}",
             ]
