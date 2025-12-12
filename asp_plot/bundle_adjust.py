@@ -155,6 +155,10 @@ class ReadBundleAdjustFiles:
             )
             return
 
+        # If the reference DEM path from the log is relative, make it absolute
+        if not os.path.isabs(refdem):
+            refdem = os.path.join(self.directory, refdem)
+
         try:
             command = [
                 "geodiff",
