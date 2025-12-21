@@ -671,6 +671,9 @@ class StereoPlotter(Plotter):
                     cmap="gray",
                     add_cbar=False,
                 )
+                # Add scalebar to image subset
+                scalebar = ScaleBar(gsd)
+                ax_img.add_artist(scalebar)
                 axes_to_modify = [ax_hs, ax_img]
             else:
                 plt.delaxes(ax_img)
