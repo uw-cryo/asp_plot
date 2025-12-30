@@ -535,8 +535,8 @@ class StereoPlotter(Plotter):
             return
 
         # Set up the plot
-        fig = plt.figure(figsize=(10, 15), dpi=220)
-        gs = gridspec.GridSpec(3, 3, height_ratios=[2, 1, 1])
+        fig = plt.figure(figsize=(12, 12), dpi=220, layout="constrained")
+        gs = gridspec.GridSpec(3, 3, height_ratios=[2, 1, 1], wspace=0.1, figure=fig)
 
         # Create the large top plot
         ax_top = fig.add_subplot(gs[0, :])
@@ -671,9 +671,6 @@ class StereoPlotter(Plotter):
                     cmap="gray",
                     add_cbar=False,
                 )
-                # Add scalebar to image subset
-                scalebar = ScaleBar(gsd)
-                ax_img.add_artist(scalebar)
                 axes_to_modify = [ax_hs, ax_img]
             else:
                 plt.delaxes(ax_img)
@@ -687,7 +684,6 @@ class StereoPlotter(Plotter):
                     spine.set_color(color)
                     spine.set_linewidth(4)
 
-        fig.tight_layout()
         if save_dir and fig_fn:
             save_figure(fig, save_dir, fig_fn)
 
