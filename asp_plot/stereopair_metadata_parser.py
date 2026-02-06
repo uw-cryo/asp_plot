@@ -685,6 +685,34 @@ class StereopairMetadataParser:
         centroid = pair["intersection"].centroid
         return get_utm_epsg(centroid.x, centroid.y)
 
+    def get_intersection_bounds(self, epsg=None):
+        """
+        Get the bounding box of the stereo pair intersection area.
+
+        Returns the intersection of both image footprints as a bounding box,
+        optionally reprojected to a given CRS.
+
+        Parameters
+        ----------
+        epsg : int, optional
+            EPSG code to reproject bounds into (e.g., 32616 for UTM Zone 16N).
+            If None, returns bounds in EPSG:4326 (longitude/latitude).
+
+        Returns
+        -------
+        tuple
+            (min_x, min_y, max_x, max_y) in the requested CRS
+        """
+        pair = self.get_pair_dict()
+        intersection = pair["intersection"]
+        if epsg is not None:
+            intersection = (
+                gpd.GeoDataFrame(geometry=[intersection], crs="EPSG:4326")
+                .to_crs(f"EPSG:{epsg}")
+                .geometry.iloc[0]
+            )
+        return intersection.bounds
+
     def get_scene_bounds(self):
         """
         Get the geographic bounds of the union of all scene footprints.

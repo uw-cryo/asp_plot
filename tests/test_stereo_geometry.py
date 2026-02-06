@@ -32,6 +32,24 @@ class TestStereoGeometryPlotter:
         assert isinstance(utm_epsg, int)
         assert 32601 <= utm_epsg <= 32760
 
+    def test_get_intersection_bounds_latlon(self, stereo_geometry_plotter):
+        bounds = stereo_geometry_plotter.get_intersection_bounds()
+        assert len(bounds) == 4
+        min_lon, min_lat, max_lon, max_lat = bounds
+        assert min_lon < max_lon
+        assert min_lat < max_lat
+        assert -180 <= min_lon <= 180
+        assert -90 <= min_lat <= 90
+
+    def test_get_intersection_bounds_projected(self, stereo_geometry_plotter):
+        utm_epsg = stereo_geometry_plotter.get_pair_utm_epsg()
+        bounds = stereo_geometry_plotter.get_intersection_bounds(epsg=utm_epsg)
+        min_x, min_y, max_x, max_y = bounds
+        assert min_x < max_x
+        assert min_y < max_y
+        # UTM easting/northing should be large values (not lon/lat)
+        assert min_x > 100000
+
     def test_get_scene_bounds(self, stereo_geometry_plotter):
         bounds = stereo_geometry_plotter.get_scene_bounds()
         assert len(bounds) == 4
