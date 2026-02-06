@@ -27,6 +27,21 @@ class TestStereoGeometryPlotter:
         except Exception as e:
             pytest.fail(f"figure method raised an exception: {str(e)}")
 
+    def test_get_pair_utm_epsg(self, stereo_geometry_plotter):
+        utm_epsg = stereo_geometry_plotter.get_pair_utm_epsg()
+        assert isinstance(utm_epsg, int)
+        assert 32601 <= utm_epsg <= 32760
+
+    def test_get_scene_bounds(self, stereo_geometry_plotter):
+        bounds = stereo_geometry_plotter.get_scene_bounds()
+        assert len(bounds) == 4
+        min_lon, min_lat, max_lon, max_lat = bounds
+        assert min_lon < max_lon
+        assert min_lat < max_lat
+        # Bounds should be valid lon/lat
+        assert -180 <= min_lon <= 180
+        assert -90 <= min_lat <= 90
+
     def test_dg_geom_plot_tiled(self, stereo_geometry_plotter_tiled):
         try:
             stereo_geometry_plotter_tiled.dg_geom_plot()
