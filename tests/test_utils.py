@@ -3,7 +3,7 @@ import os
 import numpy as np
 import pytest
 
-from asp_plot.utils import ColorBar, Raster
+from asp_plot.utils import ColorBar, Raster, get_utm_epsg
 
 
 class TestRaster:
@@ -86,6 +86,14 @@ class TestRaster:
         raster = Raster(test_dem)
         epsg = raster.get_epsg_code()
         assert isinstance(epsg, int)
+
+    def test_get_utm_epsg_code(self, test_dem):
+        """Test estimating UTM EPSG code."""
+        raster = Raster(test_dem)
+        utm_epsg = raster.get_utm_epsg_code()
+        assert isinstance(utm_epsg, int)
+        # UTM EPSG codes are 326XX (north) or 327XX (south)
+        assert 32601 <= utm_epsg <= 32760
 
     def test_get_gsd(self, test_dem):
         """Test getting ground sample distance."""
@@ -222,3 +230,16 @@ class TestColorBar:
         cb.get_clim(data)
         norm = cb.get_norm(lognorm=False)
         assert norm is not None
+
+
+class TestGetUtmEpsg:
+    """Test get_utm_epsg utility function."""
+
+    def test_atlanta(self):
+        """Test UTM detection for Atlanta, GA (UTM Zone 16N)."""
+        assert get_utm_epsg(-84.39, 33.75) == 32616
+
+    def test_southern_hemisphere(self):
+        """Test UTM detection for southern hemisphere."""
+        epsg = get_utm_epsg(172.6, -43.5)  # Christchurch, NZ
+        assert 32701 <= epsg <= 32760

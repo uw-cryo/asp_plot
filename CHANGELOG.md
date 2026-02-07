@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2025-12-12
+
+### Added
+- New WorldView SpaceNet Atlanta stereo processing example notebook using publicly available data
+- New utility function `get_utm_epsg()` for determining UTM EPSG code from longitude/latitude
+- New `Raster.get_utm_epsg_code()` method for estimating UTM zone from raster location
+- New `StereopairMetadataParser` methods: `get_pair_utm_epsg()`, `get_intersection_bounds()`, `get_scene_bounds()`
+
+### Changed
+- `Alignment.get_alignment_report()` now returns North-East-Down shift keys (`north_shift`, `east_shift`, `down_shift`) instead of ECEF Cartesian keys (`x_shift`, `y_shift`, `z_shift`).
+- Renamed `worldview_comprehensive.ipynb` to `worldview_utqiagvik_stereo.ipynb`.
+
+### Fixed
+- Fixed `geodiff` command in bundle adjustment processing: corrected argument order (DEM must come before CSV) and csv-format syntax (spaces instead of commas between column specs)
+- Fixed graceful handling when `--mapproj-dem` flag was not used in bundle_adjust: geodiff plots are now skipped with a warning instead of causing the entire bundle adjustment section to fail
+- Fixed relative reference DEM paths read from log files not being resolved to absolute paths, causing "file not found" errors
+
 ## [1.3.1] - 2025-11-17
 
 ### Added

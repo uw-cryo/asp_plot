@@ -15,6 +15,12 @@ class TestBundleAdjust:
         ba_directory = "ba"
         return ReadBundleAdjustFiles(directory, ba_directory)
 
+    @pytest.fixture
+    def ba_files_no_mapproj_dem(self):
+        directory = "tests/test_data"
+        ba_directory = "ba_no_mapproj_dem"
+        return ReadBundleAdjustFiles(directory, ba_directory)
+
     def test_get_initial_final_residuals_gdfs(self, ba_files):
         resid_initial, resid_final = ba_files.get_initial_final_residuals_gdfs()
         assert isinstance(resid_initial, gpd.GeoDataFrame)
@@ -45,3 +51,19 @@ class TestBundleAdjust:
             )
         except Exception as e:
             pytest.fail(f"figure method raised an exception: {str(e)}")
+
+    def test_get_initial_final_geodiff_gdfs_no_mapproj_dem(
+        self, ba_files_no_mapproj_dem
+    ):
+        """Test that geodiff gracefully fails when no --mapproj-dem was used in bundle_adjust."""
+        with pytest.raises(ValueError) as exc_info:
+            ba_files_no_mapproj_dem.get_initial_final_geodiff_gdfs()
+        assert "could not be generated" in str(exc_info.value)
+
+    def test_residuals_still_work_without_mapproj_dem(self, ba_files_no_mapproj_dem):
+        """Test that residual GeoDataFrames can still be read even without --mapproj-dem."""
+        resid_initial, resid_final = (
+            ba_files_no_mapproj_dem.get_initial_final_residuals_gdfs()
+        )
+        assert isinstance(resid_initial, gpd.GeoDataFrame)
+        assert isinstance(resid_final, gpd.GeoDataFrame)

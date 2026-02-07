@@ -279,10 +279,6 @@ def main(
             resid_initial_gdf, resid_final_gdf = (
                 ba_files.get_initial_final_residuals_gdfs()
             )
-            geodiff_initial_gdf, geodiff_final_gdf = (
-                ba_files.get_initial_final_geodiff_gdfs()
-            )
-            resid_mapprojected_gdf = ba_files.get_mapproj_residuals_gdf()
 
             plotter = PlotBundleAdjustFiles(
                 [resid_initial_gdf, resid_final_gdf],
@@ -312,36 +308,53 @@ def main(
                 **ctx_kwargs,
             )
 
-            plotter = PlotBundleAdjustFiles(
-                [resid_mapprojected_gdf],
-                title="Bundle Adjust Midpoint distance between\nfinal interest points projected onto reference DEM",
-            )
+            # Map-projected residuals (requires reference DEM in bundle_adjust)
+            try:
+                resid_mapprojected_gdf = ba_files.get_mapproj_residuals_gdf()
 
-            plotter.plot_n_gdfs(
-                column_name="mapproj_ip_dist_meters",
-                cbar_label="Interest point distance (m)",
-                map_crs=map_crs,
-                save_dir=plots_directory,
-                fig_fn=f"{next(figure_counter):02}.png",
-                **ctx_kwargs,
-            )
+                plotter = PlotBundleAdjustFiles(
+                    [resid_mapprojected_gdf],
+                    title="Bundle Adjust Midpoint distance between\nfinal interest points projected onto reference DEM",
+                )
 
-            plotter = PlotBundleAdjustFiles(
-                [geodiff_initial_gdf, geodiff_final_gdf],
-                lognorm=False,
-                title="Bundle Adjust Initial and Final Geodiff vs. Reference DEM",
-            )
+                plotter.plot_n_gdfs(
+                    column_name="mapproj_ip_dist_meters",
+                    cbar_label="Interest point distance (m)",
+                    map_crs=map_crs,
+                    save_dir=plots_directory,
+                    fig_fn=f"{next(figure_counter):02}.png",
+                    **ctx_kwargs,
+                )
+            except ValueError as e:
+                print(f"\n\nSkipping map-projected residuals plot: {e}\n\n")
 
-            plotter.plot_n_gdfs(
-                column_name="height_diff_meters",
-                cbar_label="Height difference (m)",
-                map_crs=map_crs,
-                cmap="RdBu",
-                symm_clim=True,
-                save_dir=plots_directory,
-                fig_fn=f"{next(figure_counter):02}.png",
-                **ctx_kwargs,
-            )
+            # Geodiff plots (requires reference DEM in bundle_adjust with --mapproj-dem flag)
+            try:
+                geodiff_initial_gdf, geodiff_final_gdf = (
+                    ba_files.get_initial_final_geodiff_gdfs()
+                )
+
+                plotter = PlotBundleAdjustFiles(
+                    [geodiff_initial_gdf, geodiff_final_gdf],
+                    lognorm=False,
+                    title="Bundle Adjust Initial and Final Geodiff vs. Reference DEM",
+                )
+
+                plotter.plot_n_gdfs(
+                    column_name="height_diff_meters",
+                    cbar_label="Height difference (m)",
+                    map_crs=map_crs,
+                    cmap="RdBu",
+                    symm_clim=True,
+                    save_dir=plots_directory,
+                    fig_fn=f"{next(figure_counter):02}.png",
+                    **ctx_kwargs,
+                )
+            except ValueError as e:
+                print(
+                    f"\n\nSkipping geodiff plots (requires --mapproj-dem flag in bundle_adjust): {e}\n\n"
+                )
+
         except ValueError:
             print(
                 f"\n\nNo bundle adjustment files found in directory {os.path.join(directory, bundle_adjust_directory):}. If you want bundle adjustment plots, make sure you run the tool and supply the correct directory to asp_plot.\n\n"

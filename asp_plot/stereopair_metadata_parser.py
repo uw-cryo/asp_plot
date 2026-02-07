@@ -9,7 +9,7 @@ import pandas as pd
 from osgeo import osr
 from shapely import union_all, wkt
 
-from asp_plot.utils import get_xml_tag, glob_file, run_subprocess_command
+from asp_plot.utils import get_utm_epsg, get_xml_tag, glob_file, run_subprocess_command
 
 osr.UseExceptions()
 logging.basicConfig(level=logging.WARNING)
@@ -668,3 +668,65 @@ class StereopairMetadataParser:
         else:
             p["intersection_area"] = None
             p["intersection_area_perc"] = None
+
+    def get_pair_utm_epsg(self):
+        """
+        Get the UTM EPSG code for the stereo pair's intersection area.
+
+        Uses the centroid of the pair intersection footprint to determine
+        the appropriate UTM zone.
+
+        Returns
+        -------
+        int
+            UTM EPSG code (e.g., 32616 for UTM Zone 16N)
+        """
+        pair = self.get_pair_dict()
+        centroid = pair["intersection"].centroid
+        return get_utm_epsg(centroid.x, centroid.y)
+
+    def get_intersection_bounds(self, epsg=None):
+        """
+        Get the bounding box of the stereo pair intersection area.
+
+        Returns the intersection of both image footprints as a bounding box,
+        optionally reprojected to a given CRS.
+
+        Parameters
+        ----------
+        epsg : int, optional
+            EPSG code to reproject bounds into (e.g., 32616 for UTM Zone 16N).
+            If None, returns bounds in EPSG:4326 (longitude/latitude).
+
+        Returns
+        -------
+        tuple
+            (min_x, min_y, max_x, max_y) in the requested CRS
+        """
+        pair = self.get_pair_dict()
+        intersection = pair["intersection"]
+        if epsg is not None:
+            intersection = (
+                gpd.GeoDataFrame(geometry=[intersection], crs="EPSG:4326")
+                .to_crs(f"EPSG:{epsg}")
+                .geometry.iloc[0]
+            )
+        return intersection.bounds
+
+    def get_scene_bounds(self):
+        """
+        Get the geographic bounds of the union of all scene footprints.
+
+        Computes the union of both image footprints and returns the
+        bounding box in longitude/latitude (EPSG:4326).
+
+        Returns
+        -------
+        tuple
+            (min_lon, min_lat, max_lon, max_lat)
+        """
+        pair = self.get_pair_dict()
+        scene_union = union_all(
+            [pair["catid1_dict"]["geom"], pair["catid2_dict"]["geom"]]
+        )
+        return scene_union.bounds
