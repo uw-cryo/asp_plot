@@ -152,7 +152,8 @@ class Alignment:
             Dictionary containing alignment metrics:
             - p16_beg, p50_beg, p84_beg: Error percentiles before alignment
             - p16_end, p50_end, p84_end: Error percentiles after alignment
-            - x_shift, y_shift, z_shift: Translation vector components in ECEF
+            - north_shift, east_shift, down_shift: Translation vector components
+              in North-East-Down (NED) coordinate frame, in meters
             - translation_magnitude: Magnitude of translation vector
 
         Notes
@@ -160,6 +161,12 @@ class Alignment:
         This method expects the log file to contain specific keyword patterns
         that match the pc_align output format. If the log format changes,
         this parser may need to be updated.
+
+        The North-East-Down shifts are more interpretable than ECEF (Cartesian)
+        shifts for most applications:
+        - north_shift: Positive = shift northward
+        - east_shift: Positive = shift eastward
+        - down_shift: Positive = shift downward (i.e., DEM is too high)
         """
         pc_align_log = glob_file(self.directory, f"{output_prefix}-log-pc_align*.txt")
 
@@ -184,16 +191,16 @@ class Alignment:
                     "p84_end": float(values[2]),
                 }
                 report = report | percentile_dict
-            if "Translation vector (Cartesian, meters):" in line:
-                ecef_shift = np.genfromtxt(
+            if "Translation vector (North-East-Down, meters):" in line:
+                ned_shift = np.genfromtxt(
                     [line.split("Vector3")[1][1:-2]], delimiter=","
                 )
-                xyz_shift_dict = {
-                    "x_shift": ecef_shift[0],
-                    "y_shift": ecef_shift[1],
-                    "z_shift": ecef_shift[2],
+                ned_shift_dict = {
+                    "north_shift": ned_shift[0],
+                    "east_shift": ned_shift[1],
+                    "down_shift": ned_shift[2],
                 }
-                report = report | xyz_shift_dict
+                report = report | ned_shift_dict
             if "Translation vector magnitude (meters):" in line:
                 magnitude = re.findall(r"magnitude \(meters\): (\d+\.\d+)", line)[0]
                 report["translation_magnitude"] = float(magnitude)

@@ -105,6 +105,9 @@ class StereoPlotter(Plotter):
                 logger.warning(
                     "\n\nNo reference DEM found in log files. Please supply the reference DEM you used during stereo processing (or another reference DEM) if you would like to see some difference maps.\n\n"
                 )
+            # If the reference DEM path from the log is relative, make it absolute
+            elif not os.path.isabs(self.reference_dem):
+                self.reference_dem = os.path.join(directory, self.reference_dem)
         if self.reference_dem:
             print(f"\nReference DEM: {self.reference_dem}\n")
 
@@ -532,8 +535,8 @@ class StereoPlotter(Plotter):
             return
 
         # Set up the plot
-        fig = plt.figure(figsize=(10, 15), dpi=220)
-        gs = gridspec.GridSpec(3, 3, height_ratios=[2, 1, 1])
+        fig = plt.figure(figsize=(12, 12), dpi=220, layout="constrained")
+        gs = gridspec.GridSpec(3, 3, height_ratios=[2, 1, 1], wspace=0.1, figure=fig)
 
         # Create the large top plot
         ax_top = fig.add_subplot(gs[0, :])
@@ -681,7 +684,6 @@ class StereoPlotter(Plotter):
                     spine.set_color(color)
                     spine.set_linewidth(4)
 
-        fig.tight_layout()
         if save_dir and fig_fn:
             save_figure(fig, save_dir, fig_fn)
 
@@ -701,11 +703,11 @@ class StereoPlotter(Plotter):
         Notes
         -----
         This method first looks for a DEM difference file with a pattern
-        like *DEM*diff.tif. If found, it uses that. Otherwise, it computes
+        like *diff.tif. If found, it uses that. Otherwise, it computes
         the difference between the DEM and reference DEM on-the-fly using
         the Raster.compute_difference method.
         """
-        diff_fn = glob_file(self.full_directory, "*DEM*diff.tif")
+        diff_fn = glob_file(self.full_directory, "*diff.tif")
         if diff_fn:
             logger.warning(
                 f"\n\nFound a DEM of difference: {diff_fn}.\nUsing that for difference map plotting.\n\n"

@@ -1,0 +1,25 @@
+ASP 3.4.0-alpha
+Build ID: 491f12c9
+Build date: 2024-02-18
+
+/swbuild/bpurint1/asp/dev/libexec/bundle_adjust -t dg --datum WGS84 --individually-normalize --normalize-ip-tiles --ip-per-tile 50 --matches-per-tile 10 --min-triangulation-angle 10 --camera-weight 0 10300100D12D7400.r100.tif 10300100D0772D00.r100.tif 10300100D12D7400.r100.xml 10300100D0772D00.r100.xml -o ba/ba_50ips_10matches_dg --threads 28
+
+uname -a
+Linux r605i6n15 4.18.0-477.27.1.1toss.t4.x86_64 #1 SMP Tue Sep 19 15:17:56 PDT 2023 x86_64 x86_64 x86_64 GNU/Linux
+
+Vision Workbench log started at 2024-04-14 16:29:14.
+
+2024-04-14 16:29:14 {0} [ console ] : Using session: dg
+2024-04-14 16:29:14 {0} [ console ] : Loading camera model: 10300100D12D7400.r100.tif 10300100D12D7400.r100.xml
+2024-04-14 16:29:17 {0} [ console ] : Using session: dg
+2024-04-14 16:29:17 {0} [ console ] : Loading camera model: 10300100D0772D00.r100.tif 10300100D0772D00.r100.xml
+2024-04-14 16:32:25 {0} [ console ] : Writing initial condition files.
+2024-04-14 16:32:25 {0} [ console ] : Writing: ba/ba_50ips_10matches_dg-initial_residuals_stats.txt
+2024-04-14 16:32:25 {0} [ console ] : Writing: ba/ba_50ips_10matches_dg-initial_residuals_pointmap.csv
+2024-04-14 16:32:25 {0} [ console ] : Starting the Ceres optimizer.
+2024-04-14 16:32:26 {0} [ console ] : Writing final condition log files.
+2024-04-14 16:32:26 {0} [ console ] : Writing: ba/ba_50ips_10matches_dg-final_residuals_stats.txt
+2024-04-14 16:32:26 {0} [ console ] : Writing: ba/ba_50ips_10matches_dg-final_residuals_pointmap.csv
+2024-04-14 16:32:27 {0} [ console ] : Writing: ba/ba_50ips_10matches_dg-10300100D12D7400.r100.adjust
+2024-04-14 16:32:27 {0} [ console ] : Writing: ba/ba_50ips_10matches_dg-10300100D0772D00.r100.adjust
+

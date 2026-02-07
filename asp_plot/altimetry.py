@@ -688,35 +688,37 @@ class Altimetry:
             )
 
         if write_out_aligned_dem:
-            # Calculate ranges and mean for each shift component
-            x_range = (
-                alignment_report_df["x_shift"].max()
-                - alignment_report_df["x_shift"].min()
+            # Calculate ranges and mean for each shift component (North-East-Down)
+            north_range = (
+                alignment_report_df["north_shift"].max()
+                - alignment_report_df["north_shift"].min()
             )
-            y_range = (
-                alignment_report_df["y_shift"].max()
-                - alignment_report_df["y_shift"].min()
+            east_range = (
+                alignment_report_df["east_shift"].max()
+                - alignment_report_df["east_shift"].min()
             )
-            z_range = (
-                alignment_report_df["z_shift"].max()
-                - alignment_report_df["z_shift"].min()
+            down_range = (
+                alignment_report_df["down_shift"].max()
+                - alignment_report_df["down_shift"].min()
             )
-            x_mean = alignment_report_df["x_shift"].mean()
-            y_mean = alignment_report_df["y_shift"].mean()
-            z_mean = alignment_report_df["z_shift"].mean()
+            north_mean = alignment_report_df["north_shift"].mean()
+            east_mean = alignment_report_df["east_shift"].mean()
+            down_mean = alignment_report_df["down_shift"].mean()
 
             # Check if range is more than X% of mean for any component
             if (
-                x_range > abs(x_mean * agreement_threshold)
-                or y_range > abs(y_mean * agreement_threshold)
-                or z_range > abs(z_mean * agreement_threshold)
+                north_range > abs(north_mean * agreement_threshold)
+                or east_range > abs(east_mean * agreement_threshold)
+                or down_range > abs(down_mean * agreement_threshold)
             ):
                 print(
                     f"\nWarning: Translation components vary by more than {agreement_threshold*100}% across temporal filters. The translation applied to the aligned DEM may be inaccurate.\n"
                 )
-                print(f"X shift range: {x_range:.3f} m (mean: {x_mean:.3f} m)")
-                print(f"Y shift range: {y_range:.3f} m (mean: {y_mean:.3f} m)")
-                print(f"Z shift range: {z_range:.3f} m (mean: {z_mean:.3f} m)")
+                print(
+                    f"North shift range: {north_range:.3f} m (mean: {north_mean:.3f} m)"
+                )
+                print(f"East shift range: {east_range:.3f} m (mean: {east_mean:.3f} m)")
+                print(f"Down shift range: {down_range:.3f} m (mean: {down_mean:.3f} m)")
 
             self.aligned_dem_fn = alignment.apply_dem_translation(
                 output_prefix=f"pc_align/pc_align_{key_for_aligned_dem}",

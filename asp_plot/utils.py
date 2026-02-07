@@ -276,6 +276,40 @@ def get_xml_tag(xml, tag, all=False):
     return elem
 
 
+def get_utm_epsg(lon, lat):
+    """
+    Get the UTM EPSG code for a given longitude and latitude.
+
+    Uses the PROJ database to determine the correct UTM zone.
+
+    Parameters
+    ----------
+    lon : float
+        Longitude in degrees
+    lat : float
+        Latitude in degrees
+
+    Returns
+    -------
+    int
+        UTM EPSG code (e.g., 32616 for UTM Zone 16N)
+    """
+    from pyproj import CRS
+    from pyproj.aoi import AreaOfInterest
+    from pyproj.database import query_utm_crs_info
+
+    utm_crs_list = query_utm_crs_info(
+        datum_name="WGS 84",
+        area_of_interest=AreaOfInterest(
+            west_lon_degree=lon,
+            south_lat_degree=lat,
+            east_lon_degree=lon,
+            north_lat_degree=lat,
+        ),
+    )
+    return CRS.from_epsg(utm_crs_list[0].code).to_epsg()
+
+
 def run_subprocess_command(command):
     """
     Run a subprocess command and stream output.
@@ -684,6 +718,24 @@ class Raster:
         """
         epsg = self.ds.crs.to_epsg()
         return epsg
+
+    def get_utm_epsg_code(self):
+        """
+        Estimate the appropriate UTM EPSG code for this raster's location.
+
+        Uses the raster's center coordinates to determine the correct
+        UTM zone via the PROJ database. Works regardless of the raster's
+        current CRS (geographic or projected).
+
+        Returns
+        -------
+        int
+            UTM EPSG code (e.g., 32616 for UTM Zone 16N)
+        """
+        bounds = self.get_bounds(latlon=True, json_format=False)
+        lon_center = (bounds[0] + bounds[2]) / 2
+        lat_center = (bounds[1] + bounds[3]) / 2
+        return get_utm_epsg(lon_center, lat_center)
 
     def get_gsd(self):
         """
