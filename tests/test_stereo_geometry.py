@@ -1,4 +1,6 @@
 import matplotlib
+import numpy as np
+import pandas as pd
 import pytest
 
 from asp_plot.stereo_geometry import StereoGeometryPlotter
@@ -63,5 +65,43 @@ class TestStereoGeometryPlotter:
     def test_dg_geom_plot_tiled(self, stereo_geometry_plotter_tiled):
         try:
             stereo_geometry_plotter_tiled.dg_geom_plot()
+        except Exception as e:
+            pytest.fail(f"figure method raised an exception: {str(e)}")
+
+    def test_getAtt(self, stereo_geometry_plotter):
+        xml = stereo_geometry_plotter.image_list[0]
+        att = stereo_geometry_plotter.getAtt(xml)
+        assert isinstance(att, np.ndarray)
+        assert att.dtype == np.float64
+        assert att.shape == (3, 15)
+
+    def test_getAtt_df(self, stereo_geometry_plotter):
+        xml = stereo_geometry_plotter.image_list[0]
+        att_df = stereo_geometry_plotter.getAtt_df(xml)
+        assert isinstance(att_df, pd.DataFrame)
+        assert isinstance(att_df.index, pd.DatetimeIndex)
+        for col in ["q1", "q2", "q3", "q4"]:
+            assert col in att_df.columns
+        for n in ["11", "12", "13", "14", "22", "23", "24", "33", "34", "44"]:
+            assert f"cov_{n}" in att_df.columns
+
+    def test_getEphem_gdf_covariance_columns(self, stereo_geometry_plotter):
+        xml = stereo_geometry_plotter.image_list[0]
+        eph_gdf = stereo_geometry_plotter.getEphem_gdf(xml)
+        for n in ["11", "12", "13", "22", "23", "33"]:
+            assert f"cov_{n}" in eph_gdf.columns
+        for old_name in ["x_cov", "y_cov", "z_cov", "dx_cov", "dy_cov", "dz_cov"]:
+            assert old_name not in eph_gdf.columns
+
+    def test_att_df_in_catid_dict(self, stereo_geometry_plotter):
+        catid_dicts = stereo_geometry_plotter.get_catid_dicts()
+        for d in catid_dicts:
+            assert "att_df" in d
+            assert isinstance(d["att_df"], pd.DataFrame)
+            assert len(d["att_df"]) > 0
+
+    def test_satellite_position_orientation_plot(self, stereo_geometry_plotter):
+        try:
+            stereo_geometry_plotter.satellite_position_orientation_plot()
         except Exception as e:
             pytest.fail(f"figure method raised an exception: {str(e)}")
