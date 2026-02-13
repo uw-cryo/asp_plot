@@ -356,7 +356,7 @@ class StereoGeometryPlotter(StereopairMetadataParser):
         rpy = np.zeros((n, 3))
         for i in range(n):
             body_rot = R.from_quat(
-                att_df[["q1", "q2", "q3", "q4"]].iloc[i].values
+                att_df[["q1", "q2", "q3", "q4"]].iloc[i].values.copy()
             ).as_matrix()
             ref_inv = np.linalg.inv(ref_rotations[i])
             relative = np.matmul(ref_inv, body_rot)
