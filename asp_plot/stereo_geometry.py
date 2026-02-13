@@ -3,7 +3,9 @@ import logging
 import matplotlib.gridspec as gridspec
 import matplotlib.pyplot as plt
 import numpy as np
+from scipy.spatial.transform import Rotation as R
 
+from asp_plot.csm_camera import estim_satellite_orientation
 from asp_plot.stereopair_metadata_parser import StereopairMetadataParser
 from asp_plot.utils import save_figure
 
@@ -325,13 +327,50 @@ class StereoGeometryPlotter(StereopairMetadataParser):
         if save_dir and fig_fn:
             save_figure(fig, save_dir, fig_fn)
 
+    @staticmethod
+    def _compute_roll_pitch_yaw(eph_gdf, att_df):
+        """
+        Compute roll, pitch, yaw from attitude quaternions relative to orbital frame.
+
+        Uses ECEF positions from ephemeris to estimate the nominal nadir-pointing
+        orientation (LVLH frame), then computes the relative rotation from that
+        reference to the actual body attitude reported by the quaternions.
+
+        Parameters
+        ----------
+        eph_gdf : geopandas.GeoDataFrame
+            Ephemeris GeoDataFrame with x, y, z columns in ECEF
+        att_df : pandas.DataFrame
+            Attitude DataFrame with q1, q2, q3, q4 columns
+
+        Returns
+        -------
+        numpy.ndarray
+            Array of shape (N, 3) with roll, pitch, yaw in degrees
+        """
+        # Use the minimum length in case ephemeris and attitude have different counts
+        n = min(len(eph_gdf), len(att_df))
+        positions = eph_gdf[["x", "y", "z"]].values[:n].tolist()
+        ref_rotations = estim_satellite_orientation(positions)
+
+        rpy = np.zeros((n, 3))
+        for i in range(n):
+            body_rot = R.from_quat(
+                att_df[["q1", "q2", "q3", "q4"]].iloc[i].values
+            ).as_matrix()
+            ref_inv = np.linalg.inv(ref_rotations[i])
+            relative = np.matmul(ref_inv, body_rot)
+            rpy[i] = R.from_matrix(relative).as_euler("XYZ", degrees=True)
+
+        return rpy
+
     def satellite_position_orientation_plot(self, save_dir=None, fig_fn=None):
         """
         Create a visualization of satellite position and orientation data.
 
         Generates a 3-row x 2-column figure (one column per scene):
         - Row 0: Map of satellite positions colored by position covariance std
-        - Row 1: Quaternion components (q1-q4) over time
+        - Row 1: Roll, pitch, yaw relative to orbital reference frame over time
         - Row 2: Attitude covariance trace std over time
 
         Parameters
@@ -390,26 +429,29 @@ class StereoGeometryPlotter(StereopairMetadataParser):
             ax0.set_title(f"{catid}\nPosition Covariance", fontsize=9)
             ax0.tick_params(labelsize=7)
 
-            # Row 1: Quaternion components over time
+            # Row 1: Roll, pitch, yaw relative to orbital frame
             ax1 = fig.add_subplot(G[1, col])
-            time_seconds = (att_df.index - att_df.index[0]).total_seconds()
-            for qname in ["q1", "q2", "q3", "q4"]:
-                ax1.plot(time_seconds, att_df[qname], label=qname, linewidth=0.8)
+            n = min(len(eph_gdf), len(att_df))
+            time_seconds = (att_df.index[:n] - att_df.index[0]).total_seconds()
+            rpy = self._compute_roll_pitch_yaw(eph_gdf, att_df)
+            for i, label in enumerate(["Roll", "Pitch", "Yaw"]):
+                ax1.plot(time_seconds, rpy[:, i], label=label, linewidth=0.8)
             ax1.set_xlabel("Time (s)", fontsize=8)
-            ax1.set_ylabel("Quaternion value", fontsize=8)
+            ax1.set_ylabel("Angle (deg)", fontsize=8)
             ax1.legend(fontsize=7, loc="best")
-            ax1.set_title(f"{catid}\nQuaternion Components", fontsize=9)
+            ax1.set_title(f"{catid}\nRoll / Pitch / Yaw", fontsize=9)
             ax1.tick_params(labelsize=7)
 
             # Row 2: Attitude covariance trace std over time
             ax2 = fig.add_subplot(G[2, col])
+            time_seconds_full = (att_df.index - att_df.index[0]).total_seconds()
             att_cov_std = np.sqrt(
                 att_df["cov_11"]
                 + att_df["cov_22"]
                 + att_df["cov_33"]
                 + att_df["cov_44"]
             )
-            ax2.plot(time_seconds, att_cov_std, color=c_list[col], linewidth=0.8)
+            ax2.plot(time_seconds_full, att_cov_std, color=c_list[col], linewidth=0.8)
             ax2.set_xlabel("Time (s)", fontsize=8)
             ax2.set_ylabel("Attitude std (trace)", fontsize=8)
             ax2.set_title(f"{catid}\nAttitude Covariance Trace", fontsize=9)
