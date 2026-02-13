@@ -28,3 +28,11 @@ stereo_geom = "asp_plot.cli.stereo_geom:main"
 [project.urls]
 Homepage = "https://github.com/uw-cryo/asp_plot"
 Issues = "https://github.com/uw-cryo/asp_plot/issues"
+
+[tool.hatch.build.targets.sdist]
+exclude = [
+  "tests/",
+  "notebooks/",
+  "original_code/",
+  "scratch/",
+]
