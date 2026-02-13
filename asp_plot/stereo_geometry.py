@@ -324,3 +324,98 @@ class StereoGeometryPlotter(StereopairMetadataParser):
 
         if save_dir and fig_fn:
             save_figure(fig, save_dir, fig_fn)
+
+    def satellite_position_orientation_plot(self, save_dir=None, fig_fn=None):
+        """
+        Create a visualization of satellite position and orientation data.
+
+        Generates a 3-row x 2-column figure (one column per scene):
+        - Row 0: Map of satellite positions colored by position covariance std
+        - Row 1: Quaternion components (q1-q4) over time
+        - Row 2: Attitude covariance trace std over time
+
+        Parameters
+        ----------
+        save_dir : str, optional
+            Directory to save the figure, default is None (figure not saved)
+        fig_fn : str, optional
+            Filename for the figure, default is None (figure not saved)
+
+        Returns
+        -------
+        matplotlib.figure.Figure
+            The created figure object (not shown automatically)
+        """
+        p = self.get_pair_dict()
+
+        map_crs = self.get_centroid_projection(p["intersection"], proj_type="tmerc")
+
+        fig = plt.figure(figsize=(14, 12))
+        G = gridspec.GridSpec(nrows=3, ncols=2, hspace=0.35, wspace=0.3)
+
+        catid_keys = ["catid1_dict", "catid2_dict"]
+        c_list = ["blue", "orange"]
+
+        for col, key in enumerate(catid_keys):
+            d = p[key]
+            eph_gdf = d["eph_gdf"]
+            att_df = d["att_df"]
+            catid = d["catid"]
+
+            # Row 0: Position map colored by position covariance std
+            ax0 = fig.add_subplot(G[0, col])
+            pos_cov_std = np.sqrt(
+                eph_gdf["cov_11"] + eph_gdf["cov_22"] + eph_gdf["cov_33"]
+            )
+            eph_gdf_proj = eph_gdf.to_crs(map_crs)
+            sc = ax0.scatter(
+                eph_gdf_proj.geometry.x,
+                eph_gdf_proj.geometry.y,
+                c=pos_cov_std,
+                s=5,
+                cmap="viridis",
+            )
+            fp_gdf = d["fp_gdf"]
+            fp_gdf.to_crs(map_crs).plot(
+                ax=ax0, facecolor="none", edgecolor=c_list[col], linewidth=1
+            )
+            if self.add_basemap:
+                try:
+                    import contextily as ctx
+
+                    ctx.add_basemap(ax0, crs=map_crs, attribution=False)
+                except Exception:
+                    pass
+            fig.colorbar(sc, ax=ax0, label="Position std (m)", shrink=0.8)
+            ax0.set_title(f"{catid}\nPosition Covariance", fontsize=9)
+            ax0.tick_params(labelsize=7)
+
+            # Row 1: Quaternion components over time
+            ax1 = fig.add_subplot(G[1, col])
+            time_seconds = (att_df.index - att_df.index[0]).total_seconds()
+            for qname in ["q1", "q2", "q3", "q4"]:
+                ax1.plot(time_seconds, att_df[qname], label=qname, linewidth=0.8)
+            ax1.set_xlabel("Time (s)", fontsize=8)
+            ax1.set_ylabel("Quaternion value", fontsize=8)
+            ax1.legend(fontsize=7, loc="best")
+            ax1.set_title(f"{catid}\nQuaternion Components", fontsize=9)
+            ax1.tick_params(labelsize=7)
+
+            # Row 2: Attitude covariance trace std over time
+            ax2 = fig.add_subplot(G[2, col])
+            att_cov_std = np.sqrt(
+                att_df["cov_11"]
+                + att_df["cov_22"]
+                + att_df["cov_33"]
+                + att_df["cov_44"]
+            )
+            ax2.plot(time_seconds, att_cov_std, color=c_list[col], linewidth=0.8)
+            ax2.set_xlabel("Time (s)", fontsize=8)
+            ax2.set_ylabel("Attitude std (trace)", fontsize=8)
+            ax2.set_title(f"{catid}\nAttitude Covariance Trace", fontsize=9)
+            ax2.tick_params(labelsize=7)
+
+        plt.suptitle(f"{p['pairname']}\nSatellite Position & Orientation", fontsize=11)
+
+        if save_dir and fig_fn:
+            save_figure(fig, save_dir, fig_fn)
