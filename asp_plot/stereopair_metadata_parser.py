@@ -273,9 +273,10 @@ class StereopairMetadataParser:
             "geom": union_all(attributes["geom"]),
         }
 
-        # Add Ephemeris GeoDataFrame and Footprint GeoDataFrame
+        # Add Ephemeris GeoDataFrame, Attitude DataFrame, and Footprint GeoDataFrame
         if geteph:
             d["eph_gdf"] = self.getEphem_gdf(xml)
+            d["att_df"] = self.getAtt_df(xml)
             d["fp_gdf"] = gpd.GeoDataFrame(
                 {"idx": [0], "geometry": d["geom"]},
                 geometry="geometry",
@@ -318,6 +319,28 @@ class StereopairMetadataParser:
         # All coordinates are ECF, meters, meters/sec, m^2
         return np.array([i.split() for i in e], dtype=np.float64)
 
+    def getAtt(self, xml):
+        """
+        Extract attitude data from XML file.
+
+        Retrieves satellite attitude (orientation quaternion and covariance) data
+        from the XML file.
+
+        Parameters
+        ----------
+        xml : str
+            Path to the XML file
+
+        Returns
+        -------
+        numpy.ndarray
+            Array of shape (N, 15) containing attitude data with columns:
+            point_num, q1, q2, q3, q4, and 10 covariance matrix elements
+            (upper triangle of 4x4 matrix)
+        """
+        a = get_xml_tag(xml, "ATTLIST", all=True)
+        return np.array([i.split() for i in a], dtype=np.float64)
+
     def getEphem_gdf(self, xml):
         """
         Create a GeoDataFrame from ephemeris data.
@@ -344,7 +367,7 @@ class StereopairMetadataParser:
         ]
         names.extend(["x", "y", "z"])
         names.extend(["dx", "dy", "dz"])
-        names.extend(["{}_cov".format(n) for n in names[1:7]])
+        names.extend(["cov_{}".format(n) for n in ["11", "12", "13", "22", "23", "33"]])
         e = self.getEphem(xml)
         t0 = pd.to_datetime(get_xml_tag(xml, "STARTTIME"))
         dt = pd.Timedelta(float(get_xml_tag(xml, "TIMEINTERVAL")), unit="s")
@@ -357,6 +380,37 @@ class StereopairMetadataParser:
             crs="EPSG:4978",
         )
         return eph_gdf
+
+    def getAtt_df(self, xml):
+        """
+        Create a DataFrame from attitude data.
+
+        Converts attitude data to a DataFrame with time index.
+
+        Parameters
+        ----------
+        xml : str
+            Path to the XML file
+
+        Returns
+        -------
+        pandas.DataFrame
+            DataFrame with attitude quaternions and covariance, time-indexed
+        """
+        names = ["index", "q1", "q2", "q3", "q4"]
+        names.extend(
+            [
+                "cov_{}".format(n)
+                for n in ["11", "12", "13", "14", "22", "23", "24", "33", "34", "44"]
+            ]
+        )
+        a = self.getAtt(xml)
+        t0 = pd.to_datetime(get_xml_tag(xml, "STARTTIME"))
+        dt = pd.Timedelta(float(get_xml_tag(xml, "TIMEINTERVAL")), unit="s")
+        att_df = pd.DataFrame(a, columns=names)
+        att_df["time"] = t0 + att_df.index * dt
+        att_df.set_index("time", inplace=True)
+        return att_df
 
     def xml2wkt(self, xml):
         """

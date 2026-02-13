@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2026-02-13
+
+### Added
+- Satellite attitude (ATT) parsing from DigitalGlobe/Maxar XML files: new `getAtt()` and `getAtt_df()` methods on `StereopairMetadataParser`, mirroring the existing ephemeris parsing
+- New `satellite_position_orientation_plot()` method on `StereoGeometryPlotter` producing a 3x2 figure showing position covariance, roll/pitch/yaw orientation, and attitude covariance for each scene
+- Attitude data (`att_df`) now included in catalog ID dictionaries returned by `get_catid_dicts()`
+
+### Changed
+- Ephemeris covariance columns in `getEphem_gdf()` renamed from `x_cov, y_cov, ...` to `cov_11, cov_12, cov_13, cov_22, cov_23, cov_33` for clarity
+
 ## [1.4.0] - 2025-12-12
 
 ### Added
