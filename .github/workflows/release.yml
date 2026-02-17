@@ -49,12 +49,10 @@ jobs:
 
       - name: Create Release
         if: steps.check_tag.outputs.exists == 'false'
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.version.outputs.version }}
-          release_name: v${{ steps.version.outputs.version }}
+          name: v${{ steps.version.outputs.version }}
           body: |
             **Full Changelog**: https://github.com/uw-cryo/asp_plot/compare/${{ steps.prev_tag.outputs.prev_tag }}...v${{ steps.version.outputs.version }}
 
