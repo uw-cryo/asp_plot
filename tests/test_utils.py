@@ -2,7 +2,9 @@ import os
 
 import numpy as np
 import pytest
+from PIL import Image
 
+from asp_plot.report import ReportMetadata, ReportSection, compile_report
 from asp_plot.utils import ColorBar, Raster, get_utm_epsg
 
 
@@ -243,3 +245,152 @@ class TestGetUtmEpsg:
         """Test UTM detection for southern hemisphere."""
         epsg = get_utm_epsg(172.6, -43.5)  # Christchurch, NZ
         assert 32701 <= epsg <= 32760
+
+
+class TestReportDataclasses:
+    """Test ReportSection and ReportMetadata dataclasses."""
+
+    def test_report_section_defaults(self):
+        """Test ReportSection default values."""
+        section = ReportSection(title="Test", image_path="/tmp/test.png")
+        assert section.title == "Test"
+        assert section.image_path == "/tmp/test.png"
+        assert section.caption == ""
+        assert section.figure_number == 0
+
+    def test_report_section_with_caption(self):
+        """Test ReportSection with all fields set."""
+        section = ReportSection(
+            title="DEM Results",
+            image_path="/tmp/dem.png",
+            caption="Output DEM",
+            figure_number=3,
+        )
+        assert section.caption == "Output DEM"
+        assert section.figure_number == 3
+
+    def test_report_metadata_defaults(self):
+        """Test ReportMetadata default values."""
+        meta = ReportMetadata()
+        assert meta.dem_dimensions == (0, 0)
+        assert meta.dem_gsd_m == 0.0
+        assert meta.dem_crs == ""
+        assert meta.dem_nodata_percent == 0.0
+        assert meta.dem_elevation_range == (0, 0)
+        assert meta.dem_filename == ""
+        assert meta.reference_dem == ""
+
+    def test_report_metadata_with_values(self):
+        """Test ReportMetadata with all fields set."""
+        meta = ReportMetadata(
+            dem_dimensions=(1000, 2000),
+            dem_gsd_m=2.0,
+            dem_crs="EPSG:32616",
+            dem_nodata_percent=5.5,
+            dem_elevation_range=(100.0, 500.0),
+            dem_filename="test-DEM.tif",
+            reference_dem="/path/to/ref.tif",
+        )
+        assert meta.dem_dimensions == (1000, 2000)
+        assert meta.dem_gsd_m == 2.0
+        assert meta.dem_crs == "EPSG:32616"
+
+
+class TestCompileReport:
+    """Test compile_report function."""
+
+    @pytest.fixture
+    def sample_processing_params(self):
+        """Sample processing parameters dict."""
+        return {
+            "processing_timestamp": "2024-01-15 10:30:00",
+            "reference_dem": "/path/to/copernicus_dem.tif",
+            "bundle_adjust": "bundle_adjust --input left.tif right.tif",
+            "bundle_adjust_run_time": "1 hours and 30 minutes",
+            "stereo": "stereo left.tif right.tif output",
+            "stereo_run_time": "3 hours and 45 minutes",
+            "point2dem": "point2dem output-PC.tif",
+            "point2dem_run_time": "0 hours and 15 minutes",
+        }
+
+    @pytest.fixture
+    def sample_sections(self, tmp_path):
+        """Create sample PNG images and return ReportSection list."""
+        sections = []
+        for i, (title, caption) in enumerate(
+            [
+                ("Input Scenes", "Left and right input scenes."),
+                ("DEM Results", "Output DEM with hillshade."),
+                ("Disparity", "Disparity maps in pixels."),
+            ]
+        ):
+            img_path = str(tmp_path / f"fig_{i:02}.png")
+            img = Image.new("RGB", (800, 400), color=(128, 128, 128))
+            img.save(img_path)
+            sections.append(
+                ReportSection(title=title, image_path=img_path, caption=caption)
+            )
+        return sections
+
+    def test_compile_report_creates_pdf(
+        self, tmp_path, sample_sections, sample_processing_params
+    ):
+        """Test that compile_report creates a valid PDF file."""
+        pdf_path = str(tmp_path / "test_report.pdf")
+        compile_report(
+            sample_sections,
+            sample_processing_params,
+            pdf_path,
+        )
+        assert os.path.exists(pdf_path)
+        assert os.path.getsize(pdf_path) > 0
+        with open(pdf_path, "rb") as f:
+            assert f.read(5) == b"%PDF-"
+
+    def test_compile_report_with_metadata(
+        self, tmp_path, sample_sections, sample_processing_params
+    ):
+        """Test compile_report with ReportMetadata."""
+        pdf_path = str(tmp_path / "test_report_meta.pdf")
+        metadata = ReportMetadata(
+            dem_dimensions=(5000, 4000),
+            dem_gsd_m=2.0,
+            dem_crs="EPSG:32616",
+            dem_nodata_percent=12.3,
+            dem_elevation_range=(250.0, 1500.0),
+            dem_filename="test-DEM.tif",
+            reference_dem="copernicus_dem.tif",
+        )
+        compile_report(
+            sample_sections,
+            sample_processing_params,
+            pdf_path,
+            report_metadata=metadata,
+        )
+        assert os.path.exists(pdf_path)
+        assert os.path.getsize(pdf_path) > 0
+
+    def test_compile_report_empty_sections(self, tmp_path, sample_processing_params):
+        """Test compile_report with no sections."""
+        pdf_path = str(tmp_path / "test_report_empty.pdf")
+        compile_report(
+            [],
+            sample_processing_params,
+            pdf_path,
+        )
+        assert os.path.exists(pdf_path)
+        assert os.path.getsize(pdf_path) > 0
+
+    def test_compile_report_custom_title(
+        self, tmp_path, sample_sections, sample_processing_params
+    ):
+        """Test compile_report with custom title."""
+        pdf_path = str(tmp_path / "test_report_title.pdf")
+        compile_report(
+            sample_sections,
+            sample_processing_params,
+            pdf_path,
+            report_title="Custom Report Title",
+        )
+        assert os.path.exists(pdf_path)
+        assert os.path.getsize(pdf_path) > 0

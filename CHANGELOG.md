@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0] - 2026-02-16
+
+### Added
+- Structured PDF report generation with title page, section headings, figure captions, DEM metadata summary table, and runtime summary table
+- New `report.py` module containing `ReportSection` and `ReportMetadata` dataclasses, `ASPReportPDF` class, and `compile_report()` function
+- DEM metadata (dimensions, GSD, CRS, nodata %, elevation range) automatically collected and displayed on the report title page
+- Figure captions describing each plot in the generated PDF report
+- Page headers (report title) and footers (page numbers) throughout the report
+- Tests for report dataclasses and PDF compilation (8 new tests)
+
+### Changed
+- Replaced `markdown-pdf` dependency with `fpdf2` (available on conda-forge, enabling conda-only installation)
+- Reordered report sections: Input Scenes and Stereo Geometry now appear before DEM results, matching the logical processing flow
+- Report generation moved from `utils.py` to dedicated `report.py` module
+- PNG images are now embedded directly in the PDF (eliminated intermediate PNG-to-JPEG conversion step)
+
+### Removed
+- Dependency on `markdown-pdf` (pip-only package that blocked conda-forge packaging)
+
 ## [1.5.0] - 2026-02-13
 
 ### Added
