@@ -34,23 +34,29 @@ Not all of those files are used in the plotting, but all are useful for re-proce
 
 ## Installation
 
-To get started with `asp_plot`, [find the `environment.yml` file here](https://github.com/uw-cryo/asp_plot/blob/main/environment.yml), download it locally, and create a conda environment:
+### conda (recommended)
+
+Install `asp_plot` and all dependencies in one step:
 
 ```
-$ conda env create -f environment.yml
+$ conda install -c conda-forge asp-plot
 ```
 
-Then activate the environment:
+### pip
+
+Alternatively, install with pip:
 
 ```
-$ conda activate asp_plot
+$ pip install asp-plot
 ```
 
-And finally, install the `asp_plot` package and CLI tools with pip:
-
-```
-(asp_plot) $ pip install asp-plot
-```
+> [!NOTE]
+> Some dependencies (notably GDAL) can be difficult to install via pip alone. If you run into issues, use the conda approach above, or create a conda environment from the provided [`environment.yml`](https://github.com/uw-cryo/asp_plot/blob/main/environment.yml) first, then install with pip:
+> ```
+> $ conda env create -f environment.yml
+> $ conda activate asp_plot
+> (asp_plot) $ pip install asp-plot
+> ```
 
 ## Notebook example usage
 
