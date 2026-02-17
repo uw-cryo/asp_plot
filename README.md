@@ -354,20 +354,12 @@ This project follows [Semantic Versioning](https://semver.org/) which uses a thr
 
 All notable changes are documented in the [CHANGELOG.md](CHANGELOG.md) file in the repository root. When contributing changes, please add an entry to the CHANGELOG.
 
-### Package and upload
+### Release
 
-Before uploading a new release:
+To release a new version:
 
 1. Update version in `pyproject.toml` following semantic versioning rules
-2. Update the CHANGELOG.md with the new version and date
-3. Push changes to `main` - the GitHub Actions workflow will automatically create a release and tag. (Note: The release workflow, `.github/workflows/release.yml`, automatically creates a GitHub release when `pyproject.toml` is updated on the `main` branch.)
+2. Update `CHANGELOG.md` with the new version and date
+3. Merge to `main`
 
-Then build and upload the package:
-
-```
-rm -rf dist/
-python3 -m pip install --upgrade build
-python3 -m build
-python3 -m pip install --upgrade twine
-python3 -m twine upload dist/*
-```
+The GitHub Actions workflow (`.github/workflows/release.yml`) automatically creates a GitHub Release, tag, and publishes to PyPI. The conda-forge feedstock picks up new PyPI versions automatically.
