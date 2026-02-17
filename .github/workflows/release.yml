@@ -1,4 +1,4 @@
-name: Create Release
+name: Release and Publish to PyPI
 
 on:
   push:
@@ -12,6 +12,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    outputs:
+      created: ${{ steps.check_tag.outputs.exists == 'false' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -59,3 +61,27 @@ jobs:
             See [CHANGELOG.md](https://github.com/uw-cryo/asp_plot/blob/main/CHANGELOG.md) for description.
           draft: false
           prerelease: false
+
+  publish:
+    needs: release
+    if: needs.release.outputs.created == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install build dependencies
+        run: pip install build
+
+      - name: Build package
+        run: python -m build
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
