@@ -1,5 +1,5 @@
 {% set name = "asp-plot" %}
-{% set version = "1.6.2" %}
+{% set version = "1.6.3" %}
 {% set python_min = "3.11" %}
 
 package:
@@ -30,7 +30,9 @@ requirements:
     - contextily
     - fpdf2
     - gdal
+    - geopandas
     - matplotlib-base
+    - matplotlib-scalebar
     - numpy
     - pandas
     - pyproj
@@ -38,6 +40,7 @@ requirements:
     - rioxarray
     - scipy
     - shapely
+    - sliderule
     - xarray
 
 test:
