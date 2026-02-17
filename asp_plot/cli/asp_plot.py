@@ -250,7 +250,7 @@ def main(
         ReportSection(
             title="Detailed Hillshade",
             image_path=os.path.join(plots_directory, fig_fn),
-            caption=f"DEM hillshade with {subset_km} km detail subset.",
+            caption=f"DEM hillshade with {subset_km} km detail subset in second row. If available, corresponding mapprojected ortho image subsets are displayed in the bottom row.",
         )
     )
 
@@ -262,7 +262,7 @@ def main(
         ReportSection(
             title="DEM Results",
             image_path=os.path.join(plots_directory, fig_fn),
-            caption="Output DEM with hillshade overlay and elevation colormap.",
+            caption="Output DEM with intersection error map and difference relative to the reference DEM used in processing.",
         )
     )
 
@@ -434,7 +434,7 @@ def main(
                     ReportSection(
                         title="Map-Projected Residuals",
                         image_path=os.path.join(plots_directory, fig_fn),
-                        caption="Midpoint distance between final interest points projected onto reference DEM.",
+                        caption="Midpoint distance between final interest points projected onto the reference DEM used in processing.",
                     )
                 )
             except ValueError as e:
@@ -467,7 +467,7 @@ def main(
                     ReportSection(
                         title="Geodiff vs. Reference DEM",
                         image_path=os.path.join(plots_directory, fig_fn),
-                        caption="Initial and final geodiff height differences compared to the reference DEM.",
+                        caption="Initial and final geodiff height differences compared to the reference DEM used in processing.",
                     )
                 )
             except ValueError as e:
