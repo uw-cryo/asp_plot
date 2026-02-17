@@ -16,6 +16,10 @@ dependencies:
   - gdal
   - geopandas
   - contextily
+  - pyproj
+  - scipy
+  - shapely
+  - xarray
   - matplotlib-scalebar
   - click
   - sliderule

@@ -6,7 +6,7 @@ repos:
           rev: v4.3.0
           hooks:
                 - id: check-yaml
-                  exclude: ^original_code/|^tests/test_data/
+                  exclude: ^original_code/|^tests/test_data/|^conda-forge-recipe/
                 - id: end-of-file-fixer
                   exclude: ^original_code/|^tests/test_data/|\.txt$
                 - id: trailing-whitespace
