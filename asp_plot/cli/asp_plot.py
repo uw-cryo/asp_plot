@@ -9,10 +9,11 @@ import contextily as ctx
 from asp_plot.altimetry import Altimetry
 from asp_plot.bundle_adjust import PlotBundleAdjustFiles, ReadBundleAdjustFiles
 from asp_plot.processing_parameters import ProcessingParameters
+from asp_plot.report import ReportMetadata, ReportSection, compile_report
 from asp_plot.scenes import ScenePlotter
 from asp_plot.stereo import StereoPlotter
 from asp_plot.stereo_geometry import StereoGeometryPlotter
-from asp_plot.utils import Raster, compile_report
+from asp_plot.utils import Raster
 
 
 @click.command()
@@ -140,17 +141,21 @@ def main(
         directory, os.path.join(stereo_directory, report_filename)
     )
 
+    sections = []
     figure_counter = count(0)
 
-    asp_dem = StereoPlotter(
+    # Initialize StereoPlotter early (needed for DEM info and multiple plot types)
+    stereo_plotter = StereoPlotter(
         directory,
         stereo_directory,
         reference_dem=reference_dem,
         dem_fn=dem_filename,
         dem_gsd=dem_gsd,
-    ).dem_fn
+    )
+    asp_dem = stereo_plotter.dem_fn
 
-    # Set map CRS from output DEM
+    # Set map CRS from output DEM and collect DEM metadata
+    report_metadata = None
     if map_crs is None:
         if asp_dem and os.path.exists(asp_dem):
             try:
@@ -164,6 +169,30 @@ def main(
                 )
                 map_crs = "EPSG:4326"
 
+    # Collect DEM metadata for the report title page
+    if asp_dem and os.path.exists(asp_dem):
+        try:
+            dem_raster = Raster(asp_dem)
+            dem_data = dem_raster.read_array()
+            total_pixels = dem_data.size
+            nodata_pixels = dem_data.mask.sum() if hasattr(dem_data.mask, "sum") else 0
+            nodata_pct = (nodata_pixels / total_pixels * 100) if total_pixels else 0.0
+            valid = dem_data.compressed()
+            elev_range = (
+                (float(valid.min()), float(valid.max())) if valid.size else (0, 0)
+            )
+            report_metadata = ReportMetadata(
+                dem_dimensions=(dem_raster.ds.width, dem_raster.ds.height),
+                dem_gsd_m=dem_raster.get_gsd(),
+                dem_crs=map_crs or "",
+                dem_nodata_percent=nodata_pct,
+                dem_elevation_range=elev_range,
+                dem_filename=os.path.basename(asp_dem),
+                reference_dem=reference_dem or "",
+            )
+        except Exception as e:
+            print(f"\nCould not collect DEM metadata: {e}\n")
+
     # TODO: Centralize this in plotting utils, should not need ctx import in the CLI wrapper
     if add_basemap:
         ctx_kwargs = {
@@ -175,56 +204,84 @@ def main(
     else:
         ctx_kwargs = {}
 
-    # Stereo plots
-    plotter = StereoPlotter(
-        directory,
-        stereo_directory,
-        reference_dem=reference_dem,
-        dem_fn=dem_filename,
-        dem_gsd=dem_gsd,
-        title="Hillshade with details",
+    # ---- Section 1: Input Scenes ----
+    fig_fn = f"{next(figure_counter):02}.png"
+    scene_plotter = ScenePlotter(directory, stereo_directory, title="Input Scenes")
+    scene_plotter.plot_scenes(save_dir=plots_directory, fig_fn=fig_fn)
+    sections.append(
+        ReportSection(
+            title="Input Scenes",
+            image_path=os.path.join(plots_directory, fig_fn),
+            caption="Left and right input scenes used for stereo processing.",
+        )
     )
 
-    plotter.plot_detailed_hillshade(
-        subset_km=subset_km,
-        save_dir=plots_directory,
-        fig_fn=f"{next(figure_counter):02}.png",
-    )
-
-    plotter.title = "Stereo DEM Results"
-    plotter.plot_dem_results(
-        save_dir=plots_directory,
-        fig_fn=f"{next(figure_counter):02}.png",
-    )
-
-    plotter.title = "Disparity (pixels)"
-    plotter.plot_disparity(
-        unit="pixels",
-        quiver=True,
-        save_dir=plots_directory,
-        fig_fn=f"{next(figure_counter):02}.png",
-    )
-
-    plotter.title = "Stereo Match Points"
-    plotter.plot_match_points(
-        save_dir=plots_directory,
-        fig_fn=f"{next(figure_counter):02}.png",
-    )
-
-    # Scene plot
-    plotter = ScenePlotter(directory, stereo_directory, title="Stereo Scenes")
-    plotter.plot_scenes(
-        save_dir=plots_directory, fig_fn=f"{next(figure_counter):02}.png"
-    )
-
-    # Geometry plot
+    # ---- Section 2: Stereo Geometry (conditional) ----
     if plot_geometry:
-        plotter = StereoGeometryPlotter(directory, add_basemap=add_basemap)
-        plotter.dg_geom_plot(
-            save_dir=plots_directory, fig_fn=f"{next(figure_counter):02}.png"
+        fig_fn = f"{next(figure_counter):02}.png"
+        geom_plotter = StereoGeometryPlotter(directory, add_basemap=add_basemap)
+        geom_plotter.dg_geom_plot(save_dir=plots_directory, fig_fn=fig_fn)
+        sections.append(
+            ReportSection(
+                title="Stereo Geometry",
+                image_path=os.path.join(plots_directory, fig_fn),
+                caption="Stereo acquisition geometry skyplot and map view showing satellite viewing angles and scene footprints.",
+            )
         )
 
-    # ICESat-2 comparison
+    # ---- Section 3: Match Points ----
+    fig_fn = f"{next(figure_counter):02}.png"
+    stereo_plotter.title = "Stereo Match Points"
+    stereo_plotter.plot_match_points(save_dir=plots_directory, fig_fn=fig_fn)
+    sections.append(
+        ReportSection(
+            title="Match Points",
+            image_path=os.path.join(plots_directory, fig_fn),
+            caption="Interest point matches between left and right images identified during stereo correlation.",
+        )
+    )
+
+    # ---- Section 4: Detailed Hillshade ----
+    fig_fn = f"{next(figure_counter):02}.png"
+    stereo_plotter.title = "Hillshade with details"
+    stereo_plotter.plot_detailed_hillshade(
+        subset_km=subset_km, save_dir=plots_directory, fig_fn=fig_fn
+    )
+    sections.append(
+        ReportSection(
+            title="Detailed Hillshade",
+            image_path=os.path.join(plots_directory, fig_fn),
+            caption=f"DEM hillshade with {subset_km} km detail subset in second row. If available, corresponding mapprojected ortho image subsets are displayed in the bottom row.",
+        )
+    )
+
+    # ---- Section 5: DEM Results ----
+    fig_fn = f"{next(figure_counter):02}.png"
+    stereo_plotter.title = "Stereo DEM Results"
+    stereo_plotter.plot_dem_results(save_dir=plots_directory, fig_fn=fig_fn)
+    sections.append(
+        ReportSection(
+            title="DEM Results",
+            image_path=os.path.join(plots_directory, fig_fn),
+            caption="Output DEM with intersection error map and difference relative to the reference DEM used in processing.",
+        )
+    )
+
+    # ---- Section 6: Disparity ----
+    fig_fn = f"{next(figure_counter):02}.png"
+    stereo_plotter.title = "Disparity (pixels)"
+    stereo_plotter.plot_disparity(
+        unit="pixels", quiver=True, save_dir=plots_directory, fig_fn=fig_fn
+    )
+    sections.append(
+        ReportSection(
+            title="Disparity",
+            image_path=os.path.join(plots_directory, fig_fn),
+            caption="Horizontal and vertical disparity maps in pixels with quiver overlay.",
+        )
+    )
+
+    # ---- Sections 7-10: ICESat-2 (conditional) ----
     if plot_icesat:
         icesat = Altimetry(directory=directory, dem_fn=asp_dem)
 
@@ -242,37 +299,69 @@ def main(
 
         icesat.predefined_temporal_filter_atl06sr(date=icesat_filter_date)
 
+        fig_fn = f"{next(figure_counter):02}.png"
         icesat.mapview_plot_atl06sr_to_dem(
             key="all",
             save_dir=plots_directory,
-            fig_fn=f"{next(figure_counter):02}.png",
+            fig_fn=fig_fn,
             map_crs=map_crs,
             **ctx_kwargs,
         )
+        sections.append(
+            ReportSection(
+                title="ICESat-2 ATL06-SR Map (All)",
+                image_path=os.path.join(plots_directory, fig_fn),
+                caption="ICESat-2 ATL06-SR elevation differences (all processing levels) vs. ASP DEM.",
+            )
+        )
 
+        fig_fn = f"{next(figure_counter):02}.png"
         icesat.histogram(
             key="all",
             plot_aligned=False,
             save_dir=plots_directory,
-            fig_fn=f"{next(figure_counter):02}.png",
+            fig_fn=fig_fn,
+        )
+        sections.append(
+            ReportSection(
+                title="ICESat-2 ATL06-SR Histogram (All)",
+                image_path=os.path.join(plots_directory, fig_fn),
+                caption="Distribution of elevation differences between ICESat-2 ATL06-SR (all) and ASP DEM.",
+            )
         )
 
+        fig_fn = f"{next(figure_counter):02}.png"
         icesat.mapview_plot_atl06sr_to_dem(
             key="ground_seasonal",
             save_dir=plots_directory,
-            fig_fn=f"{next(figure_counter):02}.png",
+            fig_fn=fig_fn,
             map_crs=map_crs,
             **ctx_kwargs,
         )
+        sections.append(
+            ReportSection(
+                title="ICESat-2 ATL06-SR Map (Ground, Seasonal)",
+                image_path=os.path.join(plots_directory, fig_fn),
+                caption="ICESat-2 ATL06-SR elevation differences (ground, seasonally filtered) vs. ASP DEM.",
+            )
+        )
 
+        fig_fn = f"{next(figure_counter):02}.png"
         icesat.histogram(
             key="ground_seasonal",
             plot_aligned=False,
             save_dir=plots_directory,
-            fig_fn=f"{next(figure_counter):02}.png",
+            fig_fn=fig_fn,
+        )
+        sections.append(
+            ReportSection(
+                title="ICESat-2 ATL06-SR Histogram (Ground, Seasonal)",
+                image_path=os.path.join(plots_directory, fig_fn),
+                caption="Distribution of elevation differences between ICESat-2 ATL06-SR (ground, seasonal) and ASP DEM.",
+            )
         )
 
-    # Bundle adjustment plots
+    # ---- Sections 11+: Bundle Adjustment (conditional) ----
     if bundle_adjust_directory:
         try:
             ba_files = ReadBundleAdjustFiles(directory, bundle_adjust_directory)
@@ -286,26 +375,42 @@ def main(
                 title="Bundle Adjust Initial and Final Residuals (Log Scale)",
             )
 
+            fig_fn = f"{next(figure_counter):02}.png"
             plotter.plot_n_gdfs(
                 column_name="mean_residual",
                 cbar_label="Mean residual (px)",
                 map_crs=map_crs,
                 save_dir=plots_directory,
-                fig_fn=f"{next(figure_counter):02}.png",
+                fig_fn=fig_fn,
                 **ctx_kwargs,
+            )
+            sections.append(
+                ReportSection(
+                    title="Bundle Adjust Residuals (Log Scale)",
+                    image_path=os.path.join(plots_directory, fig_fn),
+                    caption="Initial and final bundle adjustment residuals on a logarithmic scale.",
+                )
             )
 
             plotter.lognorm = False
             plotter.title = "Bundle Adjust Initial and Final Residuals (Linear Scale)"
 
+            fig_fn = f"{next(figure_counter):02}.png"
             plotter.plot_n_gdfs(
                 column_name="mean_residual",
                 cbar_label="Mean residual (px)",
                 common_clim=False,
                 map_crs=map_crs,
                 save_dir=plots_directory,
-                fig_fn=f"{next(figure_counter):02}.png",
+                fig_fn=fig_fn,
                 **ctx_kwargs,
+            )
+            sections.append(
+                ReportSection(
+                    title="Bundle Adjust Residuals (Linear Scale)",
+                    image_path=os.path.join(plots_directory, fig_fn),
+                    caption="Initial and final bundle adjustment residuals on a linear scale.",
+                )
             )
 
             # Map-projected residuals (requires reference DEM in bundle_adjust)
@@ -317,13 +422,21 @@ def main(
                     title="Bundle Adjust Midpoint distance between\nfinal interest points projected onto reference DEM",
                 )
 
+                fig_fn = f"{next(figure_counter):02}.png"
                 plotter.plot_n_gdfs(
                     column_name="mapproj_ip_dist_meters",
                     cbar_label="Interest point distance (m)",
                     map_crs=map_crs,
                     save_dir=plots_directory,
-                    fig_fn=f"{next(figure_counter):02}.png",
+                    fig_fn=fig_fn,
                     **ctx_kwargs,
+                )
+                sections.append(
+                    ReportSection(
+                        title="Map-Projected Residuals",
+                        image_path=os.path.join(plots_directory, fig_fn),
+                        caption="Midpoint distance between final interest points projected onto the reference DEM used in processing.",
+                    )
                 )
             except ValueError as e:
                 print(f"\n\nSkipping map-projected residuals plot: {e}\n\n")
@@ -340,6 +453,7 @@ def main(
                     title="Bundle Adjust Initial and Final Geodiff vs. Reference DEM",
                 )
 
+                fig_fn = f"{next(figure_counter):02}.png"
                 plotter.plot_n_gdfs(
                     column_name="height_diff_meters",
                     cbar_label="Height difference (m)",
@@ -347,8 +461,15 @@ def main(
                     cmap="RdBu",
                     symm_clim=True,
                     save_dir=plots_directory,
-                    fig_fn=f"{next(figure_counter):02}.png",
+                    fig_fn=fig_fn,
                     **ctx_kwargs,
+                )
+                sections.append(
+                    ReportSection(
+                        title="Geodiff vs. Reference DEM",
+                        image_path=os.path.join(plots_directory, fig_fn),
+                        caption="Initial and final geodiff height differences compared to the reference DEM used in processing.",
+                    )
                 )
             except ValueError as e:
                 print(
@@ -369,10 +490,11 @@ def main(
     processing_parameters_dict = processing_parameters.from_log_files()
 
     compile_report(
-        plots_directory,
+        sections,
         processing_parameters_dict,
         report_pdf_path,
         report_title=report_title,
+        report_metadata=report_metadata,
     )
 
     shutil.rmtree(plots_directory)

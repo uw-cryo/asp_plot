@@ -11,7 +11,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import rasterio as rio
 import rioxarray
-from markdown_pdf import MarkdownPdf, Section
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from osgeo import gdal
 from rasterio.errors import NotGeoreferencedWarning
@@ -132,99 +131,6 @@ def save_figure(fig, save_dir=None, fig_fn=None, dpi=150):
         print(f"Figure saved to {file_path}")
     else:
         raise ValueError("\n\nPlease provide a save directory and figure filename.\n\n")
-
-
-def compile_report(
-    plots_directory, processing_parameters_dict, report_pdf_path, report_title=None
-):
-    """
-    Compile a PDF report with ASP processing results and plots.
-
-    Creates a structured PDF report containing processing parameters and
-    generated plots from ASP processing. The plots are converted from PNG
-    to JPEG for better compression in the PDF.
-
-    Parameters
-    ----------
-    plots_directory : str
-        Directory containing plot files (PNG format)
-    processing_parameters_dict : dict
-        Dictionary containing processing parameters from ASP logs
-    report_pdf_path : str
-        Output path for the PDF report
-    report_title : str, optional
-        Title for the report. If None, uses the parent directory name
-
-    Returns
-    -------
-    None
-        Generates a PDF report at the specified path
-
-    Notes
-    -----
-    Required keys in processing_parameters_dict:
-    - processing_timestamp: When the processing was performed
-    - reference_dem: Path to reference DEM used
-    - bundle_adjust: Bundle adjustment command
-    - bundle_adjust_run_time: Time to run bundle adjustment
-    - stereo: Stereo command
-    - stereo_run_time: Time to run stereo
-    - point2dem: Point2dem command
-    - point2dem_run_time: Time to run point2dem
-
-    The function converts PNG files to temporary JPG files for the report,
-    then deletes the temporary files afterward.
-    """
-    from PIL import Image
-
-    files = [f for f in os.listdir(plots_directory) if f.endswith(".png")]
-    files.sort()
-
-    # Convert .png files to .jpg with 95% quality
-    compressed_files = []
-    for file in files:
-        png_path = os.path.join(plots_directory, file)
-        jpg_file = file.replace(".png", ".jpg")
-        jpg_path = os.path.join(plots_directory, jpg_file)
-
-        with Image.open(png_path) as img:
-            img = img.convert("RGB")
-            img.save(jpg_path, "JPEG", quality=95)
-
-        compressed_files.append(jpg_file)
-
-    processing_date = processing_parameters_dict["processing_timestamp"]
-
-    if report_title is None:
-        report_title = os.path.basename(os.path.dirname(report_pdf_path))
-
-    report_title = (
-        f"# ASP Report\n\n## {report_title:}\n\nProcessed on: {processing_date:}"
-    )
-    reference_dem_string = (
-        f"### Reference DEM:\n\n`{processing_parameters_dict['reference_dem']:}`"
-    )
-    ba_string = f"### Bundle Adjust ({processing_parameters_dict['bundle_adjust_run_time']:}):\n\n`{processing_parameters_dict['bundle_adjust']:}`"
-    stereo_string = f"### Stereo ({processing_parameters_dict['stereo_run_time']:}):\n\n`{processing_parameters_dict['stereo']:}`"
-    point2dem_string = f"### point2dem ({processing_parameters_dict['point2dem_run_time']}):\n\n`{processing_parameters_dict['point2dem']:}`"
-
-    pdf = MarkdownPdf()
-
-    pdf.add_section(Section(f"{report_title:}\n\n"))
-    pdf.add_section(
-        Section(
-            f"## Processing Parameters\n\n{reference_dem_string:}\n\n{ba_string:}\n\n{stereo_string}\n\n{point2dem_string}\n\n"
-        )
-    )
-    plots = "".join([f"![]({file})\n\n" for file in compressed_files])
-    pdf.add_section(Section(f"## Plots\n\n{plots:}", root=plots_directory))
-
-    pdf.save(report_pdf_path)
-
-    # cleanup temporary JPEG files
-    for file in compressed_files:
-        jpg_path = os.path.join(plots_directory, file)
-        os.remove(jpg_path)
 
 
 def get_xml_tag(xml, tag, all=False):

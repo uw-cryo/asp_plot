@@ -19,5 +19,4 @@ dependencies:
   - matplotlib-scalebar
   - click
   - sliderule
-  - pip:
-    - markdown-pdf
+  - fpdf2
