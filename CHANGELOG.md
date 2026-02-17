@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.1] - 2026-02-16
+
+### Added
+- Automated PyPI publishing via OIDC trusted publishing on GitHub Release
+- conda-forge reference recipe for staged-recipes submission
+- Runtime dependencies declared in `pyproject.toml` (`pip install asp-plot` now installs all deps)
+
+### Changed
+- Replaced deprecated `actions/create-release@v1` with `softprops/action-gh-release@v2` in release workflow
+- Added missing dependencies to `environment.yml`: `pyproj`, `scipy`, `shapely`, `xarray`
+
 ## [1.6.0] - 2026-02-16
 
 ### Added
