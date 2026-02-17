@@ -5,7 +5,19 @@ on:
     types: [published]
 
 jobs:
+  check-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for tests to succeed
+        uses: lewagon/wait-on-check-action@v1.3.4
+        with:
+          ref: ${{ github.event.release.target_commitish }}
+          check-name: build
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          wait-interval: 30
+
   publish:
+    needs: check-tests
     runs-on: ubuntu-latest
     permissions:
       id-token: write
