@@ -4,14 +4,8 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from asp_plot.utils import (
-    ColorBar,
-    Raster,
-    ReportMetadata,
-    ReportSection,
-    compile_report,
-    get_utm_epsg,
-)
+from asp_plot.report import ReportMetadata, ReportSection, compile_report
+from asp_plot.utils import ColorBar, Raster, get_utm_epsg
 
 
 class TestRaster:

@@ -9,10 +9,11 @@ import contextily as ctx
 from asp_plot.altimetry import Altimetry
 from asp_plot.bundle_adjust import PlotBundleAdjustFiles, ReadBundleAdjustFiles
 from asp_plot.processing_parameters import ProcessingParameters
+from asp_plot.report import ReportMetadata, ReportSection, compile_report
 from asp_plot.scenes import ScenePlotter
 from asp_plot.stereo import StereoPlotter
 from asp_plot.stereo_geometry import StereoGeometryPlotter
-from asp_plot.utils import Raster, ReportMetadata, ReportSection, compile_report
+from asp_plot.utils import Raster
 
 
 @click.command()
