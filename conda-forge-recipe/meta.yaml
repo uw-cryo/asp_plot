@@ -7,7 +7,7 @@ package:
 
 source:
   url: https://pypi.org/packages/source/{{ name[0] }}/{{ name }}/asp_plot-{{ version }}.tar.gz
-  sha256: REPLACE_WITH_ACTUAL_SHA256
+  sha256: 28f66b0e9dcfbc225ade94cff70464a444b1c0c1f109e2d11cdc0e72cbe648f5
 
 build:
   noarch: python
