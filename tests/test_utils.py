@@ -1,11 +1,21 @@
 import os
 
+import matplotlib
+import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 from PIL import Image
 
 from asp_plot.report import ReportMetadata, ReportSection, compile_report
-from asp_plot.utils import ColorBar, Raster, get_utm_epsg
+from asp_plot.utils import (
+    ColorBar,
+    Raster,
+    add_copyright_overlay,
+    detect_vantor_satellite,
+    get_utm_epsg,
+)
+
+matplotlib.use("Agg")
 
 
 class TestRaster:
@@ -394,3 +404,29 @@ class TestCompileReport:
         )
         assert os.path.exists(pdf_path)
         assert os.path.getsize(pdf_path) > 0
+
+
+class TestDetectVantorSatellite:
+    def test_worldview_directory(self):
+        """Test detection with WorldView XML files (test_data has WV02 XMLs)."""
+        assert detect_vantor_satellite("tests/test_data") is True
+
+    def test_nonexistent_directory(self):
+        """Test graceful handling of missing directory."""
+        assert detect_vantor_satellite("/nonexistent/path") is False
+
+    def test_directory_without_xmls(self, tmp_path):
+        """Test directory with no XML files."""
+        assert detect_vantor_satellite(str(tmp_path)) is False
+
+
+class TestAddCopyrightOverlay:
+    def test_overlay_added(self):
+        """Test that copyright text is added to axes."""
+        fig, ax = plt.subplots()
+        add_copyright_overlay(ax)
+        texts = ax.texts
+        assert len(texts) == 1
+        assert "Vantor" in texts[0].get_text()
+        assert "\u00a9" in texts[0].get_text()
+        plt.close(fig)

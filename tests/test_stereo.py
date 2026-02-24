@@ -54,6 +54,10 @@ class TestStereoPlotter:
         stereo_plotter.intersection_error_fn = None
         return stereo_plotter
 
+    def test_is_vantor_detection(self, stereo_plotter):
+        """Test that StereoPlotter detects Vantor satellite from test data XMLs."""
+        assert stereo_plotter.is_vantor is True
+
     def test_plot_match_points(self, stereo_plotter):
         try:
             stereo_plotter.plot_match_points()
