@@ -107,6 +107,24 @@ class TestRaster:
         # UTM EPSG codes are 326XX (north) or 327XX (south)
         assert 32601 <= utm_epsg <= 32760
 
+    def test_get_bounds_latlon(self, test_dem):
+        """Test get_bounds returns lat/lon bounds in JSON format."""
+        raster = Raster(test_dem)
+        bounds = raster.get_bounds(latlon=True, json_format=True)
+        assert isinstance(bounds, list)
+        assert len(bounds) == 5  # Closed polygon
+        assert "lon" in bounds[0]
+        assert "lat" in bounds[0]
+
+    def test_get_bounds_native(self, test_dem):
+        """Test get_bounds returns native CRS bounds as tuple."""
+        raster = Raster(test_dem)
+        bounds = raster.get_bounds(latlon=False, json_format=False)
+        assert isinstance(bounds, tuple)
+        assert len(bounds) == 4
+        # Should match rasterio bounds
+        assert bounds == raster.ds.bounds
+
     def test_get_gsd(self, test_dem):
         """Test getting ground sample distance."""
         raster = Raster(test_dem)

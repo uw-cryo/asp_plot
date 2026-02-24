@@ -660,14 +660,14 @@ class StereoPlotter(Plotter):
             ]
             self._plot_hillshade_with_overlay(ax_hs, dem_subset, hs_subset, gsd)
 
-            with rio.open(self.dem_fn) as src:
-                transform = src.transform
-                ul_x, ul_y = rio.transform.xy(
-                    transform, idx[0] * subset_size, idx[1] * subset_size
-                )
-                lr_x, lr_y = rio.transform.xy(
-                    transform, (idx[0] + 1) * subset_size, (idx[1] + 1) * subset_size
-                )
+            ul_x, ul_y = rio.transform.xy(
+                raster.ds.transform, idx[0] * subset_size, idx[1] * subset_size
+            )
+            lr_x, lr_y = rio.transform.xy(
+                raster.ds.transform,
+                (idx[0] + 1) * subset_size,
+                (idx[1] + 1) * subset_size,
+            )
 
             # We only show the corresponding image if it is mapprojected
             if self.orthos:
