@@ -1,6 +1,7 @@
 import glob
 import logging
 import os
+import re
 import subprocess
 import warnings
 
@@ -1045,3 +1046,57 @@ class Plotter:
 
         if ctx_kwargs:
             ctx.add_basemap(ax=ax, **ctx_kwargs)
+
+
+def detect_vantor_satellite(directory):
+    """Check if XML files in directory indicate a Vantor (WorldView) satellite.
+
+    Parameters
+    ----------
+    directory : str
+        Path to directory containing XML camera model files.
+
+    Returns
+    -------
+    bool
+        True if any XML file contains a WorldView SATID (WV01, WV02, WV03, etc.).
+    """
+    try:
+        xml_files = glob_file(directory, "*.[Xx][Mm][Ll]", all_files=True)
+    except Exception:
+        return False
+    if not xml_files:
+        return False
+    xml_files = [f for f in xml_files if not re.search(r".*ortho.*\.xml", f)]
+    for xml_file in xml_files:
+        try:
+            satid = get_xml_tag(xml_file, "SATID")
+            if satid.startswith("WV"):
+                return True
+        except (ValueError, Exception):
+            continue
+    return False
+
+
+def add_copyright_overlay(ax):
+    """Add Vantor copyright text overlay to the bottom-right of a matplotlib axes.
+
+    Parameters
+    ----------
+    ax : matplotlib.axes.Axes
+        The axes to add the copyright overlay to.
+    """
+    from datetime import datetime
+
+    year = datetime.now().year
+    ax.text(
+        0.98,
+        0.02,
+        f"\u00a9 Vantor {year}",
+        transform=ax.transAxes,
+        fontsize=7,
+        color="white",
+        ha="right",
+        va="bottom",
+        bbox=dict(boxstyle="round,pad=0.3", facecolor="black", alpha=0.5),
+    )
