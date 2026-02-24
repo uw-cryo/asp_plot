@@ -3,7 +3,14 @@ import os
 
 import matplotlib.pyplot as plt
 
-from asp_plot.utils import Plotter, Raster, glob_file, save_figure
+from asp_plot.utils import (
+    Plotter,
+    Raster,
+    add_copyright_overlay,
+    detect_vantor_satellite,
+    glob_file,
+    save_figure,
+)
 
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
@@ -64,6 +71,8 @@ class ScenePlotter(Plotter):
         self.stereo_directory = stereo_directory
         self.full_stereo_directory = os.path.join(directory, stereo_directory)
 
+        self.is_vantor = detect_vantor_satellite(self.directory)
+
         self.left_scene_sub_fn = glob_file(self.full_stereo_directory, "*-L_sub.tif")
         self.right_scene_sub_fn = glob_file(self.full_stereo_directory, "*-R_sub.tif")
 
@@ -110,10 +119,14 @@ class ScenePlotter(Plotter):
         left_scene_ma = left_scene.read_array()
         self.plot_array(ax=axa[0], array=left_scene_ma, cmap="gray", add_cbar=False)
         axa[0].set_title(f"Left\n{os.path.basename(self.left_scene_sub_fn)}", size=8)
+        if self.is_vantor:
+            add_copyright_overlay(axa[0])
 
         right_scene_ma = Raster(self.right_scene_sub_fn).read_array()
         self.plot_array(ax=axa[1], array=right_scene_ma, cmap="gray", add_cbar=False)
         axa[1].set_title(f"Right\n{os.path.basename(self.right_scene_sub_fn)}", size=8)
+        if self.is_vantor:
+            add_copyright_overlay(axa[1])
 
         fig.tight_layout()
         if save_dir and fig_fn:
