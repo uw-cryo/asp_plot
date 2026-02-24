@@ -136,3 +136,4 @@ scratch/
 notebooks/**/*.parquet
 notebooks/**/*.csv
 CLAUDE*
+.claude/**
