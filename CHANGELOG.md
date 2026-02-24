@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0] - 2026-02-24
+
+### Added
+- ASP version and asp_plot version displayed on report title page
+- Copyright overlay ("© Vantor {year}") on WorldView satellite imagery in scene, match point, and detailed hillshade plots
+- `detect_vantor_satellite()` utility to identify WorldView imagery from XML SATID tags
+- `add_copyright_overlay()` utility for matplotlib axes
+- `ProcessingParameters.get_asp_version()` method to extract ASP version from log files
+- `Raster._mask_nodata()` private helper to consolidate nodata/invalid value masking
+- `Raster._load_and_diff_rasters_da()` private static method returning xarray DataArray for raster differencing
+
+### Changed
+- `Raster.get_bounds()` now uses `self.ds.bounds` (rasterio) instead of opening a redundant rioxarray dataset
+- `Raster.compute_difference()` uses `rio.to_raster()` for saving when `save=True`, avoiding manual profile construction
+- `StereoPlotter.plot_detailed_hillshade()` reuses existing `raster.ds.transform` instead of reopening the DEM file
+- Consolidated duplicated nodata masking logic into `Raster._mask_nodata()`
+- Updated ASTER and WorldView example notebooks
+
 ## [1.6.4] - 2026-02-17
 
 ### Changed
