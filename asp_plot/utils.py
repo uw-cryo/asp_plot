@@ -736,13 +736,9 @@ class Raster:
         Aligns rasters to the grid of the second raster before differencing.
         If save=True, saves the difference raster with "_diff.tif" suffix.
         """
-        # Load and align rasters, with second raster as reference (cropped to intersection)
-        diff_data, dst_transform, dst_crs, nodata = self.load_and_diff_rasters(
-            self.fn, second_fn
-        )
-
-        # Optionally save difference raster
         if save:
+            diff_da, nodata = self._load_and_diff_rasters_da(self.fn, second_fn)
+
             outdir = os.path.dirname(os.path.abspath(self.fn))
             outprefix = (
                 os.path.splitext(os.path.split(self.fn)[1])[0]
@@ -751,24 +747,13 @@ class Raster:
             )
             dst_fn = os.path.join(outdir, outprefix + "_diff.tif")
 
-            # Save with the intersection's grid parameters
-            height, width = diff_data.shape
-            profile = {
-                "driver": "GTiff",
-                "dtype": rio.float32,
-                "width": width,
-                "height": height,
-                "count": 1,
-                "crs": dst_crs,
-                "transform": dst_transform,
-                "nodata": nodata,
-                "compress": "lzw",
-            }
+            diff_da.rio.write_nodata(nodata, inplace=True)
+            diff_da.rio.to_raster(dst_fn, dtype="float32", compress="lzw")
 
-            with rio.open(dst_fn, "w", **profile) as dst:
-                dst.write(diff_data.filled(nodata).astype(rio.float32), 1)
-
-        return diff_data
+            return np.ma.masked_invalid(diff_da.values)
+        else:
+            diff_data, _, _, _ = self.load_and_diff_rasters(self.fn, second_fn)
+            return diff_data
 
     @staticmethod
     def save_raster(data, output_fn, reference_fn, dtype=None, nodata=None):
@@ -819,6 +804,46 @@ class Raster:
                 dst.write(data.astype(profile["dtype"]), 1)
 
     @staticmethod
+    def _load_and_diff_rasters_da(first_fn, second_fn):
+        """
+        Load two rasters, align them, and compute their difference as a DataArray.
+
+        Parameters
+        ----------
+        first_fn : str
+            Path to the first raster file
+        second_fn : str
+            Path to the second raster file (used as reference grid)
+
+        Returns
+        -------
+        tuple
+            (difference xarray.DataArray, nodata value)
+
+        Notes
+        -----
+        The first raster is reprojected and resampled to match the second raster's
+        grid before differencing. Both rasters are cropped to their intersection first
+        (matching geoutils behavior). Uses rioxarray for efficient reprojection.
+        """
+        first = rioxarray.open_rasterio(first_fn, masked=True).squeeze()
+        second = rioxarray.open_rasterio(second_fn, masked=True).squeeze()
+
+        first_bounds_in_ref_crs = first.rio.transform_bounds(second.rio.crs)
+        second_clipped = second.rio.clip_box(*first_bounds_in_ref_crs)
+        first_reproj = first.rio.reproject_match(second_clipped)
+
+        diff = second_clipped - first_reproj
+
+        nodata = (
+            second.rio.encoded_nodata
+            if second.rio.encoded_nodata is not None
+            else -9999
+        )
+
+        return diff, nodata
+
+    @staticmethod
     def load_and_diff_rasters(first_fn, second_fn):
         """
         Load two rasters, align them, and compute their difference.
@@ -841,35 +866,9 @@ class Raster:
         grid before differencing. Both rasters are cropped to their intersection first
         (matching geoutils behavior). Uses rioxarray for efficient reprojection.
         """
-        # Load rasters with rioxarray
-        first = rioxarray.open_rasterio(first_fn, masked=True).squeeze()
-        second = rioxarray.open_rasterio(second_fn, masked=True).squeeze()
-
-        # Get first raster's bounds in second raster's CRS
-        first_bounds_in_ref_crs = first.rio.transform_bounds(second.rio.crs)
-
-        # Clip second raster to first raster's bounds (intersection)
-        second_clipped = second.rio.clip_box(*first_bounds_in_ref_crs)
-
-        # Reproject first raster to match clipped second raster's grid
-        first_reproj = first.rio.reproject_match(second_clipped)
-
-        # Compute difference: second - first
-        diff = second_clipped - first_reproj
-
-        # Extract metadata
-        dst_transform = second_clipped.rio.transform()
-        dst_crs = second_clipped.rio.crs
-        nodata = (
-            second.rio.encoded_nodata
-            if second.rio.encoded_nodata is not None
-            else -9999
-        )
-
-        # Convert to numpy masked array
+        diff, nodata = Raster._load_and_diff_rasters_da(first_fn, second_fn)
         diff_array = np.ma.masked_invalid(diff.values)
-
-        return diff_array, dst_transform, dst_crs, nodata
+        return diff_array, diff.rio.transform(), diff.rio.crs, nodata
 
 
 class Plotter:
