@@ -673,8 +673,7 @@ class Raster:
             If json_format=True: list of corner coordinates as dictionaries
             If json_format=False: tuple of (min_x, min_y, max_x, max_y)
         """
-        ds = rioxarray.open_rasterio(self.fn, masked=True).squeeze()
-        bounds = ds.rio.bounds()
+        bounds = self.ds.bounds
         if latlon:
             epsg = self.get_epsg_code()
             bounds = rio.warp.transform_bounds(f"EPSG:{epsg}", "EPSG:4326", *bounds)
