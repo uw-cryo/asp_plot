@@ -103,6 +103,37 @@ class ProcessingParameters:
         except:
             self.point2dem_log = None
 
+    def get_asp_version(self):
+        """Extract the ASP version string from the first available log file.
+
+        Returns
+        -------
+        str
+            ASP version string (e.g., "3.4.0-alpha"), or "N/A" if not found.
+        """
+        log_candidates = []
+        if self.bundle_adjust_log:
+            log_candidates.append(self.bundle_adjust_log)
+        if self.stereo_logs:
+            pprc = next(
+                (log for log in self.stereo_logs if "log-stereo_pprc" in log),
+                None,
+            )
+            if pprc:
+                log_candidates.append(pprc)
+        if self.point2dem_log:
+            log_candidates.append(self.point2dem_log)
+
+        for log_file in log_candidates:
+            try:
+                with open(log_file, "r") as f:
+                    first_line = f.readline().strip()
+                if first_line.startswith("ASP "):
+                    return first_line[4:]
+            except Exception:
+                continue
+        return "N/A"
+
     def from_log_files(self):
         """
         Extract processing parameters from log files.
@@ -157,6 +188,7 @@ class ProcessingParameters:
         point2dem_params = "point2dem " + point2dem_params.split(maxsplit=1)[1]
 
         self.processing_parameters_dict = {
+            "asp_version": self.get_asp_version(),
             "processing_timestamp": processing_timestamp,
             "reference_dem": reference_dem,
             "bundle_adjust": bundle_adjust_params,

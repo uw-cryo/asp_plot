@@ -37,6 +37,15 @@ class TestProcessingParameters:
         assert result["point2dem"] != ""
         assert result["point2dem_run_time"] != "N/A"
 
+    def test_asp_version(self, processing_parameters):
+        version = processing_parameters.get_asp_version()
+        assert version == "3.4.0-alpha"
+
+    def test_asp_version_in_from_log_files(self, processing_parameters):
+        result = processing_parameters.from_log_files()
+        assert "asp_version" in result
+        assert result["asp_version"] == "3.4.0-alpha"
+
     def test_from_log_files_no_ba(self, processing_parameters_no_ba):
         result = processing_parameters_no_ba.from_log_files()
         assert result["bundle_adjust"] == "Bundle adjustment not run"

@@ -152,6 +152,27 @@ def compile_report(
         new_x="LMARGIN",
         new_y="NEXT",
     )
+    asp_version = processing_parameters_dict.get("asp_version", "")
+    if asp_version:
+        pdf.cell(
+            0,
+            8,
+            f"ASP version: {asp_version}",
+            align="C",
+            new_x="LMARGIN",
+            new_y="NEXT",
+        )
+
+    from asp_plot import __version__
+
+    pdf.cell(
+        0,
+        8,
+        f"asp_plot version: {__version__}",
+        align="C",
+        new_x="LMARGIN",
+        new_y="NEXT",
+    )
     pdf.ln(10)
 
     if report_metadata is not None:

@@ -4,6 +4,12 @@ class TestImports:
 
         assert asp_plot is not None
 
+    def test_version(self):
+        from asp_plot import __version__
+
+        assert __version__ != "unknown"
+        assert isinstance(__version__, str)
+
     def test_import_asp_plot_modules(self):
         import asp_plot.alignment
         import asp_plot.altimetry

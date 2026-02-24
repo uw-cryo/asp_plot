@@ -5,7 +5,8 @@
 Scripts and notebooks to visualize output from the [NASA Ames Stereo Pipeline (ASP)](https://github.com/NeoGeographyToolkit/StereoPipeline).
 
 > [!IMPORTANT]
-> [View an example WorldView report here](notebooks/WorldView/asp_plot_report_atlanta_tile.pdf).
+> [View an example WorldView report here](https://github.com/uw-cryo/asp_plot/blob/main/notebooks/WorldView/asp_plot_report_atlanta_tile.pdf).
+> [View example modular plotting usage here](https://github.com/uw-cryo/asp_plot/tree/main/notebooks)
 >
 
 ## Motivation

@@ -15,6 +15,10 @@ class TestScenePlotter:
         )
         return scene_plotter
 
+    def test_is_vantor_detection(self, scene_plotter):
+        """Test that ScenePlotter detects Vantor satellite from test data XMLs."""
+        assert scene_plotter.is_vantor is True
+
     def test_plot_scenes(self, scene_plotter):
         try:
             scene_plotter.plot_scenes()

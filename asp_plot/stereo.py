@@ -9,7 +9,15 @@ import rasterio as rio
 from matplotlib_scalebar.scalebar import ScaleBar
 
 from asp_plot.processing_parameters import ProcessingParameters
-from asp_plot.utils import ColorBar, Plotter, Raster, glob_file, save_figure
+from asp_plot.utils import (
+    ColorBar,
+    Plotter,
+    Raster,
+    add_copyright_overlay,
+    detect_vantor_satellite,
+    glob_file,
+    save_figure,
+)
 
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
@@ -90,6 +98,7 @@ class StereoPlotter(Plotter):
         super().__init__(**kwargs)
         self.directory = directory
         self.stereo_directory = stereo_directory
+        self.is_vantor = detect_vantor_satellite(self.directory)
 
         if reference_dem:
             self.reference_dem = reference_dem
@@ -331,6 +340,10 @@ class StereoPlotter(Plotter):
                 s=1,
             )
             axa[1].set_aspect("equal")
+
+            if self.is_vantor:
+                add_copyright_overlay(axa[0])
+                add_copyright_overlay(axa[1])
         else:
             axa[0].text(
                 0.5,
@@ -671,6 +684,8 @@ class StereoPlotter(Plotter):
                     cmap="gray",
                     add_cbar=False,
                 )
+                if self.is_vantor:
+                    add_copyright_overlay(ax_img)
                 axes_to_modify = [ax_hs, ax_img]
             else:
                 plt.delaxes(ax_img)
