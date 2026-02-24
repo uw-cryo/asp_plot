@@ -530,6 +530,27 @@ class Raster:
 
         return (height, width)
 
+    def _mask_nodata(self, array):
+        """
+        Apply nodata and invalid value masking to a raster array.
+
+        Handles two cases that rasterio's masked=True alone does not:
+        1. Undeclared nodata values (inferred by get_ndv() from pixel data)
+        2. Invalid values (inf, nan) that may exist in ASP outputs
+
+        Parameters
+        ----------
+        array : numpy.ndarray
+            Raw raster array (may already be partially masked from rasterio)
+
+        Returns
+        -------
+        numpy.ma.MaskedArray
+            Array with nodata and invalid values masked
+        """
+        ndv = self.get_ndv()
+        return np.ma.fix_invalid(np.ma.masked_equal(array, ndv))
+
     def read_array(self, b=1, extent=False):
         """
         Read raster data as a numpy masked array.
@@ -560,8 +581,7 @@ class Raster:
         else:
             a = self.ds.read(b, masked=True)
 
-        ndv = self.get_ndv()
-        ma = np.ma.fix_invalid(np.ma.masked_equal(a, ndv))
+        ma = self._mask_nodata(a)
         out = ma
         if extent:
             extent = rio.plot.plotting_extent(self.ds)
@@ -591,9 +611,7 @@ class Raster:
         """
         window = from_bounds(*bbox, self.ds.transform)
         subset = self.ds.read(b, window=window, masked=True)
-        ndv = self.get_ndv()
-        ma = np.ma.fix_invalid(np.ma.masked_equal(subset, ndv))
-        return ma
+        return self._mask_nodata(subset)
 
     def get_ndv(self):
         """
