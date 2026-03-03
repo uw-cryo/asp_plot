@@ -88,6 +88,33 @@ class TestAltimetry:
         except Exception as e:
             pytest.fail(f"histogram() method raised an exception: {str(e)}")
 
+    def test_select_best_track(self, icesat):
+        icesat.atl06sr_to_dem_dh()
+        result = icesat._select_best_track(key="all")
+        assert result is not None
+        assert "rgt" in result
+        assert "cycle" in result
+        assert "spot" in result
+        assert "count" in result
+        assert "date" in result
+        assert result["count"] > 0
+
+    def test_histogram_by_landcover(self, icesat):
+        try:
+            icesat.histogram_by_landcover(key="all")
+        except Exception as e:
+            pytest.fail(
+                f"histogram_by_landcover() method raised an exception: {str(e)}"
+            )
+
+    def test_plot_atl06sr_dem_profile(self, icesat):
+        try:
+            icesat.plot_atl06sr_dem_profile(key="all")
+        except Exception as e:
+            pytest.fail(
+                f"plot_atl06sr_dem_profile() method raised an exception: {str(e)}"
+            )
+
     def test_alignment_report(self, icesat):
         try:
             icesat.alignment_report()
