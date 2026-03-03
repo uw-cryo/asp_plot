@@ -478,11 +478,11 @@ class Altimetry:
         Parameters
         ----------
         filter_out : str, optional
-            Land cover type to filter out, default is "water".
-            Options include "water", "snow_ice", "trees", "low_vegetation", "built_up"
+            Land cover group to filter out, default is "water".
+            Options: "water", "snow_ice", "trees", "low_vegetation", "built_up"
         retain_only : str or None, optional
-            If specified, retain only points of this land cover type,
-            default is None
+            If specified, retain only points matching this land cover group,
+            default is None. Same options as ``filter_out``.
 
         Returns
         -------
@@ -491,33 +491,11 @@ class Altimetry:
 
         Notes
         -----
-        This method uses the ESA WorldCover land cover classification,
-        which was sampled when requesting the ATL06-SR data. The classification
-        values are:
-        - 10: Tree cover
-        - 20: Shrubland
-        - 30: Grassland
-        - 40: Cropland
-        - 50: Built-up
-        - 60: Bare / sparse vegetation
-        - 70: Snow and ice
-        - 80: Permanent water bodies
-        - 90: Herbaceous wetland
-        - 95: Mangroves
-        - 100: Moss and lichen
+        This method uses the ESA WorldCover land cover classification
+        (see ``WORLDCOVER_NAMES``), which was sampled when requesting the
+        ATL06-SR data.
         """
-        # Value	Description
-        # 10	  Tree cover
-        # 20	  Shrubland
-        # 30	  Grassland
-        # 40	  Cropland
-        # 50	  Built-up
-        # 60	  Bare / sparse vegetation
-        # 70	  Snow and ice
-        # 80	  Permanent water bodies
-        # 90	  Herbaceous wetland
-        # 95	  Mangroves
-        # 100	  Moss and lichen
+        # Groups of WORLDCOVER_NAMES codes for convenient filtering
         value_dict = {
             "water": [80],
             "snow_ice": [70],
