@@ -309,6 +309,19 @@ class Altimetry:
                     atl06sr.index = pd.to_datetime(atl06sr.index, unit="ns")
                 atl06sr.index.name = "time"
 
+            # Normalize sample columns: x-series may return array values
+            # instead of scalars for raster samples (e.g., esa_worldcover.value).
+            # Extract the first element from any array-valued cells.
+            for col in atl06sr.columns:
+                if atl06sr[col].dtype == object and len(atl06sr) > 0:
+                    first_val = atl06sr[col].iloc[0]
+                    if isinstance(first_val, np.ndarray):
+                        atl06sr[col] = atl06sr[col].apply(
+                            lambda x: (
+                                x[0] if isinstance(x, np.ndarray) and len(x) > 0 else x
+                            )
+                        )
+
             self.atl06sr_processing_levels[key] = atl06sr
 
             print(f"Filtering ATL06-SR {key}")
