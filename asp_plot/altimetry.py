@@ -202,6 +202,13 @@ class Altimetry:
         self._t1 = t1
         return (t0.strftime(fmt), t1.strftime(fmt), None)
 
+    @property
+    def _time_range_label(self):
+        """Return formatted t0–t1 label for plot titles, or empty string if unset."""
+        if hasattr(self, "_t0") and hasattr(self, "_t1"):
+            return f"{self._t0.strftime('%Y-%m-%d')} to {self._t1.strftime('%Y-%m-%d')}"
+        return ""
+
     def request_atl06sr_multi_processing(
         self,
         processing_levels=["all", "ground", "canopy", "top_of_canopy"],
@@ -400,13 +407,16 @@ class Altimetry:
             # Normalize sample columns: x-series may return array values
             # instead of scalars for raster samples (e.g., esa_worldcover.value).
             # Extract the first element from any array-valued cells.
+            # After parquet round-trip, arrays may deserialize as lists.
             for col in atl06sr.columns:
                 if atl06sr[col].dtype == object and atl06sr.shape[0] > 0:
                     first_val = atl06sr[col].iloc[0]
-                    if isinstance(first_val, np.ndarray):
+                    if isinstance(first_val, (np.ndarray, list)):
                         atl06sr[col] = atl06sr[col].apply(
                             lambda x: (
-                                x[0] if isinstance(x, np.ndarray) and x.size > 0 else x
+                                x[0]
+                                if isinstance(x, (np.ndarray, list)) and len(x) > 0
+                                else x
                             )
                         )
 
@@ -960,7 +970,10 @@ class Altimetry:
             if ctx_kwargs:
                 ctx.add_basemap(ax=ax, **ctx_kwargs)
 
-        fig.suptitle(f"{title}", size=14)
+        suptitle = f"{title}"
+        if self._time_range_label:
+            suptitle += f"\n{self._time_range_label}"
+        fig.suptitle(suptitle, size=14)
         fig.tight_layout()
         if save_dir and fig_fn:
             save_figure(fig, save_dir, fig_fn)
@@ -1102,7 +1115,10 @@ class Altimetry:
         ax.set_xticks([])
         ax.set_yticks([])
 
-        fig.suptitle(f"{title}\n{key} (n={atl06sr.shape[0]})", size=10)
+        suptitle = f"{title}\n{key} (n={atl06sr.shape[0]})"
+        if self._time_range_label:
+            suptitle += f"\n{self._time_range_label}"
+        fig.suptitle(suptitle, size=10)
         fig.tight_layout()
         if save_dir and fig_fn:
             save_figure(fig, save_dir, fig_fn)
@@ -1328,7 +1344,10 @@ class Altimetry:
         ax.set_title(None)
         ax.set_xlabel("ICESat-2 - DEM (m)")
 
-        fig.suptitle(f"{title}\n{key} (n={atl06sr.shape[0]})", size=10)
+        suptitle = f"{title}\n{key} (n={atl06sr.shape[0]})"
+        if self._time_range_label:
+            suptitle += f"\n{self._time_range_label}"
+        fig.suptitle(suptitle, size=10)
 
         fig.tight_layout()
         if save_dir and fig_fn:
@@ -1477,7 +1496,10 @@ class Altimetry:
 
         ax.set_xlabel("ICESat-2 - DEM (m)")
         ax.set_ylabel("Count")
-        fig.suptitle(f"{title}\n{key} (n={overall_n})", size=10)
+        suptitle = f"{title}\n{key} (n={overall_n})"
+        if self._time_range_label:
+            suptitle += f"\n{self._time_range_label}"
+        fig.suptitle(suptitle, size=10)
         fig.tight_layout()
         if save_dir and fig_fn:
             save_figure(fig, save_dir, fig_fn)
@@ -1496,10 +1518,11 @@ class Altimetry:
         """
         Plot elevation profile comparing ICESat-2 and DEM along the best track.
 
-        Creates a two-panel figure showing the DEM and ICESat-2 elevation
-        profiles (top) and the height difference (bottom) along the track
-        with the most valid ATL06-SR points. Points can optionally be
-        colored by intersection error.
+        Creates a three-row figure:
+        - Row 1: Combined elevation profile (left y-axis) and dh (right y-axis)
+        - Row 2: Two 1 km zoom segments at the locations of minimum and
+          maximum rolling-mean dh, with normalized elevations
+        - Row 3: DEM hillshade map with the full track and segment extents
 
         Parameters
         ----------
@@ -1551,6 +1574,7 @@ class Altimetry:
             return
 
         track = track.sort_values("x_atc")
+        x_atc = track["x_atc"].values
         dist = (track["x_atc"] - track["x_atc"].min()) / 1000.0
 
         if track_date is None:
@@ -1572,14 +1596,92 @@ class Altimetry:
             if not np.all(np.isnan(ie_sampled)):
                 ie_values = ie_sampled
 
-        fig, (ax_top, ax_bot) = plt.subplots(
-            2, 1, sharex=True, figsize=(10, 6), gridspec_kw={"height_ratios": [2, 1]}
-        )
+        # --- Segment selection: sliding 1 km window scored by |med(dh)| + NMAD ---
+        dh_col = "icesat_minus_dem"
+        dh_vals = track[dh_col].dropna()
+        track_length_m = x_atc[-1] - x_atc[0] if len(x_atc) > 1 else 0
+        diffs = np.diff(x_atc)
+        median_spacing = np.median(diffs) if len(diffs) > 0 else 0
+        show_segments = median_spacing > 0 and track_length_m >= 1000
 
-        # Top panel: elevation profiles
+        seg_best_mask = None
+        seg_worst_mask = None
+        if show_segments:
+            # Evaluate candidate segments centered on each point
+            half_win = 500  # meters
+            scores = []
+            for i, xc in enumerate(x_atc):
+                mask_i = (track["x_atc"] >= xc - half_win) & (
+                    track["x_atc"] <= xc + half_win
+                )
+                seg_i = track.loc[mask_i]
+                n_total = len(seg_i)
+                if n_total < 3:
+                    scores.append(np.nan)
+                    continue
+                # Require >75% DEM coverage
+                dem_valid = seg_i["dem_height"].notna().sum()
+                if dem_valid / n_total < 0.75:
+                    scores.append(np.nan)
+                    continue
+                seg_dh = seg_i[dh_col].dropna().values
+                if len(seg_dh) < 3:
+                    scores.append(np.nan)
+                    continue
+                scores.append(abs(np.nanmedian(seg_dh)) + _nmad(seg_dh))
+
+            scores = np.array(scores)
+            valid_scores = ~np.isnan(scores)
+            if valid_scores.sum() >= 2:
+                idx_best = np.nanargmin(scores)
+                idx_worst = np.nanargmax(scores)
+                x_atc_lo = x_atc[0]
+                x_atc_hi = x_atc[-1]
+
+                best_center = x_atc[idx_best]
+                worst_center = x_atc[idx_worst]
+
+                seg_best_start = max(best_center - half_win, x_atc_lo)
+                seg_best_end = min(best_center + half_win, x_atc_hi)
+                seg_worst_start = max(worst_center - half_win, x_atc_lo)
+                seg_worst_end = min(worst_center + half_win, x_atc_hi)
+
+                seg_best_mask = (track["x_atc"] >= seg_best_start) & (
+                    track["x_atc"] <= seg_best_end
+                )
+                seg_worst_mask = (track["x_atc"] >= seg_worst_start) & (
+                    track["x_atc"] <= seg_worst_end
+                )
+
+                # Convert to km for axvspan on Row 1
+                seg_best_start_km = (seg_best_start - x_atc[0]) / 1000.0
+                seg_best_end_km = (seg_best_end - x_atc[0]) / 1000.0
+                seg_worst_start_km = (seg_worst_start - x_atc[0]) / 1000.0
+                seg_worst_end_km = (seg_worst_end - x_atc[0]) / 1000.0
+            else:
+                show_segments = False
+
+        # --- Figure layout ---
+        if show_segments:
+            fig = plt.figure(figsize=(12, 14))
+            gs = fig.add_gridspec(
+                3, 2, height_ratios=[2, 1.5, 2], hspace=0.3, wspace=0.25
+            )
+            ax1 = fig.add_subplot(gs[0, :])
+            ax2_left = fig.add_subplot(gs[1, 0])
+            ax2_right = fig.add_subplot(gs[1, 1], sharey=ax2_left)
+            ax3 = fig.add_subplot(gs[2, :])
+        else:
+            fig = plt.figure(figsize=(12, 10))
+            gs = fig.add_gridspec(2, 1, height_ratios=[2, 2], hspace=0.3)
+            ax1 = fig.add_subplot(gs[0])
+            ax3 = fig.add_subplot(gs[1])
+
+        # ===================== Row 1: Combined profile =====================
+        # Left y-axis: elevation
         valid_dem = track["dem_height"].dropna()
         if not valid_dem.empty:
-            ax_top.plot(
+            ax1.plot(
                 dist.loc[valid_dem.index],
                 valid_dem,
                 color="gray",
@@ -1592,7 +1694,7 @@ class Altimetry:
             if "aligned_dem_height" in track.columns:
                 valid_aligned = track["aligned_dem_height"].dropna()
                 if not valid_aligned.empty:
-                    ax_top.plot(
+                    ax1.plot(
                         dist.loc[valid_aligned.index],
                         valid_aligned,
                         color="orange",
@@ -1602,7 +1704,7 @@ class Altimetry:
                     )
 
         if ie_values is not None:
-            ax_top.scatter(
+            ax1.scatter(
                 dist,
                 track["h_mean"],
                 c=ie_values,
@@ -1612,7 +1714,7 @@ class Altimetry:
                 zorder=3,
             )
         else:
-            ax_top.scatter(
+            ax1.scatter(
                 dist,
                 track["h_mean"],
                 color="steelblue",
@@ -1621,61 +1723,202 @@ class Altimetry:
                 zorder=3,
             )
 
-        ax_top.set_ylabel("Elevation (m HAE)")
-        ax_top.legend(fontsize=8, loc="best")
+        ax1.set_ylabel("Elevation (m HAE)")
+        ax1.set_xlabel("Along-track distance (km)")
+        ax1.legend(fontsize=8, loc="upper left")
 
-        # Bottom panel: dh
-        dh_col = "icesat_minus_dem"
-        dh_vals = track[dh_col].dropna()
-
-        if ie_values is not None:
-            ie_for_dh = ie_values[track[dh_col].notna().values]
-            sc_bot = ax_bot.scatter(
-                dist.loc[dh_vals.index],
-                dh_vals,
-                c=ie_for_dh,
-                cmap="viridis",
-                s=8,
-                zorder=2,
+        # Segment highlight spans
+        seg_best_color = "tab:blue"
+        seg_worst_color = "tab:red"
+        if show_segments:
+            ax1.axvspan(
+                seg_best_start_km,
+                seg_best_end_km,
+                alpha=0.15,
+                color=seg_best_color,
+                zorder=0,
             )
-        else:
-            ax_bot.scatter(
-                dist.loc[dh_vals.index],
-                dh_vals,
-                color="steelblue",
-                s=8,
-                zorder=2,
+            ax1.axvspan(
+                seg_worst_start_km,
+                seg_worst_end_km,
+                alpha=0.15,
+                color=seg_worst_color,
+                zorder=0,
             )
 
-        ax_bot.axhline(0, color="black", linewidth=0.5, linestyle="--", zorder=1)
-
+        # Right y-axis: dh
+        ax1_dh = ax1.twinx()
         if not dh_vals.empty:
+            ax1_dh.scatter(
+                dist.loc[dh_vals.index],
+                dh_vals,
+                color="salmon",
+                s=4,
+                alpha=0.6,
+                zorder=4,
+                label="dh",
+            )
+            ax1_dh.axhline(0, color="black", linewidth=0.5, linestyle="--", zorder=1)
+            ax1_dh.set_ylabel("ICESat-2 − DEM (m)")
+
             med = np.nanmedian(dh_vals.values)
             nmad_val = _nmad(dh_vals.values)
-            ax_bot.text(
+            ax1.text(
                 0.02,
                 0.95,
                 f"Med={med:+.2f} m, NMAD={nmad_val:.2f} m",
-                transform=ax_bot.transAxes,
+                transform=ax1.transAxes,
                 verticalalignment="top",
                 fontsize=8,
                 fontfamily="monospace",
                 bbox=dict(boxstyle="round,pad=0.3", facecolor="white", alpha=0.9),
+                zorder=10,
             )
 
-        ax_bot.set_xlabel("Along-track distance (km)")
-        ax_bot.set_ylabel("ICESat-2 - DEM (m)")
+        # =============== Row 2: Zoom segments (if available) ===============
+        if show_segments:
+            for ax_seg, mask, color, label_prefix in [
+                (ax2_left, seg_best_mask, seg_best_color, "Best"),
+                (ax2_right, seg_worst_mask, seg_worst_color, "Worst"),
+            ]:
+                seg = track.loc[mask]
 
-        # Add colorbar for intersection error if used
-        if ie_values is not None:
-            cbar = fig.colorbar(sc_bot, ax=[ax_top, ax_bot], pad=0.02)
-            cbar.set_label("Intersection Error (m)")
+                # DEM line (normalized)
+                seg_dem = seg["dem_height"].dropna()
+                seg_h = seg["h_mean"].dropna()
+                all_elev = pd.concat([seg_dem, seg_h])
+                elev_max = all_elev.max() if not all_elev.empty else 0
+                if not seg_dem.empty:
+                    seg_dem_dist = (
+                        seg.loc[seg_dem.index, "x_atc"].values - seg["x_atc"].values[0]
+                    )
+                    ax_seg.plot(
+                        seg_dem_dist,
+                        seg_dem.values - elev_max,
+                        color="gray",
+                        linewidth=1,
+                        label="DEM",
+                    )
+                # ICESat-2 scatter (normalized)
+                if not seg_h.empty:
+                    seg_h_dist = (
+                        seg.loc[seg_h.index, "x_atc"].values - seg["x_atc"].values[0]
+                    )
+                    ax_seg.scatter(
+                        seg_h_dist,
+                        seg_h.values - elev_max,
+                        color="steelblue",
+                        s=8,
+                        label="ICESat-2",
+                    )
 
+                seg_dh = seg[dh_col].dropna()
+                seg_med = np.nanmedian(seg_dh.values) if not seg_dh.empty else 0
+                seg_nmad = _nmad(seg_dh.values) if len(seg_dh) >= 3 else 0
+                ax_seg.set_title(
+                    f"{label_prefix} (Med={seg_med:+.1f} m, NMAD={seg_nmad:.1f} m)",
+                    fontsize=9,
+                    color=color,
+                )
+                ax_seg.set_xlabel("Along-track distance (m)")
+                # Add background color tint matching the span color
+                ax_seg.set_facecolor((*plt.matplotlib.colors.to_rgb(color), 0.05))
+
+            ax2_left.set_ylabel("Relative elevation (m)")
+            ax2_left.legend(fontsize=7, loc="best")
+            plt.setp(ax2_right.get_yticklabels(), visible=False)
+
+        # =================== Row 3: Map view ====================
+        try:
+            raster = Raster(self.dem_fn, downsample=5)
+            dem_data, dem_extent = raster.read_array(extent=True)
+            epsg = raster.get_epsg_code()
+
+            # Generate hillshade from downsampled data using matplotlib
+            from matplotlib.colors import LightSource
+
+            ls = LightSource(azdeg=315, altdeg=45)
+            # Fill masked values for hillshade computation
+            fill_val = np.nanmedian(np.asarray(dem_data))
+            dem_filled = np.asarray(np.ma.filled(dem_data, fill_val))
+            hs = ls.hillshade(dem_filled)
+
+            ax3.imshow(
+                hs,
+                extent=dem_extent,
+                cmap="gray",
+                origin="upper",
+                aspect="equal",
+            )
+            ax3.imshow(
+                dem_data,
+                extent=dem_extent,
+                cmap="terrain",
+                alpha=0.4,
+                origin="upper",
+                aspect="equal",
+            )
+
+            # Reproject track to DEM CRS and plot
+            track_proj = track.to_crs(f"EPSG:{epsg}")
+            ax3.plot(
+                track_proj.geometry.x,
+                track_proj.geometry.y,
+                color="black",
+                linewidth=2,
+                label="Track",
+                zorder=5,
+            )
+
+            # Overlay segment extents
+            if show_segments:
+                for mask, color, label in [
+                    (seg_best_mask, seg_best_color, "Best"),
+                    (seg_worst_mask, seg_worst_color, "Worst"),
+                ]:
+                    seg_proj = track_proj.loc[mask]
+                    if not seg_proj.empty:
+                        ax3.plot(
+                            seg_proj.geometry.x,
+                            seg_proj.geometry.y,
+                            color=color,
+                            linewidth=4,
+                            label=label,
+                            zorder=6,
+                        )
+
+            # Zoom to track extent with padding
+            track_bounds = track_proj.total_bounds  # [minx, miny, maxx, maxy]
+            dx = track_bounds[2] - track_bounds[0]
+            dy = track_bounds[3] - track_bounds[1]
+            pad = max(dx, dy) * 0.2
+            ax3.set_xlim(track_bounds[0] - pad, track_bounds[2] + pad)
+            ax3.set_ylim(track_bounds[1] - pad, track_bounds[3] + pad)
+            ax3.set_xticks([])
+            ax3.set_yticks([])
+            ax3.legend(fontsize=8, loc="upper left")
+        except Exception:
+            logger.warning("Could not generate map view for profile plot.")
+            ax3.text(
+                0.5,
+                0.5,
+                "Map view unavailable",
+                transform=ax3.transAxes,
+                ha="center",
+                va="center",
+            )
+            ax3.set_xticks([])
+            ax3.set_yticks([])
+
+        # Title
         title_str = f"RGT {rgt}, Cycle {cycle}, Spot {spot} ({track_date})"
         if track_count:
             title_str += f" — n={track_count}"
+        if self._time_range_label:
+            title_str += f"\n{self._time_range_label}"
         fig.suptitle(title_str, size=10)
 
-        fig.tight_layout()
+        # Use subplots_adjust instead of tight_layout to avoid warnings with twinx
+        fig.subplots_adjust(top=0.93, bottom=0.04, left=0.08, right=0.92)
         if save_dir and fig_fn:
             save_figure(fig, save_dir, fig_fn)
