@@ -20,6 +20,25 @@ from asp_plot.utils import ColorBar, Raster, glob_file, save_figure
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
+WORLDCOVER_NAMES = {
+    10: "Tree cover",
+    20: "Shrubland",
+    30: "Grassland",
+    40: "Cropland",
+    50: "Built-up",
+    60: "Bare/sparse",
+    70: "Snow/ice",
+    80: "Water",
+    90: "Wetland",
+    95: "Mangroves",
+    100: "Moss/lichen",
+}
+
+
+def _nmad(a, c=1.4826):
+    """Normalized Median Absolute Deviation."""
+    return np.nanmedian(np.fabs(a - np.nanmedian(a))) * c
+
 
 class Altimetry:
     """
@@ -1166,9 +1185,6 @@ class Altimetry:
         1.4826 * median(abs(x - median(x))).
         """
 
-        def _nmad(a, c=1.4826):
-            return np.nanmedian(np.fabs(a - np.nanmedian(a))) * c
-
         atl06sr = self.atl06sr_processing_levels_filtered[key]
 
         if "icesat_minus_dem" not in atl06sr.columns:
@@ -1211,84 +1227,348 @@ class Altimetry:
         if save_dir and fig_fn:
             save_figure(fig, save_dir, fig_fn)
 
-    # TODO: https://github.com/uw-cryo/asp_plot/issues/40
-    # def plot_atl06sr_dem_profiles(
-    #     self,
-    #     title="ICESat-2 ATL06-SR Profiles",
-    #     select_years=None,
-    #     select_months=None,
-    #     select_days=None,
-    #     only_strong_beams=True,
-    #     save_dir=None,
-    #     fig_fn=None,
-    # ):
-    #     if "icesat_minus_dem" not in self.atl06sr_filtered.columns:
-    #         self.atl06sr_to_dem_dh()
+    def _select_best_track(self, key="all"):
+        """
+        Select the RGT/cycle/spot combination with the most valid ATL06-SR points.
 
-    #     atl06sr = self.atl06sr_filtered
+        Parameters
+        ----------
+        key : str, optional
+            Processing level key, default is "all"
 
-    #     # Additional day, month, and year filtering
-    #     if select_years:
-    #         atl06sr = atl06sr[atl06sr.index.year.isin(select_years)]
-    #     if select_months:
-    #         atl06sr = atl06sr[atl06sr.index.month.isin(select_months)]
-    #     if select_days:
-    #         atl06sr = atl06sr[atl06sr.index.day.isin(select_days)]
+        Returns
+        -------
+        dict or None
+            Dictionary with keys: rgt, cycle, spot, count, date.
+            Returns None if no valid tracks found.
+        """
+        atl06sr = self.atl06sr_processing_levels_filtered[key]
 
-    #     # Get day of interest
-    #     dates = atl06sr.index.strftime("%Y-%m-%d").unique()
+        if "icesat_minus_dem" not in atl06sr.columns:
+            self.atl06sr_to_dem_dh()
+            atl06sr = self.atl06sr_processing_levels_filtered[key]
 
-    #     if dates.size > 1:
-    #         logger.warning(
-    #             f"\nYou are trying to plot {dates.size} ICESat-2 passes. Please apply additional day, month, and year filtering to get only one pass for plotting.\n"
-    #         )
-    #         return
-    #     else:
-    #         date = dates[0]
+        valid = atl06sr.dropna(subset=["icesat_minus_dem"])
+        if valid.empty:
+            return None
 
-    #     atl06sr = atl06sr[atl06sr.index.normalize() == date]
+        pass_counts = valid.groupby(["rgt", "cycle", "spot"]).size()
+        best = pass_counts.idxmax()
+        best_data = valid[
+            (valid["rgt"] == best[0])
+            & (valid["cycle"] == best[1])
+            & (valid["spot"] == best[2])
+        ]
 
-    #     # Get unique beam strength spot numbers
-    #     spots = atl06sr.spot.unique()
+        date_str = best_data.index[0].strftime("%Y-%m-%d")
 
-    #     # Optionally, filter out weak beams (2, 4, 6)
-    #     if only_strong_beams:
-    #         spots = spots[spots % 2 == 1]
+        return {
+            "rgt": best[0],
+            "cycle": best[1],
+            "spot": best[2],
+            "count": int(pass_counts.loc[best]),
+            "date": date_str,
+        }
 
-    #     # Plot the beams
-    #     fig, axes = plt.subplots(spots.size, 1, figsize=(10, 12))
-    #     axes = axes.flatten()
-    #     for ii, spot in enumerate(spots):
-    #         ax = axes[ii]
-    #         spot_to_plot = atl06sr[atl06sr.spot == spot]
-    #         along_track_dist = abs(spot_to_plot.x_atc - spot_to_plot.x_atc.max()) / 1000
+    def histogram_by_landcover(
+        self,
+        key="all",
+        top_n=4,
+        title="ICESat-2 ATL06-SR vs DEM",
+        save_dir=None,
+        fig_fn=None,
+    ):
+        """
+        Plot histogram of dh with per-landcover-class statistics.
 
-    #         ax.scatter(
-    #             along_track_dist,
-    #             spot_to_plot.h_mean,
-    #             color="black",
-    #             s=5,
-    #             marker="s",
-    #             label="ICESat-2 ATL06",
-    #         )
-    #         ax.scatter(
-    #             along_track_dist,
-    #             spot_to_plot.dem_aligned_height,
-    #             color="red",
-    #             s=5,
-    #             marker="o",
-    #             label="DEM",
-    #         )
-    #         ax.set_axisbelow(True)
-    #         ax.grid(0.3)
-    #         ax.set_title(f"Laser Spot {spot:0.0f}")
-    #         ax.set_xlabel("Distance along track (km)")
-    #         ax.set_ylabel("Elevation (m HAE)")
-    #         ax.legend()
+        Creates a histogram of the height differences between ICESat-2
+        ATL06-SR data and the DEM, with a text annotation showing overall
+        and per-landcover-class statistics (count, median, NMAD).
 
-    #     fig.suptitle(title)
-    #     fig.subplots_adjust(hspace=0.3)
+        Parameters
+        ----------
+        key : str, optional
+            Processing level key, default is "all"
+        top_n : int, optional
+            Number of top landcover classes to report, default is 4
+        title : str, optional
+            Plot title, default is "ICESat-2 ATL06-SR vs DEM"
+        save_dir : str or None, optional
+            Directory to save figure, default is None
+        fig_fn : str or None, optional
+            Filename for saved figure, default is None
+        """
+        atl06sr = self.atl06sr_processing_levels_filtered[key]
 
-    #     fig.tight_layout()
-    #     if save_dir and fig_fn:
-    #         save_figure(fig, save_dir, fig_fn)
+        if "icesat_minus_dem" not in atl06sr.columns:
+            self.atl06sr_to_dem_dh()
+            atl06sr = self.atl06sr_processing_levels_filtered[key]
+
+        dh = atl06sr["icesat_minus_dem"].dropna()
+        if dh.empty:
+            logger.warning(f"\nNo valid dh values for key: {key}\n")
+            return
+
+        overall_med = np.nanmedian(dh.values)
+        overall_nmad = _nmad(dh.values)
+        overall_n = len(dh)
+
+        stats_lines = [
+            f"All: n={overall_n}, Med={overall_med:+.2f} m, NMAD={overall_nmad:.2f} m"
+        ]
+
+        wc_col = "esa_worldcover.value"
+        if wc_col in atl06sr.columns:
+            valid = atl06sr.dropna(subset=["icesat_minus_dem"])
+            valid_wc = valid.dropna(subset=[wc_col])
+
+            if not valid_wc.empty:
+                valid_wc = valid_wc.copy()
+                valid_wc["lc_name"] = valid_wc[wc_col].map(WORLDCOVER_NAMES)
+                valid_wc["lc_name"] = valid_wc["lc_name"].fillna("Unknown")
+
+                grouped = valid_wc.groupby("lc_name")["icesat_minus_dem"]
+                class_stats = []
+                for name, group in grouped:
+                    if len(group) >= 10:
+                        class_stats.append(
+                            {
+                                "name": name,
+                                "n": len(group),
+                                "med": np.nanmedian(group.values),
+                                "nmad": _nmad(group.values),
+                            }
+                        )
+
+                class_stats.sort(key=lambda x: x["n"], reverse=True)
+                class_stats = class_stats[:top_n]
+
+                if class_stats:
+                    stats_lines.append("─" * 35)
+                    for cs in class_stats:
+                        stats_lines.append(
+                            f"{cs['name']}: n={cs['n']}, Med={cs['med']:+.2f}, NMAD={cs['nmad']:.2f}"
+                        )
+
+        fig, ax = plt.subplots(1, 1, figsize=(8, 5))
+
+        xmin = dh.quantile(0.01)
+        xmax = dh.quantile(0.99)
+        ax.hist(dh.values, bins=128, range=(xmin, xmax), alpha=0.7, color="steelblue")
+
+        stats_text = "\n".join(stats_lines)
+        ax.text(
+            0.02,
+            0.98,
+            stats_text,
+            transform=ax.transAxes,
+            verticalalignment="top",
+            fontsize=8,
+            fontfamily="monospace",
+            bbox=dict(boxstyle="round,pad=0.4", facecolor="white", alpha=0.9),
+        )
+
+        ax.set_xlabel("ICESat-2 - DEM (m)")
+        ax.set_ylabel("Count")
+        fig.suptitle(f"{title}\n{key} (n={overall_n})", size=10)
+        fig.tight_layout()
+        if save_dir and fig_fn:
+            save_figure(fig, save_dir, fig_fn)
+
+    def plot_atl06sr_dem_profile(
+        self,
+        key="all",
+        rgt=None,
+        cycle=None,
+        spot=None,
+        plot_aligned=False,
+        intersection_error_fn=None,
+        save_dir=None,
+        fig_fn=None,
+    ):
+        """
+        Plot elevation profile comparing ICESat-2 and DEM along the best track.
+
+        Creates a two-panel figure showing the DEM and ICESat-2 elevation
+        profiles (top) and the height difference (bottom) along the track
+        with the most valid ATL06-SR points. Points can optionally be
+        colored by intersection error.
+
+        Parameters
+        ----------
+        key : str, optional
+            Processing level key, default is "all"
+        rgt : int or None, optional
+            Reference ground track (auto-selected if None)
+        cycle : int or None, optional
+            Cycle number (auto-selected if None)
+        spot : int or None, optional
+            Spot number (auto-selected if None)
+        plot_aligned : bool, optional
+            Whether to also plot the aligned DEM profile, default is False
+        intersection_error_fn : str or None, optional
+            Path to intersection error raster for color coding, default is None
+        save_dir : str or None, optional
+            Directory to save figure, default is None
+        fig_fn : str or None, optional
+            Filename for saved figure, default is None
+        """
+        if not all([rgt, cycle, spot]):
+            best = self._select_best_track(key)
+            if best is None:
+                logger.warning("\nNo valid tracks found for profile plot. Skipping.\n")
+                return
+            rgt, cycle, spot = best["rgt"], best["cycle"], best["spot"]
+            track_count = best["count"]
+            track_date = best["date"]
+        else:
+            track_count = None
+            track_date = None
+
+        atl06sr = self.atl06sr_processing_levels_filtered[key]
+
+        if "icesat_minus_dem" not in atl06sr.columns:
+            self.atl06sr_to_dem_dh()
+            atl06sr = self.atl06sr_processing_levels_filtered[key]
+
+        track = atl06sr[
+            (atl06sr["rgt"] == rgt)
+            & (atl06sr["cycle"] == cycle)
+            & (atl06sr["spot"] == spot)
+        ].copy()
+
+        if track.empty:
+            logger.warning(
+                f"\nNo data for RGT={rgt}, Cycle={cycle}, Spot={spot}. Skipping profile.\n"
+            )
+            return
+
+        track = track.sort_values("x_atc")
+        dist = (track["x_atc"] - track["x_atc"].min()) / 1000.0
+
+        if track_date is None:
+            track_date = track.index[0].strftime("%Y-%m-%d")
+        if track_count is None:
+            track_count = len(track)
+
+        # Sample intersection error if available
+        ie_values = None
+        if intersection_error_fn and os.path.exists(intersection_error_fn):
+            ie_raster = rioxarray.open_rasterio(
+                intersection_error_fn, masked=True
+            ).squeeze()
+            ie_epsg = ie_raster.rio.crs.to_epsg()
+            track_ie = track.to_crs(f"EPSG:{ie_epsg}")
+            x_ie = xr.DataArray(track_ie.geometry.x.values, dims="z")
+            y_ie = xr.DataArray(track_ie.geometry.y.values, dims="z")
+            ie_sampled = ie_raster.interp(x=x_ie, y=y_ie).values
+            if not np.all(np.isnan(ie_sampled)):
+                ie_values = ie_sampled
+
+        fig, (ax_top, ax_bot) = plt.subplots(
+            2, 1, sharex=True, figsize=(10, 6), gridspec_kw={"height_ratios": [2, 1]}
+        )
+
+        # Top panel: elevation profiles
+        valid_dem = track["dem_height"].dropna()
+        if not valid_dem.empty:
+            ax_top.plot(
+                dist.loc[valid_dem.index],
+                valid_dem,
+                color="gray",
+                linewidth=1,
+                label="DEM",
+                zorder=1,
+            )
+
+        if plot_aligned and self.aligned_dem_fn:
+            if "aligned_dem_height" in track.columns:
+                valid_aligned = track["aligned_dem_height"].dropna()
+                if not valid_aligned.empty:
+                    ax_top.plot(
+                        dist.loc[valid_aligned.index],
+                        valid_aligned,
+                        color="orange",
+                        linewidth=1,
+                        label="Aligned DEM",
+                        zorder=2,
+                    )
+
+        if ie_values is not None:
+            ax_top.scatter(
+                dist,
+                track["h_mean"],
+                c=ie_values,
+                cmap="viridis",
+                s=8,
+                label="ICESat-2 ATL06-SR",
+                zorder=3,
+            )
+        else:
+            ax_top.scatter(
+                dist,
+                track["h_mean"],
+                color="steelblue",
+                s=8,
+                label="ICESat-2 ATL06-SR",
+                zorder=3,
+            )
+
+        ax_top.set_ylabel("Elevation (m HAE)")
+        ax_top.legend(fontsize=8, loc="best")
+
+        # Bottom panel: dh
+        dh_col = "icesat_minus_dem"
+        dh_vals = track[dh_col].dropna()
+
+        if ie_values is not None:
+            ie_for_dh = ie_values[track[dh_col].notna().values]
+            sc_bot = ax_bot.scatter(
+                dist.loc[dh_vals.index],
+                dh_vals,
+                c=ie_for_dh,
+                cmap="viridis",
+                s=8,
+                zorder=2,
+            )
+        else:
+            ax_bot.scatter(
+                dist.loc[dh_vals.index],
+                dh_vals,
+                color="steelblue",
+                s=8,
+                zorder=2,
+            )
+
+        ax_bot.axhline(0, color="black", linewidth=0.5, linestyle="--", zorder=1)
+
+        if not dh_vals.empty:
+            med = np.nanmedian(dh_vals.values)
+            nmad_val = _nmad(dh_vals.values)
+            ax_bot.text(
+                0.02,
+                0.95,
+                f"Med={med:+.2f} m, NMAD={nmad_val:.2f} m",
+                transform=ax_bot.transAxes,
+                verticalalignment="top",
+                fontsize=8,
+                fontfamily="monospace",
+                bbox=dict(boxstyle="round,pad=0.3", facecolor="white", alpha=0.9),
+            )
+
+        ax_bot.set_xlabel("Along-track distance (km)")
+        ax_bot.set_ylabel("ICESat-2 - DEM (m)")
+
+        # Add colorbar for intersection error if used
+        if ie_values is not None:
+            cbar = fig.colorbar(sc_bot, ax=[ax_top, ax_bot], pad=0.02)
+            cbar.set_label("Intersection Error (m)")
+
+        title_str = f"RGT {rgt}, Cycle {cycle}, Spot {spot} ({track_date})"
+        if track_count:
+            title_str += f" — n={track_count}"
+        fig.suptitle(title_str, size=10)
+
+        fig.tight_layout()
+        if save_dir and fig_fn:
+            save_figure(fig, save_dir, fig_fn)
