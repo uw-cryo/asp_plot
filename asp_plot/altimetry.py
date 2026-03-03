@@ -1706,12 +1706,13 @@ class Altimetry:
                         zorder=2,
                     )
 
+        sc_ie = None
         if ie_values is not None:
-            ax1.scatter(
+            sc_ie = ax1.scatter(
                 dist,
                 track["h_mean"],
                 c=ie_values,
-                cmap="viridis",
+                cmap="inferno",
                 s=8,
                 label="ICESat-2 ATL06-SR",
                 zorder=3,
@@ -1766,17 +1767,23 @@ class Altimetry:
 
             med = np.nanmedian(dh_vals.values)
             nmad_val = _nmad(dh_vals.values)
-            ax1.text(
-                0.02,
-                0.95,
-                f"Med={med:+.2f} m, NMAD={nmad_val:.2f} m",
-                transform=ax1.transAxes,
-                verticalalignment="top",
+            # Place stats along the zero dh line (right y-axis data coords)
+            ax1_dh.text(
+                0.01,
+                0,
+                f"  Med={med:+.2f} m, NMAD={nmad_val:.2f} m",
+                transform=ax1_dh.get_yaxis_transform(),
+                verticalalignment="bottom",
                 fontsize=8,
                 fontfamily="monospace",
                 bbox=dict(boxstyle="round,pad=0.3", facecolor="white", alpha=0.9),
                 zorder=10,
             )
+
+        # Add colorbar for intersection error if used
+        if sc_ie is not None:
+            cbar = fig.colorbar(sc_ie, ax=ax1, pad=0.1, shrink=0.6)
+            cbar.set_label("Intersection Error (m)")
 
         # =============== Row 2: Zoom segments (if available) ===============
         if show_segments:
