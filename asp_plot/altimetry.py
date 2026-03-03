@@ -209,6 +209,15 @@ class Altimetry:
             return f"{self._t0.strftime('%Y-%m-%d')} to {self._t1.strftime('%Y-%m-%d')}"
         return ""
 
+    @staticmethod
+    def _extract_scalar(x):
+        """Extract a scalar from an array-valued cell (ndarray or list)."""
+        if isinstance(x, np.ndarray):
+            return x.item() if x.size == 1 else (x[0] if x.size > 0 else x)
+        if isinstance(x, list):
+            return x[0] if x else x
+        return x
+
     def request_atl06sr_multi_processing(
         self,
         processing_levels=["all", "ground", "canopy", "top_of_canopy"],
@@ -412,13 +421,7 @@ class Altimetry:
                 if atl06sr[col].dtype == object and atl06sr.shape[0] > 0:
                     first_val = atl06sr[col].iloc[0]
                     if isinstance(first_val, (np.ndarray, list)):
-                        atl06sr[col] = atl06sr[col].apply(
-                            lambda x: (
-                                x[0]
-                                if isinstance(x, (np.ndarray, list)) and len(x) > 0
-                                else x
-                            )
-                        )
+                        atl06sr[col] = atl06sr[col].apply(self._extract_scalar)
 
             self.atl06sr_processing_levels[key] = atl06sr
 
