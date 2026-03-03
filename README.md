@@ -5,8 +5,8 @@
 Scripts and notebooks to visualize output from the [NASA Ames Stereo Pipeline (ASP)](https://github.com/NeoGeographyToolkit/StereoPipeline).
 
 > [!IMPORTANT]
-> [View an example WorldView report here](https://github.com/uw-cryo/asp_plot/blob/main/notebooks/WorldView/asp_plot_report_atlanta_tile.pdf).
-> [View example modular plotting usage here](https://github.com/uw-cryo/asp_plot/tree/main/notebooks)
+> - [View example reports here](https://github.com/uw-cryo/asp_plot/blob/main/reports)
+> - [View example modular plotting usage here](https://github.com/uw-cryo/asp_plot/tree/main/notebooks)
 >
 
 ## Motivation
@@ -59,9 +59,13 @@ $ pip install asp-plot
 > (asp_plot) $ pip install asp-plot
 > ```
 
+## Example reports
+
+Example reports output with the `asp_plot` CLI command can be found [in the `reports/` directory](https://github.com/uw-cryo/asp_plot/blob/main/reports).
+
 ## Notebook example usage
 
-Examples of the modular usage of the package can be found in the `notebooks/` directory. Example notebooks are separated by sensor type, e.g.:
+Examples of the modular usage of the package can be found [in the `notebooks/` directory](https://github.com/uw-cryo/asp_plot/blob/main/notebooks). Example notebooks are separated by sensor type, e.g.:
 
 - `notebooks/WorldView` for WorldView example processing
 - `notebooks/LRO_NAC` for Lunar Reconnaissance Orbiter Narrow Angle Camera example processing
