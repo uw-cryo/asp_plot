@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.0] - 2026-03-03
+
+### Added
+- New `_select_best_track()` method to find the RGT/cycle/spot combination with the most valid ATL06-SR points for profile plotting
+- New `histogram_by_landcover()` method producing a histogram of ICESat-2 vs DEM differences with per-landcover-class statistics (count, median, NMAD) using ESA WorldCover
+- New `plot_atl06sr_dem_profile()` method with a three-row figure: combined elevation + dh profile with dual y-axes, two 1 km zoom segments (best/worst agreement scored by |median(dh)| + NMAD), and DEM hillshade map with track overlay
+- Server-side time filtering for SlideRule API requests via new `_resolve_time_range()` method with three-tier cascade: explicit `scene_date` parameter, auto-detect from stereopair XML metadata, or 2-year fallback
+- `scene_date` and `time_buffer_days` parameters added to `request_atl06sr_multi_processing()`
+- Module-level `ICESAT2_MISSION_START` constant and `WORLDCOVER_NAMES` dictionary for reuse across methods
+- Module-level `_nmad()` helper function (Normalized Median Absolute Deviation)
+- Time range labels displayed on ICESat-2 plot titles
+- Tests for `_select_best_track`, `histogram_by_landcover`, `plot_atl06sr_dem_profile`, and `_resolve_time_range`
+
+### Changed
+- Migrated SlideRule API from legacy `icesat2.atl06p()` to x-series `sliderule_api.run("atl03x")` with automatic index and column normalization
+- Simplified ICESat-2 report section: single `"all"` processing level with landcover histogram and profile plot, replacing the previous multi-level (all + ground) workflow with temporal filtering and plain histograms
+- Report section ordering: bundle adjustment plots now appear after match points and before DEM hillshade
+- Profile plot legend now includes axis labels (left/right) for all entries and embeds Med/NMAD statistics in the dh legend item
+
+### Removed
+- `--icesat_filter_date` CLI option (time filtering is now automatic via `_resolve_time_range()`)
+- Commented-out `plot_atl06sr_dem_profiles()` stub and ATL03 request stub (replaced by implemented methods)
+- Duplicated WorldCover classification table from `filter_esa_worldcover()` docstring (now references `WORLDCOVER_NAMES`)
+
+### Fixed
+- `TypeError: Cannot subtract tz-naive and tz-aware datetime-like objects` in `predefined_temporal_filter_atl06sr` when scene date is UTC-aware but DataFrame index is tz-naive
+- `KeyError: 'translation_magnitude'` in `alignment_report()` when requested processing level has no data (now returns early with a warning)
+- `TypeError: unhashable type: 'numpy.ndarray'` in `histogram_by_landcover` caused by parquet round-trip deserializing arrays as Python lists
+- `TypeError: 'int' object is not callable` when builtin `len()` was shadowed by the `len=40` parameter inside `request_atl06sr_multi_processing`
+- `OverflowError: cannot convert float infinity to integer` in profile segment selection when median point spacing is zero
+
 ## [1.7.0] - 2026-02-24
 
 ### Added
