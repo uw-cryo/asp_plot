@@ -1655,7 +1655,7 @@ class Altimetry:
             )
             ax1 = fig.add_subplot(gs[0, :])
             ax2_left = fig.add_subplot(gs[1, 0])
-            ax2_right = fig.add_subplot(gs[1, 1], sharey=ax2_left)
+            ax2_right = fig.add_subplot(gs[1, 1])
             ax3 = fig.add_subplot(gs[2, :])
         else:
             fig = plt.figure(figsize=(12, 10))
@@ -1759,30 +1759,28 @@ class Altimetry:
             ]:
                 seg = track.loc[mask]
 
-                # DEM line (normalized)
+                # DEM line
                 seg_dem = seg["dem_height"].dropna()
                 seg_h = seg["h_mean"].dropna()
-                all_elev = pd.concat([seg_dem, seg_h])
-                elev_max = all_elev.max() if not all_elev.empty else 0
                 if not seg_dem.empty:
                     seg_dem_dist = (
                         seg.loc[seg_dem.index, "x_atc"].values - seg["x_atc"].values[0]
                     )
                     ax_seg.plot(
                         seg_dem_dist,
-                        seg_dem.values - elev_max,
+                        seg_dem.values,
                         color="gray",
                         linewidth=1,
                         label="DEM",
                     )
-                # ICESat-2 scatter (normalized)
+                # ICESat-2 scatter
                 if not seg_h.empty:
                     seg_h_dist = (
                         seg.loc[seg_h.index, "x_atc"].values - seg["x_atc"].values[0]
                     )
                     ax_seg.scatter(
                         seg_h_dist,
-                        seg_h.values - elev_max,
+                        seg_h.values,
                         color="steelblue",
                         s=8,
                         label="ICESat-2",
@@ -1797,12 +1795,11 @@ class Altimetry:
                     color=color,
                 )
                 ax_seg.set_xlabel("Along-track distance (m)")
+                ax_seg.set_ylabel("Elevation (m HAE)")
                 # Add background color tint matching the span color
                 ax_seg.set_facecolor((*plt.matplotlib.colors.to_rgb(color), 0.05))
 
-            ax2_left.set_ylabel("Relative elevation (m)")
             ax2_left.legend(fontsize=7, loc="best")
-            plt.setp(ax2_right.get_yticklabels(), visible=False)
 
         # =================== Row 3: Map view ====================
         try:
