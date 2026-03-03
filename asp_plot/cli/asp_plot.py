@@ -72,12 +72,6 @@ from asp_plot.utils import Raster
     help="If True, plot an ICESat-2 difference plot with the DEM result. This requires internet connection to request ICESat data. Default: True.",
 )
 @click.option(
-    "--icesat_filter_date",
-    prompt=False,
-    default=None,
-    help="The central date (YYYY-MM-DD) to temporally filter ICESat-2 ATL06 data around. This should be the capture date of the scenes. Default: None, which attempts to read scene capture date from metadata (currently only works for WorldView scenes).",
-)
-@click.option(
     "--plot_geometry",
     prompt=False,
     default=True,
@@ -111,7 +105,6 @@ def main(
     reference_dem,
     add_basemap,
     plot_icesat,
-    icesat_filter_date,
     plot_geometry,
     subset_km,
     report_filename,
@@ -204,7 +197,7 @@ def main(
     else:
         ctx_kwargs = {}
 
-    # ---- Section 1: Input Scenes ----
+    # ---- Input Scenes ----
     fig_fn = f"{next(figure_counter):02}.png"
     scene_plotter = ScenePlotter(directory, stereo_directory, title="Input Scenes")
     scene_plotter.plot_scenes(save_dir=plots_directory, fig_fn=fig_fn)
@@ -216,7 +209,7 @@ def main(
         )
     )
 
-    # ---- Section 2: Stereo Geometry (conditional) ----
+    # ---- Stereo Geometry (conditional) ----
     if plot_geometry:
         fig_fn = f"{next(figure_counter):02}.png"
         geom_plotter = StereoGeometryPlotter(directory, add_basemap=add_basemap)
@@ -229,7 +222,7 @@ def main(
             )
         )
 
-    # ---- Section 3: Match Points ----
+    # ---- Match Points ----
     fig_fn = f"{next(figure_counter):02}.png"
     stereo_plotter.title = "Stereo Match Points"
     stereo_plotter.plot_match_points(save_dir=plots_directory, fig_fn=fig_fn)
@@ -241,127 +234,7 @@ def main(
         )
     )
 
-    # ---- Section 4: Detailed Hillshade ----
-    fig_fn = f"{next(figure_counter):02}.png"
-    stereo_plotter.title = "Hillshade with details"
-    stereo_plotter.plot_detailed_hillshade(
-        subset_km=subset_km, save_dir=plots_directory, fig_fn=fig_fn
-    )
-    sections.append(
-        ReportSection(
-            title="Detailed Hillshade",
-            image_path=os.path.join(plots_directory, fig_fn),
-            caption=f"DEM hillshade with {subset_km} km detail subset in second row. If available, corresponding mapprojected ortho image subsets are displayed in the bottom row.",
-        )
-    )
-
-    # ---- Section 5: DEM Results ----
-    fig_fn = f"{next(figure_counter):02}.png"
-    stereo_plotter.title = "Stereo DEM Results"
-    stereo_plotter.plot_dem_results(save_dir=plots_directory, fig_fn=fig_fn)
-    sections.append(
-        ReportSection(
-            title="DEM Results",
-            image_path=os.path.join(plots_directory, fig_fn),
-            caption="Output DEM with intersection error map and difference relative to the reference DEM used in processing.",
-        )
-    )
-
-    # ---- Section 6: Disparity ----
-    fig_fn = f"{next(figure_counter):02}.png"
-    stereo_plotter.title = "Disparity (pixels)"
-    stereo_plotter.plot_disparity(
-        unit="pixels", quiver=True, save_dir=plots_directory, fig_fn=fig_fn
-    )
-    sections.append(
-        ReportSection(
-            title="Disparity",
-            image_path=os.path.join(plots_directory, fig_fn),
-            caption="Horizontal and vertical disparity maps in pixels with quiver overlay.",
-        )
-    )
-
-    # ---- Sections 7-10: ICESat-2 (conditional) ----
-    if plot_icesat:
-        icesat = Altimetry(directory=directory, dem_fn=asp_dem)
-
-        icesat.request_atl06sr_multi_processing(
-            processing_levels=["all", "ground"],
-            save_to_parquet=True,
-        )
-
-        icesat.filter_esa_worldcover(filter_out="water")
-
-        if icesat_filter_date is not None:
-            icesat_filter_date = datetime.strptime(
-                icesat_filter_date, "%Y-%m-%d"
-            ).date()
-
-        icesat.predefined_temporal_filter_atl06sr(date=icesat_filter_date)
-
-        fig_fn = f"{next(figure_counter):02}.png"
-        icesat.mapview_plot_atl06sr_to_dem(
-            key="all",
-            save_dir=plots_directory,
-            fig_fn=fig_fn,
-            map_crs=map_crs,
-            **ctx_kwargs,
-        )
-        sections.append(
-            ReportSection(
-                title="ICESat-2 ATL06-SR Map (All)",
-                image_path=os.path.join(plots_directory, fig_fn),
-                caption="ICESat-2 ATL06-SR elevation differences (all processing levels) vs. ASP DEM.",
-            )
-        )
-
-        fig_fn = f"{next(figure_counter):02}.png"
-        icesat.histogram(
-            key="all",
-            plot_aligned=False,
-            save_dir=plots_directory,
-            fig_fn=fig_fn,
-        )
-        sections.append(
-            ReportSection(
-                title="ICESat-2 ATL06-SR Histogram (All)",
-                image_path=os.path.join(plots_directory, fig_fn),
-                caption="Distribution of elevation differences between ICESat-2 ATL06-SR (all) and ASP DEM.",
-            )
-        )
-
-        fig_fn = f"{next(figure_counter):02}.png"
-        icesat.mapview_plot_atl06sr_to_dem(
-            key="ground_seasonal",
-            save_dir=plots_directory,
-            fig_fn=fig_fn,
-            map_crs=map_crs,
-            **ctx_kwargs,
-        )
-        sections.append(
-            ReportSection(
-                title="ICESat-2 ATL06-SR Map (Ground, Seasonal)",
-                image_path=os.path.join(plots_directory, fig_fn),
-                caption="ICESat-2 ATL06-SR elevation differences (ground, seasonally filtered) vs. ASP DEM.",
-            )
-        )
-
-        fig_fn = f"{next(figure_counter):02}.png"
-        icesat.histogram(
-            key="ground_seasonal",
-            plot_aligned=False,
-            save_dir=plots_directory,
-            fig_fn=fig_fn,
-        )
-        sections.append(
-            ReportSection(
-                title="ICESat-2 ATL06-SR Histogram (Ground, Seasonal)",
-                image_path=os.path.join(plots_directory, fig_fn),
-                caption="Distribution of elevation differences between ICESat-2 ATL06-SR (ground, seasonal) and ASP DEM.",
-            )
-        )
-
-    # ---- Sections 11+: Bundle Adjustment (conditional) ----
+    # ---- Bundle Adjustment (conditional) ----
     if bundle_adjust_directory:
         try:
             ba_files = ReadBundleAdjustFiles(directory, bundle_adjust_directory)
@@ -480,6 +353,101 @@ def main(
             print(
                 f"\n\nNo bundle adjustment files found in directory {os.path.join(directory, bundle_adjust_directory):}. If you want bundle adjustment plots, make sure you run the tool and supply the correct directory to asp_plot.\n\n"
             )
+
+    # ---- Detailed Hillshade ----
+    fig_fn = f"{next(figure_counter):02}.png"
+    stereo_plotter.title = "Hillshade with details"
+    stereo_plotter.plot_detailed_hillshade(
+        subset_km=subset_km, save_dir=plots_directory, fig_fn=fig_fn
+    )
+    sections.append(
+        ReportSection(
+            title="Detailed Hillshade",
+            image_path=os.path.join(plots_directory, fig_fn),
+            caption=f"DEM hillshade with {subset_km} km detail subset in second row. If available, corresponding mapprojected ortho image subsets are displayed in the bottom row.",
+        )
+    )
+
+    # ---- DEM Results ----
+    fig_fn = f"{next(figure_counter):02}.png"
+    stereo_plotter.title = "Stereo DEM Results"
+    stereo_plotter.plot_dem_results(save_dir=plots_directory, fig_fn=fig_fn)
+    sections.append(
+        ReportSection(
+            title="DEM Results",
+            image_path=os.path.join(plots_directory, fig_fn),
+            caption="Output DEM with intersection error map and difference relative to the reference DEM used in processing.",
+        )
+    )
+
+    # ---- Disparity ----
+    fig_fn = f"{next(figure_counter):02}.png"
+    stereo_plotter.title = "Disparity (pixels)"
+    stereo_plotter.plot_disparity(
+        unit="pixels", quiver=True, save_dir=plots_directory, fig_fn=fig_fn
+    )
+    sections.append(
+        ReportSection(
+            title="Disparity",
+            image_path=os.path.join(plots_directory, fig_fn),
+            caption="Horizontal and vertical disparity maps in pixels with quiver overlay.",
+        )
+    )
+
+    # ---- ICESat-2 (conditional) ----
+    if plot_icesat:
+        icesat = Altimetry(directory=directory, dem_fn=asp_dem)
+
+        icesat.request_atl06sr_multi_processing(
+            processing_levels=["all"],
+            save_to_parquet=True,
+        )
+
+        icesat.filter_esa_worldcover(filter_out="water")
+
+        fig_fn = f"{next(figure_counter):02}.png"
+        icesat.mapview_plot_atl06sr_to_dem(
+            key="all",
+            save_dir=plots_directory,
+            fig_fn=fig_fn,
+            map_crs=map_crs,
+            **ctx_kwargs,
+        )
+        sections.append(
+            ReportSection(
+                title="ICESat-2 ATL06-SR Map",
+                image_path=os.path.join(plots_directory, fig_fn),
+                caption="ICESat-2 ATL06-SR elevation differences vs. ASP DEM.",
+            )
+        )
+
+        fig_fn = f"{next(figure_counter):02}.png"
+        icesat.histogram_by_landcover(
+            key="all",
+            save_dir=plots_directory,
+            fig_fn=fig_fn,
+        )
+        sections.append(
+            ReportSection(
+                title="ICESat-2 ATL06-SR Histogram",
+                image_path=os.path.join(plots_directory, fig_fn),
+                caption="Distribution of elevation differences between ICESat-2 ATL06-SR and ASP DEM with per-landcover statistics.",
+            )
+        )
+
+        fig_fn = f"{next(figure_counter):02}.png"
+        icesat.plot_atl06sr_dem_profile(
+            key="all",
+            save_dir=plots_directory,
+            fig_fn=fig_fn,
+        )
+        sections.append(
+            ReportSection(
+                title="ICESat-2 ATL06-SR Profile",
+                image_path=os.path.join(plots_directory, fig_fn),
+                caption="Elevation profile along the ICESat-2 track with the most valid points, comparing ATL06-SR and DEM.",
+            )
+        )
 
     # Compile report
     processing_parameters = ProcessingParameters(
