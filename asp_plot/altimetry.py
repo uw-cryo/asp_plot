@@ -800,8 +800,18 @@ class Altimetry:
         report_data = []
         for key in filtered_keys:
             report = alignment.pc_align_report(output_prefix=f"pc_align/pc_align_{key}")
-            report_data.append({"key": key} | report)
+            if report:
+                report_data.append({"key": key} | report)
         alignment_report_df = pd.DataFrame(report_data)
+
+        if alignment_report_df.empty:
+            logger.warning(
+                f"\nNo alignment results for processing_level='{processing_level}'. "
+                "Check that the requested processing level was included in "
+                "request_atl06sr_multi_processing().\n"
+            )
+            self.alignment_report_df = alignment_report_df
+            return
 
         gsd = Raster(self.dem_fn).get_gsd()
         if (
