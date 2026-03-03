@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+from datetime import datetime, timedelta, timezone
 
 import contextily as ctx
 import geopandas as gpd
@@ -19,6 +20,8 @@ from asp_plot.utils import ColorBar, Raster, glob_file, save_figure
 
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
+
+ICESAT2_MISSION_START = datetime(2018, 10, 14, tzinfo=timezone.utc)
 
 WORLDCOVER_NAMES = {
     10: "Tree cover",
@@ -137,6 +140,68 @@ class Altimetry:
     # without the "fit" key to get photon-level data. Warning: this returns a very
     # large GeoDataFrame and should only be used for targeted profile visualizations.
 
+    def _resolve_time_range(self, scene_date=None, time_buffer_days=365):
+        """
+        Resolve the t0/t1 time range for SlideRule API requests.
+
+        Uses a three-tier cascade:
+        1. Explicit ``scene_date`` parameter
+        2. Auto-detect from stereopair XML metadata
+        3. Fallback to most recent 2 years
+
+        Parameters
+        ----------
+        scene_date : str or datetime-like, optional
+            Explicit scene date. Parsed via ``pd.Timestamp``.
+        time_buffer_days : int, optional
+            Days before/after the resolved date, default 365.
+
+        Returns
+        -------
+        tuple of (str, str, datetime or None)
+            (t0_str, t1_str, resolved_date) formatted as
+            ``"%Y-%m-%dT%H:%M:%SZ"``. resolved_date is None when
+            the 2-year fallback is used.
+        """
+        fmt = "%Y-%m-%dT%H:%M:%SZ"
+        resolved_date = None
+
+        # Tier 1: explicit date
+        if scene_date is not None:
+            resolved_date = pd.Timestamp(scene_date, tz="UTC").to_pydatetime()
+
+        # Tier 2: auto-detect from XML metadata
+        if resolved_date is None:
+            try:
+                cdate = StereopairMetadataParser(self.directory).get_pair_dict()[
+                    "cdate"
+                ]
+                resolved_date = pd.Timestamp(cdate, tz="UTC").to_pydatetime()
+            except Exception:
+                pass
+
+        # Compute buffered range if we have a date
+        if resolved_date is not None:
+            t0 = resolved_date - timedelta(days=time_buffer_days)
+            t1 = resolved_date + timedelta(days=time_buffer_days)
+            t0 = max(t0, ICESAT2_MISSION_START)
+            # If entire range predates mission, fall through to tier 3
+            if t1 >= ICESAT2_MISSION_START:
+                self._scene_date = resolved_date
+                self._t0 = t0
+                self._t1 = t1
+                return (t0.strftime(fmt), t1.strftime(fmt), resolved_date)
+
+        # Tier 3: fallback to most recent 2 years
+        now = datetime.now(tz=timezone.utc)
+        t1 = now
+        t0 = max(now - timedelta(days=2 * 365), ICESAT2_MISSION_START)
+
+        self._scene_date = None
+        self._t0 = t0
+        self._t1 = t1
+        return (t0.strftime(fmt), t1.strftime(fmt), None)
+
     def request_atl06sr_multi_processing(
         self,
         processing_levels=["all", "ground", "canopy", "top_of_canopy"],
@@ -149,6 +214,8 @@ class Altimetry:
         save_to_parquet=False,
         filename="atl06sr",
         region=None,
+        scene_date=None,
+        time_buffer_days=365,
     ):
         """
         Request ICESat-2 ATL06-SR data for multiple processing levels.
@@ -182,6 +249,13 @@ class Altimetry:
         region : list or None, optional
             Region bounds as [minx, miny, maxx, maxy] in lat/lon,
             default is None (derived from DEM)
+        scene_date : str or datetime-like, optional
+            Scene acquisition date for server-side time filtering.
+            If None, auto-detected from stereopair XML metadata.
+            Falls back to most recent 3 years if unavailable.
+        time_buffer_days : int, optional
+            Days before/after scene_date defining the time window,
+            default is 365
 
         Returns
         -------
@@ -197,6 +271,18 @@ class Altimetry:
         """
         if not region:
             region = Raster(self.dem_fn).get_bounds(latlon=True)
+
+        # Resolve server-side time range to limit granules processed
+        t0_str, t1_str, resolved_date = self._resolve_time_range(
+            scene_date=scene_date, time_buffer_days=time_buffer_days
+        )
+        if resolved_date is not None:
+            print(
+                f"Time filter: {t0_str} to {t1_str} "
+                f"(+/- {time_buffer_days} days from {resolved_date.date()})"
+            )
+        else:
+            print(f"Time filter: {t0_str} to {t1_str} (2-year fallback)")
 
         # See parameter discussion on: https://github.com/SlideRuleEarth/sliderule/issues/448
         # "srt": -1 tells the server side code to look at the ATL03 confidence array for each photon
@@ -214,6 +300,8 @@ class Altimetry:
         # Shared parameters for all processing levels
         shared_parms = {
             "poly": region,
+            "t0": t0_str,
+            "t1": t1_str,
             "res": res,
             "len": len,
             "ats": ats,
@@ -313,12 +401,12 @@ class Altimetry:
             # instead of scalars for raster samples (e.g., esa_worldcover.value).
             # Extract the first element from any array-valued cells.
             for col in atl06sr.columns:
-                if atl06sr[col].dtype == object and len(atl06sr) > 0:
+                if atl06sr[col].dtype == object and atl06sr.shape[0] > 0:
                     first_val = atl06sr[col].iloc[0]
                     if isinstance(first_val, np.ndarray):
                         atl06sr[col] = atl06sr[col].apply(
                             lambda x: (
-                                x[0] if isinstance(x, np.ndarray) and len(x) > 0 else x
+                                x[0] if isinstance(x, np.ndarray) and x.size > 0 else x
                             )
                         )
 
@@ -477,7 +565,13 @@ class Altimetry:
         as it provides multiple temporal windows to analyze the stability
         of the terrain and to identify optimal temporal windows for alignment.
         """
-        if date is None:
+        if (
+            date is None
+            and hasattr(self, "_scene_date")
+            and self._scene_date is not None
+        ):
+            date = pd.Timestamp(self._scene_date)
+        elif date is None:
             date = StereopairMetadataParser(self.directory).get_pair_dict()["cdate"]
         else:
             # Convert to pandas Timestamp to ensure compatibility with DatetimeIndex operations
