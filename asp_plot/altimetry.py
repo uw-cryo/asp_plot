@@ -11,7 +11,7 @@ import pandas as pd
 import rioxarray
 import xarray as xr
 from rasterio import plot as rioplot
-from sliderule import icesat2
+from sliderule import sliderule as sliderule_api
 
 from asp_plot.alignment import Alignment
 from asp_plot.stereopair_metadata_parser import StereopairMetadataParser
@@ -107,40 +107,16 @@ class Altimetry:
         self.atl06sr_processing_levels_filtered = atl06sr_processing_levels_filtered
 
         # Initialize the SlideRule session (requires active connection)
-        icesat2.init("slideruleearth.io", verbose=True)
+        sliderule_api.init("slideruleearth.io", verbose=True)
 
         # TODO: Implement alongside request_atl03sr below
         # if atl03sr is not None and not isinstance(atl03sr, gpd.GeoDataFrame):
         #     raise ValueError("ATL03 must be a GeoDataFrame if provided.")
         # self.atl03sr = atl03sr
 
-    # TODO: Implement ATL03 pull, which needs to put in separate GDF; warning this is gonna be huge and only used for basic plots
-    # def request_atl03sr(self, rgt, cycle, track, spot, save_to_parquet=False, filename="atl03sr_defaults"):
-    #     region = Raster(self.dem_fn).get_bounds(latlon=True)
-
-    #     parms = {
-    #         "poly": region,
-    #         # classification and checks
-    #         "pass_invalid": True, # still return photon segments that fail checks
-    #         "cnf": -2, # all photons
-    #         "atl08_class": ["atl08_noise", "atl08_ground", "atl08_canopy", "atl08_top_of_canopy", "atl08_unclassified"],
-    #         #"yapc": {"score": 0}, # all photons
-    #         # track selection
-    #         "rgt": rgt,
-    #         "cycle": cycle,
-    #         "track": track,
-    #         "spot": spot,
-    #     }
-
-    #     print(f"\nICESat-2 ATL03 request processing with parms:\n{parms}")
-    #     self.atl03sr = icesat2.atl03sp(parms)
-
-    #     if save_to_parquet:
-    #         # Need to write out this way instead of including option
-    #         # in parms due to:
-    #         self.atl03sr.to_parquet(f"{filename}.parquet")
-
-    #     return self.atl03sr
+    # TODO: Implement ATL03 pull via x-series API: sliderule_api.run("atl03x", parms)
+    # without the "fit" key to get photon-level data. Warning: this returns a very
+    # large GeoDataFrame and should only be used for targeted profile visualizations.
 
     def request_atl06sr_multi_processing(
         self,
@@ -222,7 +198,7 @@ class Altimetry:
             "res": res,
             "len": len,
             "ats": ats,
-            "maxi": maxi,
+            "fit": {"maxi": maxi},
             "samples": {
                 "esa_worldcover": {
                     "asset": "esa-worldcover-10meter",
@@ -288,20 +264,31 @@ class Altimetry:
 
                         if str(parms_copy) != str(file_parms):
                             print("Parameters don't match request. Regenerating...")
-                            atl06sr = icesat2.atl06p(parms)
+                            atl06sr = sliderule_api.run("atl03x", parms)
                             if save_to_parquet:
                                 self._save_to_parquet(fn, atl06sr, parms)
                     except Exception as e:
                         print(f"Error checking sliderule_parameters column: {e}")
                 else:
                     print("No parameters column found, regenerating...")
-                    atl06sr = icesat2.atl06p(parms)
+                    atl06sr = sliderule_api.run("atl03x", parms)
                     if save_to_parquet:
                         self._save_to_parquet(fn, atl06sr, parms)
             else:
-                atl06sr = icesat2.atl06p(parms)
+                atl06sr = sliderule_api.run("atl03x", parms)
                 if save_to_parquet:
                     self._save_to_parquet(fn, atl06sr, parms)
+
+            # Normalize index: x-series returns time_ns (Unix nanoseconds),
+            # legacy returns time (GPS seconds). Ensure a DatetimeIndex named "time".
+            if atl06sr.index.name == "time_ns" or not isinstance(
+                atl06sr.index, pd.DatetimeIndex
+            ):
+                if "time_ns" in atl06sr.columns:
+                    atl06sr.index = pd.to_datetime(atl06sr["time_ns"], unit="ns")
+                elif atl06sr.index.name == "time_ns":
+                    atl06sr.index = pd.to_datetime(atl06sr.index, unit="ns")
+                atl06sr.index.name = "time"
 
             self.atl06sr_processing_levels[key] = atl06sr
 
