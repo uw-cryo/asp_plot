@@ -568,6 +568,10 @@ class Altimetry:
             # Convert to pandas Timestamp to ensure compatibility with DatetimeIndex operations
             date = pd.Timestamp(date)
 
+        # Ensure tz-naive to match the GeoDataFrame DatetimeIndex
+        if hasattr(date, "tzinfo") and date.tzinfo is not None:
+            date = date.tz_localize(None)
+
         original_keys = list(self.atl06sr_processing_levels_filtered.keys())
 
         for key in original_keys:
@@ -1660,7 +1664,7 @@ class Altimetry:
                 valid_dem,
                 color="gray",
                 linewidth=1,
-                label="DEM",
+                label="DEM (left axis)",
                 zorder=1,
             )
 
@@ -1673,7 +1677,7 @@ class Altimetry:
                         valid_aligned,
                         color="orange",
                         linewidth=1,
-                        label="Aligned DEM",
+                        label="Aligned DEM (left axis)",
                         zorder=2,
                     )
 
@@ -1682,13 +1686,12 @@ class Altimetry:
             track["h_mean"],
             color="steelblue",
             s=8,
-            label="ICESat-2 ATL06-SR",
+            label="ICESat-2 ATL06-SR (left axis)",
             zorder=3,
         )
 
         ax1.set_ylabel("Elevation (m HAE)")
         ax1.set_xlabel("Along-track distance (km)")
-        ax1.legend(fontsize=8, loc="upper left")
 
         # Segment highlight spans
         seg_best_color = "tab:blue"
@@ -1712,6 +1715,8 @@ class Altimetry:
         # Right y-axis: dh
         ax1_dh = ax1.twinx()
         if not dh_vals.empty:
+            med = np.nanmedian(dh_vals.values)
+            nmad_val = _nmad(dh_vals.values)
             ax1_dh.scatter(
                 dist.loc[dh_vals.index],
                 dh_vals,
@@ -1719,25 +1724,15 @@ class Altimetry:
                 s=4,
                 alpha=0.6,
                 zorder=4,
-                label="dh",
+                label=f"dh (right axis) Med={med:+.2f} m, NMAD={nmad_val:.2f} m",
             )
             ax1_dh.axhline(0, color="black", linewidth=0.5, linestyle="--", zorder=1)
             ax1_dh.set_ylabel("ICESat-2 − DEM (m)")
 
-            med = np.nanmedian(dh_vals.values)
-            nmad_val = _nmad(dh_vals.values)
-            # Place stats along the zero dh line (right y-axis data coords)
-            ax1_dh.text(
-                0.01,
-                0,
-                f"  Med={med:+.2f} m, NMAD={nmad_val:.2f} m",
-                transform=ax1_dh.get_yaxis_transform(),
-                verticalalignment="bottom",
-                fontsize=8,
-                fontfamily="monospace",
-                bbox=dict(boxstyle="round,pad=0.3", facecolor="white", alpha=0.9),
-                zorder=10,
-            )
+        # Combined legend from both axes
+        handles1, labels1 = ax1.get_legend_handles_labels()
+        handles2, labels2 = ax1_dh.get_legend_handles_labels()
+        ax1.legend(handles1 + handles2, labels1 + labels2, fontsize=8, loc="upper left")
 
         # =============== Row 2: Zoom segments (if available) ===============
         if show_segments:
