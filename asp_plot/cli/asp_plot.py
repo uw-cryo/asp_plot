@@ -316,10 +316,8 @@ def main(
         )
 
         fig_fn = f"{next(figure_counter):02}.png"
-        ie_fn = getattr(stereo_plotter, "intersection_error_fn", None)
         icesat.plot_atl06sr_dem_profile(
             key="all",
-            intersection_error_fn=ie_fn,
             save_dir=plots_directory,
             fig_fn=fig_fn,
         )

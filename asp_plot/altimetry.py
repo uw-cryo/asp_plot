@@ -1514,7 +1514,6 @@ class Altimetry:
         cycle=None,
         spot=None,
         plot_aligned=False,
-        intersection_error_fn=None,
         save_dir=None,
         fig_fn=None,
     ):
@@ -1539,8 +1538,6 @@ class Altimetry:
             Spot number (auto-selected if None)
         plot_aligned : bool, optional
             Whether to also plot the aligned DEM profile, default is False
-        intersection_error_fn : str or None, optional
-            Path to intersection error raster for color coding, default is None
         save_dir : str or None, optional
             Directory to save figure, default is None
         fig_fn : str or None, optional
@@ -1584,20 +1581,6 @@ class Altimetry:
             track_date = track.index[0].strftime("%Y-%m-%d")
         if track_count is None:
             track_count = len(track)
-
-        # Sample intersection error if available
-        ie_values = None
-        if intersection_error_fn and os.path.exists(intersection_error_fn):
-            ie_raster = rioxarray.open_rasterio(
-                intersection_error_fn, masked=True
-            ).squeeze()
-            ie_epsg = ie_raster.rio.crs.to_epsg()
-            track_ie = track.to_crs(f"EPSG:{ie_epsg}")
-            x_ie = xr.DataArray(track_ie.geometry.x.values, dims="z")
-            y_ie = xr.DataArray(track_ie.geometry.y.values, dims="z")
-            ie_sampled = ie_raster.interp(x=x_ie, y=y_ie).values
-            if not np.all(np.isnan(ie_sampled)):
-                ie_values = ie_sampled
 
         # --- Segment selection: sliding 1 km window scored by |med(dh)| + NMAD ---
         dh_col = "icesat_minus_dem"
@@ -1706,26 +1689,14 @@ class Altimetry:
                         zorder=2,
                     )
 
-        sc_ie = None
-        if ie_values is not None:
-            sc_ie = ax1.scatter(
-                dist,
-                track["h_mean"],
-                c=ie_values,
-                cmap="inferno",
-                s=8,
-                label="ICESat-2 ATL06-SR",
-                zorder=3,
-            )
-        else:
-            ax1.scatter(
-                dist,
-                track["h_mean"],
-                color="steelblue",
-                s=8,
-                label="ICESat-2 ATL06-SR",
-                zorder=3,
-            )
+        ax1.scatter(
+            dist,
+            track["h_mean"],
+            color="steelblue",
+            s=8,
+            label="ICESat-2 ATL06-SR",
+            zorder=3,
+        )
 
         ax1.set_ylabel("Elevation (m HAE)")
         ax1.set_xlabel("Along-track distance (km)")
@@ -1779,11 +1750,6 @@ class Altimetry:
                 bbox=dict(boxstyle="round,pad=0.3", facecolor="white", alpha=0.9),
                 zorder=10,
             )
-
-        # Add colorbar for intersection error if used
-        if sc_ie is not None:
-            cbar = fig.colorbar(sc_ie, ax=ax1, pad=0.1, shrink=0.6)
-            cbar.set_label("Intersection Error (m)")
 
         # =============== Row 2: Zoom segments (if available) ===============
         if show_segments:
