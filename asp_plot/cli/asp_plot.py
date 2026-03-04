@@ -214,7 +214,7 @@ def main(
         ReportSection(
             title="Input Scenes",
             image_path=os.path.join(plots_directory, fig_fn),
-            caption="Left and right input scenes used for stereo processing.",
+            caption="Left and right input scenes used for stereo processing. Non-mapprojected scenes are shown after ASP's alignment step (e.g., affineepipolar), which rotates images to create horizontal epipolar lines for correlation. Mapprojected scenes require no pre-alignment and are displayed in their map-projected orientation.",
         )
     )
 
