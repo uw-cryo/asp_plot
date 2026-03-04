@@ -310,15 +310,16 @@ class StereoPlotter(Plotter):
                 left_image = Raster(self.left_image_sub_fn).read_array()
                 right_image = Raster(self.right_image_sub_fn).read_array()
             else:
-                # These are small hacks to make the match point plot work if the images are not
-                # mapprojected and thus not being shown.
                 rescale_factor = 1
-                left_image = np.zeros((1, 1))
-                right_image = np.zeros((1, 1))
 
-            self.plot_array(ax=axa[0], array=left_image, cmap="gray", add_cbar=False)
+            if self.orthos:
+                self.plot_array(
+                    ax=axa[0], array=left_image, cmap="gray", add_cbar=False
+                )
+                self.plot_array(
+                    ax=axa[1], array=right_image, cmap="gray", add_cbar=False
+                )
             axa[0].set_title(f"Left (n={match_point_df.shape[0]})")
-            self.plot_array(ax=axa[1], array=right_image, cmap="gray", add_cbar=False)
             axa[1].set_title("Right (scenes shown only if mapprojected)")
 
             axa[0].scatter(
@@ -340,6 +341,11 @@ class StereoPlotter(Plotter):
                 s=1,
             )
             axa[1].set_aspect("equal")
+
+            if not self.orthos:
+                for ax in axa:
+                    ax.invert_yaxis()
+                    ax.set_facecolor("gray")
 
             if self.is_vantor:
                 add_copyright_overlay(axa[0])

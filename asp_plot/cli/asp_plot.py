@@ -117,6 +117,15 @@ def main(
     ICESat-2 comparisons, and more. All plots are combined into a single PDF report
     with processing parameters and summary information.
     """
+    # Reconstruct the asp_plot command for recording in the report
+    click_ctx = click.get_current_context()
+    cmd_parts = ["asp_plot"]
+    for param in click_ctx.command.params:
+        val = click_ctx.params.get(param.name)
+        if val is not None and val != param.default:
+            cmd_parts.append(f"--{param.name} {val}")
+    report_command = " ".join(cmd_parts)
+
     print(f"\nProcessing ASP files in {directory}\n")
 
     plots_directory = os.path.join(directory, "tmp_asp_report_plots/")
@@ -463,6 +472,7 @@ def main(
         report_pdf_path,
         report_title=report_title,
         report_metadata=report_metadata,
+        report_command=report_command,
     )
 
     shutil.rmtree(plots_directory)

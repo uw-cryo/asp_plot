@@ -95,6 +95,7 @@ def compile_report(
     report_pdf_path,
     report_title="ASP Output Quality Report",
     report_metadata=None,
+    report_command=None,
 ):
     """
     Compile a PDF report with ASP processing results and plots.
@@ -115,6 +116,8 @@ def compile_report(
         Title for the report. Default is "ASP Output Quality Report".
     report_metadata : ReportMetadata, optional
         DEM metadata for the title page summary table. Default is None.
+    report_command : str, optional
+        The asp_plot CLI command used to generate this report. Default is None.
 
     Returns
     -------
@@ -228,6 +231,14 @@ def compile_report(
             wrapped = textwrap.fill(cmd, width=120)
             pdf.multi_cell(0, 4, wrapped)
             pdf.ln(4)
+
+    if report_command:
+        pdf.set_font("Helvetica", "B", 10)
+        pdf.cell(0, 7, "Report Generation Command:", new_x="LMARGIN", new_y="NEXT")
+        pdf.set_font("Courier", "", 7)
+        wrapped = textwrap.fill(report_command, width=120)
+        pdf.multi_cell(0, 4, wrapped)
+        pdf.ln(4)
 
     pdf.output(report_pdf_path)
 

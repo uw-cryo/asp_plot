@@ -141,3 +141,4 @@ notebooks/**/*.csv
 CLAUDE*
 .claude/**
 scripts/
+/*.parquet
