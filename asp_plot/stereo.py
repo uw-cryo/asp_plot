@@ -477,8 +477,10 @@ class StereoPlotter(Plotter):
                 axa[2].quiver(ix, iy, dx_q, dy_q, color="white")
 
             if self.orthos:
-                scalebar = ScaleBar(sub_gsd)
-                axa[0].add_artist(scalebar)
+                scalebar = ScaleBar(raster.get_gsd())
+            else:
+                scalebar = ScaleBar(1, units="px", dimension="pixel-length")
+            axa[0].add_artist(scalebar)
             axa[0].set_title("x offset")
             axa[1].set_title("y offset")
             axa[2].set_title("offset magnitude")
