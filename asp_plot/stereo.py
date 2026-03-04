@@ -126,6 +126,8 @@ class StereoPlotter(Plotter):
         self.orthos = False if Raster(self.left_image_fn).transform is None else True
         self.left_image_sub_fn = glob_file(self.full_directory, "*-L_sub.tif")
         self.right_image_sub_fn = glob_file(self.full_directory, "*-R_sub.tif")
+        self.align_left_fn = glob_file(self.full_directory, "*-align-L.txt")
+        self.align_right_fn = glob_file(self.full_directory, "*-align-R.txt")
 
         # There may be multiple match files if stereo was run with --num-matches-from-disparity.
         # In that case, filter out the match file with `-disp-` in filename.
@@ -164,6 +166,22 @@ class StereoPlotter(Plotter):
         self.intersection_error_fn = glob_file(
             self.full_directory, "*-IntersectionErr.tif"
         )
+
+    def read_align_matrix(self, fn):
+        """
+        Read a 3x3 alignment matrix from an ASP align file.
+
+        Parameters
+        ----------
+        fn : str
+            Path to the alignment file (e.g., run-align-L.txt)
+
+        Returns
+        -------
+        numpy.ndarray
+            3x3 affine transformation matrix
+        """
+        return np.loadtxt(fn)
 
     def read_ip_record(self, match_file):
         """
@@ -270,7 +288,11 @@ class StereoPlotter(Plotter):
         Plot match points between the left and right images.
 
         Creates a figure with two subplots showing the left and right
-        orthoimages (if they are map-projected) with match points overlaid.
+        subsampled images with match points overlaid as small red circles.
+        For mapprojected scenes, match points are rescaled using the GSD ratio.
+        For non-mapprojected scenes, match points are transformed from original
+        to aligned coordinate space using the alignment matrices, then rescaled
+        to the subsampled image dimensions.
 
         Parameters
         ----------
@@ -283,12 +305,6 @@ class StereoPlotter(Plotter):
         -------
         None
             Displays the plot and optionally saves it
-
-        Notes
-        -----
-        If the images are not map-projected, only the match points are shown,
-        not the underlying images. The match points are displayed as small red
-        circles on both images.
         """
         match_point_df = self.get_match_point_df()
 
@@ -299,32 +315,48 @@ class StereoPlotter(Plotter):
             and self.right_image_sub_fn
             and match_point_df is not None
         ):
-            # If the images are not mapprojected, we only show the distribution of match points
-            # and not the underlying images, which are rotated and difficult to plot.
-            # We can revisit plotting the non-mapprojected images later, but it is challenging,
-            # and likely not worthwhile, as the distribution of match points is what we are interested in.
             if self.orthos:
                 full_gsd = Raster(self.left_image_fn).get_gsd()
                 sub_gsd = Raster(self.left_image_sub_fn).get_gsd()
                 rescale_factor = sub_gsd / full_gsd
-                left_image = Raster(self.left_image_sub_fn).read_array()
-                right_image = Raster(self.right_image_sub_fn).read_array()
+                left_x = match_point_df["x1"] / rescale_factor
+                left_y = match_point_df["y1"] / rescale_factor
+                right_x = match_point_df["x2"] / rescale_factor
+                right_y = match_point_df["y2"] / rescale_factor
             else:
-                rescale_factor = 1
+                full_width = Raster(self.left_image_fn).ds.width
+                sub_width = Raster(self.left_image_sub_fn).ds.width
+                rescale_factor = full_width / sub_width
 
-            if self.orthos:
-                self.plot_array(
-                    ax=axa[0], array=left_image, cmap="gray", add_cbar=False
+                # Transform match points from original to aligned coordinate space
+                align_L = self.read_align_matrix(self.align_left_fn)
+                align_R = self.read_align_matrix(self.align_right_fn)
+
+                n = len(match_point_df)
+                ones = np.ones(n)
+
+                left_pts = np.vstack([match_point_df["x1"], match_point_df["y1"], ones])
+                left_aligned = align_L @ left_pts
+                left_x = left_aligned[0] / rescale_factor
+                left_y = left_aligned[1] / rescale_factor
+
+                right_pts = np.vstack(
+                    [match_point_df["x2"], match_point_df["y2"], ones]
                 )
-                self.plot_array(
-                    ax=axa[1], array=right_image, cmap="gray", add_cbar=False
-                )
+                right_aligned = align_R @ right_pts
+                right_x = right_aligned[0] / rescale_factor
+                right_y = right_aligned[1] / rescale_factor
+
+            left_image = Raster(self.left_image_sub_fn).read_array()
+            right_image = Raster(self.right_image_sub_fn).read_array()
+            self.plot_array(ax=axa[0], array=left_image, cmap="gray", add_cbar=False)
+            self.plot_array(ax=axa[1], array=right_image, cmap="gray", add_cbar=False)
             axa[0].set_title(f"Left (n={match_point_df.shape[0]})")
-            axa[1].set_title("Right (scenes shown only if mapprojected)")
+            axa[1].set_title("Right")
 
             axa[0].scatter(
-                match_point_df["x1"] / rescale_factor,
-                match_point_df["y1"] / rescale_factor,
+                left_x,
+                left_y,
                 color="r",
                 marker="o",
                 facecolor="none",
@@ -333,19 +365,14 @@ class StereoPlotter(Plotter):
             axa[0].set_aspect("equal")
 
             axa[1].scatter(
-                match_point_df["x2"] / rescale_factor,
-                match_point_df["y2"] / rescale_factor,
+                right_x,
+                right_y,
                 color="r",
                 marker="o",
                 facecolor="none",
                 s=1,
             )
             axa[1].set_aspect("equal")
-
-            if not self.orthos:
-                for ax in axa:
-                    ax.invert_yaxis()
-                    ax.set_facecolor("gray")
 
             if self.is_vantor:
                 add_copyright_overlay(axa[0])
