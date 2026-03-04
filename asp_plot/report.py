@@ -4,6 +4,7 @@ import textwrap
 from dataclasses import dataclass
 
 from fpdf import FPDF
+from PIL import Image
 
 logger = logging.getLogger(__name__)
 
@@ -194,7 +195,26 @@ def compile_report(
         pdf.ln(2)
 
         usable_width = pdf.w - pdf.l_margin - pdf.r_margin
-        pdf.image(section.image_path, x=pdf.l_margin, w=usable_width)
+        # Reserve space for caption below the image and bottom margin.
+        # Caption font is 9pt with 5mm line height; estimate ~3 lines + spacing.
+        caption_reserve = 20 if section.caption else 0
+        usable_height = pdf.h - pdf.get_y() - pdf.b_margin - caption_reserve
+
+        # Determine image dimensions that fit within usable area
+        with Image.open(section.image_path) as img:
+            img_w, img_h = img.size
+        aspect = img_h / img_w
+        render_w = usable_width
+        render_h = render_w * aspect
+        if render_h > usable_height:
+            render_h = usable_height
+            render_w = render_h / aspect
+
+        pdf.image(
+            section.image_path,
+            x=pdf.l_margin + (usable_width - render_w) / 2,
+            w=render_w,
+        )
 
         if section.caption:
             pdf.ln(3)
