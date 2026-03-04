@@ -424,7 +424,6 @@ class StereoPlotter(Plotter):
 
         if self.disparity_sub_fn and self.disparity_fn:
             raster = Raster(self.disparity_sub_fn)
-            sub_gsd = raster.get_gsd()
             dx = raster.read_array(b=1)
             dy = raster.read_array(b=2)
 
@@ -434,14 +433,20 @@ class StereoPlotter(Plotter):
             dx.mask = combined_mask
             dy.mask = combined_mask
 
-            full_gsd = Raster(self.disparity_fn).get_gsd()
-            rescale_factor = sub_gsd / full_gsd
-            dx = dx * rescale_factor
-            dy = dy * rescale_factor
+            # Rescale disparity from subsampled to full-res pixel coordinates.
+            # Only meaningful for georeferenced (mapprojected) data where the
+            # GSD ratio reflects the actual downsampling factor. For non-georeferenced
+            # data the transform is identity/near-zero, so skip rescaling.
+            if self.orthos:
+                sub_gsd = raster.get_gsd()
+                full_gsd = Raster(self.disparity_fn).get_gsd()
+                rescale_factor = sub_gsd / full_gsd
+                dx = dx * rescale_factor
+                dy = dy * rescale_factor
 
-            if unit == "meters":
-                dx = dx * full_gsd
-                dy = dy * full_gsd
+                if unit == "meters":
+                    dx = dx * full_gsd
+                    dy = dy * full_gsd
 
             if remove_bias:
                 dx_offset = np.ma.median(dx)
@@ -471,8 +476,9 @@ class StereoPlotter(Plotter):
                 dy_q = dy[::stride, ::stride]
                 axa[2].quiver(ix, iy, dx_q, dy_q, color="white")
 
-            scalebar = ScaleBar(sub_gsd)
-            axa[0].add_artist(scalebar)
+            if self.orthos:
+                scalebar = ScaleBar(sub_gsd)
+                axa[0].add_artist(scalebar)
             axa[0].set_title("x offset")
             axa[1].set_title("y offset")
             axa[2].set_title("offset magnitude")
