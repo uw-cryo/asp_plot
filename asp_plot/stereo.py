@@ -167,22 +167,6 @@ class StereoPlotter(Plotter):
             self.full_directory, "*-IntersectionErr.tif"
         )
 
-    def read_align_matrix(self, fn):
-        """
-        Read a 3x3 alignment matrix from an ASP align file.
-
-        Parameters
-        ----------
-        fn : str
-            Path to the alignment file (e.g., run-align-L.txt)
-
-        Returns
-        -------
-        numpy.ndarray
-            3x3 affine transformation matrix
-        """
-        return np.loadtxt(fn)
-
     def read_ip_record(self, match_file):
         """
         Read an interest point record from a binary match file.
@@ -329,8 +313,8 @@ class StereoPlotter(Plotter):
                 rescale_factor = full_width / sub_width
 
                 # Transform match points from original to aligned coordinate space
-                align_L = self.read_align_matrix(self.align_left_fn)
-                align_R = self.read_align_matrix(self.align_right_fn)
+                align_L = np.loadtxt(self.align_left_fn)
+                align_R = np.loadtxt(self.align_right_fn)
 
                 n = len(match_point_df)
                 ones = np.ones(n)
