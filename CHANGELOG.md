@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.0] - 2026-03-05
+
+### Added
+- Match points now overlay on non-mapprojected images using alignment transform matrices (`run-align-{L,R}.txt`), replacing the previous blank-right-panel behavior
+- Report command string recorded in PDF report via new `report_command` parameter in `compile_report()`
+- Pixel-unit scalebar for non-mapprojected disparity plots (mapprojected scenes continue to use GSD-based scalebar)
+
+### Changed
+- Report figures are now fitted to page dimensions, preventing overflow and cutoff for large/wide figures
+- Input Scenes caption updated to explain alignment rotation applied to non-mapprojected imagery
+- Match points right subplot title simplified from "Right (scenes shown only if mapprojected)" to "Right"
+- Cleaned up example notebook report links and removed stale PDF files
+
+### Fixed
+- Disparity plot scale for non-mapprojected scenes: GSD-based rescale was producing near-zero values from the identity transform; now skips rescaling and uses pixel-unit scalebar instead
+- Match point plot whitespace for non-mapprojected scenes caused by a 1x1 dummy image plotted underneath scatter points
+
 ## [1.8.0] - 2026-03-03
 
 ### Added
