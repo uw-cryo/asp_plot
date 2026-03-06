@@ -60,3 +60,4 @@ intersphinx_mapping = {
 exclude_patterns = ["_build", "**.ipynb_checkpoints", ".DS_Store"]
 html_static_path = ["_static"]
 html_extra_path = ["_extra"]
+templates_path = ["_templates"]
