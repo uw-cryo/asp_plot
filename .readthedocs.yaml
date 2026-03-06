@@ -12,6 +12,8 @@ build:
       - cp notebooks/LRO_NAC/*.ipynb docs/examples/notebooks/
       - cp notebooks/Mars_MGS/*.ipynb docs/examples/notebooks/
       - cp notebooks/Mars_MRO/*.ipynb docs/examples/notebooks/
+      - mkdir -p docs/_extra/examples/figures
+      - cp notebooks/figures/* docs/_extra/examples/figures/
       - mkdir -p docs/_static/reports
       - cp reports/*.pdf docs/_static/reports/
 
