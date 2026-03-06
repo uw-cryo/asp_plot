@@ -7,7 +7,9 @@
 
 A Python package for visualizing output from the [NASA Ames Stereo Pipeline (ASP)](https://github.com/NeoGeographyToolkit/StereoPipeline). Generates diagnostic plots and comprehensive PDF reports for ASP stereo processing results, similar to reports from commercial SfM software like Agisoft Metashape.
 
-> **[Full documentation at asp-plot.readthedocs.io](https://asp-plot.readthedocs.io)**
+### **[View some example reports](https://asp-plot.readthedocs.io/en/latest/examples/reports.html)**
+
+### **[Full documentation at asp-plot.readthedocs.io](https://asp-plot.readthedocs.io)**
 
 ## Installation
 
