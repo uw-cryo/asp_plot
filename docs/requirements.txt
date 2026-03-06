@@ -1,0 +1,6 @@
+sphinx>=7
+myst-nb
+sphinx-autoapi
+sphinx-design
+sphinx-copybutton
+sphinx-book-theme
