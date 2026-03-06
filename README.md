@@ -52,12 +52,7 @@ $ pip install asp-plot
 ```
 
 > [!NOTE]
-> Some dependencies (notably GDAL) can be difficult to install via pip alone. If you run into issues, use the conda approach above, or create a conda environment from the provided [`environment.yml`](https://github.com/uw-cryo/asp_plot/blob/main/environment.yml) first, then install with pip:
-> ```
-> $ conda env create -f environment.yml
-> $ conda activate asp_plot
-> (asp_plot) $ pip install asp-plot
-> ```
+> Some dependencies (notably GDAL) can be difficult to install via pip alone. If you run into issues, use the conda approach above.
 
 ## Example reports
 
@@ -308,16 +303,16 @@ $ cd asp_plot
 $ conda env create -f environment.yml
 $ conda activate asp_plot
 $ pre-commit install
-$ pip install -e .
 ```
+
+The `environment.yml` installs the package in editable mode with development dependencies (`pip install -e ".[dev]"`).
 
 **Please don't miss the `pre-commit install` step**, which does the linting prior to any commits using the `.pre-commit-config.yaml` file that is included in the repo.
 
-If you want to rebuild the package, for instance while testing changes to the CLI tool, then uninstall and reinstall via:
+If you want to rebuild the package, for instance while testing changes to the CLI tool, then reinstall via:
 
 ```
-$ pip uninstall asp_plot
-$ pip install -e .
+$ pip install -e ".[dev]"
 ```
 
 ### Run tests
