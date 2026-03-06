@@ -48,9 +48,19 @@ dev = [
     "pytest",
     "pre-commit",
 ]
+docs = [
+    "sphinx>=7",
+    "myst-nb",
+    "sphinx-autoapi",
+    "sphinx-design",
+    "sphinx-copybutton",
+    "pydata-sphinx-theme",
+    "sphinx-autobuild",
+]
 
 [project.urls]
 Homepage = "https://github.com/uw-cryo/asp_plot"
+Documentation = "https://asp-plot.readthedocs.io"
 Issues = "https://github.com/uw-cryo/asp_plot/issues"
 
 [tool.hatch.build.targets.sdist]
@@ -60,4 +70,5 @@ exclude = [
   "original_code/",
   "scratch/",
   "reports/",
+  "docs/",
 ]
