@@ -37,17 +37,14 @@ autoapi_member_order = "groupwise"
 suppress_warnings = ["autoapi"]
 
 # -- Theme -------------------------------------------------------------------
-html_theme = "pydata_sphinx_theme"
+html_theme = "sphinx_book_theme"
 html_theme_options = {
-    "github_url": "https://github.com/uw-cryo/asp_plot",
+    "repository_url": "https://github.com/uw-cryo/asp_plot",
+    "use_repository_button": True,
     "use_edit_page_button": True,
+    "repository_branch": "main",
+    "path_to_docs": "docs",
     "show_toc_level": 2,
-}
-html_context = {
-    "github_user": "uw-cryo",
-    "github_repo": "asp_plot",
-    "github_version": "main",
-    "doc_path": "docs",
 }
 
 # -- Intersphinx -------------------------------------------------------------

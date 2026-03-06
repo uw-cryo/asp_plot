@@ -54,7 +54,7 @@ docs = [
     "sphinx-autoapi",
     "sphinx-design",
     "sphinx-copybutton",
-    "pydata-sphinx-theme",
+    "sphinx-book-theme",
     "sphinx-autobuild",
 ]
 

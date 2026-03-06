@@ -3,4 +3,4 @@ myst-nb
 sphinx-autoapi
 sphinx-design
 sphinx-copybutton
-pydata-sphinx-theme
+sphinx-book-theme
