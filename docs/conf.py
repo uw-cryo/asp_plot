@@ -30,6 +30,8 @@ autoapi_options = [
     "show-module-summary",
     "imported-members",
 ]
+autoapi_member_order = "groupwise"
+suppress_warnings = ["autoapi"]
 
 # -- Theme -------------------------------------------------------------------
 html_theme = "pydata_sphinx_theme"
