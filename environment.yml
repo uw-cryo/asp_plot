@@ -2,25 +2,12 @@ name: asp_plot
 channels:
   - conda-forge
 dependencies:
-  - flake8
-  - black
-  - pre_commit
-  - pytest
-  - pip
-  - numpy
+  - python>=3.11
+  - gdal
   - rasterio
   - rioxarray
-  - matplotlib
   - fiona
-  - pandas
-  - gdal
   - geopandas
-  - contextily
-  - pyproj
-  - scipy
-  - shapely
-  - xarray
-  - matplotlib-scalebar
-  - click
-  - sliderule
-  - fpdf2
+  - pip
+  - pip:
+    - -e ".[dev]"

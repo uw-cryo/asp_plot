@@ -32,7 +32,6 @@ jobs:
         conda env create -f environment.yml
         source $CONDA/etc/profile.d/conda.sh
         conda activate asp_plot
-        pip install .
     - name: Test with pytest
       run: |
         source $CONDA/etc/profile.d/conda.sh
