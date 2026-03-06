@@ -10,4 +10,4 @@ dependencies:
   - geopandas
   - pip
   - pip:
-    - -e ".[dev]"
+    - -e ".[dev,docs]"
