@@ -5,7 +5,10 @@ import importlib.metadata
 project = "asp_plot"
 copyright = "2026, UW Cryosphere"
 author = "Ben Purinton, David Shean, Shashank Bhushan"
-version = release = importlib.metadata.version("asp_plot")
+try:
+    version = release = importlib.metadata.version("asp_plot")
+except importlib.metadata.PackageNotFoundError:
+    version = release = "dev"
 
 extensions = [
     "myst_nb",
