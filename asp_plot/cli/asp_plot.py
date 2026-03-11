@@ -117,6 +117,17 @@ def main(
     ICESat-2 comparisons, and more. All plots are combined into a single PDF report
     with processing parameters and summary information.
     """
+    # Reconstruct the asp_plot command for recording in the report
+    import shlex
+
+    click_ctx = click.get_current_context()
+    cmd_parts = ["asp_plot"]
+    for param in click_ctx.command.params:
+        val = click_ctx.params.get(param.name)
+        if val is not None and val != param.default:
+            cmd_parts.append(f"--{param.name} {shlex.quote(str(val))}")
+    report_command = " ".join(cmd_parts)
+
     print(f"\nProcessing ASP files in {directory}\n")
 
     plots_directory = os.path.join(directory, "tmp_asp_report_plots/")
@@ -205,7 +216,7 @@ def main(
         ReportSection(
             title="Input Scenes",
             image_path=os.path.join(plots_directory, fig_fn),
-            caption="Left and right input scenes used for stereo processing.",
+            caption="Left and right input scenes used for stereo processing. Non-mapprojected scenes are shown after ASP's alignment step (e.g., affineepipolar), which rotates images to create horizontal epipolar lines for correlation. Mapprojected scenes require no pre-alignment and are displayed in their map-projected orientation.",
         )
     )
 
@@ -364,7 +375,7 @@ def main(
         ReportSection(
             title="Detailed Hillshade",
             image_path=os.path.join(plots_directory, fig_fn),
-            caption=f"DEM hillshade with {subset_km} km detail subset in second row. If available, corresponding mapprojected ortho image subsets are displayed in the bottom row.",
+            caption="DEM hillshade. If the intersection error is available, zoomed subsets selected from low, medium, and high (left to right) uncertainty areas are displayed in the second row. If the mapprojected image is available, corresponding ortho image subsets are displayed in the bottom row.",
         )
     )
 
@@ -463,6 +474,7 @@ def main(
         report_pdf_path,
         report_title=report_title,
         report_metadata=report_metadata,
+        report_command=report_command,
     )
 
     shutil.rmtree(plots_directory)

@@ -98,3 +98,71 @@ class TestStereoPlotter:
 
     def test_instantiate_with_dem_fn(self, stereo_plotter_dem_fn):
         assert stereo_plotter_dem_fn.dem_fn is not None
+
+
+class TestStereoPlotterNoMapproj:
+    @pytest.fixture
+    def stereo_plotter_no_mapproj(self):
+        return StereoPlotter(
+            directory="tests/test_data/no_mapproj",
+            stereo_directory="stereo",
+            title="Non-Mapproj Stereo Results",
+        )
+
+    @pytest.fixture
+    def stereo_plotter_no_mapproj_no_intersection_error(
+        self, stereo_plotter_no_mapproj
+    ):
+        stereo_plotter_no_mapproj.intersection_error_fn = None
+        return stereo_plotter_no_mapproj
+
+    def test_is_not_vantor(self, stereo_plotter_no_mapproj):
+        """Test that ASTER XMLs are not identified as Vantor/WorldView."""
+        assert stereo_plotter_no_mapproj.is_vantor is False
+
+    def test_orthos_false(self, stereo_plotter_no_mapproj):
+        """Test that non-mapprojected data is correctly identified."""
+        assert stereo_plotter_no_mapproj.orthos is False
+
+    def test_alignment_matrices_loaded(self, stereo_plotter_no_mapproj):
+        """Test that alignment matrix files are discovered."""
+        assert stereo_plotter_no_mapproj.align_left_fn is not None
+        assert stereo_plotter_no_mapproj.align_left_fn.endswith("run-align-L.txt")
+        assert stereo_plotter_no_mapproj.align_right_fn is not None
+        assert stereo_plotter_no_mapproj.align_right_fn.endswith("run-align-R.txt")
+
+    def test_no_reference_dem_found(self, stereo_plotter_no_mapproj):
+        """Test that missing reference DEM in logs is handled gracefully."""
+        assert not stereo_plotter_no_mapproj.reference_dem
+
+    def test_plot_match_points(self, stereo_plotter_no_mapproj):
+        try:
+            stereo_plotter_no_mapproj.plot_match_points()
+        except Exception as e:
+            pytest.fail(f"figure method raised an exception: {str(e)}")
+
+    def test_plot_disparity(self, stereo_plotter_no_mapproj):
+        try:
+            stereo_plotter_no_mapproj.plot_disparity()
+        except Exception as e:
+            pytest.fail(f"figure method raised an exception: {str(e)}")
+
+    def test_plot_dem_results(self, stereo_plotter_no_mapproj):
+        try:
+            stereo_plotter_no_mapproj.plot_dem_results()
+        except Exception as e:
+            pytest.fail(f"figure method raised an exception: {str(e)}")
+
+    def test_plot_detailed_hillshade(self, stereo_plotter_no_mapproj):
+        try:
+            stereo_plotter_no_mapproj.plot_detailed_hillshade(subset_km=10)
+        except Exception as e:
+            pytest.fail(f"figure method raised an exception: {str(e)}")
+
+    def test_plot_detailed_hillshade_no_intersection_error(
+        self, stereo_plotter_no_mapproj_no_intersection_error
+    ):
+        try:
+            stereo_plotter_no_mapproj_no_intersection_error.plot_detailed_hillshade()
+        except Exception as e:
+            pytest.fail(f"figure method raised an exception: {str(e)}")

@@ -1,0 +1,51 @@
+ASP 3.6.0-alpha
+Build ID: 9f0dfb1
+Build date: 2025-10-10
+
+/Users/ben/asp/dev/libexec/point2dem -r earth --auto-proj-center --errorimage out_stereo/run-PC.tif 
+
+uname -a
+Darwin Bens-MacBook-Air-2.local 24.5.0 Darwin Kernel Version 24.5.0: Tue Apr 22 19:54:26 PDT 2025; root:xnu-11417.121.6~2/RELEASE_ARM64_T8112 x86_64
+
+sysctl -a hw 2>/dev/null | grep -E "ncpu|byteorder|memsize|cpufamily|cachesize|mmx|sse|machine|model" | grep -v ipv6
+hw.ncpu: 8
+hw.byteorder: 1234
+hw.memsize: 17179869184
+hw.optional.mmx: 1
+hw.optional.sse: 1
+hw.optional.sse2: 1
+hw.optional.sse3: 1
+hw.optional.supplementalsse3: 1
+hw.optional.sse4_1: 1
+hw.optional.sse4_2: 1
+hw.perflevel1.l1icachesize: 131072
+hw.perflevel1.l1dcachesize: 65536
+hw.perflevel1.l2cachesize: 4194304
+hw.perflevel0.l1icachesize: 196608
+hw.perflevel0.l1dcachesize: 131072
+hw.perflevel0.l2cachesize: 16777216
+hw.cpufamily: 1463508716
+hw.cachesize: 3490496512 65536 4194304 0 0 0 0 0 0 0
+hw.l1icachesize: 131072
+hw.l1dcachesize: 65536
+hw.l2cachesize: 4194304
+hw.memsize_usable: 16375398400
+
+
+
+Vision Workbench log started at 2025-11-07 11:20:39.
+
+2025-11-07 11:20:39 {0} [ console ] : 	--> Re-referencing altitude values using datum: WGS_1984.
+2025-11-07 11:20:39 {0} [ console ] : 	    Axes [6.37814e+06 6.35675e+06] meters.
+2025-11-07 11:20:41 {0} [ console ] : Estimating the median longitude and latitude for the cloud.
+2025-11-07 11:20:46 {0} [ console ] : Collected a sample of 16208561 positive triangulation errors.
+2025-11-07 11:20:46 {0} [ console ] : Error percentiles: Q1 (25%): 24.9077, Q2 (50%): 28.1565, Q3 (75%): 30.6834.
+2025-11-07 11:20:46 {0} [ console ] : Computing triangulation error cutoff based on --remove-outliers-params.
+2025-11-07 11:20:46 {0} [ console ] : Triangulation error cutoff is 92.0502 meters.
+2025-11-07 11:20:46 {0} [ console ] : 	Starting DEM rasterization
+2025-11-07 11:20:46 {0} [ console ] : 	--> DEM spacing: 17.4964 pt/px
+2025-11-07 11:20:46 {0} [ console ] : 	             or: 0.0571547 px/pt
+2025-11-07 11:20:46 {0} [ console ] : Creating output file that is Vector2(4348,4128) px.
+2025-11-07 11:20:46 {0} [ console ] : Writing: out_stereo/run-DEM.tif
+2025-11-07 11:20:55 {0} [ console ] : Percentage of valid pixels: 69.7087%
+2025-11-07 11:20:55 {0} [ console ] : Writing: out_stereo/run-IntersectionErr.tif
