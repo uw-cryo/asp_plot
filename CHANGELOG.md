@@ -5,22 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.9.0] - 2026-03-05
+## [1.9.0] - 2026-03-10
 
 ### Added
 - Match points now overlay on non-mapprojected images using alignment transform matrices (`run-align-{L,R}.txt`), replacing the previous blank-right-panel behavior
 - Report command string recorded in PDF report via new `report_command` parameter in `compile_report()`
 - Pixel-unit scalebar for non-mapprojected disparity plots (mapprojected scenes continue to use GSD-based scalebar)
+- Guard with `FileNotFoundError` when alignment matrix files are missing for non-mapprojected match point overlay
+- Warning when `unit="meters"` is passed for non-mapprojected disparity (unsupported, falls back to pixels)
+- Test coverage for non-mapprojected stereo code paths (9 new tests with resampled ASTER test data)
 
 ### Changed
 - Report figures are now fitted to page dimensions, preventing overflow and cutoff for large/wide figures
+- Report caption reserve is now dynamically calculated from actual caption length instead of a hardcoded 20mm
 - Input Scenes caption updated to explain alignment rotation applied to non-mapprojected imagery
 - Match points right subplot title simplified from "Right (scenes shown only if mapprojected)" to "Right"
+- `save_figure()` default DPI changed from hardcoded 150 to `None` (uses figure's own creation DPI), fixing pixelated ICESat-2 report figures
+- ICESat-2 altimetry figures created at 220 DPI for high-quality PDF embedding
+- CLI parameter values are now quoted with `shlex.quote()` for proper reconstruction of commands with spaces
 - Cleaned up example notebook report links and removed stale PDF files
+- Removed unnecessary `read_align_matrix()` method; alignment matrices are loaded inline via `np.loadtxt()`
 
 ### Fixed
 - Disparity plot scale for non-mapprojected scenes: GSD-based rescale was producing near-zero values from the identity transform; now skips rescaling and uses pixel-unit scalebar instead
 - Match point plot whitespace for non-mapprojected scenes caused by a 1x1 dummy image plotted underneath scatter points
+- Pixelated ICESat-2 ATL06-SR figures in PDF reports caused by `save_figure()` overriding figure DPI with 150
 
 ## [1.8.0] - 2026-03-03
 
