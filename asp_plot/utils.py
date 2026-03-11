@@ -92,7 +92,7 @@ def show_existing_figure(filename):
         print(f"Figure not found: {filename}")
 
 
-def save_figure(fig, save_dir=None, fig_fn=None, dpi=150):
+def save_figure(fig, save_dir=None, fig_fn=None, dpi=None):
     """
     Save a matplotlib figure to a file.
 
@@ -107,8 +107,9 @@ def save_figure(fig, save_dir=None, fig_fn=None, dpi=150):
         Directory to save the figure in
     fig_fn : str, optional
         Filename for the saved figure
-    dpi : int, optional
-        Resolution in dots per inch, default is 150
+    dpi : int or None, optional
+        Resolution in dots per inch. Default is None, which uses the
+        figure's own DPI setting.
 
     Returns
     -------

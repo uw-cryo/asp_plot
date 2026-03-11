@@ -1,0 +1,70 @@
+ASP 3.6.0-alpha
+Build ID: 9f0dfb1
+Build date: 2025-10-10
+
+/Users/ben/asp/StereoPipeline-3.6.0-alpha-2025-10-10-x86_64-OSX/libexec/stereo_corr -t aster --stereo-algorithm asp_mgm --subpixel-mode 9 --aster-use-csm out-Band3N.tif out-Band3B.tif out-Band3N.xml out-Band3B.xml out_stereo/run --corr-seed-mode 1 --sgm-collar-size 256 --compute-low-res-disparity-only 
+
+uname -a
+Darwin Bens-MacBook-Air-2.local 24.5.0 Darwin Kernel Version 24.5.0: Tue Apr 22 19:54:26 PDT 2025; root:xnu-11417.121.6~2/RELEASE_ARM64_T8112 x86_64
+
+sysctl -a hw 2>/dev/null | grep -E "ncpu|byteorder|memsize|cpufamily|cachesize|mmx|sse|machine|model" | grep -v ipv6
+hw.ncpu: 8
+hw.byteorder: 1234
+hw.memsize: 17179869184
+hw.optional.mmx: 1
+hw.optional.sse: 1
+hw.optional.sse2: 1
+hw.optional.sse3: 1
+hw.optional.supplementalsse3: 1
+hw.optional.sse4_1: 1
+hw.optional.sse4_2: 1
+hw.perflevel1.l1icachesize: 131072
+hw.perflevel1.l1dcachesize: 65536
+hw.perflevel1.l2cachesize: 4194304
+hw.perflevel0.l1icachesize: 196608
+hw.perflevel0.l1dcachesize: 131072
+hw.perflevel0.l2cachesize: 16777216
+hw.cpufamily: 1463508716
+hw.cachesize: 3490496512 65536 4194304 0 0 0 0 0 0 0
+hw.l1icachesize: 131072
+hw.l1dcachesize: 65536
+hw.l2cachesize: 4194304
+hw.memsize_usable: 16375398400
+
+
+
+Vision Workbench log started at 2025-11-07 11:04:46.
+
+2025-11-07 11:04:46 {0} [ console ] : Using session: aster
+2025-11-07 11:04:46 {0} [ console ] : Loading camera model: out-Band3N.tif out-Band3N.xml
+2025-11-07 11:04:46 {0} [ console ] : Using the CSM model with ASTER cameras.
+2025-11-07 11:04:46 {0} [ console ] : Loading camera model: out-Band3B.tif out-Band3B.xml
+2025-11-07 11:04:46 {0} [ console ] : Using the CSM model with ASTER cameras.
+2025-11-07 11:04:46 {0} [ console ] : Distance between camera centers: 410534 meters.
+2025-11-07 11:04:46 {0} [ console ] : 	--> Using no pre-processing filter with stereo algorithm: asp_mgm
+2025-11-07 11:04:46 {0} [ console ] : 
+[ 2025-Nov-07 11:04:46 ]: Stage 1 --> CORRELATION
+2025-11-07 11:04:46 {0} [ console ] : 
+[ 2025-Nov-07 11:04:46 ]: Stage 1 --> LOW-RESOLUTION CORRELATION
+2025-11-07 11:04:46 {0} [ console ] : 	--> Using interest points to determine search window.
+2025-11-07 11:04:46 {0} [ console ] : 	    * Loading match file: out_stereo/run-out-Band3N__out-Band3B.match
+2025-11-07 11:04:46 {0} [ console ] : Removed 0 outliers based on percentiles of differences of interest points with --outlier-removal-params.
+2025-11-07 11:04:46 {0} [ console ] : D_sub search range: Min: (-36.625, -3.625) width: 76.25 height: 6.25 px
+2025-11-07 11:04:50 {0} [ console ] : Computing the low-resolution disparity.
+2025-11-07 11:05:01 {0} [ console ] : Writing: out_stereo/run-D_sub.tif
+2025-11-07 11:05:01 {0} [ console ] : Low-resolution disparity computation took 11.7276 s.
+2025-11-07 11:05:01 {0} [ console ] : Filtering outliers in D_sub based on --outlier-removal-params.
+2025-11-07 11:05:02 {0} [ console ] : Inlier range based on x coordinate of disparity: -96.7482 85.9969.
+2025-11-07 11:05:02 {0} [ console ] : Inlier range based on y coordinate of disparity: -4.85273 4.29846.
+2025-11-07 11:05:02 {0} [ console ] : Number (and fraction) of removed outliers by disparity values in x and y: 0 (0).
+2025-11-07 11:05:04 {0} [ console ] : Height above datum inlier range: -4978.87 6950.75.
+2025-11-07 11:05:04 {0} [ console ] : Number (and fraction) of removed outliers by the height check: 0 (0).
+2025-11-07 11:05:04 {0} [ console ] : Triangulation error inlier range: -150.697 209.003.
+2025-11-07 11:05:04 {0} [ console ] : Number (and fraction) of removed outliers by the triangulation error check: 0 (0).
+2025-11-07 11:05:04 {0} [ console ] : Writing filtered D_sub: out_stereo/run-D_sub.tif
+2025-11-07 11:05:05 {0} [ console ] : Writing triangulated point cloud based on D_sub: out_stereo/run-PC_sub.tif
+2025-11-07 11:05:06 {0} [ console ] : 	--> Full-res search range based on D_sub: Min: (-91, -8) width: 193 height: 13
+2025-11-07 11:05:06 {0} [ console ] : 
+[ 2025-Nov-07 11:05:06 ]: LOW-RESOLUTION CORRELATION FINISHED
+2025-11-07 11:05:06 {0} [ console ] : 
+[ 2025-Nov-07 11:05:06 ]: CORRELATION FINISHED

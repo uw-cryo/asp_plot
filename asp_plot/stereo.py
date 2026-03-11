@@ -126,6 +126,8 @@ class StereoPlotter(Plotter):
         self.orthos = False if Raster(self.left_image_fn).transform is None else True
         self.left_image_sub_fn = glob_file(self.full_directory, "*-L_sub.tif")
         self.right_image_sub_fn = glob_file(self.full_directory, "*-R_sub.tif")
+        self.align_left_fn = glob_file(self.full_directory, "*-align-L.txt")
+        self.align_right_fn = glob_file(self.full_directory, "*-align-R.txt")
 
         # There may be multiple match files if stereo was run with --num-matches-from-disparity.
         # In that case, filter out the match file with `-disp-` in filename.
@@ -270,7 +272,11 @@ class StereoPlotter(Plotter):
         Plot match points between the left and right images.
 
         Creates a figure with two subplots showing the left and right
-        orthoimages (if they are map-projected) with match points overlaid.
+        subsampled images with match points overlaid as small red circles.
+        For mapprojected scenes, match points are rescaled using the GSD ratio.
+        For non-mapprojected scenes, match points are transformed from original
+        to aligned coordinate space using the alignment matrices, then rescaled
+        to the subsampled image dimensions.
 
         Parameters
         ----------
@@ -283,12 +289,6 @@ class StereoPlotter(Plotter):
         -------
         None
             Displays the plot and optionally saves it
-
-        Notes
-        -----
-        If the images are not map-projected, only the match points are shown,
-        not the underlying images. The match points are displayed as small red
-        circles on both images.
         """
         match_point_df = self.get_match_point_df()
 
@@ -299,31 +299,54 @@ class StereoPlotter(Plotter):
             and self.right_image_sub_fn
             and match_point_df is not None
         ):
-            # If the images are not mapprojected, we only show the distribution of match points
-            # and not the underlying images, which are rotated and difficult to plot.
-            # We can revisit plotting the non-mapprojected images later, but it is challenging,
-            # and likely not worthwhile, as the distribution of match points is what we are interested in.
             if self.orthos:
                 full_gsd = Raster(self.left_image_fn).get_gsd()
                 sub_gsd = Raster(self.left_image_sub_fn).get_gsd()
                 rescale_factor = sub_gsd / full_gsd
-                left_image = Raster(self.left_image_sub_fn).read_array()
-                right_image = Raster(self.right_image_sub_fn).read_array()
+                left_x = match_point_df["x1"] / rescale_factor
+                left_y = match_point_df["y1"] / rescale_factor
+                right_x = match_point_df["x2"] / rescale_factor
+                right_y = match_point_df["y2"] / rescale_factor
             else:
-                # These are small hacks to make the match point plot work if the images are not
-                # mapprojected and thus not being shown.
-                rescale_factor = 1
-                left_image = np.zeros((1, 1))
-                right_image = np.zeros((1, 1))
+                if not self.align_left_fn or not self.align_right_fn:
+                    raise FileNotFoundError(
+                        "Alignment matrix files (run-align-{L,R}.txt) not found. "
+                        "These are required to overlay match points on non-mapprojected images."
+                    )
 
+                full_width = Raster(self.left_image_fn).ds.width
+                sub_width = Raster(self.left_image_sub_fn).ds.width
+                rescale_factor = full_width / sub_width
+
+                # Transform match points from original to aligned coordinate space
+                align_L = np.loadtxt(self.align_left_fn)
+                align_R = np.loadtxt(self.align_right_fn)
+
+                n = len(match_point_df)
+                ones = np.ones(n)
+
+                left_pts = np.vstack([match_point_df["x1"], match_point_df["y1"], ones])
+                left_aligned = align_L @ left_pts
+                left_x = left_aligned[0] / rescale_factor
+                left_y = left_aligned[1] / rescale_factor
+
+                right_pts = np.vstack(
+                    [match_point_df["x2"], match_point_df["y2"], ones]
+                )
+                right_aligned = align_R @ right_pts
+                right_x = right_aligned[0] / rescale_factor
+                right_y = right_aligned[1] / rescale_factor
+
+            left_image = Raster(self.left_image_sub_fn).read_array()
+            right_image = Raster(self.right_image_sub_fn).read_array()
             self.plot_array(ax=axa[0], array=left_image, cmap="gray", add_cbar=False)
-            axa[0].set_title(f"Left (n={match_point_df.shape[0]})")
             self.plot_array(ax=axa[1], array=right_image, cmap="gray", add_cbar=False)
-            axa[1].set_title("Right (scenes shown only if mapprojected)")
+            axa[0].set_title(f"Left (n={match_point_df.shape[0]})")
+            axa[1].set_title("Right")
 
             axa[0].scatter(
-                match_point_df["x1"] / rescale_factor,
-                match_point_df["y1"] / rescale_factor,
+                left_x,
+                left_y,
                 color="r",
                 marker="o",
                 facecolor="none",
@@ -332,8 +355,8 @@ class StereoPlotter(Plotter):
             axa[0].set_aspect("equal")
 
             axa[1].scatter(
-                match_point_df["x2"] / rescale_factor,
-                match_point_df["y2"] / rescale_factor,
+                right_x,
+                right_y,
                 color="r",
                 marker="o",
                 facecolor="none",
@@ -418,7 +441,6 @@ class StereoPlotter(Plotter):
 
         if self.disparity_sub_fn and self.disparity_fn:
             raster = Raster(self.disparity_sub_fn)
-            sub_gsd = raster.get_gsd()
             dx = raster.read_array(b=1)
             dy = raster.read_array(b=2)
 
@@ -428,14 +450,24 @@ class StereoPlotter(Plotter):
             dx.mask = combined_mask
             dy.mask = combined_mask
 
-            full_gsd = Raster(self.disparity_fn).get_gsd()
-            rescale_factor = sub_gsd / full_gsd
-            dx = dx * rescale_factor
-            dy = dy * rescale_factor
+            # Rescale disparity from subsampled to full-res pixel coordinates.
+            # Only meaningful for georeferenced (mapprojected) data where the
+            # GSD ratio reflects the actual downsampling factor. For non-georeferenced
+            # data the transform is identity/near-zero, so skip rescaling.
+            if not self.orthos and unit == "meters":
+                logger.warning(
+                    "Disparity unit 'meters' not supported for non-mapprojected scenes; using pixels."
+                )
+            if self.orthos:
+                sub_gsd = raster.get_gsd()
+                full_gsd = Raster(self.disparity_fn).get_gsd()
+                rescale_factor = sub_gsd / full_gsd
+                dx = dx * rescale_factor
+                dy = dy * rescale_factor
 
-            if unit == "meters":
-                dx = dx * full_gsd
-                dy = dy * full_gsd
+                if unit == "meters":
+                    dx = dx * full_gsd
+                    dy = dy * full_gsd
 
             if remove_bias:
                 dx_offset = np.ma.median(dx)
@@ -465,7 +497,10 @@ class StereoPlotter(Plotter):
                 dy_q = dy[::stride, ::stride]
                 axa[2].quiver(ix, iy, dx_q, dy_q, color="white")
 
-            scalebar = ScaleBar(sub_gsd)
+            if self.orthos:
+                scalebar = ScaleBar(raster.get_gsd())
+            else:
+                scalebar = ScaleBar(1, units="px", dimension="pixel-length")
             axa[0].add_artist(scalebar)
             axa[0].set_title("x offset")
             axa[1].set_title("y offset")
