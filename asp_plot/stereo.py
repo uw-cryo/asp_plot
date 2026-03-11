@@ -308,6 +308,12 @@ class StereoPlotter(Plotter):
                 right_x = match_point_df["x2"] / rescale_factor
                 right_y = match_point_df["y2"] / rescale_factor
             else:
+                if not self.align_left_fn or not self.align_right_fn:
+                    raise FileNotFoundError(
+                        "Alignment matrix files (run-align-{L,R}.txt) not found. "
+                        "These are required to overlay match points on non-mapprojected images."
+                    )
+
                 full_width = Raster(self.left_image_fn).ds.width
                 sub_width = Raster(self.left_image_sub_fn).ds.width
                 rescale_factor = full_width / sub_width
@@ -448,6 +454,10 @@ class StereoPlotter(Plotter):
             # Only meaningful for georeferenced (mapprojected) data where the
             # GSD ratio reflects the actual downsampling factor. For non-georeferenced
             # data the transform is identity/near-zero, so skip rescaling.
+            if not self.orthos and unit == "meters":
+                logger.warning(
+                    "Disparity unit 'meters' not supported for non-mapprojected scenes; using pixels."
+                )
             if self.orthos:
                 sub_gsd = raster.get_gsd()
                 full_gsd = Raster(self.disparity_fn).get_gsd()

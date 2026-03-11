@@ -1042,7 +1042,7 @@ class Altimetry:
         atl06sr = self.atl06sr_processing_levels_filtered[key]
         atl06sr_sorted = atl06sr.sort_values(by=column_name).to_crs(map_crs)
 
-        fig, ax = plt.subplots(1, 1, figsize=figsize)
+        fig, ax = plt.subplots(1, 1, figsize=figsize, dpi=220)
 
         if plot_dem:
             ctx_kwargs = {}
@@ -1319,7 +1319,7 @@ class Altimetry:
                 print("\nAligned DEM not found.\n")
                 return
 
-        fig, ax = plt.subplots(1, 1, figsize=(6, 4))
+        fig, ax = plt.subplots(1, 1, figsize=(6, 4), dpi=220)
 
         for column_name in column_names:
             med = atl06sr[column_name].quantile(0.50)
@@ -1471,7 +1471,7 @@ class Altimetry:
                             f"{cs['name']}: n={cs['n']}, Med={cs['med']:+.2f}, NMAD={cs['nmad']:.2f}"
                         )
 
-        fig, ax = plt.subplots(1, 1, figsize=(8, 5))
+        fig, ax = plt.subplots(1, 1, figsize=(8, 5), dpi=220)
 
         xmin = dh.quantile(0.01)
         xmax = dh.quantile(0.99)

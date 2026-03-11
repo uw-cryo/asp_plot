@@ -118,12 +118,14 @@ def main(
     with processing parameters and summary information.
     """
     # Reconstruct the asp_plot command for recording in the report
+    import shlex
+
     click_ctx = click.get_current_context()
     cmd_parts = ["asp_plot"]
     for param in click_ctx.command.params:
         val = click_ctx.params.get(param.name)
         if val is not None and val != param.default:
-            cmd_parts.append(f"--{param.name} {val}")
+            cmd_parts.append(f"--{param.name} {shlex.quote(str(val))}")
     report_command = " ".join(cmd_parts)
 
     print(f"\nProcessing ASP files in {directory}\n")
@@ -373,7 +375,7 @@ def main(
         ReportSection(
             title="Detailed Hillshade",
             image_path=os.path.join(plots_directory, fig_fn),
-            caption=f"DEM hillshade with {subset_km} km detail subset in second row. If available, corresponding mapprojected ortho image subsets are displayed in the bottom row.",
+            caption="DEM hillshade. If the intersection error is available, zoomed subsets selected from low, medium, and high (left to right) uncertainty areas are displayed in the second row. If the mapprojected image is available, corresponding ortho image subsets are displayed in the bottom row.",
         )
     )
 

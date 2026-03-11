@@ -196,8 +196,13 @@ def compile_report(
 
         usable_width = pdf.w - pdf.l_margin - pdf.r_margin
         # Reserve space for caption below the image and bottom margin.
-        # Caption font is 9pt with 5mm line height; estimate ~3 lines + spacing.
-        caption_reserve = 20 if section.caption else 0
+        # Caption font is 9pt with ~80 chars/line at usable_width; 5mm per line + spacing.
+        if section.caption:
+            caption_text = f"Figure {section.figure_number}: {section.caption}"
+            estimated_lines = max(1, -(-len(caption_text) // 80))  # ceil division
+            caption_reserve = estimated_lines * 5 + 8
+        else:
+            caption_reserve = 0
         usable_height = pdf.h - pdf.get_y() - pdf.b_margin - caption_reserve
 
         # Determine image dimensions that fit within usable area

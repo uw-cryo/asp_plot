@@ -1,0 +1,126 @@
+ASP 3.6.0-alpha
+Build ID: 9f0dfb1
+Build date: 2025-10-10
+
+/Users/ben/asp/StereoPipeline-3.6.0-alpha-2025-10-10-x86_64-OSX/libexec/stereo_pprc -t aster --stereo-algorithm asp_mgm --subpixel-mode 9 --aster-use-csm out-Band3N.tif out-Band3B.tif out-Band3N.xml out-Band3B.xml out_stereo/run --corr-seed-mode 1 --sgm-collar-size 256 --threads 4 
+
+uname -a
+Darwin Bens-MacBook-Air-2.local 24.5.0 Darwin Kernel Version 24.5.0: Tue Apr 22 19:54:26 PDT 2025; root:xnu-11417.121.6~2/RELEASE_ARM64_T8112 x86_64
+
+sysctl -a hw 2>/dev/null | grep -E "ncpu|byteorder|memsize|cpufamily|cachesize|mmx|sse|machine|model" | grep -v ipv6
+hw.ncpu: 8
+hw.byteorder: 1234
+hw.memsize: 17179869184
+hw.optional.mmx: 1
+hw.optional.sse: 1
+hw.optional.sse2: 1
+hw.optional.sse3: 1
+hw.optional.supplementalsse3: 1
+hw.optional.sse4_1: 1
+hw.optional.sse4_2: 1
+hw.perflevel1.l1icachesize: 131072
+hw.perflevel1.l1dcachesize: 65536
+hw.perflevel1.l2cachesize: 4194304
+hw.perflevel0.l1icachesize: 196608
+hw.perflevel0.l1dcachesize: 131072
+hw.perflevel0.l2cachesize: 16777216
+hw.cpufamily: 1463508716
+hw.cachesize: 3490496512 65536 4194304 0 0 0 0 0 0 0
+hw.l1icachesize: 131072
+hw.l1dcachesize: 65536
+hw.l2cachesize: 4194304
+hw.memsize_usable: 16375398400
+
+
+
+Vision Workbench log started at 2025-11-07 11:04:23.
+
+2025-11-07 11:04:23 {0} [ console ] : Using session: aster
+2025-11-07 11:04:23 {0} [ console ] : Loading camera model: out-Band3N.tif out-Band3N.xml
+2025-11-07 11:04:23 {0} [ console ] : Using the CSM model with ASTER cameras.
+2025-11-07 11:04:23 {0} [ console ] : Loading camera model: out-Band3B.tif out-Band3B.xml
+2025-11-07 11:04:23 {0} [ console ] : Using the CSM model with ASTER cameras.
+2025-11-07 11:04:24 {0} [ console ] : Distance between camera centers: 410534 meters.
+2025-11-07 11:04:24 {0} [ console ] : Image files:  out-Band3N.tif, out-Band3B.tif
+2025-11-07 11:04:24 {0} [ console ] : Camera files: out-Band3N.xml, out-Band3B.xml
+2025-11-07 11:04:24 {0} [ console ] : Computing statistics for left
+2025-11-07 11:04:24 {0} [ console ] : Using downsample scale: 5
+2025-11-07 11:04:24 {0} [ console ] : 	    Writing stats file: out_stereo/run-out-Band3N-stats.tif
+2025-11-07 11:04:24 {0} [ console ] : 	    left: [ lo: 13.1504 hi: 220.482 mean: 84.9501 std_dev: 32.1303 ]
+2025-11-07 11:04:24 {0} [ console ] : Left image stats time: 0.645161
+2025-11-07 11:04:24 {0} [ console ] : Computing statistics for right
+2025-11-07 11:04:24 {0} [ console ] : Using downsample scale: 6
+2025-11-07 11:04:25 {0} [ console ] : 	    Writing stats file: out_stereo/run-out-Band3B-stats.tif
+2025-11-07 11:04:25 {0} [ console ] : 	    right: [ lo: -4.68195 hi: 224.913 mean: 81.1831 std_dev: 46.3415 ]
+2025-11-07 11:04:25 {0} [ console ] : Right image stats time: 0.94071
+2025-11-07 11:04:25 {0} [ console ] : 	--> Applying alignment method: affineepipolar
+2025-11-07 11:04:25 {0} [ console ] : 	--> Matching interest points in StereoSession.
+2025-11-07 11:04:25 {0} [ console ] : Using the RPC model instead of the exact ASTER model for interest point matching, for speed. This does not affect the accuracy of final results.
+2025-11-07 11:04:25 {0} [ console ] : 	    Using 1 thread(s) for matching.
+2025-11-07 11:04:25 {0} [ console ] : 	    Using epipolar threshold = 391.294
+2025-11-07 11:04:25 {0} [ console ] : 	    IP uniqueness threshold  = 0.8
+2025-11-07 11:04:25 {0} [ console ] : 	    Datum:                     Geodetic Datum --> Name: WGS_1984  Spheroid: WGS 84  Semi-major axis: 6378137  Semi-minor axis: 6356752.3142451793  Meridian: Greenwich at 0  Proj4 Str: +proj=longlat +datum=WGS84 +no_defs
+2025-11-07 11:04:25 {0} [ console ] : 	    Using rough homography.
+2025-11-07 11:04:25 {0} [ console ] : Projected 5000 rays for rough homography.
+2025-11-07 11:04:25 {0} [ console ] : 	    Rough homography inlier threshold: 586.941
+2025-11-07 11:04:25 {0} [ console ] : Estimating rough homography using RANSAC with 150 iterations.
+2025-11-07 11:04:26 {0} [ console ] : Number of inliers: 5000.
+2025-11-07 11:04:26 {0} [ console ] : Rough homography fit elapsed time: 0.782307 s.
+2025-11-07 11:04:26 {0} [ console ] : Aligning right to left for interest points capture using rough homography: Matrix3x3((0.994016,-0.00294295,0)(0.0801376,1.00029,0)(-3.27479e-07,-3.83243e-08,1))
+2025-11-07 11:04:26 {0} [ console ] : 	    Looking for interest points in left image.
+2025-11-07 11:04:26 {0} [ console ] : 	    Using 304 interest points per tile (1024^2 px).
+2025-11-07 11:04:26 {0} [ console ] : 	    Detecting IP
+2025-11-07 11:04:27 {0} [ console ] : 	    Building descriptors
+2025-11-07 11:04:27 {0} [ console ] : 	    Number of interest points: 4988
+2025-11-07 11:04:27 {0} [ console ] : 	    Writing interest points: out_stereo/run-out-Band3N.vwip
+2025-11-07 11:04:27 {0} [ console ] : 	    Looking for interest points in right image.
+2025-11-07 11:04:27 {0} [ console ] : 	    Using 180 interest points per tile (1024^2 px).
+2025-11-07 11:04:27 {0} [ console ] : 	    Detecting IP
+2025-11-07 11:04:29 {0} [ console ] : 	    Building descriptors
+2025-11-07 11:04:29 {0} [ console ] : 	    Number of interest points: 4985
+2025-11-07 11:04:29 {0} [ console ] : Elapsed time in ip detection: 2.86639 s.
+2025-11-07 11:04:29 {0} [ console ] : 	--> Matching interest points using the epipolar line.
+2025-11-07 11:04:29 {0} [ console ] : 	    Uniqueness threshold: 0.8
+2025-11-07 11:04:29 {0} [ console ] : 	    Epipolar threshold:   391.294
+2025-11-07 11:04:29 {0} [ console ] : 	    Matching forward
+2025-11-07 11:04:30 {0} [ console ] : 	    ---> Obtained 4988 matches.
+2025-11-07 11:04:30 {0} [ console ] : 	    Matching backward
+2025-11-07 11:04:32 {0} [ console ] : 	    ---> Obtained 4985 matches.
+2025-11-07 11:04:32 {0} [ console ] : 	    Matched 1168 points.
+2025-11-07 11:04:32 {0} [ console ] : 	    Inlier cluster:
+	      Triangulation error: 26.2752 +- 18.3638 meters
+2025-11-07 11:04:32 {0} [ console ] : 	      Removed 13 points in triangulation filtering.
+2025-11-07 11:04:32 {0} [ console ] : 	      Removed 10 points in stddev filtering.
+2025-11-07 11:04:32 {0} [ console ] : 	    Reduced matches to 1145
+2025-11-07 11:04:32 {0} [ console ] : Elapsed time in ip matching: 3.02184 s.
+2025-11-07 11:04:32 {0} [ console ] : 	    Computing homography transform.
+2025-11-07 11:04:32 {0} [ console ] : 	    Filtering interest point matches using homography.
+2025-11-07 11:04:32 {0} [ console ] : 	    Homography ip filter inlier threshold: 586.941
+2025-11-07 11:04:32 {0} [ console ] : 	    RANSAC iterations:                     1000
+2025-11-07 11:04:33 {0} [ console ] : Homography matrix:
+Matrix3x3((0.979402,-0.00334796,-554.986)(0.0895669,0.999041,-984.165)(-3.89628e-06,-3.56703e-07,1))
+2025-11-07 11:04:33 {0} [ console ] : Number of inliers: 1145.
+2025-11-07 11:04:33 {0} [ console ] : Elapsed time in homography computation: 0.781584 s.
+2025-11-07 11:04:33 {0} [ console ] : 	    * Writing match file: out_stereo/run-out-Band3N__out-Band3B.match
+2025-11-07 11:04:33 {0} [ console ] : Computing the epipolar rectification using RANSAC with 1000 iterations and inlier threshold 10.
+2025-11-07 11:04:33 {0} [ console ] : Found 1145 / 1145 inliers.
+2025-11-07 11:04:33 {0} [ console ] : Elapsed time in computing rectification matrices: 0.726066 seconds.
+2025-11-07 11:04:33 {0} [ console ] : Maximum absolute difference of y components of aligned inlier interest points is 4.7551 pixels.
+2025-11-07 11:04:33 {0} [ console ] : 	--> Aligning left and right images using affine matrices:
+	      Matrix2x3((0.055696,-0.999454,4197)(0.999941,0.0108625,0))
+	      Matrix2x3((-0.0362948,-1.02173,5183.53)(0.996157,0.00816256,-583.368))
+2025-11-07 11:04:33 {0} [ console ] : 	--> Normalize images globally.
+2025-11-07 11:04:33 {0} [ console ] : Left image value bounds: [-11.4999 173.866]
+2025-11-07 11:04:33 {0} [ console ] : Right image value bounds: [-11.4999 173.866]
+2025-11-07 11:04:33 {0} [ console ] : 	--> Writing pre-aligned images.
+2025-11-07 11:04:33 {0} [ console ] : 	--> Writing: out_stereo/run-L.tif
+2025-11-07 11:04:34 {0} [ console ] : Writing left image elapsed time: 0.919624 s
+2025-11-07 11:04:34 {0} [ console ] : 	--> Writing: out_stereo/run-R.tif
+2025-11-07 11:04:35 {0} [ console ] : Writing right image elapsed time: 0.951724 s
+2025-11-07 11:04:35 {0} [ console ] : 	--> Generating image masks.
+2025-11-07 11:04:36 {0} [ console ] : Writing masks: out_stereo/run-lMask.tif out_stereo/run-rMask.tif.
+2025-11-07 11:04:36 {0} [ console ] : 	--> Creating previews. Subsampling by 0.350245 by using a tile of size 256 and 4 threads.
+2025-11-07 11:04:37 {0} [ console ] : Convergence angle percentiles (in degrees) based on interest point matches:
+2025-11-07 11:04:37 {0} [ console ] : 	25% 31.018, 50% 31.024, 75% 31.0295.
+2025-11-07 11:04:37 {0} [ console ] : 
+[ 2025-Nov-07 11:04:37 ]: PREPROCESSING FINISHED
