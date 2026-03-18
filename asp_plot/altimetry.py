@@ -203,13 +203,15 @@ class Altimetry:
 
         root = ET.fromstring(body)
 
-        # Look for job ID in the response
-        jobid_elem = root.find(".//Jobid")
+        # Look for job ID in the response (GDS uses <JobId>)
+        jobid_elem = root.find(".//JobId")
+        if jobid_elem is None:
+            jobid_elem = root.find(".//Jobid")
         if jobid_elem is None:
             jobid_elem = root.find(".//jobid")
         if jobid_elem is None:
             raise RuntimeError(
-                f"GDS async submission failed — no Jobid in response:\n{body}"
+                f"GDS async submission failed — no JobId in response:\n{body}"
             )
 
         return jobid_elem.text.strip()
@@ -244,10 +246,13 @@ class Altimetry:
                 body = resp.read().decode("utf-8")
 
             root = ET.fromstring(body)
-            status_elem = root.find(".//Status")
-            if status_elem is None:
-                status_elem = root.find(".//status")
-            status = status_elem.text.strip() if status_elem is not None else "Unknown"
+            # Job state is in <StateSummary><State>
+            state_elem = root.find(".//StateSummary/State")
+            if state_elem is None:
+                state_elem = root.find(".//State")
+            if state_elem is None:
+                state_elem = root.find(".//status")
+            status = state_elem.text.strip() if state_elem is not None else "Unknown"
 
             if status == "Finished":
                 # Extract result file URLs
@@ -996,6 +1001,469 @@ class Altimetry:
             )
 
         self.alignment_report_df = alignment_report_df
+
+    # ------------------------------------------------------------------ #
+    #  Planetary altimetry: LOLA (Moon) and MOLA (Mars) via ODE GDS API  #
+    # ------------------------------------------------------------------ #
+
+    def request_lola(
+        self,
+        region=None,
+        channels="ttttt",
+        email=None,
+        save_to_csv=True,
+        poll_interval=10,
+        max_wait=600,
+    ):
+        """Request LOLA RDR altimetry data within the DEM bounds.
+
+        Queries the ODE Granular Data System (GDS) REST API for Lunar
+        Orbiter Laser Altimeter (LOLA) data.  Results are stored in
+        ``self.planetary_points`` as a GeoDataFrame.
+
+        Parameters
+        ----------
+        region : dict or None, optional
+            Bounding box as ``{westernlon, easternlon, minlat, maxlat}``
+            in 0-360 longitude.  If None, derived from the DEM.
+        channels : str, optional
+            LOLA detector channels to include, default ``"ttttt"`` (all 5).
+        email : str or None, optional
+            Email for GDS job notification.
+        save_to_csv : bool, optional
+            Cache the downloaded CSV locally, default True.
+        poll_interval : int, optional
+            Seconds between status polls, default 10.
+        max_wait : int, optional
+            Maximum seconds to wait for the query, default 600.
+        """
+        from asp_plot.utils import get_planetary_bounds
+
+        if region is None:
+            region = get_planetary_bounds(self.dem_fn, body="moon")
+
+        # Check for cached CSV
+        csv_fn = os.path.join(self.directory, "lola_points.csv")
+        if os.path.exists(csv_fn):
+            print(f"Loading cached LOLA data from {csv_fn}")
+            self._load_lola_csv(csv_fn)
+            return
+
+        job_id = self._gds_query_async(
+            "lolardr",
+            region,
+            "u",
+            email=email,
+            channel=channels,
+        )
+        urls = self._gds_poll_status(
+            job_id, poll_interval=poll_interval, max_wait=max_wait
+        )
+
+        # Download the CSV — pick the first CSV/text URL
+        csv_url = None
+        for u in urls:
+            if u.endswith(".csv") or u.endswith(".txt") or "result" in u.lower():
+                csv_url = u
+                break
+        if csv_url is None:
+            csv_url = urls[0]
+
+        download_path = os.path.join(self.directory, "lola_download.csv")
+        self._gds_download_csv(csv_url, download_path)
+        self._load_lola_csv(download_path)
+
+        if save_to_csv:
+            self.planetary_points.to_csv(csv_fn, index=False)
+            print(f"Saved LOLA points to {csv_fn}")
+
+    def _load_lola_csv(self, csv_path):
+        """Parse a LOLA simple-topography CSV into a GeoDataFrame.
+
+        The ``results=u`` format returns three columns:
+        ``Pt_Longitude``, ``Pt_Latitude``, ``Topography``.
+
+        Parameters
+        ----------
+        csv_path : str
+            Path to the CSV file.
+        """
+        df = pd.read_csv(csv_path)
+
+        # Normalise column names (GDS sometimes uses different capitalisation)
+        cols = {c.strip().lower(): c for c in df.columns}
+        lon_col = cols.get("pt_longitude") or cols.get("longitude")
+        lat_col = cols.get("pt_latitude") or cols.get("latitude")
+        topo_col = cols.get("topography") or cols.get("topo")
+
+        if lon_col is None or lat_col is None or topo_col is None:
+            # Fallback: assume positional order lon, lat, topo
+            lon_col, lat_col, topo_col = df.columns[0], df.columns[1], df.columns[2]
+
+        df = df.rename(columns={lon_col: "lon", lat_col: "lat", topo_col: "height"})
+
+        # Convert 0-360 → -180/180
+        df["lon"] = ((df["lon"] + 180) % 360) - 180
+
+        gdf = gpd.GeoDataFrame(
+            df,
+            geometry=gpd.points_from_xy(df["lon"], df["lat"]),
+            crs='GEOGCRS["Moon",DATUM["D_MOON",ELLIPSOID["MOON",1737400,0]],PRIMEM["Reference_Meridian",0],CS[ellipsoidal,2],AXIS["latitude",north,ORDER[1],ANGLEUNIT["degree",0.0174532925199433]],AXIS["longitude",east,ORDER[2],ANGLEUNIT["degree",0.0174532925199433]]]',
+        )
+        self.planetary_points = gdf
+        print(f"Loaded {len(gdf)} LOLA points")
+
+    def request_mola(
+        self,
+        region=None,
+        email=None,
+        save_to_csv=True,
+        poll_interval=10,
+        max_wait=600,
+    ):
+        """Request MOLA PEDR altimetry data within the DEM bounds.
+
+        Queries the ODE GDS REST API for Mars Orbiter Laser Altimeter
+        (MOLA) PEDR data.  A -190 m correction is applied to convert
+        MOLA radius values (referenced to 3,396,000 m) to heights above
+        the IAU sphere (3,396,190 m) used by ASP's ``point2dem``.
+
+        Parameters
+        ----------
+        region : dict or None, optional
+            Bounding box as ``{westernlon, easternlon, minlat, maxlat}``
+            in 0-360 longitude.  If None, derived from the DEM.
+        email : str or None, optional
+            Email for GDS job notification.
+        save_to_csv : bool, optional
+            Cache the downloaded CSV locally, default True.
+        poll_interval : int, optional
+            Seconds between status polls, default 10.
+        max_wait : int, optional
+            Maximum seconds to wait for the query, default 600.
+        """
+        from asp_plot.utils import get_planetary_bounds
+
+        if region is None:
+            region = get_planetary_bounds(self.dem_fn, body="mars")
+
+        # Check for cached CSV
+        csv_fn = os.path.join(self.directory, "mola_points.csv")
+        if os.path.exists(csv_fn):
+            print(f"Loading cached MOLA data from {csv_fn}")
+            self._load_mola_csv(csv_fn)
+            return
+
+        job_id = self._gds_query_async(
+            "molapedr",
+            region,
+            "v",
+            email=email,
+        )
+        urls = self._gds_poll_status(
+            job_id, poll_interval=poll_interval, max_wait=max_wait
+        )
+
+        # Download the CSV
+        csv_url = None
+        for u in urls:
+            if u.endswith(".csv") or u.endswith(".txt") or "result" in u.lower():
+                csv_url = u
+                break
+        if csv_url is None:
+            csv_url = urls[0]
+
+        download_path = os.path.join(self.directory, "mola_download.csv")
+        self._gds_download_csv(csv_url, download_path)
+        self._load_mola_csv(download_path)
+
+        if save_to_csv:
+            self.planetary_points.to_csv(csv_fn, index=False)
+            print(f"Saved MOLA points to {csv_fn}")
+
+    def _load_mola_csv(self, csv_path):
+        """Parse a MOLA PEDR CSV into a GeoDataFrame.
+
+        The ``results=v`` format returns a CSV with columns including
+        longitude, latitude, and topography/radius values.  A -190 m
+        correction is applied if values appear to be MOLA radius
+        (referenced to 3,396,000 m sphere) to convert to height above
+        the IAU sphere (3,396,190 m) that ASP uses.
+
+        Parameters
+        ----------
+        csv_path : str
+            Path to the CSV file.
+        """
+        df = pd.read_csv(csv_path)
+
+        # Normalise column names
+        cols_lower = {c.strip().lower(): c for c in df.columns}
+
+        # Find lon/lat columns
+        lon_col = None
+        lat_col = None
+        for candidate in ["longitude", "pt_longitude", "areocentric_longitude"]:
+            if candidate in cols_lower:
+                lon_col = cols_lower[candidate]
+                break
+        for candidate in ["latitude", "pt_latitude", "areocentric_latitude"]:
+            if candidate in cols_lower:
+                lat_col = cols_lower[candidate]
+                break
+
+        # Find height column — prefer topography, fall back to radius
+        height_col = None
+        is_radius = False
+        for candidate in ["topography", "topo"]:
+            if candidate in cols_lower:
+                height_col = cols_lower[candidate]
+                break
+        if height_col is None:
+            for candidate in ["radius", "planetary_radius"]:
+                if candidate in cols_lower:
+                    height_col = cols_lower[candidate]
+                    is_radius = True
+                    break
+
+        if lon_col is None or lat_col is None or height_col is None:
+            # Fallback: use positional
+            logger.warning(
+                f"Could not identify MOLA CSV columns: {list(df.columns)}. "
+                "Using first three columns as lon, lat, height."
+            )
+            lon_col, lat_col, height_col = df.columns[0], df.columns[1], df.columns[2]
+
+        df = df.rename(
+            columns={lon_col: "lon", lat_col: "lat", height_col: "height_raw"}
+        )
+
+        # Apply vertical datum correction
+        # MOLA radius is relative to 3,396,000 m sphere
+        # ASP uses IAU sphere at 3,396,190 m
+        # If the value is "MOLA radius" (= planetary_radius - 3,396,000),
+        # convert to IAU height (= planetary_radius - 3,396,190) by subtracting 190
+        MOLA_SPHERE_OFFSET = 190.0  # meters
+        if is_radius:
+            df["height"] = df["height_raw"] - MOLA_SPHERE_OFFSET
+            print(
+                f"Applied -{MOLA_SPHERE_OFFSET} m correction "
+                "(MOLA sphere → IAU sphere)"
+            )
+        else:
+            # Topography is already relative to a reference surface.
+            # We assume the GDS topography values match ASP's vertical datum
+            # well enough for DEM comparison. Document this assumption.
+            df["height"] = df["height_raw"]
+            logger.info(
+                "MOLA topography values used directly. If heights are referenced "
+                "to the MOLA areoid rather than the IAU sphere, a systematic offset "
+                "may be present in the dh values."
+            )
+
+        # Convert 0-360 → -180/180
+        df["lon"] = ((df["lon"] + 180) % 360) - 180
+
+        gdf = gpd.GeoDataFrame(
+            df,
+            geometry=gpd.points_from_xy(df["lon"], df["lat"]),
+            crs='GEOGCRS["Mars",DATUM["D_MARS",ELLIPSOID["MARS",3396190,0]],PRIMEM["Reference_Meridian",0],CS[ellipsoidal,2],AXIS["latitude",north,ORDER[1],ANGLEUNIT["degree",0.0174532925199433]],AXIS["longitude",east,ORDER[2],ANGLEUNIT["degree",0.0174532925199433]]]',
+        )
+        self.planetary_points = gdf
+        print(f"Loaded {len(gdf)} MOLA points")
+
+    def planetary_to_dem_dh(self):
+        """Compute height differences between planetary altimetry and DEM.
+
+        Reprojects ``self.planetary_points`` to the DEM CRS, interpolates
+        DEM heights at altimetry locations, and computes the difference
+        ``altimetry_minus_dem = height - dem_height``.
+
+        The results are stored as new columns on ``self.planetary_points``.
+        """
+        if self.planetary_points is None or self.planetary_points.empty:
+            logger.warning("No planetary altimetry points loaded.")
+            return
+
+        dem = rioxarray.open_rasterio(self.dem_fn, masked=True).squeeze()
+        dem_crs = dem.rio.crs
+
+        # Reproject points to the DEM CRS (use CRS object, not EPSG)
+        pts = self.planetary_points.to_crs(dem_crs)
+
+        x = xr.DataArray(pts.geometry.x.values, dims="z")
+        y = xr.DataArray(pts.geometry.y.values, dims="z")
+        sample = dem.interp(x=x, y=y)
+
+        pts["dem_height"] = sample.values
+        pts["altimetry_minus_dem"] = pts["height"] - pts["dem_height"]
+
+        # Update geometry back to geographic CRS for storage
+        self.planetary_points = pts.to_crs(self.planetary_points.crs)
+        self.planetary_points["dem_height"] = pts["dem_height"].values
+        self.planetary_points["altimetry_minus_dem"] = pts["altimetry_minus_dem"].values
+
+        valid = self.planetary_points["altimetry_minus_dem"].dropna()
+        print(f"Computed dh for {len(valid)} of {len(self.planetary_points)} points")
+
+    def mapview_plot_planetary_to_dem(
+        self,
+        clim=None,
+        save_dir=None,
+        fig_fn=None,
+        title=None,
+    ):
+        """Map view of planetary altimetry vs DEM height differences.
+
+        Plots the DEM hillshade as background with altimetry dh points
+        overlaid using a divergent colourmap.
+
+        Parameters
+        ----------
+        clim : tuple or None, optional
+            Colour limits ``(min, max)`` for dh. Default auto.
+        save_dir : str or None, optional
+            Directory to save figure.
+        fig_fn : str or None, optional
+            Filename for saved figure.
+        title : str or None, optional
+            Custom plot title. Auto-detected if None.
+        """
+        from asp_plot.utils import Raster, detect_planetary_body
+
+        if self.planetary_points is None or self.planetary_points.empty:
+            logger.warning("No planetary altimetry points loaded.")
+            return
+
+        if "altimetry_minus_dem" not in self.planetary_points.columns:
+            self.planetary_to_dem_dh()
+
+        gdf = self.planetary_points.dropna(subset=["altimetry_minus_dem"])
+        if gdf.empty:
+            logger.warning("No valid dh values for map view.")
+            return
+
+        dh = gdf["altimetry_minus_dem"]
+        n = len(dh)
+        med = np.nanmedian(dh.values)
+        nmad = _nmad(dh.values)
+
+        body = detect_planetary_body(self.dem_fn)
+        instrument = {"moon": "LOLA", "mars": "MOLA"}.get(body, "Altimetry")
+        if title is None:
+            title = f"{instrument} vs DEM"
+
+        # Generate hillshade
+        dem_raster = Raster(self.dem_fn, downsample=4)
+        hs = dem_raster.hillshade()
+        extent = rioplot.plotting_extent(dem_raster.ds, transform=dem_raster.transform)
+
+        # Reproject points to DEM CRS for plotting
+        dem_crs = dem_raster.ds.crs
+        gdf_proj = gdf.to_crs(dem_crs)
+
+        fig, ax = plt.subplots(1, 1, figsize=(8, 6), dpi=220)
+        ax.imshow(hs, cmap="gray", extent=extent, alpha=0.7, interpolation="none")
+
+        # Colour limits
+        if clim is None:
+            abs_max = max(abs(dh.quantile(0.02)), abs(dh.quantile(0.98)))
+            clim = (-abs_max, abs_max)
+
+        gdf_proj.plot(
+            ax=ax,
+            column="altimetry_minus_dem",
+            cmap="RdBu",
+            vmin=clim[0],
+            vmax=clim[1],
+            markersize=2,
+            legend=True,
+            legend_kwds={"label": f"{instrument} - DEM (m)"},
+        )
+
+        stats_text = f"n={n}\nMedian={med:+.2f} m\nNMAD={nmad:.2f} m"
+        ax.text(
+            0.02,
+            0.98,
+            stats_text,
+            transform=ax.transAxes,
+            verticalalignment="top",
+            fontsize=8,
+            fontfamily="monospace",
+            bbox=dict(boxstyle="round,pad=0.4", facecolor="white", alpha=0.9),
+        )
+
+        ax.set_xticks([])
+        ax.set_yticks([])
+        fig.suptitle(f"{title}\n(n={n})", size=10)
+        fig.tight_layout()
+        if save_dir and fig_fn:
+            save_figure(fig, save_dir, fig_fn)
+
+    def histogram_planetary_to_dem(
+        self,
+        save_dir=None,
+        fig_fn=None,
+        title=None,
+    ):
+        """Histogram of planetary altimetry vs DEM height differences.
+
+        Parameters
+        ----------
+        save_dir : str or None, optional
+            Directory to save figure.
+        fig_fn : str or None, optional
+            Filename for saved figure.
+        title : str or None, optional
+            Custom plot title. Auto-detected if None.
+        """
+        from asp_plot.utils import detect_planetary_body
+
+        if self.planetary_points is None or self.planetary_points.empty:
+            logger.warning("No planetary altimetry points loaded.")
+            return
+
+        if "altimetry_minus_dem" not in self.planetary_points.columns:
+            self.planetary_to_dem_dh()
+
+        dh = self.planetary_points["altimetry_minus_dem"].dropna()
+        if dh.empty:
+            logger.warning("No valid dh values for histogram.")
+            return
+
+        n = len(dh)
+        med = np.nanmedian(dh.values)
+        nmad = _nmad(dh.values)
+
+        body = detect_planetary_body(self.dem_fn)
+        instrument = {"moon": "LOLA", "mars": "MOLA"}.get(body, "Altimetry")
+        if title is None:
+            title = f"{instrument} vs ASP DEM"
+
+        fig, ax = plt.subplots(1, 1, figsize=(8, 5), dpi=220)
+
+        xmin = dh.quantile(0.01)
+        xmax = dh.quantile(0.99)
+        ax.hist(dh.values, bins=128, range=(xmin, xmax), alpha=0.7, color="steelblue")
+
+        stats_text = f"n={n}\nMedian={med:+.2f} m\nNMAD={nmad:.2f} m"
+        ax.text(
+            0.02,
+            0.98,
+            stats_text,
+            transform=ax.transAxes,
+            verticalalignment="top",
+            fontsize=8,
+            fontfamily="monospace",
+            bbox=dict(boxstyle="round,pad=0.4", facecolor="white", alpha=0.9),
+        )
+
+        ax.set_xlabel(f"{instrument} - DEM (m)")
+        ax.set_ylabel("Count")
+        fig.suptitle(f"{title}\n(n={n})", size=10)
+        fig.tight_layout()
+        if save_dir and fig_fn:
+            save_figure(fig, save_dir, fig_fn)
 
     def plot_atl06sr_time_stamps(
         self,
