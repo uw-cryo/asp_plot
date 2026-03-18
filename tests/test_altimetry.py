@@ -124,6 +124,24 @@ class TestAltimetry:
             pytest.fail(f"alignment_report() method raised an exception: {str(e)}")
 
 
+class TestLazySlideruleInit:
+    """Test that SlideRule is not initialized during Altimetry construction."""
+
+    def test_no_sliderule_on_init(self):
+        alt = Altimetry(
+            directory="tests/test_data",
+            dem_fn="tests/test_data/stereo/date_time_left_right_1m-DEM.tif",
+        )
+        assert alt._sliderule_initialized is False
+
+    def test_planetary_points_initialized(self):
+        alt = Altimetry(
+            directory="tests/test_data",
+            dem_fn="tests/test_data/stereo/date_time_left_right_1m-DEM.tif",
+        )
+        assert alt.planetary_points is None
+
+
 class TestResolveTimeRange:
     @pytest.fixture
     def alt(self):

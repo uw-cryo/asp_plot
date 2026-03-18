@@ -128,8 +128,11 @@ class Altimetry:
         self.atl06sr_processing_levels = atl06sr_processing_levels
         self.atl06sr_processing_levels_filtered = atl06sr_processing_levels_filtered
 
-        # Initialize the SlideRule session (requires active connection)
-        sliderule_api.init("slideruleearth.io", verbose=True)
+        # Lazy SlideRule initialization — only needed for ICESat-2 methods
+        self._sliderule_initialized = False
+
+        # Planetary altimetry data (LOLA/MOLA)
+        self.planetary_points = None
 
         # TODO: Implement alongside request_atl03sr below
         # if atl03sr is not None and not isinstance(atl03sr, gpd.GeoDataFrame):
@@ -139,6 +142,151 @@ class Altimetry:
     # TODO: Implement ATL03 pull via x-series API: sliderule_api.run("atl03x", parms)
     # without the "fit" key to get photon-level data. Warning: this returns a very
     # large GeoDataFrame and should only be used for targeted profile visualizations.
+
+    def _ensure_sliderule(self):
+        """Initialize the SlideRule session on first use."""
+        if not self._sliderule_initialized:
+            sliderule_api.init("slideruleearth.io", verbose=True)
+            self._sliderule_initialized = True
+
+    # --- ODE GDS REST API client methods (for LOLA/MOLA) ---
+
+    GDS_BASE_URL = "https://oderest.rsl.wustl.edu/livegds"
+
+    @staticmethod
+    def _gds_query_async(query_type, bounds, results_code, email=None, **extra_params):
+        """Submit an async query to the ODE GDS REST API.
+
+        Parameters
+        ----------
+        query_type : str
+            GDS query type, e.g. ``"lolardr"`` or ``"molapedr"``.
+        bounds : dict
+            Dictionary with ``westernlon``, ``easternlon``, ``minlat``,
+            ``maxlat`` keys.
+        results_code : str
+            GDS results format code (e.g. ``"u"`` for LOLA, ``"v"`` for MOLA).
+        email : str or None, optional
+            Email for notification when query finishes.
+        **extra_params
+            Additional GDS query parameters (e.g. ``channel="ttttt"``).
+
+        Returns
+        -------
+        str
+            Job ID for polling.
+        """
+        import urllib.parse
+        import urllib.request
+        import xml.etree.ElementTree as ET
+
+        params = {
+            "query": query_type,
+            "results": results_code,
+            "westernlon": bounds["westernlon"],
+            "easternlon": bounds["easternlon"],
+            "minlat": bounds["minlat"],
+            "maxlat": bounds["maxlat"],
+            "async": "t",
+        }
+        if email:
+            params["email"] = email
+        params.update(extra_params)
+
+        url = f"{Altimetry.GDS_BASE_URL}?{urllib.parse.urlencode(params)}"
+        logger.info(f"GDS async query: {url}")
+        print(f"Submitting GDS query: {query_type} ...")
+
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            body = resp.read().decode("utf-8")
+
+        root = ET.fromstring(body)
+
+        # Look for job ID in the response
+        jobid_elem = root.find(".//Jobid")
+        if jobid_elem is None:
+            jobid_elem = root.find(".//jobid")
+        if jobid_elem is None:
+            raise RuntimeError(
+                f"GDS async submission failed — no Jobid in response:\n{body}"
+            )
+
+        return jobid_elem.text.strip()
+
+    @staticmethod
+    def _gds_poll_status(job_id, poll_interval=10, max_wait=600):
+        """Poll a GDS async job until completion.
+
+        Parameters
+        ----------
+        job_id : str
+            Job ID returned by :meth:`_gds_query_async`.
+        poll_interval : int, optional
+            Seconds between polls, default 10.
+        max_wait : int, optional
+            Maximum seconds to wait before raising, default 600.
+
+        Returns
+        -------
+        list of str
+            URLs of result files.
+        """
+        import time
+        import urllib.parse
+        import urllib.request
+        import xml.etree.ElementTree as ET
+
+        url = f"{Altimetry.GDS_BASE_URL}?{urllib.parse.urlencode({'query': 'status', 'jobid': job_id})}"
+        elapsed = 0
+        while elapsed < max_wait:
+            with urllib.request.urlopen(url, timeout=60) as resp:
+                body = resp.read().decode("utf-8")
+
+            root = ET.fromstring(body)
+            status_elem = root.find(".//Status")
+            if status_elem is None:
+                status_elem = root.find(".//status")
+            status = status_elem.text.strip() if status_elem is not None else "Unknown"
+
+            if status == "Finished":
+                # Extract result file URLs
+                urls = []
+                for elem in root.iter():
+                    if elem.text and elem.text.strip().startswith("http"):
+                        urls.append(elem.text.strip())
+                if not urls:
+                    raise RuntimeError(
+                        f"GDS job finished but no result URLs found:\n{body}"
+                    )
+                print(f"GDS query finished. {len(urls)} result file(s) available.")
+                return urls
+
+            if status == "Error":
+                raise RuntimeError(f"GDS query error:\n{body}")
+
+            print(f"  GDS job status: {status} (elapsed {elapsed}s)")
+            time.sleep(poll_interval)
+            elapsed += poll_interval
+
+        raise TimeoutError(f"GDS query timed out after {max_wait}s (job_id={job_id})")
+
+    @staticmethod
+    def _gds_download_csv(url, save_path):
+        """Download a GDS result file.
+
+        Parameters
+        ----------
+        url : str
+            URL of the result file.
+        save_path : str
+            Local path to save the file.
+        """
+        import urllib.request
+
+        print(f"Downloading GDS result to {save_path} ...")
+        urllib.request.urlretrieve(url, save_path)
+        print(f"  Download complete: {os.path.getsize(save_path)} bytes")
 
     def _resolve_time_range(self, scene_date=None, time_buffer_days=365):
         """
@@ -285,6 +433,8 @@ class Altimetry:
         ICESat-2 data points. The method includes filtering to improve data quality
         by removing points with high uncertainty and from early mission cycles.
         """
+        self._ensure_sliderule()
+
         if not region:
             region = Raster(self.dem_fn).get_bounds(latlon=True)
 

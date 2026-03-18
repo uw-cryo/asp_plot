@@ -184,6 +184,137 @@ def get_xml_tag(xml, tag, all=False):
     return elem
 
 
+def detect_planetary_body(dem_fn):
+    """Detect planetary body from DEM CRS WKT.
+
+    Inspects the DATUM/ELLIPSOID fields of the DEM's CRS WKT string to
+    determine the planetary body.  ASP's ``point2dem`` consistently encodes
+    the body name in these fields regardless of projection type.
+
+    Parameters
+    ----------
+    dem_fn : str
+        Path to the DEM file.
+
+    Returns
+    -------
+    str
+        One of ``"earth"``, ``"moon"``, or ``"mars"``.
+    """
+    raster = Raster(dem_fn)
+    wkt = raster.ds.crs.to_wkt()
+    wkt_upper = wkt.upper()
+    if "D_MOON" in wkt_upper or '"MOON"' in wkt_upper:
+        return "moon"
+    elif "D_MARS" in wkt_upper or '"MARS"' in wkt_upper:
+        return "mars"
+    else:
+        return "earth"
+
+
+def get_planetary_bounds(dem_fn, body=None):
+    """Get DEM bounds in planetocentric lon/lat with 0-360 east-positive longitude.
+
+    Reprojects the DEM's native-CRS bounding box into the body's geographic
+    coordinate system, which is the format required by the ODE GDS REST API.
+
+    Parameters
+    ----------
+    dem_fn : str
+        Path to the DEM file.
+    body : str or None, optional
+        Planetary body (``"earth"``, ``"moon"``, ``"mars"``).  If None,
+        auto-detected from the DEM CRS via :func:`detect_planetary_body`.
+
+    Returns
+    -------
+    dict
+        Dictionary with keys ``westernlon``, ``easternlon``, ``minlat``,
+        ``maxlat`` in planetocentric coordinates with east-positive 0-360
+        longitude.
+    """
+    from pyproj import CRS, Transformer
+
+    if body is None:
+        body = detect_planetary_body(dem_fn)
+
+    raster = Raster(dem_fn)
+    bounds = raster.ds.bounds  # left, bottom, right, top
+    src_crs = raster.ds.crs
+
+    # Build a geographic CRS for the body from the DEM's own ellipsoid
+    ellipsoid = CRS(src_crs).ellipsoid
+    if ellipsoid is not None:
+        semi_major = ellipsoid.semi_major_metre
+        inv_flat = ellipsoid.inverse_flattening
+    else:
+        # Fallback values for known bodies
+        _body_radii = {
+            "moon": (1737400.0, 0.0),
+            "mars": (3396190.0, 0.0),
+            "earth": (6378137.0, 298.257223563),
+        }
+        semi_major, inv_flat = _body_radii.get(body, (6378137.0, 298.257223563))
+
+    # Construct a geographic CRS from the ellipsoid parameters
+    geo_crs = CRS.from_json_dict(
+        {
+            "$schema": "https://proj.org/schemas/v0.7/projjson.schema.json",
+            "type": "GeographicCRS",
+            "name": f"{body.title()} Geographic",
+            "datum": {
+                "type": "GeodeticReferenceFrame",
+                "name": f"D_{body.upper()}",
+                "ellipsoid": {
+                    "name": body.upper(),
+                    "semi_major_axis": semi_major,
+                    "inverse_flattening": inv_flat if inv_flat != 0 else 1e30,
+                },
+            },
+            "coordinate_system": {
+                "subtype": "ellipsoidal",
+                "axis": [
+                    {
+                        "name": "Latitude",
+                        "abbreviation": "lat",
+                        "direction": "north",
+                        "unit": "degree",
+                    },
+                    {
+                        "name": "Longitude",
+                        "abbreviation": "lon",
+                        "direction": "east",
+                        "unit": "degree",
+                    },
+                ],
+            },
+        }
+    )
+
+    transformer = Transformer.from_crs(src_crs, geo_crs, always_xy=True)
+
+    # Transform all four corners to get full extent
+    xs = [bounds.left, bounds.right, bounds.left, bounds.right]
+    ys = [bounds.bottom, bounds.bottom, bounds.top, bounds.top]
+    lons, lats = transformer.transform(xs, ys)
+
+    minlat = min(lats)
+    maxlat = max(lats)
+    minlon = min(lons)
+    maxlon = max(lons)
+
+    # Convert longitude to 0-360 range
+    def _to_360(lon):
+        return lon % 360.0
+
+    return {
+        "westernlon": _to_360(minlon),
+        "easternlon": _to_360(maxlon),
+        "minlat": minlat,
+        "maxlat": maxlat,
+    }
+
+
 def get_utm_epsg(lon, lat):
     """
     Get the UTM EPSG code for a given longitude and latitude.
