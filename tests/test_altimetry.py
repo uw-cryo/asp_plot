@@ -2,7 +2,9 @@ from datetime import datetime, timezone
 
 import geopandas as gpd
 import matplotlib
+import numpy as np
 import pytest
+from shapely.geometry import Point
 
 from asp_plot.altimetry import ICESAT2_MISSION_START, Altimetry
 
@@ -189,3 +191,66 @@ class TestResolveTimeRange:
         assert alt._scene_date == datetime(2022, 6, 15, tzinfo=timezone.utc)
         assert alt._t0 == datetime(2021, 6, 15, tzinfo=timezone.utc)
         assert alt._t1 == datetime(2023, 6, 15, tzinfo=timezone.utc)
+
+
+class TestPlanetaryDh:
+    """Test planetary altimetry dh computation with the Earth test DEM."""
+
+    @pytest.fixture
+    def alt_with_points(self):
+        """Create Altimetry instance with mock planetary points."""
+        alt = Altimetry(
+            directory="tests/test_data",
+            dem_fn="tests/test_data/stereo/date_time_left_right_1m-DEM.tif",
+        )
+
+        # Get the DEM bounds in latlon to create points within the DEM extent
+        from asp_plot.utils import Raster
+
+        raster = Raster(alt.dem_fn)
+        bounds = raster.get_bounds(latlon=True, json_format=False)
+        # bounds = (min_lon, min_lat, max_lon, max_lat)
+        lon_min, lat_min, lon_max, lat_max = bounds
+
+        # Create a small grid of points inside the DEM
+        lons = np.linspace(lon_min + 0.001, lon_max - 0.001, 5)
+        lats = np.linspace(lat_min + 0.001, lat_max - 0.001, 5)
+        lon_grid, lat_grid = np.meshgrid(lons, lats)
+        lon_flat = lon_grid.flatten()
+        lat_flat = lat_grid.flatten()
+
+        # Assign mock height values (just use 100m for simplicity)
+        heights = np.full(len(lon_flat), 100.0)
+
+        gdf = gpd.GeoDataFrame(
+            {"height": heights, "lon": lon_flat, "lat": lat_flat},
+            geometry=[Point(x, y) for x, y in zip(lon_flat, lat_flat)],
+            crs="EPSG:4326",
+        )
+        alt.planetary_points = gdf
+        return alt
+
+    def test_planetary_to_dem_dh(self, alt_with_points):
+        """Test that dh is computed and stored."""
+        alt_with_points.planetary_to_dem_dh()
+        assert "dem_height" in alt_with_points.planetary_points.columns
+        assert "altimetry_minus_dem" in alt_with_points.planetary_points.columns
+        # At least some valid dh values
+        valid = alt_with_points.planetary_points["altimetry_minus_dem"].dropna()
+        assert len(valid) > 0
+
+    def test_mapview_plot_planetary_to_dem(self, alt_with_points):
+        """Test that map view plot runs without error."""
+        alt_with_points.planetary_to_dem_dh()
+        try:
+            alt_with_points.mapview_plot_planetary_to_dem()
+        except Exception as e:
+            pytest.fail(f"mapview_plot_planetary_to_dem raised: {e}")
+
+    def test_histogram_planetary_to_dem(self, alt_with_points):
+        """Test that histogram plot runs without error."""
+        alt_with_points.planetary_to_dem_dh()
+        try:
+            alt_with_points.histogram_planetary_to_dem()
+        except Exception as e:
+            pytest.fail(f"histogram_planetary_to_dem raised: {e}")
