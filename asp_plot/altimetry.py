@@ -929,64 +929,37 @@ class Altimetry:
     #  Planetary altimetry: LOLA (Moon) and MOLA (Mars) via ODE GDS API  #
     # ------------------------------------------------------------------ #
 
-    def load_planetary_zip(self, zip_path):
-        """Load LOLA or MOLA altimetry data from a downloaded GDS zip file.
+    def load_planetary_csv(self, csv_path):
+        """Load LOLA or MOLA altimetry data from a GDS topo CSV file.
 
-        The zip file is obtained via the ``request_planetary_altimetry``
-        CLI tool, which submits an async query to the ODE GDS API and
-        emails the user a download link.
+        The CSV is obtained via the ``request_planetary_altimetry`` CLI
+        tool, which submits an async query to the ODE GDS API and emails
+        the user a download link.  The user downloads and unzips the
+        result, then passes the ``*_topo_csv.csv`` file here.
 
-        Automatically detects whether the zip contains LOLA or MOLA data
-        based on filenames and loads the appropriate CSV.
+        Automatically selects the LOLA or MOLA parser based on the DEM's
+        planetary body.
 
         Parameters
         ----------
-        zip_path : str
-            Path to the downloaded .zip file from the ODE GDS.
+        csv_path : str
+            Path to a ``*_topo_csv.csv`` file from the ODE GDS.
         """
-        import zipfile
-
         from asp_plot.utils import detect_planetary_body
 
-        if not os.path.exists(zip_path):
-            raise FileNotFoundError(f"Altimetry zip not found: {zip_path}")
+        if not os.path.exists(csv_path):
+            raise FileNotFoundError(f"Altimetry CSV not found: {csv_path}")
 
         body = detect_planetary_body(self.dem_fn)
 
-        with zipfile.ZipFile(zip_path, "r") as zf:
-            names = zf.namelist()
-            # Find the topo CSV inside the zip
-            topo_csv = None
-            for name in names:
-                if "topo_csv" in name and name.endswith(".csv"):
-                    topo_csv = name
-                    break
-            # Fallback: any CSV
-            if topo_csv is None:
-                for name in names:
-                    if name.endswith(".csv"):
-                        topo_csv = name
-                        break
-
-            if topo_csv is None:
-                raise ValueError(
-                    f"No CSV file found in {zip_path}. " f"Contents: {names}"
-                )
-
-            # Extract to a temp location alongside the zip
-            extract_dir = os.path.splitext(zip_path)[0]
-            zf.extract(topo_csv, extract_dir)
-            csv_path = os.path.join(extract_dir, topo_csv)
-
-        print(f"Extracted {topo_csv} from {os.path.basename(zip_path)}")
-
-        if body == "moon" or "lola" in topo_csv.lower():
+        if body == "moon":
             self._load_lola_csv(csv_path)
-        elif body == "mars" or "mola" in topo_csv.lower():
+        elif body == "mars":
             self._load_mola_csv(csv_path)
         else:
             raise ValueError(
-                f"Cannot determine data type for body={body} " f"from file {topo_csv}"
+                f"Planetary altimetry CSV loading is not supported for "
+                f"body={body}. Use ICESat-2 for Earth DEMs."
             )
 
     def _load_lola_csv(self, csv_path):
@@ -999,8 +972,19 @@ class Altimetry:
         ----------
         csv_path : str
             Path to the CSV file.
+
+        Raises
+        ------
+        ValueError
+            If the CSV does not contain the expected columns.
         """
         df = pd.read_csv(csv_path)
+
+        if df.empty:
+            raise ValueError(
+                f"LOLA CSV is empty: {csv_path}\n"
+                "The query area may have no LOLA coverage."
+            )
 
         # Normalise column names (GDS sometimes uses different capitalisation)
         cols = {c.strip().lower(): c for c in df.columns}
@@ -1009,8 +993,13 @@ class Altimetry:
         topo_col = cols.get("topography") or cols.get("topo")
 
         if lon_col is None or lat_col is None or topo_col is None:
-            # Fallback: assume positional order lon, lat, topo
-            lon_col, lat_col, topo_col = df.columns[0], df.columns[1], df.columns[2]
+            raise ValueError(
+                f"LOLA CSV does not have expected columns.\n"
+                f"  Found: {list(df.columns)}\n"
+                f"  Expected: Pt_Longitude, Pt_Latitude, Topography\n\n"
+                f"Make sure you are using the '*_topo_csv.csv' file from the "
+                f"ODE GDS download, not the '*_pts_csv.csv' or label file."
+            )
 
         df = df.rename(columns={lon_col: "lon", lat_col: "lat", topo_col: "height"})
 
@@ -1041,8 +1030,19 @@ class Altimetry:
         ----------
         csv_path : str
             Path to the CSV file.
+
+        Raises
+        ------
+        ValueError
+            If the CSV does not contain the expected columns.
         """
         df = pd.read_csv(csv_path)
+
+        if df.empty:
+            raise ValueError(
+                f"MOLA CSV is empty: {csv_path}\n"
+                "The query area may have no MOLA coverage."
+            )
 
         # Normalise column names
         cols_lower = {c.strip().lower(): c for c in df.columns}
@@ -1090,12 +1090,13 @@ class Altimetry:
                     break
 
         if lon_col is None or lat_col is None or height_col is None:
-            # Fallback: use positional
-            logger.warning(
-                f"Could not identify MOLA CSV columns: {list(df.columns)}. "
-                "Using first three columns as lon, lat, height."
+            raise ValueError(
+                f"MOLA CSV does not have expected columns.\n"
+                f"  Found: {list(df.columns)}\n"
+                f"  Expected: LONG_EAST, LAT_NORTH, TOPOGRAPHY\n\n"
+                f"Make sure you are using the '*_topo_csv.csv' file from the "
+                f"ODE GDS download, not the '*_pts_csv.csv' or label file."
             )
-            lon_col, lat_col, height_col = df.columns[0], df.columns[1], df.columns[2]
 
         df = df.rename(
             columns={lon_col: "lon", lat_col: "lat", height_col: "height_raw"}

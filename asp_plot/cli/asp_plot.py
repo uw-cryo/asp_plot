@@ -69,7 +69,7 @@ from asp_plot.utils import Raster, detect_planetary_body
     "--plot_altimetry",
     prompt=False,
     default=True,
-    help="If True, plot altimetry comparisons (ICESat-2 for Earth, LOLA for Moon, MOLA for Mars). For planetary DEMs, requires --altimetry_zip. Default: True.",
+    help="If True, plot altimetry comparisons (ICESat-2 for Earth, LOLA for Moon, MOLA for Mars). For planetary DEMs, requires --altimetry_csv. Default: True.",
 )
 @click.option(
     "--plot_icesat",
@@ -78,11 +78,11 @@ from asp_plot.utils import Raster, detect_planetary_body
     help="Deprecated: use --plot_altimetry instead. Kept for backward compatibility.",
 )
 @click.option(
-    "--altimetry_zip",
+    "--altimetry_csv",
     prompt=False,
     default=None,
     type=click.Path(exists=True),
-    help="Path to a downloaded LOLA/MOLA .zip file from the ODE GDS API. Required for planetary altimetry plots. Obtain via: request_planetary_altimetry --dem <dem> --email <email>",
+    help="Path to a LOLA/MOLA *_topo_csv.csv file from the ODE GDS API. Required for planetary altimetry plots. Obtain via: request_planetary_altimetry --dem <dem> --email <email>, then download and unzip the result.",
 )
 @click.option(
     "--plot_geometry",
@@ -119,7 +119,7 @@ def main(
     add_basemap,
     plot_altimetry,
     plot_icesat,
-    altimetry_zip,
+    altimetry_csv,
     plot_geometry,
     subset_km,
     report_filename,
@@ -504,21 +504,21 @@ def main(
         elif body in ("moon", "mars"):
             instrument = {"moon": "LOLA", "mars": "MOLA"}[body]
 
-            if not altimetry_zip:
+            if not altimetry_csv:
                 print(
                     f"\n{'='*60}\n"
                     f"Planetary altimetry requires a pre-downloaded data file.\n\n"
                     f"To obtain {instrument} data for this DEM:\n"
                     f"  1. Run: request_planetary_altimetry --dem {asp_dem} --email <your_email>\n"
                     f"  2. Wait for the email with a download link\n"
-                    f"  3. Download the .zip file\n"
-                    f"  4. Re-run asp_plot with: --altimetry_zip <path_to_zip>\n"
+                    f"  3. Download and unzip the result\n"
+                    f"  4. Re-run asp_plot with: --altimetry_csv <path_to_topo_csv.csv>\n"
                     f"\nSkipping {instrument} altimetry plots.\n"
                     f"{'='*60}\n"
                 )
             else:
                 alt = Altimetry(directory=directory, dem_fn=asp_dem)
-                alt.load_planetary_zip(altimetry_zip)
+                alt.load_planetary_csv(altimetry_csv)
                 alt.planetary_to_dem_dh()
 
                 fig_fn = f"{next(figure_counter):02}.png"

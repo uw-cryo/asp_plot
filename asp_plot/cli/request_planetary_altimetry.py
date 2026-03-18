@@ -33,13 +33,13 @@ def main(dem, email, channels):
       1. Run this command with your DEM and email
       2. Wait for the email notification (may take minutes to hours)
       3. Download the .zip file from the link in the email
-      4. Pass the .zip to asp_plot via --altimetry_zip
+      4. Unzip and pass the *_topo_csv.csv to asp_plot via --altimetry_csv
 
     \b
     Example:
       request_planetary_altimetry --dem stereo/output-DEM.tif --email user@example.com
       # ... wait for email, download zip ...
-      asp_plot --directory ./ --altimetry_zip /path/to/downloaded.zip
+      asp_plot --directory ./ --altimetry_csv /path/to/*_topo_csv.csv
     """
     body = detect_planetary_body(dem)
 
@@ -83,8 +83,8 @@ def _submit_lola(bounds, email, channels):
         click.echo(f"  Email:  {email}")
         click.echo(
             "\nYou will receive an email when the data is ready. "
-            "Download the .zip file, then pass it to asp_plot:\n"
-            "  asp_plot --directory <dir> --altimetry_zip <downloaded.zip>\n"
+            "Download and unzip the result, then pass the *_topo_csv.csv to asp_plot:\n"
+            "  asp_plot --directory <dir> --altimetry_csv <*_topo_csv.csv>\n"
         )
     except Exception as e:
         click.echo(f"\nError submitting LOLA query: {e}", err=True)
@@ -108,8 +108,8 @@ def _submit_mola(bounds, email):
         click.echo(f"  Email:  {email}")
         click.echo(
             "\nYou will receive an email when the data is ready. "
-            "Download the .zip file, then pass it to asp_plot:\n"
-            "  asp_plot --directory <dir> --altimetry_zip <downloaded.zip>\n"
+            "Download and unzip the result, then pass the *_topo_csv.csv to asp_plot:\n"
+            "  asp_plot --directory <dir> --altimetry_csv <*_topo_csv.csv>\n"
         )
     except Exception as e:
         click.echo(f"\nError submitting MOLA query: {e}", err=True)
