@@ -69,13 +69,20 @@ from asp_plot.utils import Raster, detect_planetary_body
     "--plot_altimetry",
     prompt=False,
     default=True,
-    help="If True, plot altimetry comparisons (ICESat-2 for Earth, LOLA for Moon, MOLA for Mars). Requires internet connection. Default: True.",
+    help="If True, plot altimetry comparisons (ICESat-2 for Earth, LOLA for Moon, MOLA for Mars). For planetary DEMs, requires --altimetry_zip. Default: True.",
 )
 @click.option(
     "--plot_icesat",
     prompt=False,
     default=None,
     help="Deprecated: use --plot_altimetry instead. Kept for backward compatibility.",
+)
+@click.option(
+    "--altimetry_zip",
+    prompt=False,
+    default=None,
+    type=click.Path(exists=True),
+    help="Path to a downloaded LOLA/MOLA .zip file from the ODE GDS API. Required for planetary altimetry plots. Obtain via: request_planetary_altimetry --dem <dem> --email <email>",
 )
 @click.option(
     "--plot_geometry",
@@ -112,6 +119,7 @@ def main(
     add_basemap,
     plot_altimetry,
     plot_icesat,
+    altimetry_zip,
     plot_geometry,
     subset_km,
     report_filename,
@@ -493,67 +501,51 @@ def main(
                 )
             )
 
-        elif body == "moon":
-            alt = Altimetry(directory=directory, dem_fn=asp_dem)
-            alt.request_lola(save_to_csv=True)
-            alt.planetary_to_dem_dh()
+        elif body in ("moon", "mars"):
+            instrument = {"moon": "LOLA", "mars": "MOLA"}[body]
 
-            fig_fn = f"{next(figure_counter):02}.png"
-            alt.mapview_plot_planetary_to_dem(
-                save_dir=plots_directory,
-                fig_fn=fig_fn,
-            )
-            sections.append(
-                ReportSection(
-                    title="LOLA Altimetry Map",
-                    image_path=os.path.join(plots_directory, fig_fn),
-                    caption="LOLA elevation differences vs. ASP DEM.",
+            if not altimetry_zip:
+                print(
+                    f"\n{'='*60}\n"
+                    f"Planetary altimetry requires a pre-downloaded data file.\n\n"
+                    f"To obtain {instrument} data for this DEM:\n"
+                    f"  1. Run: request_planetary_altimetry --dem {asp_dem} --email <your_email>\n"
+                    f"  2. Wait for the email with a download link\n"
+                    f"  3. Download the .zip file\n"
+                    f"  4. Re-run asp_plot with: --altimetry_zip <path_to_zip>\n"
+                    f"\nSkipping {instrument} altimetry plots.\n"
+                    f"{'='*60}\n"
                 )
-            )
+            else:
+                alt = Altimetry(directory=directory, dem_fn=asp_dem)
+                alt.load_planetary_zip(altimetry_zip)
+                alt.planetary_to_dem_dh()
 
-            fig_fn = f"{next(figure_counter):02}.png"
-            alt.histogram_planetary_to_dem(
-                save_dir=plots_directory,
-                fig_fn=fig_fn,
-            )
-            sections.append(
-                ReportSection(
-                    title="LOLA Altimetry Histogram",
-                    image_path=os.path.join(plots_directory, fig_fn),
-                    caption="Distribution of elevation differences between LOLA and ASP DEM.",
+                fig_fn = f"{next(figure_counter):02}.png"
+                alt.mapview_plot_planetary_to_dem(
+                    save_dir=plots_directory,
+                    fig_fn=fig_fn,
                 )
-            )
-
-        elif body == "mars":
-            alt = Altimetry(directory=directory, dem_fn=asp_dem)
-            alt.request_mola(save_to_csv=True)
-            alt.planetary_to_dem_dh()
-
-            fig_fn = f"{next(figure_counter):02}.png"
-            alt.mapview_plot_planetary_to_dem(
-                save_dir=plots_directory,
-                fig_fn=fig_fn,
-            )
-            sections.append(
-                ReportSection(
-                    title="MOLA Altimetry Map",
-                    image_path=os.path.join(plots_directory, fig_fn),
-                    caption="MOLA elevation differences vs. ASP DEM.",
+                sections.append(
+                    ReportSection(
+                        title=f"{instrument} Altimetry Map",
+                        image_path=os.path.join(plots_directory, fig_fn),
+                        caption=f"{instrument} elevation differences vs. ASP DEM.",
+                    )
                 )
-            )
 
-            fig_fn = f"{next(figure_counter):02}.png"
-            alt.histogram_planetary_to_dem(
-                save_dir=plots_directory,
-                fig_fn=fig_fn,
-            )
-            sections.append(
-                ReportSection(
-                    title="MOLA Altimetry Histogram",
-                    image_path=os.path.join(plots_directory, fig_fn),
-                    caption="Distribution of elevation differences between MOLA and ASP DEM.",
+                fig_fn = f"{next(figure_counter):02}.png"
+                alt.histogram_planetary_to_dem(
+                    save_dir=plots_directory,
+                    fig_fn=fig_fn,
                 )
-            )
+                sections.append(
+                    ReportSection(
+                        title=f"{instrument} Altimetry Histogram",
+                        image_path=os.path.join(plots_directory, fig_fn),
+                        caption=f"Distribution of elevation differences between {instrument} and ASP DEM.",
+                    )
+                )
 
     # Compile report
     processing_parameters = ProcessingParameters(

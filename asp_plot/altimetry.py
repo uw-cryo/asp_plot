@@ -1006,76 +1006,65 @@ class Altimetry:
     #  Planetary altimetry: LOLA (Moon) and MOLA (Mars) via ODE GDS API  #
     # ------------------------------------------------------------------ #
 
-    def request_lola(
-        self,
-        region=None,
-        channels="ttttt",
-        email=None,
-        save_to_csv=True,
-        poll_interval=10,
-        max_wait=600,
-    ):
-        """Request LOLA RDR altimetry data within the DEM bounds.
+    def load_planetary_zip(self, zip_path):
+        """Load LOLA or MOLA altimetry data from a downloaded GDS zip file.
 
-        Queries the ODE Granular Data System (GDS) REST API for Lunar
-        Orbiter Laser Altimeter (LOLA) data.  Results are stored in
-        ``self.planetary_points`` as a GeoDataFrame.
+        The zip file is obtained via the ``request_planetary_altimetry``
+        CLI tool, which submits an async query to the ODE GDS API and
+        emails the user a download link.
+
+        Automatically detects whether the zip contains LOLA or MOLA data
+        based on filenames and loads the appropriate CSV.
 
         Parameters
         ----------
-        region : dict or None, optional
-            Bounding box as ``{westernlon, easternlon, minlat, maxlat}``
-            in 0-360 longitude.  If None, derived from the DEM.
-        channels : str, optional
-            LOLA detector channels to include, default ``"ttttt"`` (all 5).
-        email : str or None, optional
-            Email for GDS job notification.
-        save_to_csv : bool, optional
-            Cache the downloaded CSV locally, default True.
-        poll_interval : int, optional
-            Seconds between status polls, default 10.
-        max_wait : int, optional
-            Maximum seconds to wait for the query, default 600.
+        zip_path : str
+            Path to the downloaded .zip file from the ODE GDS.
         """
-        from asp_plot.utils import get_planetary_bounds
+        import zipfile
 
-        if region is None:
-            region = get_planetary_bounds(self.dem_fn, body="moon")
+        from asp_plot.utils import detect_planetary_body
 
-        # Check for cached CSV
-        csv_fn = os.path.join(self.directory, "lola_points.csv")
-        if os.path.exists(csv_fn):
-            print(f"Loading cached LOLA data from {csv_fn}")
-            self._load_lola_csv(csv_fn)
-            return
+        if not os.path.exists(zip_path):
+            raise FileNotFoundError(f"Altimetry zip not found: {zip_path}")
 
-        job_id = self._gds_query_async(
-            "lolardr",
-            region,
-            "u",
-            email=email,
-            channel=channels,
-        )
-        urls = self._gds_poll_status(
-            job_id, poll_interval=poll_interval, max_wait=max_wait
-        )
+        body = detect_planetary_body(self.dem_fn)
 
-        # Download the CSV — pick the first CSV/text URL
-        csv_url = None
-        for u in urls:
-            if u.endswith(".csv") or u.endswith(".txt") or "result" in u.lower():
-                csv_url = u
-                break
-        if csv_url is None:
-            csv_url = urls[0]
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            names = zf.namelist()
+            # Find the topo CSV inside the zip
+            topo_csv = None
+            for name in names:
+                if "topo_csv" in name and name.endswith(".csv"):
+                    topo_csv = name
+                    break
+            # Fallback: any CSV
+            if topo_csv is None:
+                for name in names:
+                    if name.endswith(".csv"):
+                        topo_csv = name
+                        break
 
-        download_path = os.path.join(self.directory, "lola_download.csv")
-        self._gds_download_csv(csv_url, download_path)
-        self._load_lola_csv(download_path)
+            if topo_csv is None:
+                raise ValueError(
+                    f"No CSV file found in {zip_path}. " f"Contents: {names}"
+                )
 
-        if save_to_csv:
-            self.planetary_points.to_csv(csv_fn, index=False)
-            print(f"Saved LOLA points to {csv_fn}")
+            # Extract to a temp location alongside the zip
+            extract_dir = os.path.splitext(zip_path)[0]
+            zf.extract(topo_csv, extract_dir)
+            csv_path = os.path.join(extract_dir, topo_csv)
+
+        print(f"Extracted {topo_csv} from {os.path.basename(zip_path)}")
+
+        if body == "moon" or "lola" in topo_csv.lower():
+            self._load_lola_csv(csv_path)
+        elif body == "mars" or "mola" in topo_csv.lower():
+            self._load_mola_csv(csv_path)
+        else:
+            raise ValueError(
+                f"Cannot determine data type for body={body} " f"from file {topo_csv}"
+            )
 
     def _load_lola_csv(self, csv_path):
         """Parse a LOLA simple-topography CSV into a GeoDataFrame.
@@ -1112,79 +1101,6 @@ class Altimetry:
         )
         self.planetary_points = gdf
         print(f"Loaded {len(gdf)} LOLA points")
-
-    def request_mola(
-        self,
-        region=None,
-        email=None,
-        save_to_csv=True,
-        poll_interval=10,
-        max_wait=600,
-    ):
-        """Request MOLA PEDR altimetry data within the DEM bounds.
-
-        Queries the ODE GDS REST API for Mars Orbiter Laser Altimeter
-        (MOLA) PEDR data.  A -190 m correction is applied to convert
-        MOLA radius values (referenced to 3,396,000 m) to heights above
-        the IAU sphere (3,396,190 m) used by ASP's ``point2dem``.
-
-        Parameters
-        ----------
-        region : dict or None, optional
-            Bounding box as ``{westernlon, easternlon, minlat, maxlat}``
-            in 0-360 longitude.  If None, derived from the DEM.
-        email : str or None, optional
-            Email for GDS job notification.
-        save_to_csv : bool, optional
-            Cache the downloaded CSV locally, default True.
-        poll_interval : int, optional
-            Seconds between status polls, default 10.
-        max_wait : int, optional
-            Maximum seconds to wait for the query, default 600.
-        """
-        from asp_plot.utils import get_planetary_bounds
-
-        if region is None:
-            region = get_planetary_bounds(self.dem_fn, body="mars")
-
-        # Check for cached CSV
-        csv_fn = os.path.join(self.directory, "mola_points.csv")
-        if os.path.exists(csv_fn):
-            print(f"Loading cached MOLA data from {csv_fn}")
-            self._load_mola_csv(csv_fn)
-            return
-
-        job_id = self._gds_query_async(
-            "molapedr",
-            region,
-            "v",
-            email=email,
-        )
-        urls = self._gds_poll_status(
-            job_id, poll_interval=poll_interval, max_wait=max_wait
-        )
-
-        # Download the topo CSV (prefer topo_csv over pts_csv)
-        csv_url = None
-        for u in urls:
-            if "topo_csv" in u and u.endswith(".csv"):
-                csv_url = u
-                break
-        if csv_url is None:
-            for u in urls:
-                if u.endswith(".csv"):
-                    csv_url = u
-                    break
-        if csv_url is None:
-            csv_url = urls[0]
-
-        download_path = os.path.join(self.directory, "mola_download.csv")
-        self._gds_download_csv(csv_url, download_path)
-        self._load_mola_csv(download_path)
-
-        if save_to_csv:
-            self.planetary_points.to_csv(csv_fn, index=False)
-            print(f"Saved MOLA points to {csv_fn}")
 
     def _load_mola_csv(self, csv_path):
         """Parse a MOLA PEDR CSV into a GeoDataFrame.
