@@ -1164,12 +1164,17 @@ class Altimetry:
             job_id, poll_interval=poll_interval, max_wait=max_wait
         )
 
-        # Download the CSV
+        # Download the topo CSV (prefer topo_csv over pts_csv)
         csv_url = None
         for u in urls:
-            if u.endswith(".csv") or u.endswith(".txt") or "result" in u.lower():
+            if "topo_csv" in u and u.endswith(".csv"):
                 csv_url = u
                 break
+        if csv_url is None:
+            for u in urls:
+                if u.endswith(".csv"):
+                    csv_url = u
+                    break
         if csv_url is None:
             csv_url = urls[0]
 
@@ -1184,11 +1189,14 @@ class Altimetry:
     def _load_mola_csv(self, csv_path):
         """Parse a MOLA PEDR CSV into a GeoDataFrame.
 
-        The ``results=v`` format returns a CSV with columns including
-        longitude, latitude, and topography/radius values.  A -190 m
-        correction is applied if values appear to be MOLA radius
-        (referenced to 3,396,000 m sphere) to convert to height above
-        the IAU sphere (3,396,190 m) that ASP uses.
+        The ``results=v`` format returns two CSVs: a topo CSV
+        (``LONG_EAST, LAT_NORTH, TOPOGRAPHY, UTC``) and a pts CSV
+        with additional columns.  The topo CSV is preferred.
+
+        If TOPOGRAPHY is found, values are used directly (height above
+        areoid).  If only PLANET_RAD (radius) is found, a -190 m
+        correction converts from the MOLA sphere (3,396,000 m) to the
+        IAU sphere (3,396,190 m) used by ASP.
 
         Parameters
         ----------
@@ -1201,18 +1209,30 @@ class Altimetry:
         cols_lower = {c.strip().lower(): c for c in df.columns}
 
         # Find lon/lat columns
+        # GDS returns: LONG_EAST, LAT_NORTH, TOPOGRAPHY (+ more in pts_csv)
         lon_col = None
         lat_col = None
-        for candidate in ["longitude", "pt_longitude", "areocentric_longitude"]:
+        for candidate in [
+            "long_east",
+            "longitude",
+            "pt_longitude",
+            "areocentric_longitude",
+        ]:
             if candidate in cols_lower:
                 lon_col = cols_lower[candidate]
                 break
-        for candidate in ["latitude", "pt_latitude", "areocentric_latitude"]:
+        for candidate in [
+            "lat_north",
+            "latitude",
+            "pt_latitude",
+            "areocentric_latitude",
+        ]:
             if candidate in cols_lower:
                 lat_col = cols_lower[candidate]
                 break
 
         # Find height column — prefer topography, fall back to radius
+        # GDS topo CSV returns TOPOGRAPHY which is height above areoid
         height_col = None
         is_radius = False
         for candidate in ["topography", "topo"]:
@@ -1220,7 +1240,11 @@ class Altimetry:
                 height_col = cols_lower[candidate]
                 break
         if height_col is None:
-            for candidate in ["radius", "planetary_radius"]:
+            for candidate in [
+                "planet_rad",
+                "radius",
+                "planetary_radius",
+            ]:
                 if candidate in cols_lower:
                     height_col = cols_lower[candidate]
                     is_radius = True
