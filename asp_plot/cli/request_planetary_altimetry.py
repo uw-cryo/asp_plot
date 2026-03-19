@@ -1,6 +1,9 @@
+import os
 import sys
+from datetime import datetime, timezone
 
 import click
+import yaml
 
 from asp_plot.utils import detect_planetary_body, get_planetary_bounds
 
@@ -32,15 +35,17 @@ def main(dem, email, channels):
     Workflow:
       1. Run this command with your DEM and email
       2. Wait for the email notification (may take minutes to hours)
-      3. Download the .zip file from the link in the email
-      4. Unzip and pass the *_topo_csv.csv to asp_plot via --altimetry_csv
+      3. Download and unzip the result
+      4. Pass the *_topo_csv.csv to asp_plot via --altimetry_csv
 
     \b
     Example:
       request_planetary_altimetry --dem stereo/output-DEM.tif --email user@example.com
-      # ... wait for email, download zip ...
+      # ... wait for email, download and unzip ...
       asp_plot --directory ./ --altimetry_csv /path/to/*_topo_csv.csv
     """
+    from asp_plot.altimetry import Altimetry
+
     body = detect_planetary_body(dem)
 
     if body == "earth":
@@ -52,6 +57,8 @@ def main(dem, email, channels):
         sys.exit(0)
 
     bounds = get_planetary_bounds(dem, body=body)
+    dem_abs = os.path.abspath(dem)
+
     click.echo(f"\nDetected body: {body}")
     click.echo(
         f"DEM bounds (0-360 lon): "
@@ -59,61 +66,65 @@ def main(dem, email, channels):
         f"lat [{bounds['minlat']:.4f}, {bounds['maxlat']:.4f}]"
     )
 
+    # Build query parameters
     if body == "moon":
-        _submit_lola(bounds, email, channels)
-    elif body == "mars":
-        _submit_mola(bounds, email)
+        query_type = "lolardr"
+        results_code = "u"
+        instrument = "LOLA"
+        extra_params = {"channel": channels}
+    else:
+        query_type = "molapedr"
+        results_code = "v"
+        instrument = "MOLA"
+        extra_params = {}
 
-
-def _submit_lola(bounds, email, channels):
-    """Submit an async LOLA RDR query."""
-    from asp_plot.altimetry import Altimetry
-
-    click.echo(f"\nSubmitting LOLA query (channels={channels}) ...")
+    click.echo(f"\nSubmitting {instrument} query ...")
     try:
         job_id = Altimetry._gds_query_async(
-            "lolardr",
+            query_type,
             bounds,
-            "u",
+            results_code,
             email=email,
-            channel=channels,
-        )
-        click.echo("\nLOLA query submitted successfully!")
-        click.echo(f"  Job ID: {job_id}")
-        click.echo(f"  Email:  {email}")
-        click.echo(
-            "\nYou will receive an email when the data is ready. "
-            "Download and unzip the result, then pass the *_topo_csv.csv to asp_plot:\n"
-            "  asp_plot --directory <dir> --altimetry_csv <*_topo_csv.csv>\n"
+            **extra_params,
         )
     except Exception as e:
-        click.echo(f"\nError submitting LOLA query: {e}", err=True)
+        click.echo(f"\nError submitting {instrument} query: {e}", err=True)
         sys.exit(1)
 
+    # Save request metadata alongside the DEM
+    info = {
+        "job_id": job_id,
+        "instrument": instrument,
+        "body": body,
+        "api_endpoint": Altimetry.GDS_BASE_URL,
+        "query_type": query_type,
+        "results_code": results_code,
+        "email": email,
+        "dem": dem_abs,
+        "bounds": {
+            "westernlon": round(float(bounds["westernlon"]), 6),
+            "easternlon": round(float(bounds["easternlon"]), 6),
+            "minlat": round(float(bounds["minlat"]), 6),
+            "maxlat": round(float(bounds["maxlat"]), 6),
+        },
+        "submitted_utc": datetime.now(timezone.utc).isoformat(),
+    }
+    if body == "moon":
+        info["channels"] = channels
 
-def _submit_mola(bounds, email):
-    """Submit an async MOLA PEDR query."""
-    from asp_plot.altimetry import Altimetry
+    info_path = os.path.join(os.path.dirname(dem_abs), "altimetry_request_info.yml")
+    with open(info_path, "w") as f:
+        yaml.dump(info, f, default_flow_style=False, sort_keys=False)
 
-    click.echo("\nSubmitting MOLA query ...")
-    try:
-        job_id = Altimetry._gds_query_async(
-            "molapedr",
-            bounds,
-            "v",
-            email=email,
-        )
-        click.echo("\nMOLA query submitted successfully!")
-        click.echo(f"  Job ID: {job_id}")
-        click.echo(f"  Email:  {email}")
-        click.echo(
-            "\nYou will receive an email when the data is ready. "
-            "Download and unzip the result, then pass the *_topo_csv.csv to asp_plot:\n"
-            "  asp_plot --directory <dir> --altimetry_csv <*_topo_csv.csv>\n"
-        )
-    except Exception as e:
-        click.echo(f"\nError submitting MOLA query: {e}", err=True)
-        sys.exit(1)
+    click.echo(f"\n{instrument} query submitted successfully!")
+    click.echo(f"  Job ID:   {job_id}")
+    click.echo(f"  Email:    {email}")
+    click.echo(f"  Saved:    {info_path}")
+    click.echo(
+        "\nYou will receive an email when the data is ready. "
+        "Download and unzip the result, then pass the *_topo_csv.csv to asp_plot:\n"
+        "  asp_plot --directory <dir> --altimetry_csv <*_topo_csv.csv>\n"
+    )
 
 
 if __name__ == "__main__":
