@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.0] - 2026-03-21
+
+### Added
+- Planetary altimetry validation: LOLA (Moon) and MOLA (Mars) DEM comparison via the ODE Granular Data System (GDS) REST API, analogous to the existing ICESat-2 workflow for Earth DEMs
+- New `request_planetary_altimetry` CLI tool to submit async LOLA/MOLA data requests with email notification, saving request metadata to `altimetry_request_info.yml`
+- New `--plot_altimetry` flag on the `asp_plot` CLI with automatic body detection (Earth → ICESat-2, Moon → LOLA, Mars → MOLA)
+- New `--altimetry_csv` flag to pass a pre-downloaded LOLA/MOLA `*_topo_csv.csv` file for planetary altimetry plots
+- `detect_planetary_body()` utility function: detects Earth/Moon/Mars from DEM CRS WKT
+- `get_planetary_bounds()` utility function: converts DEM bounds to planetocentric 0-360 lon/lat for GDS queries
+- `Altimetry.load_planetary_csv()`: loads LOLA or MOLA CSV with column validation and helpful error messages
+- `Altimetry.planetary_to_dem_dh()`: computes altimetry-minus-DEM differences using WKT-based CRS (supports planetary DEMs without EPSG codes)
+- `Altimetry.mapview_plot_planetary_to_dem()`: DEM hillshade with dh point overlay
+- `Altimetry.histogram_planetary_to_dem()`: dh histogram with n/median/NMAD statistics
+- Lazy SlideRule initialization: `Altimetry.__init__` no longer requires an internet connection; SlideRule is initialized on first ICESat-2 method call
+- LOLA/MOLA altimetry sections added to LRO NAC, Mars MGS MOC, Mars MGS MOC NA, and Mars MRO HiRISE example notebooks
+- Unit tests for body detection, planetary bounds, lazy init, CSV loading/validation, and planetary dh computation
+
+### Changed
+- `--plot_icesat` is now a deprecated alias for `--plot_altimetry` (prints deprecation warning if used)
+- Basemaps are automatically skipped for non-Earth DEMs
+- `pyyaml` added as an explicit dependency
+
 ## [1.9.0] - 2026-03-10
 
 ### Added

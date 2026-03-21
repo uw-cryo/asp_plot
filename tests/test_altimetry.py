@@ -2,7 +2,9 @@ from datetime import datetime, timezone
 
 import geopandas as gpd
 import matplotlib
+import numpy as np
 import pytest
+from shapely.geometry import Point
 
 from asp_plot.altimetry import ICESAT2_MISSION_START, Altimetry
 
@@ -124,6 +126,24 @@ class TestAltimetry:
             pytest.fail(f"alignment_report() method raised an exception: {str(e)}")
 
 
+class TestLazySlideruleInit:
+    """Test that SlideRule is not initialized during Altimetry construction."""
+
+    def test_no_sliderule_on_init(self):
+        alt = Altimetry(
+            directory="tests/test_data",
+            dem_fn="tests/test_data/stereo/date_time_left_right_1m-DEM.tif",
+        )
+        assert alt._sliderule_initialized is False
+
+    def test_planetary_points_initialized(self):
+        alt = Altimetry(
+            directory="tests/test_data",
+            dem_fn="tests/test_data/stereo/date_time_left_right_1m-DEM.tif",
+        )
+        assert alt.planetary_points is None
+
+
 class TestResolveTimeRange:
     @pytest.fixture
     def alt(self):
@@ -171,3 +191,140 @@ class TestResolveTimeRange:
         assert alt._scene_date == datetime(2022, 6, 15, tzinfo=timezone.utc)
         assert alt._t0 == datetime(2021, 6, 15, tzinfo=timezone.utc)
         assert alt._t1 == datetime(2023, 6, 15, tzinfo=timezone.utc)
+
+
+class TestPlanetaryDh:
+    """Test planetary altimetry dh computation with the Earth test DEM."""
+
+    @pytest.fixture
+    def alt_with_points(self):
+        """Create Altimetry instance with mock planetary points."""
+        alt = Altimetry(
+            directory="tests/test_data",
+            dem_fn="tests/test_data/stereo/date_time_left_right_1m-DEM.tif",
+        )
+
+        # Get the DEM bounds in latlon to create points within the DEM extent
+        from asp_plot.utils import Raster
+
+        raster = Raster(alt.dem_fn)
+        bounds = raster.get_bounds(latlon=True, json_format=False)
+        # bounds = (min_lon, min_lat, max_lon, max_lat)
+        lon_min, lat_min, lon_max, lat_max = bounds
+
+        # Create a small grid of points inside the DEM
+        lons = np.linspace(lon_min + 0.001, lon_max - 0.001, 5)
+        lats = np.linspace(lat_min + 0.001, lat_max - 0.001, 5)
+        lon_grid, lat_grid = np.meshgrid(lons, lats)
+        lon_flat = lon_grid.flatten()
+        lat_flat = lat_grid.flatten()
+
+        # Assign mock height values (just use 100m for simplicity)
+        heights = np.full(len(lon_flat), 100.0)
+
+        gdf = gpd.GeoDataFrame(
+            {"height": heights, "lon": lon_flat, "lat": lat_flat},
+            geometry=[Point(x, y) for x, y in zip(lon_flat, lat_flat)],
+            crs="EPSG:4326",
+        )
+        alt.planetary_points = gdf
+        return alt
+
+    def test_planetary_to_dem_dh(self, alt_with_points):
+        """Test that dh is computed and stored."""
+        alt_with_points.planetary_to_dem_dh()
+        assert "dem_height" in alt_with_points.planetary_points.columns
+        assert "altimetry_minus_dem" in alt_with_points.planetary_points.columns
+        # At least some valid dh values
+        valid = alt_with_points.planetary_points["altimetry_minus_dem"].dropna()
+        assert len(valid) > 0
+
+    def test_mapview_plot_planetary_to_dem(self, alt_with_points):
+        """Test that map view plot runs without error."""
+        alt_with_points.planetary_to_dem_dh()
+        try:
+            alt_with_points.mapview_plot_planetary_to_dem()
+        except Exception as e:
+            pytest.fail(f"mapview_plot_planetary_to_dem raised: {e}")
+
+    def test_histogram_planetary_to_dem(self, alt_with_points):
+        """Test that histogram plot runs without error."""
+        alt_with_points.planetary_to_dem_dh()
+        try:
+            alt_with_points.histogram_planetary_to_dem()
+        except Exception as e:
+            pytest.fail(f"histogram_planetary_to_dem raised: {e}")
+
+
+class TestLoadPlanetaryCsv:
+    """Test LOLA and MOLA CSV loading and validation."""
+
+    @pytest.fixture
+    def alt(self):
+        return Altimetry(
+            directory="tests/test_data",
+            dem_fn="tests/test_data/stereo/date_time_left_right_1m-DEM.tif",
+        )
+
+    def test_load_lola_csv(self, alt, tmp_path):
+        """Test LOLA CSV parsing with valid data."""
+        csv = tmp_path / "lola.csv"
+        csv.write_text(
+            "Pt_Longitude, Pt_Latitude, Topography\n"
+            " 15.3287,  -9.6003,     295.81\n"
+            " 15.3286,  -9.6021,     297.16\n"
+            " 15.3286,  -9.6039,     300.09\n"
+        )
+        alt._load_lola_csv(str(csv))
+        assert alt.planetary_points is not None
+        assert len(alt.planetary_points) == 3
+        assert "height" in alt.planetary_points.columns
+        assert "lon" in alt.planetary_points.columns
+        # Height should equal topography directly for LOLA
+        assert alt.planetary_points["height"].iloc[0] == pytest.approx(295.81)
+
+    def test_load_mola_csv(self, alt, tmp_path):
+        """Test MOLA CSV parsing with valid topo data."""
+        csv = tmp_path / "mola.csv"
+        csv.write_text(
+            "LONG_EAST,LAT_NORTH, TOPOGRAPHY,            UTC\n"
+            "137.13264, -4.91750,   -4499.73,1999-08-31T19:13:24.847\n"
+            "137.13197, -4.91240,   -4505.07,1999-08-31T19:13:24.947\n"
+        )
+        alt._load_mola_csv(str(csv))
+        assert alt.planetary_points is not None
+        assert len(alt.planetary_points) == 2
+        assert "height" in alt.planetary_points.columns
+        # Topography used directly (no -190 m correction)
+        assert alt.planetary_points["height"].iloc[0] == pytest.approx(-4499.73)
+
+    def test_load_mola_csv_lon_conversion(self, alt, tmp_path):
+        """Test that MOLA 0-360 longitude is converted to -180/180."""
+        csv = tmp_path / "mola.csv"
+        csv.write_text(
+            "LONG_EAST,LAT_NORTH, TOPOGRAPHY,            UTC\n"
+            "270.0, 10.0, -3000.0, 1999-01-01T00:00:00\n"
+        )
+        alt._load_mola_csv(str(csv))
+        assert alt.planetary_points["lon"].iloc[0] == pytest.approx(-90.0)
+
+    def test_load_csv_empty_raises(self, alt, tmp_path):
+        """Test that empty CSV raises ValueError."""
+        csv = tmp_path / "empty.csv"
+        csv.write_text("Pt_Longitude, Pt_Latitude, Topography\n")
+        with pytest.raises(ValueError, match="empty"):
+            alt._load_lola_csv(str(csv))
+
+    def test_load_csv_wrong_columns_raises(self, alt, tmp_path):
+        """Test that wrong columns raise ValueError with helpful message."""
+        csv = tmp_path / "wrong.csv"
+        csv.write_text("col_a, col_b, col_c\n1,2,3\n")
+        with pytest.raises(ValueError, match="topo_csv.csv"):
+            alt._load_lola_csv(str(csv))
+
+    def test_load_planetary_csv_earth_raises(self, alt, tmp_path):
+        """Test that load_planetary_csv rejects Earth DEMs."""
+        csv = tmp_path / "dummy.csv"
+        csv.write_text("a,b,c\n1,2,3\n")
+        with pytest.raises(ValueError, match="ICESat-2"):
+            alt.load_planetary_csv(str(csv))
