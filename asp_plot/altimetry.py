@@ -43,6 +43,74 @@ def _nmad(a, c=1.4826):
     return np.nanmedian(np.fabs(a - np.nanmedian(a))) * c
 
 
+# --- ODE GDS REST API (for LOLA/MOLA planetary altimetry) ---
+
+GDS_BASE_URL = "https://oderest.rsl.wustl.edu/livegds"
+
+
+def gds_query_async(query_type, bounds, results_code, email=None, **extra_params):
+    """Submit an async query to the ODE GDS REST API.
+
+    Parameters
+    ----------
+    query_type : str
+        GDS query type, e.g. ``"lolardr"`` or ``"molapedr"``.
+    bounds : dict
+        Dictionary with ``westernlon``, ``easternlon``, ``minlat``,
+        ``maxlat`` keys.
+    results_code : str
+        GDS results format code (e.g. ``"u"`` for LOLA, ``"v"`` for MOLA).
+    email : str or None, optional
+        Email for notification when query finishes.
+    **extra_params
+        Additional GDS query parameters (e.g. ``channel="ttttt"``).
+
+    Returns
+    -------
+    str
+        Job ID for polling.
+    """
+    import urllib.parse
+    import urllib.request
+    import xml.etree.ElementTree as ET
+
+    params = {
+        "query": query_type,
+        "results": results_code,
+        "westernlon": bounds["westernlon"],
+        "easternlon": bounds["easternlon"],
+        "minlat": bounds["minlat"],
+        "maxlat": bounds["maxlat"],
+        "async": "t",
+    }
+    if email:
+        params["email"] = email
+    params.update(extra_params)
+
+    url = f"{GDS_BASE_URL}?{urllib.parse.urlencode(params)}"
+    logger.info(f"GDS async query: {url}")
+    print(f"Submitting GDS query: {query_type} ...")
+
+    req = urllib.request.Request(url)
+    with urllib.request.urlopen(req, timeout=60) as resp:
+        body = resp.read().decode("utf-8")
+
+    root = ET.fromstring(body)
+
+    # Look for job ID in the response (GDS uses <JobId>)
+    jobid_elem = root.find(".//JobId")
+    if jobid_elem is None:
+        jobid_elem = root.find(".//Jobid")
+    if jobid_elem is None:
+        jobid_elem = root.find(".//jobid")
+    if jobid_elem is None:
+        raise RuntimeError(
+            f"GDS async submission failed — no JobId in response:\n{body}"
+        )
+
+    return jobid_elem.text.strip()
+
+
 class Altimetry:
     """
     Process and analyze ICESat-2 ATL06-SR altimetry data with ASP DEMs.
@@ -148,73 +216,6 @@ class Altimetry:
         if not self._sliderule_initialized:
             sliderule_api.init("slideruleearth.io", verbose=True)
             self._sliderule_initialized = True
-
-    # --- ODE GDS REST API client methods (for LOLA/MOLA) ---
-
-    GDS_BASE_URL = "https://oderest.rsl.wustl.edu/livegds"
-
-    @staticmethod
-    def _gds_query_async(query_type, bounds, results_code, email=None, **extra_params):
-        """Submit an async query to the ODE GDS REST API.
-
-        Parameters
-        ----------
-        query_type : str
-            GDS query type, e.g. ``"lolardr"`` or ``"molapedr"``.
-        bounds : dict
-            Dictionary with ``westernlon``, ``easternlon``, ``minlat``,
-            ``maxlat`` keys.
-        results_code : str
-            GDS results format code (e.g. ``"u"`` for LOLA, ``"v"`` for MOLA).
-        email : str or None, optional
-            Email for notification when query finishes.
-        **extra_params
-            Additional GDS query parameters (e.g. ``channel="ttttt"``).
-
-        Returns
-        -------
-        str
-            Job ID for polling.
-        """
-        import urllib.parse
-        import urllib.request
-        import xml.etree.ElementTree as ET
-
-        params = {
-            "query": query_type,
-            "results": results_code,
-            "westernlon": bounds["westernlon"],
-            "easternlon": bounds["easternlon"],
-            "minlat": bounds["minlat"],
-            "maxlat": bounds["maxlat"],
-            "async": "t",
-        }
-        if email:
-            params["email"] = email
-        params.update(extra_params)
-
-        url = f"{Altimetry.GDS_BASE_URL}?{urllib.parse.urlencode(params)}"
-        logger.info(f"GDS async query: {url}")
-        print(f"Submitting GDS query: {query_type} ...")
-
-        req = urllib.request.Request(url)
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            body = resp.read().decode("utf-8")
-
-        root = ET.fromstring(body)
-
-        # Look for job ID in the response (GDS uses <JobId>)
-        jobid_elem = root.find(".//JobId")
-        if jobid_elem is None:
-            jobid_elem = root.find(".//Jobid")
-        if jobid_elem is None:
-            jobid_elem = root.find(".//jobid")
-        if jobid_elem is None:
-            raise RuntimeError(
-                f"GDS async submission failed — no JobId in response:\n{body}"
-            )
-
-        return jobid_elem.text.strip()
 
     def _resolve_time_range(self, scene_date=None, time_buffer_days=365):
         """
@@ -947,9 +948,6 @@ class Altimetry:
         """
         from asp_plot.utils import detect_planetary_body
 
-        if not os.path.exists(csv_path):
-            raise FileNotFoundError(f"Altimetry CSV not found: {csv_path}")
-
         body = detect_planetary_body(self.dem_fn)
 
         if body == "moon":
@@ -962,138 +960,85 @@ class Altimetry:
                 f"body={body}. Use ICESat-2 for Earth DEMs."
             )
 
-    def _load_lola_csv(self, csv_path):
-        """Parse a LOLA simple-topography CSV into a GeoDataFrame.
+    # Column name candidates for LOLA and MOLA CSVs
+    _LON_CANDIDATES = [
+        "pt_longitude",
+        "long_east",
+        "longitude",
+        "areocentric_longitude",
+    ]
+    _LAT_CANDIDATES = ["pt_latitude", "lat_north", "latitude", "areocentric_latitude"]
+    _TOPO_CANDIDATES = ["topography", "topo"]
+    _RADIUS_CANDIDATES = ["planet_rad", "radius", "planetary_radius"]
 
-        The ``results=u`` format returns three columns:
-        ``Pt_Longitude``, ``Pt_Latitude``, ``Topography``.
+    # Geographic CRS WKT strings for building GeoDataFrames
+    _MOON_GEO_CRS = 'GEOGCRS["Moon",DATUM["D_MOON",ELLIPSOID["MOON",1737400,0]],PRIMEM["Reference_Meridian",0],CS[ellipsoidal,2],AXIS["latitude",north,ORDER[1],ANGLEUNIT["degree",0.0174532925199433]],AXIS["longitude",east,ORDER[2],ANGLEUNIT["degree",0.0174532925199433]]]'
+    _MARS_GEO_CRS = 'GEOGCRS["Mars",DATUM["D_MARS",ELLIPSOID["MARS",3396190,0]],PRIMEM["Reference_Meridian",0],CS[ellipsoidal,2],AXIS["latitude",north,ORDER[1],ANGLEUNIT["degree",0.0174532925199433]],AXIS["longitude",east,ORDER[2],ANGLEUNIT["degree",0.0174532925199433]]]'
+
+    @staticmethod
+    def _find_csv_column(cols_lower, candidates):
+        """Find a CSV column by matching against candidate names.
+
+        Parameters
+        ----------
+        cols_lower : dict
+            Mapping of ``{stripped_lowercase_name: original_name}``.
+        candidates : list of str
+            Candidate column names to search for (lowercase).
+
+        Returns
+        -------
+        str or None
+            Original column name if found, else None.
+        """
+        for c in candidates:
+            if c in cols_lower:
+                return cols_lower[c]
+        return None
+
+    def _load_planetary_csv_common(self, csv_path, instrument):
+        """Shared CSV loading logic for LOLA and MOLA.
+
+        Reads the CSV, validates columns, converts longitude to -180/180.
 
         Parameters
         ----------
         csv_path : str
             Path to the CSV file.
+        instrument : str
+            ``"LOLA"`` or ``"MOLA"`` (for error messages).
 
-        Raises
-        ------
-        ValueError
-            If the CSV does not contain the expected columns.
+        Returns
+        -------
+        tuple of (pandas.DataFrame, str or None, bool)
+            (df with ``lon``, ``lat``, ``height_raw`` columns,
+             height column name found, whether it was a radius column)
         """
         df = pd.read_csv(csv_path)
 
         if df.empty:
             raise ValueError(
-                f"LOLA CSV is empty: {csv_path}\n"
-                "The query area may have no LOLA coverage."
+                f"{instrument} CSV is empty: {csv_path}\n"
+                "The query area may have no coverage."
             )
 
-        # Normalise column names (GDS sometimes uses different capitalisation)
-        cols = {c.strip().lower(): c for c in df.columns}
-        lon_col = cols.get("pt_longitude") or cols.get("longitude")
-        lat_col = cols.get("pt_latitude") or cols.get("latitude")
-        topo_col = cols.get("topography") or cols.get("topo")
-
-        if lon_col is None or lat_col is None or topo_col is None:
-            raise ValueError(
-                f"LOLA CSV does not have expected columns.\n"
-                f"  Found: {list(df.columns)}\n"
-                f"  Expected: Pt_Longitude, Pt_Latitude, Topography\n\n"
-                f"Make sure you are using the '*_topo_csv.csv' file from the "
-                f"ODE GDS download, not the '*_pts_csv.csv' or label file."
-            )
-
-        df = df.rename(columns={lon_col: "lon", lat_col: "lat", topo_col: "height"})
-
-        # Convert 0-360 → -180/180
-        df["lon"] = ((df["lon"] + 180) % 360) - 180
-
-        gdf = gpd.GeoDataFrame(
-            df,
-            geometry=gpd.points_from_xy(df["lon"], df["lat"]),
-            crs='GEOGCRS["Moon",DATUM["D_MOON",ELLIPSOID["MOON",1737400,0]],PRIMEM["Reference_Meridian",0],CS[ellipsoidal,2],AXIS["latitude",north,ORDER[1],ANGLEUNIT["degree",0.0174532925199433]],AXIS["longitude",east,ORDER[2],ANGLEUNIT["degree",0.0174532925199433]]]',
-        )
-        self.planetary_points = gdf
-        print(f"Loaded {len(gdf)} LOLA points")
-
-    def _load_mola_csv(self, csv_path):
-        """Parse a MOLA PEDR CSV into a GeoDataFrame.
-
-        The ``results=v`` format returns two CSVs: a topo CSV
-        (``LONG_EAST, LAT_NORTH, TOPOGRAPHY, UTC``) and a pts CSV
-        with additional columns.  The topo CSV is preferred.
-
-        If TOPOGRAPHY is found, values are used directly (height above
-        areoid).  If only PLANET_RAD (radius) is found, a -190 m
-        correction converts from the MOLA sphere (3,396,000 m) to the
-        IAU sphere (3,396,190 m) used by ASP.
-
-        Parameters
-        ----------
-        csv_path : str
-            Path to the CSV file.
-
-        Raises
-        ------
-        ValueError
-            If the CSV does not contain the expected columns.
-        """
-        df = pd.read_csv(csv_path)
-
-        if df.empty:
-            raise ValueError(
-                f"MOLA CSV is empty: {csv_path}\n"
-                "The query area may have no MOLA coverage."
-            )
-
-        # Normalise column names
         cols_lower = {c.strip().lower(): c for c in df.columns}
 
-        # Find lon/lat columns
-        # GDS returns: LONG_EAST, LAT_NORTH, TOPOGRAPHY (+ more in pts_csv)
-        lon_col = None
-        lat_col = None
-        for candidate in [
-            "long_east",
-            "longitude",
-            "pt_longitude",
-            "areocentric_longitude",
-        ]:
-            if candidate in cols_lower:
-                lon_col = cols_lower[candidate]
-                break
-        for candidate in [
-            "lat_north",
-            "latitude",
-            "pt_latitude",
-            "areocentric_latitude",
-        ]:
-            if candidate in cols_lower:
-                lat_col = cols_lower[candidate]
-                break
+        lon_col = self._find_csv_column(cols_lower, self._LON_CANDIDATES)
+        lat_col = self._find_csv_column(cols_lower, self._LAT_CANDIDATES)
+        topo_col = self._find_csv_column(cols_lower, self._TOPO_CANDIDATES)
 
-        # Find height column — prefer topography, fall back to radius
-        # GDS topo CSV returns TOPOGRAPHY which is height above areoid
-        height_col = None
         is_radius = False
-        for candidate in ["topography", "topo"]:
-            if candidate in cols_lower:
-                height_col = cols_lower[candidate]
-                break
+        height_col = topo_col
         if height_col is None:
-            for candidate in [
-                "planet_rad",
-                "radius",
-                "planetary_radius",
-            ]:
-                if candidate in cols_lower:
-                    height_col = cols_lower[candidate]
-                    is_radius = True
-                    break
+            height_col = self._find_csv_column(cols_lower, self._RADIUS_CANDIDATES)
+            is_radius = height_col is not None
 
         if lon_col is None or lat_col is None or height_col is None:
             raise ValueError(
-                f"MOLA CSV does not have expected columns.\n"
+                f"{instrument} CSV does not have expected columns.\n"
                 f"  Found: {list(df.columns)}\n"
-                f"  Expected: LONG_EAST, LAT_NORTH, TOPOGRAPHY\n\n"
+                f"  Expected longitude, latitude, and topography columns.\n\n"
                 f"Make sure you are using the '*_topo_csv.csv' file from the "
                 f"ODE GDS download, not the '*_pts_csv.csv' or label file."
             )
@@ -1102,11 +1047,48 @@ class Altimetry:
             columns={lon_col: "lon", lat_col: "lat", height_col: "height_raw"}
         )
 
-        # Apply vertical datum correction
-        # MOLA radius is relative to 3,396,000 m sphere
-        # ASP uses IAU sphere at 3,396,190 m
-        # If the value is "MOLA radius" (= planetary_radius - 3,396,000),
-        # convert to IAU height (= planetary_radius - 3,396,190) by subtracting 190
+        # Convert 0-360 → -180/180
+        df["lon"] = ((df["lon"] + 180) % 360) - 180
+
+        return df, is_radius
+
+    def _load_lola_csv(self, csv_path):
+        """Parse a LOLA simple-topography CSV into a GeoDataFrame.
+
+        Parameters
+        ----------
+        csv_path : str
+            Path to the CSV file.
+        """
+        df, _ = self._load_planetary_csv_common(csv_path, "LOLA")
+        df["height"] = df["height_raw"]
+
+        gdf = gpd.GeoDataFrame(
+            df,
+            geometry=gpd.points_from_xy(df["lon"], df["lat"]),
+            crs=self._MOON_GEO_CRS,
+        )
+        self.planetary_points = gdf
+        print(f"Loaded {len(gdf)} LOLA points")
+
+    def _load_mola_csv(self, csv_path):
+        """Parse a MOLA PEDR CSV into a GeoDataFrame.
+
+        TOPOGRAPHY values are heights above the MOLA areoid (Mars
+        geoid).  ASP DEMs store heights above the IAU sphere
+        (3,396,190 m).  These are different vertical datums, so a
+        systematic offset equal to the local areoid height will be
+        present in the dh values.  If only PLANET_RAD (radius) is
+        available, a -190 m correction converts from the MOLA sphere
+        (3,396,000 m) to the IAU sphere.
+
+        Parameters
+        ----------
+        csv_path : str
+            Path to the CSV file.
+        """
+        df, is_radius = self._load_planetary_csv_common(csv_path, "MOLA")
+
         MOLA_SPHERE_OFFSET = 190.0  # meters
         if is_radius:
             df["height"] = df["height_raw"] - MOLA_SPHERE_OFFSET
@@ -1115,23 +1097,23 @@ class Altimetry:
                 "(MOLA sphere → IAU sphere)"
             )
         else:
-            # Topography is already relative to a reference surface.
-            # We assume the GDS topography values match ASP's vertical datum
-            # well enough for DEM comparison. Document this assumption.
+            # MOLA TOPOGRAPHY is height above the MOLA areoid (Mars geoid).
+            # ASP DEMs store height above the IAU sphere (3,396,190 m).
+            # These are different vertical datums, so a systematic offset
+            # (equal to the local areoid height) will be present in the
+            # dh values.  This is a known limitation — correcting it
+            # requires the MOLA areoid grid or ASP's `dem_geoid --geoid MOLA`.
             df["height"] = df["height_raw"]
-            logger.info(
-                "MOLA topography values used directly. If heights are referenced "
-                "to the MOLA areoid rather than the IAU sphere, a systematic offset "
-                "may be present in the dh values."
+            print(
+                "Note: MOLA topography is referenced to the MOLA areoid. "
+                "ASP DEMs use the IAU sphere. A systematic vertical offset "
+                "may be present in dh values."
             )
-
-        # Convert 0-360 → -180/180
-        df["lon"] = ((df["lon"] + 180) % 360) - 180
 
         gdf = gpd.GeoDataFrame(
             df,
             geometry=gpd.points_from_xy(df["lon"], df["lat"]),
-            crs='GEOGCRS["Mars",DATUM["D_MARS",ELLIPSOID["MARS",3396190,0]],PRIMEM["Reference_Meridian",0],CS[ellipsoidal,2],AXIS["latitude",north,ORDER[1],ANGLEUNIT["degree",0.0174532925199433]],AXIS["longitude",east,ORDER[2],ANGLEUNIT["degree",0.0174532925199433]]]',
+            crs=self._MARS_GEO_CRS,
         )
         self.planetary_points = gdf
         print(f"Loaded {len(gdf)} MOLA points")

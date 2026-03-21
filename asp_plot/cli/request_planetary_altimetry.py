@@ -44,7 +44,7 @@ def main(dem, email, channels):
       # ... wait for email, download and unzip ...
       asp_plot --directory ./ --altimetry_csv /path/to/*_topo_csv.csv
     """
-    from asp_plot.altimetry import Altimetry
+    from asp_plot.altimetry import GDS_BASE_URL, gds_query_async
 
     body = detect_planetary_body(dem)
 
@@ -80,7 +80,7 @@ def main(dem, email, channels):
 
     click.echo(f"\nSubmitting {instrument} query ...")
     try:
-        job_id = Altimetry._gds_query_async(
+        job_id = gds_query_async(
             query_type,
             bounds,
             results_code,
@@ -96,7 +96,7 @@ def main(dem, email, channels):
         "job_id": job_id,
         "instrument": instrument,
         "body": body,
-        "api_endpoint": Altimetry.GDS_BASE_URL,
+        "api_endpoint": GDS_BASE_URL,
         "query_type": query_type,
         "results_code": results_code,
         "email": email,

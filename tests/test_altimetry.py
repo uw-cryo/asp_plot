@@ -254,3 +254,77 @@ class TestPlanetaryDh:
             alt_with_points.histogram_planetary_to_dem()
         except Exception as e:
             pytest.fail(f"histogram_planetary_to_dem raised: {e}")
+
+
+class TestLoadPlanetaryCsv:
+    """Test LOLA and MOLA CSV loading and validation."""
+
+    @pytest.fixture
+    def alt(self):
+        return Altimetry(
+            directory="tests/test_data",
+            dem_fn="tests/test_data/stereo/date_time_left_right_1m-DEM.tif",
+        )
+
+    def test_load_lola_csv(self, alt, tmp_path):
+        """Test LOLA CSV parsing with valid data."""
+        csv = tmp_path / "lola.csv"
+        csv.write_text(
+            "Pt_Longitude, Pt_Latitude, Topography\n"
+            " 15.3287,  -9.6003,     295.81\n"
+            " 15.3286,  -9.6021,     297.16\n"
+            " 15.3286,  -9.6039,     300.09\n"
+        )
+        alt._load_lola_csv(str(csv))
+        assert alt.planetary_points is not None
+        assert len(alt.planetary_points) == 3
+        assert "height" in alt.planetary_points.columns
+        assert "lon" in alt.planetary_points.columns
+        # Height should equal topography directly for LOLA
+        assert alt.planetary_points["height"].iloc[0] == pytest.approx(295.81)
+
+    def test_load_mola_csv(self, alt, tmp_path):
+        """Test MOLA CSV parsing with valid topo data."""
+        csv = tmp_path / "mola.csv"
+        csv.write_text(
+            "LONG_EAST,LAT_NORTH, TOPOGRAPHY,            UTC\n"
+            "137.13264, -4.91750,   -4499.73,1999-08-31T19:13:24.847\n"
+            "137.13197, -4.91240,   -4505.07,1999-08-31T19:13:24.947\n"
+        )
+        alt._load_mola_csv(str(csv))
+        assert alt.planetary_points is not None
+        assert len(alt.planetary_points) == 2
+        assert "height" in alt.planetary_points.columns
+        # Topography used directly (no -190 m correction)
+        assert alt.planetary_points["height"].iloc[0] == pytest.approx(-4499.73)
+
+    def test_load_mola_csv_lon_conversion(self, alt, tmp_path):
+        """Test that MOLA 0-360 longitude is converted to -180/180."""
+        csv = tmp_path / "mola.csv"
+        csv.write_text(
+            "LONG_EAST,LAT_NORTH, TOPOGRAPHY,            UTC\n"
+            "270.0, 10.0, -3000.0, 1999-01-01T00:00:00\n"
+        )
+        alt._load_mola_csv(str(csv))
+        assert alt.planetary_points["lon"].iloc[0] == pytest.approx(-90.0)
+
+    def test_load_csv_empty_raises(self, alt, tmp_path):
+        """Test that empty CSV raises ValueError."""
+        csv = tmp_path / "empty.csv"
+        csv.write_text("Pt_Longitude, Pt_Latitude, Topography\n")
+        with pytest.raises(ValueError, match="empty"):
+            alt._load_lola_csv(str(csv))
+
+    def test_load_csv_wrong_columns_raises(self, alt, tmp_path):
+        """Test that wrong columns raise ValueError with helpful message."""
+        csv = tmp_path / "wrong.csv"
+        csv.write_text("col_a, col_b, col_c\n1,2,3\n")
+        with pytest.raises(ValueError, match="topo_csv.csv"):
+            alt._load_lola_csv(str(csv))
+
+    def test_load_planetary_csv_earth_raises(self, alt, tmp_path):
+        """Test that load_planetary_csv rejects Earth DEMs."""
+        csv = tmp_path / "dummy.csv"
+        csv.write_text("a,b,c\n1,2,3\n")
+        with pytest.raises(ValueError, match="ICESat-2"):
+            alt.load_planetary_csv(str(csv))
