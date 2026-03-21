@@ -11,7 +11,9 @@ from asp_plot.utils import (
     ColorBar,
     Raster,
     add_copyright_overlay,
+    detect_planetary_body,
     detect_vantor_satellite,
+    get_planetary_bounds,
     get_utm_epsg,
 )
 
@@ -448,3 +450,159 @@ class TestAddCopyrightOverlay:
         assert "Vantor" in texts[0].get_text()
         assert "\u00a9" in texts[0].get_text()
         plt.close(fig)
+
+
+class TestDetectPlanetaryBody:
+    """Test detect_planetary_body utility function."""
+
+    def test_earth_dem(self):
+        """Test detection of Earth DEM from test data."""
+        result = detect_planetary_body(
+            "tests/test_data/stereo/date_time_left_right_1m-DEM.tif"
+        )
+        assert result == "earth"
+
+    def test_moon_dem(self, tmp_path):
+        """Test detection of Moon DEM from synthetic raster."""
+        import rasterio
+        from rasterio.crs import CRS
+        from rasterio.transform import from_bounds
+
+        fn = str(tmp_path / "moon_dem.tif")
+        moon_wkt = (
+            'PROJCRS["unknown",'
+            'BASEGEOGCRS["unknown",'
+            'DATUM["D_MOON",'
+            'ELLIPSOID["MOON",1737400,0]],'
+            'PRIMEM["Reference_Meridian",0]],'
+            'CONVERSION["Stereographic",'
+            'METHOD["Polar Stereographic (variant B)"],'
+            'PARAMETER["Latitude of standard parallel",-90],'
+            'PARAMETER["Longitude of origin",0],'
+            'PARAMETER["False easting",0],'
+            'PARAMETER["False northing",0]],'
+            "CS[Cartesian,2],"
+            'AXIS["easting",east],'
+            'AXIS["northing",north],'
+            'LENGTHUNIT["metre",1]]'
+        )
+        crs = CRS.from_wkt(moon_wkt)
+        transform = from_bounds(-1000, -1000, 1000, 1000, 10, 10)
+        with rasterio.open(
+            fn,
+            "w",
+            driver="GTiff",
+            height=10,
+            width=10,
+            count=1,
+            dtype="float32",
+            crs=crs,
+            transform=transform,
+        ) as dst:
+            dst.write(np.ones((1, 10, 10), dtype="float32"))
+
+        assert detect_planetary_body(fn) == "moon"
+
+    def test_mars_dem(self, tmp_path):
+        """Test detection of Mars DEM from synthetic raster."""
+        import rasterio
+        from rasterio.crs import CRS
+        from rasterio.transform import from_bounds
+
+        fn = str(tmp_path / "mars_dem.tif")
+        mars_wkt = (
+            'PROJCRS["unknown",'
+            'BASEGEOGCRS["unknown",'
+            'DATUM["D_MARS",'
+            'ELLIPSOID["MARS",3396190,0]],'
+            'PRIMEM["Reference_Meridian",0]],'
+            'CONVERSION["Stereographic",'
+            'METHOD["Polar Stereographic (variant B)"],'
+            'PARAMETER["Latitude of standard parallel",0],'
+            'PARAMETER["Longitude of origin",0],'
+            'PARAMETER["False easting",0],'
+            'PARAMETER["False northing",0]],'
+            "CS[Cartesian,2],"
+            'AXIS["easting",east],'
+            'AXIS["northing",north],'
+            'LENGTHUNIT["metre",1]]'
+        )
+        crs = CRS.from_wkt(mars_wkt)
+        transform = from_bounds(-1000, -1000, 1000, 1000, 10, 10)
+        with rasterio.open(
+            fn,
+            "w",
+            driver="GTiff",
+            height=10,
+            width=10,
+            count=1,
+            dtype="float32",
+            crs=crs,
+            transform=transform,
+        ) as dst:
+            dst.write(np.ones((1, 10, 10), dtype="float32"))
+
+        assert detect_planetary_body(fn) == "mars"
+
+
+class TestGetPlanetaryBounds:
+    """Test get_planetary_bounds utility function."""
+
+    def test_earth_dem_bounds(self):
+        """Test bounds extraction for Earth DEM returns valid ranges."""
+        bounds = get_planetary_bounds(
+            "tests/test_data/stereo/date_time_left_right_1m-DEM.tif"
+        )
+        assert "westernlon" in bounds
+        assert "easternlon" in bounds
+        assert "minlat" in bounds
+        assert "maxlat" in bounds
+        assert bounds["minlat"] < bounds["maxlat"]
+        # Longitudes should be in 0-360 range
+        assert 0 <= bounds["westernlon"] <= 360
+        assert 0 <= bounds["easternlon"] <= 360
+
+    def test_moon_dem_bounds(self, tmp_path):
+        """Test bounds extraction for Moon DEM."""
+        import rasterio
+        from rasterio.crs import CRS
+        from rasterio.transform import from_bounds
+
+        fn = str(tmp_path / "moon_dem.tif")
+        moon_wkt = (
+            'PROJCRS["unknown",'
+            'BASEGEOGCRS["unknown",'
+            'DATUM["D_MOON",'
+            'ELLIPSOID["MOON",1737400,0]],'
+            'PRIMEM["Reference_Meridian",0]],'
+            'CONVERSION["Stereographic",'
+            'METHOD["Polar Stereographic (variant B)"],'
+            'PARAMETER["Latitude of standard parallel",-90],'
+            'PARAMETER["Longitude of origin",0],'
+            'PARAMETER["False easting",0],'
+            'PARAMETER["False northing",0]],'
+            "CS[Cartesian,2],"
+            'AXIS["easting",east],'
+            'AXIS["northing",north],'
+            'LENGTHUNIT["metre",1]]'
+        )
+        crs = CRS.from_wkt(moon_wkt)
+        # Small area near the south pole
+        transform = from_bounds(50000, 50000, 60000, 60000, 10, 10)
+        with rasterio.open(
+            fn,
+            "w",
+            driver="GTiff",
+            height=10,
+            width=10,
+            count=1,
+            dtype="float32",
+            crs=crs,
+            transform=transform,
+        ) as dst:
+            dst.write(np.ones((1, 10, 10), dtype="float32"))
+
+        bounds = get_planetary_bounds(fn, body="moon")
+        assert bounds["minlat"] < bounds["maxlat"]
+        assert 0 <= bounds["westernlon"] <= 360
+        assert 0 <= bounds["easternlon"] <= 360

@@ -13,7 +13,7 @@ from asp_plot.report import ReportMetadata, ReportSection, compile_report
 from asp_plot.scenes import ScenePlotter
 from asp_plot.stereo import StereoPlotter
 from asp_plot.stereo_geometry import StereoGeometryPlotter
-from asp_plot.utils import Raster
+from asp_plot.utils import Raster, detect_planetary_body
 
 
 @click.command()
@@ -51,7 +51,7 @@ from asp_plot.utils import Raster
     "--map_crs",
     prompt=False,
     default=None,
-    help="Projection for ICESat and bundle adjustment plots. As EPSG:XXXX. Default: None, which will use the projection of the ASP DEM, and fall back on EPSG:4326 if not found.",
+    help="Projection for altimetry and bundle adjustment plots. As EPSG:XXXX. Default: None, which will use the projection of the ASP DEM, and fall back on EPSG:4326 if not found.",
 )
 @click.option(
     "--reference_dem",
@@ -66,10 +66,23 @@ from asp_plot.utils import Raster
     help="If True, add a basemaps to the figures, which requires internet connection. Default: True.",
 )
 @click.option(
-    "--plot_icesat",
+    "--plot_altimetry",
     prompt=False,
     default=True,
-    help="If True, plot an ICESat-2 difference plot with the DEM result. This requires internet connection to request ICESat data. Default: True.",
+    help="If True, plot altimetry comparisons (ICESat-2 for Earth, LOLA for Moon, MOLA for Mars). For planetary DEMs, requires --altimetry_csv. Default: True.",
+)
+@click.option(
+    "--plot_icesat",
+    prompt=False,
+    default=None,
+    help="Deprecated: use --plot_altimetry instead. Kept for backward compatibility.",
+)
+@click.option(
+    "--altimetry_csv",
+    prompt=False,
+    default=None,
+    type=click.Path(exists=True),
+    help="Path to a LOLA/MOLA *_topo_csv.csv file from the ODE GDS API. Required for planetary altimetry plots. Obtain via: request_planetary_altimetry --dem <dem> --email <email>, then download and unzip the result.",
 )
 @click.option(
     "--plot_geometry",
@@ -104,7 +117,9 @@ def main(
     map_crs,
     reference_dem,
     add_basemap,
+    plot_altimetry,
     plot_icesat,
+    altimetry_csv,
     plot_geometry,
     subset_km,
     report_filename,
@@ -405,60 +420,132 @@ def main(
         )
     )
 
-    # ---- ICESat-2 (conditional) ----
-    if plot_icesat:
-        icesat = Altimetry(directory=directory, dem_fn=asp_dem)
+    # ---- Altimetry (conditional) ----
+    # Resolve --plot_icesat (deprecated) vs --plot_altimetry
+    if plot_icesat is not None:
+        import warnings
 
-        icesat.request_atl06sr_multi_processing(
-            processing_levels=["all"],
-            save_to_parquet=True,
+        warnings.warn(
+            "--plot_icesat is deprecated. Use --plot_altimetry instead.",
+            DeprecationWarning,
+            stacklevel=1,
         )
+        # Convert Click string 'True'/'False' to bool
+        if isinstance(plot_icesat, str):
+            plot_icesat = plot_icesat.lower() not in ("false", "0", "no")
+        plot_altimetry = plot_icesat
 
-        icesat.filter_esa_worldcover(filter_out="water")
+    if plot_altimetry:
+        # Auto-detect planetary body from DEM CRS
+        body = detect_planetary_body(asp_dem) if asp_dem else "earth"
+        print(f"\nDetected planetary body: {body}\n")
 
-        fig_fn = f"{next(figure_counter):02}.png"
-        icesat.mapview_plot_atl06sr_to_dem(
-            key="all",
-            save_dir=plots_directory,
-            fig_fn=fig_fn,
-            map_crs=map_crs,
-            **ctx_kwargs,
-        )
-        sections.append(
-            ReportSection(
-                title="ICESat-2 ATL06-SR Map",
-                image_path=os.path.join(plots_directory, fig_fn),
-                caption="ICESat-2 ATL06-SR elevation differences vs. ASP DEM.",
+        # Auto-disable basemaps for non-Earth bodies
+        if body != "earth":
+            ctx_kwargs_altimetry = {}
+        else:
+            ctx_kwargs_altimetry = ctx_kwargs
+
+        if body == "earth":
+            # Existing ICESat-2 workflow (3 plots: map, histogram, profile)
+            icesat = Altimetry(directory=directory, dem_fn=asp_dem)
+
+            icesat.request_atl06sr_multi_processing(
+                processing_levels=["all"],
+                save_to_parquet=True,
             )
-        )
 
-        fig_fn = f"{next(figure_counter):02}.png"
-        icesat.histogram_by_landcover(
-            key="all",
-            save_dir=plots_directory,
-            fig_fn=fig_fn,
-        )
-        sections.append(
-            ReportSection(
-                title="ICESat-2 ATL06-SR Histogram",
-                image_path=os.path.join(plots_directory, fig_fn),
-                caption="Distribution of elevation differences between ICESat-2 ATL06-SR and ASP DEM with per-landcover statistics.",
-            )
-        )
+            icesat.filter_esa_worldcover(filter_out="water")
 
-        fig_fn = f"{next(figure_counter):02}.png"
-        icesat.plot_atl06sr_dem_profile(
-            key="all",
-            save_dir=plots_directory,
-            fig_fn=fig_fn,
-        )
-        sections.append(
-            ReportSection(
-                title="ICESat-2 ATL06-SR Profile",
-                image_path=os.path.join(plots_directory, fig_fn),
-                caption="Elevation profile along the ICESat-2 track with the most valid points, comparing ATL06-SR and DEM.",
+            fig_fn = f"{next(figure_counter):02}.png"
+            icesat.mapview_plot_atl06sr_to_dem(
+                key="all",
+                save_dir=plots_directory,
+                fig_fn=fig_fn,
+                map_crs=map_crs,
+                **ctx_kwargs_altimetry,
             )
-        )
+            sections.append(
+                ReportSection(
+                    title="ICESat-2 ATL06-SR Map",
+                    image_path=os.path.join(plots_directory, fig_fn),
+                    caption="ICESat-2 ATL06-SR elevation differences vs. ASP DEM.",
+                )
+            )
+
+            fig_fn = f"{next(figure_counter):02}.png"
+            icesat.histogram_by_landcover(
+                key="all",
+                save_dir=plots_directory,
+                fig_fn=fig_fn,
+            )
+            sections.append(
+                ReportSection(
+                    title="ICESat-2 ATL06-SR Histogram",
+                    image_path=os.path.join(plots_directory, fig_fn),
+                    caption="Distribution of elevation differences between ICESat-2 ATL06-SR and ASP DEM with per-landcover statistics.",
+                )
+            )
+
+            fig_fn = f"{next(figure_counter):02}.png"
+            icesat.plot_atl06sr_dem_profile(
+                key="all",
+                save_dir=plots_directory,
+                fig_fn=fig_fn,
+            )
+            sections.append(
+                ReportSection(
+                    title="ICESat-2 ATL06-SR Profile",
+                    image_path=os.path.join(plots_directory, fig_fn),
+                    caption="Elevation profile along the ICESat-2 track with the most valid points, comparing ATL06-SR and DEM.",
+                )
+            )
+
+        elif body in ("moon", "mars"):
+            instrument = {"moon": "LOLA", "mars": "MOLA"}[body]
+
+            if not altimetry_csv:
+                print(
+                    f"\n{'='*60}\n"
+                    f"Planetary altimetry requires a pre-downloaded data file.\n\n"
+                    f"To obtain {instrument} data for this DEM:\n"
+                    f"  1. Run: request_planetary_altimetry --dem {asp_dem} --email <your_email>\n"
+                    f"  2. Wait for the email with a download link\n"
+                    f"  3. Download and unzip the result\n"
+                    f"  4. Re-run asp_plot with: --altimetry_csv <path_to_topo_csv.csv>\n"
+                    f"\nSkipping {instrument} altimetry plots.\n"
+                    f"{'='*60}\n"
+                )
+            else:
+                alt = Altimetry(directory=directory, dem_fn=asp_dem)
+                alt.load_planetary_csv(altimetry_csv)
+                alt.planetary_to_dem_dh()
+
+                fig_fn = f"{next(figure_counter):02}.png"
+                alt.mapview_plot_planetary_to_dem(
+                    save_dir=plots_directory,
+                    fig_fn=fig_fn,
+                )
+                sections.append(
+                    ReportSection(
+                        title=f"{instrument} Altimetry Map",
+                        image_path=os.path.join(plots_directory, fig_fn),
+                        caption=f"{instrument} elevation differences vs. ASP DEM.",
+                    )
+                )
+
+                fig_fn = f"{next(figure_counter):02}.png"
+                alt.histogram_planetary_to_dem(
+                    save_dir=plots_directory,
+                    fig_fn=fig_fn,
+                )
+                sections.append(
+                    ReportSection(
+                        title=f"{instrument} Altimetry Histogram",
+                        image_path=os.path.join(plots_directory, fig_fn),
+                        caption=f"Distribution of elevation differences between {instrument} and ASP DEM.",
+                    )
+                )
 
     # Compile report
     processing_parameters = ProcessingParameters(
