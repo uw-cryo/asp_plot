@@ -1,6 +1,6 @@
 # CLI Tools
 
-`asp_plot` provides three command-line tools for different visualization tasks:
+`asp_plot` provides four command-line tools for different visualization tasks:
 
 ::::{grid} 1
 :gutter: 3
@@ -26,6 +26,13 @@ Visualize stereo acquisition geometry from satellite XML camera files.
 Diagnostic plots for CSM camera model adjustments after bundle adjustment or jitter correction.
 :::
 
+:::{grid-item-card} request_planetary_altimetry
+:link: request_planetary_altimetry
+:link-type: doc
+
+Submit LOLA (Moon) or MOLA (Mars) altimetry data requests for planetary DEM validation.
+:::
+
 ::::
 
 ```{toctree}
@@ -35,4 +42,5 @@ Diagnostic plots for CSM camera model adjustments after bundle adjustment or jit
 asp_plot
 stereo_geom
 csm_camera_plot
+request_planetary_altimetry
 ```
