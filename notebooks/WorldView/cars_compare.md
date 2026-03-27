@@ -126,6 +126,24 @@ In `results/`:
 - **Matching preset**: Default is `census_sgm_default` (Census5, P1=8, P2=32). For urban areas like UCSD, `census_sgm_urban` (Census11, P1=20, P2=80) may perform better.
 - **Initial elevation**: Providing a coarse DEM via `input.initial_elevation.dem` narrows the disparity search range and speeds processing. The Copernicus 30m DEM at `ucsd_stereo/ref/cop30_ucsd_wgs84_utm.tif` could be used for this.
 
+## RPC Handling: CARS vs SETSM Cropping Approaches
+
+CARS' `cars-extractroi` and our manual SETSM cropping handle RPC offsets very differently:
+
+**Our SETSM approach** — modified the RPC offsets to reference cropped-image pixel coordinates:
+- `new LINE_OFF = original LINE_OFF - row_offset` (e.g., 21821 → 5159)
+- `new SAMP_OFF = original SAMP_OFF - col_offset` (e.g., 21249 → 10060)
+- Polynomial coefficients and scales unchanged
+
+**CARS' approach** — keeps RPCs completely untouched and stores the crop offset in the GeoTIFF affine transform:
+- RPB file: `lineOffset = 21821.0` (original value, unmodified)
+- GeoTIFF transform origin: `(11488, 16634)` — records where the crop sits within the full image
+- Shareloc composes the two at runtime: `full_image_pixel = cropped_pixel + transform_origin`
+
+CARS' approach is arguably more robust — the RPC model is never modified, and the crop offset is stored as standard GeoTIFF metadata. However, SETSM reads DigitalGlobe XML and doesn't interpret GeoTIFF transforms as pixel offsets, so the CARS-produced RPBs cannot be used for SETSM without conversion.
+
+Both approaches are mathematically equivalent (verified to zero error for our SETSM crop). The poor quality of the SETSM cropped results was likely due to SETSM's RPC bias compensation (`RA Params`) struggling with limited scene context, or the urban terrain itself, rather than the RPC adjustment.
+
 ## Key Differences: CARS vs ASP vs SETSM
 
 | Feature | ASP | CARS | SETSM |
