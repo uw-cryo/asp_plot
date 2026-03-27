@@ -114,15 +114,15 @@ docker run --platform linux/amd64 --rm \
 
 ::::{grid} 3
 :::{grid-item}
-![Copernicus 30m](../_static/comparisons/ucsd-cop30m-hillshade.png)
+![Copernicus 30m](../examples/figures/ucsd-cop30m-hillshade.png)
 **Copernicus 30m DEM**
 :::
 :::{grid-item}
-![ASP 2m](../_static/comparisons/ucsd-asp2m-hillshade.png)
+![ASP 2m](../examples/figures/ucsd-asp2m-hillshade.png)
 **ASP 2m DEM**
 :::
 :::{grid-item}
-![SETSM 2m](../_static/comparisons/ucsd-setsm2m-hillshade.png)
+![SETSM 2m](../examples/figures/ucsd-setsm2m-hillshade.png)
 **SETSM 2m DEM**
 :::
 ::::
