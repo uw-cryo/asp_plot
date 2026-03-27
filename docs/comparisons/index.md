@@ -21,6 +21,19 @@ CNES open-source stereo pipeline with Pandora dense matching.
 
 ::::
 
+## Key Differences
+
+| Feature | ASP | CARS | SETSM |
+|---|---|---|---|
+| Language | C++ | Python + C++ (pybind11) | C++ |
+| Dense matching | NCC, MGM, SGM, etc. | Pandora (Census + SGM) | TIN-based NCC |
+| Bundle adjustment | Integrated (`bundle_adjust`) | Separate tool (optional) | None (RPC bias comp. only) |
+| Memory management | In-process | Tiled, per-worker limits | Loads full images into memory |
+| Parallelism | OpenMP threads | multiprocessing / Dask | OpenMP / MPI |
+| Cropped processing | `mapproject` with crop window | ROI config or `cars-extractroi` | Manual RPC offset adjustment |
+| Install | Pre-built binaries | pip / Docker | Build from source |
+| License | Apache 2.0 | Apache 2.0 | Apache 2.0 |
+
 ```{toctree}
 :maxdepth: 1
 :hidden:
