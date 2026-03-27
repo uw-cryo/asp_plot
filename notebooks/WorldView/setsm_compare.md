@@ -143,7 +143,6 @@ docker run --platform linux/amd64 --rm \
 
 Optional flags:
 - `-minH 0 -maxH 300` — constrain terrain height range (UCSD campus is ~0–170 m) to speed processing
-- `-tilesize 100000` — disable tiling (appropriate for this small crop)
 
 Expected outputs in `results/`:
 - `*_dem.tif` — DSM (float32 GeoTIFF)
