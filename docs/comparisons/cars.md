@@ -107,6 +107,23 @@ Expected outputs in `results/`:
 - **Initial elevation**: Providing a coarse DEM via `input.initial_elevation.dem` narrows the disparity search range and speeds processing.
 :::
 
+## Hillshade Comparison
+
+::::{grid} 3
+:::{grid-item}
+![Copernicus 30m](../_static/comparisons/ucsd-cop30m-hillshade.png)
+**Copernicus 30m DEM**
+:::
+:::{grid-item}
+![ASP 2m](../_static/comparisons/ucsd-asp2m-hillshade.png)
+**ASP 2m DEM**
+:::
+:::{grid-item}
+<!-- Add ucsd-cars2m-hillshade.png to docs/_static/comparisons/ when available -->
+*CARS 2m DEM — pending*
+:::
+::::
+
 ## RPC Handling: CARS vs SETSM
 
 :::{dropdown} How CARS and SETSM handle RPCs for cropped images differently
