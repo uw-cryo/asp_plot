@@ -174,70 +174,25 @@ docker run --platform linux/amd64 --rm \
 | Convergence angle | 35.9° |
 | Expected height accuracy | 1.09 m |
 
-**Result: Poor quality.** The DEM had significant artifacts. Suspected cause: the cropping + RPC offset adjustment may have introduced issues with SETSM's internal RPC bias compensation, which may need a larger scene context.
+**Result: Poor quality.** The hillshade showed unreasonable noise and elevation blunders throughout, rendering quality analysis unnecessary.
 
 **Notes:**
 - Ortho TIFFs were written with corrupt LZW compression (unreadable in QGIS/GDAL). Likely a libtiff version issue inside the Docker container. The DEM and matchtag were fine.
 - The `-minH 0 -maxH 300` range was slightly exceeded in the output; SETSM uses these as search bounds, not hard clamps.
+- The SETSM user manual's `-seed <filepath> <sigma>` flag was investigated but is documented as a performance optimization only, not a quality improvement: *"We caution that it is better to not use a seed DEM if possible, as it can only negatively impact the quality of the SETSM DEM."*
 
-### Seed DEM investigation
+### Run 2: Full scene — OOM failure
 
-The `results_meta.txt` contains a `Seed DEM=` field (empty). SETSM supports a `-seed <filepath> <sigma>` flag to provide a coarse DEM to narrow the vertical search space. However, the SETSM user manual explicitly cautions:
-
-> *"We caution that it is better to not use a seed DEM if possible, as it can only negatively impact the quality of the SETSM DEM."*
-
-The seed DEM is a **performance optimization** (reduces search space), not a quality improvement. Errors in the seed propagate into the output. Not used for Run 2.
-
-### Run 2: Full scene (ucsd_stereo_SETSM_full)
-
-To test whether the cropping caused the poor results, re-running on the full uncropped images (converted from NTF to GeoTIFF with no pixel offset, original RPCs untouched). Docker resource limits set to keep the laptop usable:
-
-```bash
-# Convert full NTFs to GeoTIFF (no cropping, RPCs preserved as-is)
-gdal_translate -of GTiff ucsd_stereo/1040010007A3D100_P001.NTF ucsd_stereo_SETSM_full/1040010007A3D100_P001.tif
-gdal_translate -of GTiff ucsd_stereo/1040010007A93700_P001.NTF ucsd_stereo_SETSM_full/1040010007A93700_P001.tif
-
-# Copy original XMLs (no modifications)
-cp -L ucsd_stereo/1040010007A3D100_P001.xml ucsd_stereo_SETSM_full/
-cp -L ucsd_stereo/1040010007A93700_P001.xml ucsd_stereo_SETSM_full/
-
-# Run SETSM with resource limits
-docker run --platform linux/amd64 --rm \
-    --cpus 6 --memory 10g \
-    -v /path/to/ucsd_stereo_SETSM_full:/data -w /data setsm \
-    -image 1040010007A3D100_P001.tif -image 1040010007A93700_P001.tif \
-    -outpath /data/results -outres 4 -mem 10
-```
-
-Docker resource limiting flags:
-- `--cpus 6` — limits the container to 6 of 8 available cores, keeping 2 free for the host OS
-- `--memory 10g` — hard RAM cap at 10 GB so the system doesn't swap
-- `-mem 10` — tells SETSM to budget for 10 GB internally
-- `-outres 4` — 4 m resolution (coarser than Run 1's 2 m) for a faster initial sanity check
-
-**Status:** Processing (expected to take several hours via Rosetta emulation on the full 43k x 44k images).
+Attempted to run on the full uncropped images (43k×44k and 43k×46k px) to rule out cropping as the cause of poor results. SETSM loads both full images into memory regardless of output resolution — two UInt16 images plus pyramids required well over 14 GB. The container was OOM-killed (exit code 137) during preprocessing at both `--memory 10g` and `--memory 14g` on a 16 GB machine. Full-scene SETSM processing is not feasible locally.
 
 ### Troubleshooting
 
 - **`'default.txt' file doesn't exist`** — SETSM requires a `default.txt` config file in the working directory. The Dockerfile above handles this automatically. If running a manually-built binary, copy `default.txt` from the SETSM repo into the data directory.
 - **JPEG2000 NTF read errors** — The conda `asp_plot` environment lacks a JP2 driver. Use ASP's `gdal_translate` for cropping NTF files (it includes the JP2OpenJPEG driver).
 
-## Next Steps
+## Conclusion
 
-### Compare ASP and SETSM DEMs
-
-Both DEMs are in the same CRS (EPSG:32611), resolution (2 m), and datum (WGS84 ellipsoidal heights). Comparison steps:
-
-1. **Difference map** — Use `asp_plot`'s raster differencing to compute SETSM DEM minus ASP DEM
-2. **Hillshade comparison** — Visual comparison of surface detail and artifacts
-3. **ICESat-2 validation** — Compare both DEMs against ICESat-2 ATL06-SR altimetry (already available from the ASP notebook) to get independent accuracy metrics (median, NMAD)
-4. **Match coverage** — Compare SETSM's `matchtag` with ASP's intersection error / triangulation maps to assess where each pipeline produces valid matches
-
-### Potential issues to watch for
-
-- **No-data handling** — ASP uses a different no-data convention than SETSM (-9999). Mask both consistently before differencing.
-- **Extent alignment** — The two DEMs may not cover identical extents. Clip to their intersection before computing statistics.
-- **Outlier filtering** — SETSM's unfiltered output contains elevation outliers outside the physical range. Filter using the `matchtag` (matched pixels only) for fair comparison.
+The cropped-image run produced a DEM with excessive noise and blunders, and the full-scene run could not complete on a 16 GB laptop due to SETSM's memory requirements. A proper comparison of ASP vs SETSM DEM quality would require processing on a machine with more RAM (the SETSM manual recommends nodes with 12+ cores and proportionally more memory for full-resolution commercial imagery).
 
 ## References
 
