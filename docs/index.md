@@ -49,6 +49,13 @@ Modular usage examples by sensor type.
 Full Python API documentation.
 :::
 
+:::{grid-item-card} Pipeline Comparisons
+:link: comparisons/index
+:link-type: doc
+
+ASP vs SETSM, CARS, and other stereo pipelines.
+:::
+
 :::{grid-item-card} Contributing
 :link: contributing
 :link-type: doc
@@ -82,6 +89,7 @@ cli/index
 examples/index
 examples/reports
 API Reference <autoapi/index>
+comparisons/index
 contributing
 changelog
 ```
