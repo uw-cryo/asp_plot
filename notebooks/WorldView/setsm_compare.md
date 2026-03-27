@@ -152,9 +152,16 @@ Expected outputs in `results/`:
 - `*_matchtag.tif` — binary match mask (1 = matched, 0 = interpolated)
 - `*_meta.txt` — metadata file
 
-### Processing results
+### Run 1: Cropped images (ucsd_stereo_SETSM_crop)
 
-SETSM v4.3.16 completed successfully on the cropped images. Run on an Apple Silicon MacBook Air (M2, 8 GB) via Docker with `linux/amd64` emulation (Rosetta).
+SETSM v4.3.16 on the cropped images. Run on an Apple Silicon MacBook Air (M2, 8 GB) via Docker with `linux/amd64` emulation (Rosetta).
+
+```bash
+docker run --platform linux/amd64 --rm \
+    -v /path/to/ucsd_stereo_SETSM_crop:/data -w /data setsm \
+    -image 1040010007A3D100_P001.tif -image 1040010007A93700_P001.tif \
+    -outpath /data/results -outres 2 -mem 16 -minH 0 -maxH 300
+```
 
 | Metric | Value |
 |---|---|
@@ -167,21 +174,48 @@ SETSM v4.3.16 completed successfully on the cropped images. Run on an Apple Sili
 | Convergence angle | 35.9° |
 | Expected height accuracy | 1.09 m |
 
-Output files in `ucsd_stereo_SETSM/results/`:
-
-```
-results_dem.tif                          (12 MB, float32 DSM)
-results_matchtag.tif                     (184 KB, byte match mask)
-results_meta.txt                         (processing metadata)
-1040010007A3D100_P001_ortho_2.0.tif      (13 MB, orthorectified image 1)
-1040010007A93700_P001_ortho_2.0.tif      (14 MB, orthorectified image 2)
-```
+**Result: Poor quality.** The DEM had significant artifacts. Suspected cause: the cropping + RPC offset adjustment may have introduced issues with SETSM's internal RPC bias compensation, which may need a larger scene context.
 
 **Notes:**
-- The ~115 minute runtime includes Rosetta x86 emulation overhead; native linux/amd64 would be significantly faster.
-- SETSM automatically detected UTM zone 11N from the RPC metadata — no manual CRS specification needed.
-- Elevation outliers (e.g., -99.5 m, 540.6 m) are expected in unfiltered SETSM output, particularly in areas with poor texture or occlusion. The `matchtag` distinguishes matched vs interpolated pixels.
+- Ortho TIFFs were written with corrupt LZW compression (unreadable in QGIS/GDAL). Likely a libtiff version issue inside the Docker container. The DEM and matchtag were fine.
 - The `-minH 0 -maxH 300` range was slightly exceeded in the output; SETSM uses these as search bounds, not hard clamps.
+
+### Seed DEM investigation
+
+The `results_meta.txt` contains a `Seed DEM=` field (empty). SETSM supports a `-seed <filepath> <sigma>` flag to provide a coarse DEM to narrow the vertical search space. However, the SETSM user manual explicitly cautions:
+
+> *"We caution that it is better to not use a seed DEM if possible, as it can only negatively impact the quality of the SETSM DEM."*
+
+The seed DEM is a **performance optimization** (reduces search space), not a quality improvement. Errors in the seed propagate into the output. Not used for Run 2.
+
+### Run 2: Full scene (ucsd_stereo_SETSM_full)
+
+To test whether the cropping caused the poor results, re-running on the full uncropped images (converted from NTF to GeoTIFF with no pixel offset, original RPCs untouched). Docker resource limits set to keep the laptop usable:
+
+```bash
+# Convert full NTFs to GeoTIFF (no cropping, RPCs preserved as-is)
+gdal_translate -of GTiff ucsd_stereo/1040010007A3D100_P001.NTF ucsd_stereo_SETSM_full/1040010007A3D100_P001.tif
+gdal_translate -of GTiff ucsd_stereo/1040010007A93700_P001.NTF ucsd_stereo_SETSM_full/1040010007A93700_P001.tif
+
+# Copy original XMLs (no modifications)
+cp -L ucsd_stereo/1040010007A3D100_P001.xml ucsd_stereo_SETSM_full/
+cp -L ucsd_stereo/1040010007A93700_P001.xml ucsd_stereo_SETSM_full/
+
+# Run SETSM with resource limits
+docker run --platform linux/amd64 --rm \
+    --cpus 6 --memory 10g \
+    -v /path/to/ucsd_stereo_SETSM_full:/data -w /data setsm \
+    -image 1040010007A3D100_P001.tif -image 1040010007A93700_P001.tif \
+    -outpath /data/results -outres 4 -mem 10
+```
+
+Docker resource limiting flags:
+- `--cpus 6` — limits the container to 6 of 8 available cores, keeping 2 free for the host OS
+- `--memory 10g` — hard RAM cap at 10 GB so the system doesn't swap
+- `-mem 10` — tells SETSM to budget for 10 GB internally
+- `-outres 4` — 4 m resolution (coarser than Run 1's 2 m) for a faster initial sanity check
+
+**Status:** Processing (expected to take several hours via Rosetta emulation on the full 43k x 44k images).
 
 ### Troubleshooting
 
