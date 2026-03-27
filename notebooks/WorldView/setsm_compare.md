@@ -85,15 +85,13 @@ Located in `ucsd_stereo_SETSM/`:
 1040010007A93700_P001.xml   (modified DigitalGlobe XML with adjusted RPCs)
 ```
 
-## Next Steps
-
-### 1. Build and run SETSM via Docker
+## Building and Running SETSM via Docker
 
 SETSM is open-source (Apache 2.0), pure C++ with no GPU requirement. Building in Docker avoids any risk of dependency conflicts with the host system (conda, Homebrew, PROJ version mismatches, etc.).
 
 Repository: https://github.com/setsmdeveloper/SETSM
 
-#### Build the Docker image
+### Build the Docker image
 
 ```bash
 # Clone SETSM
@@ -120,14 +118,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /opt/SETSM/setsm /usr/local/bin/setsm
+COPY --from=builder /opt/SETSM/default.txt /usr/local/share/setsm/default.txt
 
-ENTRYPOINT ["setsm"]
+WORKDIR /data
+ENTRYPOINT ["sh", "-c", "cp /usr/local/share/setsm/default.txt /data/default.txt 2>/dev/null; exec setsm \"$@\"", "--"]
 DOCKERFILE
 ```
 
-This uses a multi-stage build — the final image is small and only contains the `setsm` binary and its runtime libraries.
+This uses a multi-stage build — the final image is small and only contains the `setsm` binary and its runtime libraries. The `default.txt` configuration file is bundled into the image and copied into the working directory at runtime (SETSM requires it to be present alongside the data).
 
-#### Run SETSM on the cropped images
+### Run SETSM on the cropped images
 
 Mount the data directory into the container and run:
 
@@ -138,11 +138,13 @@ docker run --platform linux/amd64 --rm \
     setsm \
     -image 1040010007A3D100_P001.tif \
     -image 1040010007A93700_P001.tif \
-    -outpath /data/results -outres 2 -mem 16
+    -outpath /data/results -outres 2 -mem 16 \
+    -minH 0 -maxH 300
 ```
 
-Optional flags:
-- `-minH 0 -maxH 300` — constrain terrain height range (UCSD campus is ~0–170 m) to speed processing
+- `-outres 2` — 2 m output resolution (matches ASP processing)
+- `-mem 16` — limit memory usage to 16 GB
+- `-minH 0 -maxH 300` — constrain terrain height search range (UCSD campus is ~0–170 m) to speed processing
 
 Expected outputs in `results/`:
 - `*_dem.tif` — DSM (float32 GeoTIFF)
@@ -152,7 +154,14 @@ Expected outputs in `results/`:
 
 **Note:** Running `linux/amd64` via Rosetta on Apple Silicon works but is slower than native. Processing the cropped ~10k x 12k px images at 2 m resolution should still be tractable.
 
-### 3. Compare ASP and SETSM DEMs
+### Troubleshooting
+
+- **`'default.txt' file doesn't exist`** — SETSM requires a `default.txt` config file in the working directory. The Dockerfile above handles this automatically. If running a manually-built binary, copy `default.txt` from the SETSM repo into the data directory.
+- **JPEG2000 NTF read errors** — The conda `asp_plot` environment lacks a JP2 driver. Use ASP's `gdal_translate` for cropping NTF files (it includes the JP2OpenJPEG driver).
+
+## Next Steps
+
+### Compare ASP and SETSM DEMs
 
 Once both DEMs exist for the same area:
 
