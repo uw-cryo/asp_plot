@@ -217,14 +217,17 @@ class Altimetry:
             sliderule_api.init("slideruleearth.io", verbose=True)
             self._sliderule_initialized = True
 
-    def _resolve_time_range(self, scene_date=None, time_buffer_days=365):
+    def _resolve_time_range(
+        self, scene_date=None, time_buffer_days=365, t0=None, t1=None
+    ):
         """
         Resolve the t0/t1 time range for SlideRule API requests.
 
-        Uses a three-tier cascade:
-        1. Explicit ``scene_date`` parameter
-        2. Auto-detect from stereopair XML metadata
-        3. Fallback to most recent 2 years
+        Uses a four-tier cascade:
+        1. Explicit ``t0``/``t1`` parameters (highest priority)
+        2. Explicit ``scene_date`` parameter +/- ``time_buffer_days``
+        3. Auto-detect from stereopair XML metadata +/- ``time_buffer_days``
+        4. Fallback to most recent 2 years
 
         Parameters
         ----------
@@ -232,22 +235,48 @@ class Altimetry:
             Explicit scene date. Parsed via ``pd.Timestamp``.
         time_buffer_days : int, optional
             Days before/after the resolved date, default 365.
+        t0 : str or datetime-like, optional
+            Explicit start date for the time range. If both ``t0`` and
+            ``t1`` are provided, they override all other time resolution.
+            Use ``t0="all"`` to request all data from ICESat-2 mission
+            start to present.
+        t1 : str or datetime-like, optional
+            Explicit end date for the time range.
 
         Returns
         -------
         tuple of (str, str, datetime or None)
             (t0_str, t1_str, resolved_date) formatted as
             ``"%Y-%m-%dT%H:%M:%SZ"``. resolved_date is None when
-            the 2-year fallback is used.
+            the explicit t0/t1, 2-year fallback, or "all" is used.
         """
         fmt = "%Y-%m-%dT%H:%M:%SZ"
+        now = datetime.now(tz=timezone.utc)
+
+        # Tier 1: explicit t0/t1 or "all"
+        if t0 is not None:
+            if str(t0).lower() == "all":
+                t0_dt = ICESAT2_MISSION_START
+                t1_dt = now
+            else:
+                t0_dt = pd.Timestamp(t0, tz="UTC").to_pydatetime()
+                t1_dt = (
+                    pd.Timestamp(t1, tz="UTC").to_pydatetime()
+                    if t1 is not None
+                    else now
+                )
+            self._scene_date = None
+            self._t0 = t0_dt
+            self._t1 = t1_dt
+            return (t0_dt.strftime(fmt), t1_dt.strftime(fmt), None)
+
         resolved_date = None
 
-        # Tier 1: explicit date
+        # Tier 2: explicit date
         if scene_date is not None:
             resolved_date = pd.Timestamp(scene_date, tz="UTC").to_pydatetime()
 
-        # Tier 2: auto-detect from XML metadata
+        # Tier 3: auto-detect from XML metadata
         if resolved_date is None:
             try:
                 cdate = StereopairMetadataParser(self.directory).get_pair_dict()[
@@ -259,25 +288,24 @@ class Altimetry:
 
         # Compute buffered range if we have a date
         if resolved_date is not None:
-            t0 = resolved_date - timedelta(days=time_buffer_days)
-            t1 = resolved_date + timedelta(days=time_buffer_days)
-            t0 = max(t0, ICESAT2_MISSION_START)
+            t0_dt = resolved_date - timedelta(days=time_buffer_days)
+            t1_dt = resolved_date + timedelta(days=time_buffer_days)
+            t0_dt = max(t0_dt, ICESAT2_MISSION_START)
             # If entire range predates mission, fall through to tier 3
-            if t1 >= ICESAT2_MISSION_START:
+            if t1_dt >= ICESAT2_MISSION_START:
                 self._scene_date = resolved_date
-                self._t0 = t0
-                self._t1 = t1
-                return (t0.strftime(fmt), t1.strftime(fmt), resolved_date)
+                self._t0 = t0_dt
+                self._t1 = t1_dt
+                return (t0_dt.strftime(fmt), t1_dt.strftime(fmt), resolved_date)
 
-        # Tier 3: fallback to most recent 2 years
-        now = datetime.now(tz=timezone.utc)
-        t1 = now
-        t0 = max(now - timedelta(days=2 * 365), ICESAT2_MISSION_START)
+        # Tier 4: fallback to most recent 2 years
+        t1_dt = now
+        t0_dt = max(now - timedelta(days=2 * 365), ICESAT2_MISSION_START)
 
         self._scene_date = None
-        self._t0 = t0
-        self._t1 = t1
-        return (t0.strftime(fmt), t1.strftime(fmt), None)
+        self._t0 = t0_dt
+        self._t1 = t1_dt
+        return (t0_dt.strftime(fmt), t1_dt.strftime(fmt), None)
 
     @property
     def _time_range_label(self):
@@ -309,6 +337,8 @@ class Altimetry:
         region=None,
         scene_date=None,
         time_buffer_days=365,
+        t0=None,
+        t1=None,
     ):
         """
         Request ICESat-2 ATL06-SR data for multiple processing levels.
@@ -345,10 +375,18 @@ class Altimetry:
         scene_date : str or datetime-like, optional
             Scene acquisition date for server-side time filtering.
             If None, auto-detected from stereopair XML metadata.
-            Falls back to most recent 3 years if unavailable.
+            Falls back to most recent 2 years if unavailable.
         time_buffer_days : int, optional
             Days before/after scene_date defining the time window,
             default is 365
+        t0 : str or datetime-like, optional
+            Explicit start date for the time range (e.g. "2020-01-01").
+            Use ``"all"`` to request all data from ICESat-2 mission
+            start (2018-10-14) to present. Overrides ``scene_date``
+            and ``time_buffer_days`` when provided.
+        t1 : str or datetime-like, optional
+            Explicit end date for the time range (e.g. "2024-12-31").
+            Defaults to present if only ``t0`` is provided.
 
         Returns
         -------
@@ -369,9 +407,12 @@ class Altimetry:
 
         # Resolve server-side time range to limit granules processed
         t0_str, t1_str, resolved_date = self._resolve_time_range(
-            scene_date=scene_date, time_buffer_days=time_buffer_days
+            scene_date=scene_date, time_buffer_days=time_buffer_days, t0=t0, t1=t1
         )
-        if resolved_date is not None:
+        if t0 is not None:
+            label = "all available" if str(t0).lower() == "all" else "custom range"
+            print(f"Time filter: {t0_str} to {t1_str} ({label})")
+        elif resolved_date is not None:
             print(
                 f"Time filter: {t0_str} to {t1_str} "
                 f"(+/- {time_buffer_days} days from {resolved_date.date()})"
@@ -791,7 +832,7 @@ class Altimetry:
         agreement_threshold=0.25,
         write_out_aligned_dem=False,
         min_translation_threshold=0.1,
-        key_for_aligned_dem="ground",
+        key_for_aligned_dem=None,
     ):
         """
         Generate alignment reports and optionally align the DEM.
@@ -816,7 +857,8 @@ class Altimetry:
             to warrant creating an aligned DEM, default is 0.1
         key_for_aligned_dem : str, optional
             Which temporal filter key to use for alignment if
-            write_out_aligned_dem is True, default is "ground"
+            write_out_aligned_dem is True. Default is None, which
+            uses the ``processing_level`` value.
 
         Returns
         -------
@@ -830,6 +872,9 @@ class Altimetry:
         and only creates an aligned DEM if the translation is significant enough
         and consistent across temporal windows.
         """
+        if key_for_aligned_dem is None:
+            key_for_aligned_dem = processing_level
+
         filtered_keys = [
             key
             for key in self.atl06sr_processing_levels_filtered.keys()
@@ -917,12 +962,19 @@ class Altimetry:
                 print(f"East shift range: {east_range:.3f} m (mean: {east_mean:.3f} m)")
                 print(f"Down shift range: {down_range:.3f} m (mean: {down_mean:.3f} m)")
 
-            self.aligned_dem_fn = alignment.apply_dem_translation(
+            aligned = alignment.apply_dem_translation(
                 output_prefix=f"pc_align/pc_align_{key_for_aligned_dem}",
             )
-            print(
-                f"\nWrote out {key_for_aligned_dem} aligned DEM to {self.aligned_dem_fn}\n"
-            )
+            if aligned is not None:
+                self.aligned_dem_fn = aligned
+                print(
+                    f"\nWrote out {key_for_aligned_dem} aligned DEM to {self.aligned_dem_fn}\n"
+                )
+            else:
+                logger.warning(
+                    f"Could not apply DEM translation for key '{key_for_aligned_dem}' "
+                    "(pc_align log not found)."
+                )
 
         self.alignment_report_df = alignment_report_df
 

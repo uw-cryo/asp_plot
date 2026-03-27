@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.11.0] - 2026-03-26
+
+### Added
+- New `--atl06sr_time_range` CLI option for controlling ICESat-2 ATL06-SR time filtering: use `"all"` for full mission range, or `"START,END"` for a custom date range (e.g. `"2020-01-01,2024-12-31"`)
+- Corresponding `t0`/`t1` parameters on `Altimetry.request_atl06sr_multi_processing()` and `Altimetry._resolve_time_range()` for programmatic use
+- New WorldView-3 UCSD example notebook (`worldview_spacenet_ucsd_stereo.ipynb`) using publicly available IARPA CORE3D data, with comprehensive stereopair selection analysis
+- Example report: `WorldView_UCSD-asp-plot-report.pdf`
+
+### Fixed
+- `Alignment.pc_align_report()` and `Alignment.apply_dem_translation()` now return `None` gracefully when pc_align log files are not found, instead of crashing with `TypeError`
+- `Altimetry.alignment_report()` handles missing pc_align results with a warning instead of crashing
+- `key_for_aligned_dem` parameter in `Altimetry.alignment_report()` now defaults to the `processing_level` value instead of being hardcoded to `"ground"`
+
 ## [1.10.0] - 2026-03-21
 
 ### Added

@@ -97,6 +97,12 @@ from asp_plot.utils import Raster, detect_planetary_body
     help="Size in km of the subset to plot for the detailed hillshade. Default: 1 km.",
 )
 @click.option(
+    "--atl06sr_time_range",
+    prompt=False,
+    default=None,
+    help='Time range for ICESat-2 ATL06-SR data requests. Use "all" for all available data (mission start to present), or "START,END" for a custom range (e.g. "2020-01-01,2024-12-31"). Default: auto-detect from scene metadata +/- 1 year.',
+)
+@click.option(
     "--report_filename",
     prompt=False,
     default=None,
@@ -122,6 +128,7 @@ def main(
     altimetry_csv,
     plot_geometry,
     subset_km,
+    atl06sr_time_range,
     report_filename,
     report_title,
 ):
@@ -447,12 +454,25 @@ def main(
             ctx_kwargs_altimetry = ctx_kwargs
 
         if body == "earth":
+            # Parse --atl06sr_time_range into t0/t1 kwargs
+            atl06sr_time_kwargs = {}
+            if atl06sr_time_range is not None:
+                if atl06sr_time_range.lower() == "all":
+                    atl06sr_time_kwargs["t0"] = "all"
+                elif "," in atl06sr_time_range:
+                    parts = atl06sr_time_range.split(",", 1)
+                    atl06sr_time_kwargs["t0"] = parts[0].strip()
+                    atl06sr_time_kwargs["t1"] = parts[1].strip()
+                else:
+                    atl06sr_time_kwargs["t0"] = atl06sr_time_range.strip()
+
             # Existing ICESat-2 workflow (3 plots: map, histogram, profile)
             icesat = Altimetry(directory=directory, dem_fn=asp_dem)
 
             icesat.request_atl06sr_multi_processing(
                 processing_levels=["all"],
                 save_to_parquet=True,
+                **atl06sr_time_kwargs,
             )
 
             icesat.filter_esa_worldcover(filter_out="water")

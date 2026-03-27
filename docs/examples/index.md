@@ -11,7 +11,14 @@ Examples of modular usage of `asp_plot`, organized by sensor type. Each notebook
 :link: notebooks/worldview_spacenet_atlanta_stereo
 :link-type: doc
 
-Stereo processing of publicly available SpaceNet Atlanta WorldView data.
+Stereo processing of publicly available SpaceNet Atlanta WorldView-2 data.
+:::
+
+:::{grid-item-card} WorldView — SpaceNet UCSD
+:link: notebooks/worldview_spacenet_ucsd_stereo
+:link-type: doc
+
+Stereo processing of publicly available IARPA CORE3D UCSD WorldView-3 data.
 :::
 
 :::{grid-item-card} WorldView — Utqiagvik
@@ -91,6 +98,7 @@ Mars Reconnaissance Orbiter High Resolution Imaging Science Experiment processin
 :hidden:
 
 notebooks/worldview_spacenet_atlanta_stereo
+notebooks/worldview_spacenet_ucsd_stereo
 notebooks/worldview_utqiagvik_stereo
 notebooks/worldview_uyuni_jitter_plots
 notebooks/aster_with_mapprojection
