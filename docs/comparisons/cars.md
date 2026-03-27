@@ -111,11 +111,11 @@ Expected outputs in `results/`:
 
 ::::{grid} 3
 :::{grid-item}
-![Copernicus 30m](../_static/comparisons/ucsd-cop30m-hillshade.png)
+![Copernicus 30m](../examples/figures/ucsd-cop30m-hillshade.png)
 **Copernicus 30m DEM**
 :::
 :::{grid-item}
-![ASP 2m](../_static/comparisons/ucsd-asp2m-hillshade.png)
+![ASP 2m](../examples/figures/ucsd-asp2m-hillshade.png)
 **ASP 2m DEM**
 :::
 :::{grid-item}
