@@ -170,6 +170,9 @@ class Alignment:
         """
         pc_align_log = glob_file(self.directory, f"{output_prefix}-log-pc_align*.txt")
 
+        if pc_align_log is None:
+            return None
+
         with open(pc_align_log, "r") as file:
             content = file.readlines()
 
@@ -237,6 +240,9 @@ class Alignment:
         applies the translation to the DEM's metadata and pixel values.
         """
         pc_align_log = glob_file(self.directory, f"{output_prefix}-log-pc_align*.txt")
+
+        if pc_align_log is None:
+            return None
 
         src = Raster(self.dem_fn)
         src_a = src.read_array()
