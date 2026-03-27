@@ -87,47 +87,71 @@ Located in `ucsd_stereo_SETSM/`:
 
 ## Next Steps
 
-### 1. Build SETSM on macOS
+### 1. Build and run SETSM via Docker
 
-SETSM is open-source (Apache 2.0), pure C++ with no GPU requirement. Repository: https://github.com/setsmdeveloper/SETSM
+SETSM is open-source (Apache 2.0), pure C++ with no GPU requirement. Building in Docker avoids any risk of dependency conflicts with the host system (conda, Homebrew, PROJ version mismatches, etc.).
 
-Install dependencies via Homebrew:
+Repository: https://github.com/setsmdeveloper/SETSM
 
-```bash
-brew install gcc libtiff libgeotiff proj libjpeg zlib
-```
-
-Apple Clang does not support OpenMP natively. Either:
-- Use Homebrew GCC (`g++-14` or similar) as the compiler, or
-- Install `brew install libomp` and adjust Clang flags
-
-Build:
+#### Build the Docker image
 
 ```bash
+# Clone SETSM
 git clone https://github.com/setsmdeveloper/SETSM.git
 cd SETSM
-# May need to edit Makefile to point to Homebrew GCC and library paths
-make
+
+# Build the image (uses linux/amd64 via Rosetta on Apple Silicon)
+docker build --platform linux/amd64 -t setsm -f- . <<'DOCKERFILE'
+FROM ubuntu:24.04 AS builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    g++ make git \
+    libgeotiff-dev libtiff-dev libproj-dev libjpeg-dev zlib1g-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY . /opt/SETSM
+WORKDIR /opt/SETSM
+RUN make INCS="-I/usr/include/geotiff"
+
+FROM ubuntu:24.04
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgeotiff5 libgomp1 libtiff6 libproj25 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /opt/SETSM/setsm /usr/local/bin/setsm
+
+ENTRYPOINT ["setsm"]
+DOCKERFILE
 ```
 
-### 2. Run SETSM on the cropped images
+This uses a multi-stage build — the final image is small and only contains the `setsm` binary and its runtime libraries.
+
+#### Run SETSM on the cropped images
+
+Mount the data directory into the container and run:
 
 ```bash
-cd ucsd_stereo_SETSM
-
-./setsm -image 1040010007A3D100_P001.tif -image 1040010007A93700_P001.tif \
-    -outpath ./results -outres 2 -mem 16
+docker run --platform linux/amd64 --rm \
+    -v /path/to/ucsd_stereo_SETSM:/data \
+    -w /data \
+    setsm \
+    -image 1040010007A3D100_P001.tif \
+    -image 1040010007A93700_P001.tif \
+    -outpath /data/results -outres 2 -mem 16
 ```
 
 Optional flags:
 - `-minH 0 -maxH 300` — constrain terrain height range (UCSD campus is ~0–170 m) to speed processing
 - `-tilesize 100000` — disable tiling (appropriate for this small crop)
 
-Expected outputs:
+Expected outputs in `results/`:
 - `*_dem.tif` — DSM (float32 GeoTIFF)
 - `*_ortho.tif` — orthorectified image (16-bit GeoTIFF)
 - `*_matchtag.tif` — binary match mask (1 = matched, 0 = interpolated)
 - `*_meta.txt` — metadata file
+
+**Note:** Running `linux/amd64` via Rosetta on Apple Silicon works but is slower than native. Processing the cropped ~10k x 12k px images at 2 m resolution should still be tractable.
 
 ### 3. Compare ASP and SETSM DEMs
 
