@@ -152,7 +152,36 @@ Expected outputs in `results/`:
 - `*_matchtag.tif` — binary match mask (1 = matched, 0 = interpolated)
 - `*_meta.txt` — metadata file
 
-**Note:** Running `linux/amd64` via Rosetta on Apple Silicon works but is slower than native. Processing the cropped ~10k x 12k px images at 2 m resolution should still be tractable.
+### Processing results
+
+SETSM v4.3.16 completed successfully on the cropped images. Run on an Apple Silicon MacBook Air (M2, 8 GB) via Docker with `linux/amd64` emulation (Rosetta).
+
+| Metric | Value |
+|---|---|
+| Total computation time | ~115 minutes |
+| Peak memory usage | 3.96 GB |
+| Tiling | 4x4 grid (16 tiles, ~1 km each) |
+| Output DEM size | 1986 x 2019 px (2 m resolution) |
+| Output CRS | WGS 84 / UTM zone 11N (EPSG:32611) |
+| Elevation range | -99.5 to 540.6 m (mean 118.3 m) |
+| Convergence angle | 35.9° |
+| Expected height accuracy | 1.09 m |
+
+Output files in `ucsd_stereo_SETSM/results/`:
+
+```
+results_dem.tif                          (12 MB, float32 DSM)
+results_matchtag.tif                     (184 KB, byte match mask)
+results_meta.txt                         (processing metadata)
+1040010007A3D100_P001_ortho_2.0.tif      (13 MB, orthorectified image 1)
+1040010007A93700_P001_ortho_2.0.tif      (14 MB, orthorectified image 2)
+```
+
+**Notes:**
+- The ~115 minute runtime includes Rosetta x86 emulation overhead; native linux/amd64 would be significantly faster.
+- SETSM automatically detected UTM zone 11N from the RPC metadata — no manual CRS specification needed.
+- Elevation outliers (e.g., -99.5 m, 540.6 m) are expected in unfiltered SETSM output, particularly in areas with poor texture or occlusion. The `matchtag` distinguishes matched vs interpolated pixels.
+- The `-minH 0 -maxH 300` range was slightly exceeded in the output; SETSM uses these as search bounds, not hard clamps.
 
 ### Troubleshooting
 
@@ -163,19 +192,18 @@ Expected outputs in `results/`:
 
 ### Compare ASP and SETSM DEMs
 
-Once both DEMs exist for the same area:
+Both DEMs are in the same CRS (EPSG:32611), resolution (2 m), and datum (WGS84 ellipsoidal heights). Comparison steps:
 
 1. **Difference map** — Use `asp_plot`'s raster differencing to compute SETSM DEM minus ASP DEM
 2. **Hillshade comparison** — Visual comparison of surface detail and artifacts
 3. **ICESat-2 validation** — Compare both DEMs against ICESat-2 ATL06-SR altimetry (already available from the ASP notebook) to get independent accuracy metrics (median, NMAD)
 4. **Match coverage** — Compare SETSM's `matchtag` with ASP's intersection error / triangulation maps to assess where each pipeline produces valid matches
 
-### 4. Potential issues to watch for
+### Potential issues to watch for
 
-- **CRS alignment** — ASP and SETSM may output DEMs in different projections. Reproject to a common CRS before differencing.
-- **Datum** — Both should use WGS84 ellipsoidal heights, but verify.
-- **Resolution** — Match output GSD for fair comparison (both at 2 m).
-- **No-data handling** — Each pipeline has different conventions for no-data / void fill regions.
+- **No-data handling** — ASP uses a different no-data convention than SETSM (-9999). Mask both consistently before differencing.
+- **Extent alignment** — The two DEMs may not cover identical extents. Clip to their intersection before computing statistics.
+- **Outlier filtering** — SETSM's unfiltered output contains elevation outliers outside the physical range. Filter using the `matchtag` (matched pixels only) for fair comparison.
 
 ## References
 
