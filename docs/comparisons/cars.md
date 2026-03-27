@@ -124,38 +124,6 @@ Expected outputs in `results/`:
 :::
 ::::
 
-## RPC Handling: CARS vs SETSM
-
-:::{dropdown} How CARS and SETSM handle RPCs for cropped images differently
-:icon: git-compare
-
-CARS' `cars-extractroi` and our manual SETSM cropping handle RPC offsets very differently:
-
-**SETSM approach** — modified the RPC offsets to reference cropped-image pixel coordinates:
-- `new LINE_OFF = original LINE_OFF - row_offset` (e.g., 21821 → 5159)
-- `new SAMP_OFF = original SAMP_OFF - col_offset` (e.g., 21249 → 10060)
-- Polynomial coefficients and scales unchanged
-
-**CARS approach** — keeps RPCs completely untouched and stores the crop offset in the GeoTIFF affine transform:
-- RPB file: `lineOffset = 21821.0` (original value, unmodified)
-- GeoTIFF transform origin: `(11488, 16634)` — records where the crop sits within the full image
-- Shareloc composes the two at runtime: `full_image_pixel = cropped_pixel + transform_origin`
-
-CARS' approach is arguably more robust — the RPC model is never modified, and the crop offset is stored as standard GeoTIFF metadata. Both approaches are mathematically equivalent (verified to zero error).
-:::
-
-## Key Differences: CARS vs ASP vs SETSM
-
-| Feature | ASP | CARS | SETSM |
-|---|---|---|---|
-| Language | C++ | Python + C++ (pybind11) | C++ |
-| Dense matching | MGM/SGM (custom) | Pandora (Census + SGM) | Custom NCC |
-| Bundle adjustment | Integrated | Separate tool (optional) | None (RPC bias only) |
-| Memory management | In-process | Tiled, per-worker limits | Loads full images |
-| Parallel model | OpenMP threads | multiprocessing / Dask | OpenMP / MPI |
-| Cropped processing | mapproject + crop | ROI config or extractroi | Manual RPC surgery |
-| Install | Binary download | pip / Docker | Build from source |
-
 ## References
 
 - [CARS repository](https://github.com/CNES/cars)
