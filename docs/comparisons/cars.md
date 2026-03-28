@@ -119,8 +119,8 @@ Expected outputs in `results/`:
 **ASP 2m DEM**
 :::
 :::{grid-item}
-<!-- Add ucsd-cars2m-hillshade.png to docs/_static/comparisons/ when available -->
-*CARS 2m DEM — pending*
+![CARS 2m](../examples/figures/ucsd-cars2m-hillshade.png)
+**CARS 2m DEM**
 :::
 ::::
 
