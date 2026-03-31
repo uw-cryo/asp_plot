@@ -111,12 +111,27 @@ class TestAltimetry:
                 f"histogram_by_landcover() method raised an exception: {str(e)}"
             )
 
+    def test_filter_outliers(self, icesat):
+        icesat.atl06sr_to_dem_dh()
+        n_before = len(icesat.atl06sr_processing_levels_filtered["all"])
+        icesat.filter_outliers(n_sigma=3)
+        n_after = len(icesat.atl06sr_processing_levels_filtered["all"])
+        assert n_after <= n_before
+
     def test_plot_atl06sr_dem_profile(self, icesat):
         try:
             icesat.plot_atl06sr_dem_profile(key="all")
         except Exception as e:
             pytest.fail(
                 f"plot_atl06sr_dem_profile() method raised an exception: {str(e)}"
+            )
+
+    def test_plot_best_worst_segments(self, icesat):
+        try:
+            icesat.plot_best_worst_segments(key="all")
+        except Exception as e:
+            pytest.fail(
+                f"plot_best_worst_segments() method raised an exception: {str(e)}"
             )
 
     def test_alignment_report(self, icesat):
