@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.11.1] - 2026-03-30
+
+### Fixed
+- Asymmetry angle calculation: ECEF ground point z-coordinate was incorrectly set to 0 (equatorial plane) instead of using the proper WGS84 ellipsoid position from pyproj, producing wrong values at non-equatorial latitudes
+
+### Changed
+- Stereo geometry functions (`get_convergence_angle`, `get_bh_ratio`, `get_bie_angle`, `get_asymmetry_angle`) extracted to module-level in `stereopair_metadata_parser.py` for reuse and testability
+
+### Added
+- Unit tests for convergence angle, B/H ratio, BIE, and asymmetry angle calculations, including a regression test for the ECEF z=0 bug
+
 ## [1.11.0] - 2026-03-26
 
 ### Added
