@@ -69,7 +69,7 @@ class ScenePlotter(Plotter):
         super().__init__(**kwargs)
         self.directory = os.path.expanduser(directory)
         self.stereo_directory = stereo_directory
-        self.full_stereo_directory = os.path.join(directory, stereo_directory)
+        self.full_stereo_directory = os.path.join(self.directory, stereo_directory)
 
         self.is_vantor = detect_vantor_satellite(self.directory)
 

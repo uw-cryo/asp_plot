@@ -50,6 +50,7 @@ def glob_file(directory, *patterns, all_files=False):
     >>> all_tifs = glob_file("/path/to/dir", "*.tif", all_files=True)
     >>> dem_file = glob_file("/path/to/dir", "*-DEM.tif", "*_dem.tif")
     """
+    directory = os.path.expanduser(directory)
     for pattern in patterns:
         files = glob.glob(os.path.join(directory, pattern))
         if files:
