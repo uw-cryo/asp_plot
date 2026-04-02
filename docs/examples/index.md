@@ -21,13 +21,6 @@ Stereo processing of publicly available SpaceNet Atlanta WorldView-2 data.
 Stereo processing of publicly available IARPA CORE3D UCSD WorldView-3 data.
 :::
 
-:::{grid-item-card} WorldView — Utqiagvik
-:link: notebooks/worldview_utqiagvik_stereo
-:link-type: doc
-
-Comprehensive stereo processing example for WorldView imagery over Utqiagvik, Alaska.
-:::
-
 :::{grid-item-card} WorldView — Uyuni Jitter Plots
 :link: notebooks/worldview_uyuni_jitter_plots
 :link-type: doc
@@ -99,7 +92,6 @@ Mars Reconnaissance Orbiter High Resolution Imaging Science Experiment processin
 
 notebooks/worldview_spacenet_atlanta_stereo
 notebooks/worldview_spacenet_ucsd_stereo
-notebooks/worldview_utqiagvik_stereo
 notebooks/worldview_uyuni_jitter_plots
 notebooks/aster_with_mapprojection
 notebooks/aster_with_bundle_adjust_and_jitter_correction

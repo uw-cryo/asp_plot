@@ -96,12 +96,12 @@ class StereoPlotter(Plotter):
         stereo directory with a pattern like *-DEM.tif or *_dem.tif.
         """
         super().__init__(**kwargs)
-        self.directory = directory
+        self.directory = os.path.expanduser(directory)
         self.stereo_directory = stereo_directory
         self.is_vantor = detect_vantor_satellite(self.directory)
 
         if reference_dem:
-            self.reference_dem = reference_dem
+            self.reference_dem = os.path.expanduser(reference_dem)
         else:
             processing_parameters = ProcessingParameters(
                 processing_directory=self.directory,
@@ -116,7 +116,7 @@ class StereoPlotter(Plotter):
                 )
             # If the reference DEM path from the log is relative, make it absolute
             elif not os.path.isabs(self.reference_dem):
-                self.reference_dem = os.path.join(directory, self.reference_dem)
+                self.reference_dem = os.path.join(self.directory, self.reference_dem)
         if self.reference_dem:
             print(f"\nReference DEM: {self.reference_dem}\n")
 
