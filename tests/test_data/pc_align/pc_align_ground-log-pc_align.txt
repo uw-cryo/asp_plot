@@ -2,7 +2,7 @@ ASP 3.5.0-alpha
 Build ID: 3585be8
 Build date: 2024-08-21
 
-/Users/ben/asp/dev/libexec/pc_align --max-displacement 20 --max-num-source-points 10000000 --alignment-method point-to-point --csv-format "1:lon 2:lat 3:height_above_datum" --compute-translation-only --output-prefix /Users/ben/Dropbox/UW_Shean/WV/2022/WV03_20220417_1040010074793300_1040010075633C00/pc_align/pc_align_ground /Users/ben/Dropbox/UW_Shean/WV/2022/WV03_20220417_1040010074793300_1040010075633C00/stereo/20220417_2252_1040010074793300_1040010075633C00-DEM_1m.tif atl06sr_for_pc_align_ground.csv 
+/Users/ben/asp/dev/libexec/pc_align --max-displacement 20 --max-num-source-points 10000000 --alignment-method point-to-point --csv-format "1:lon 2:lat 3:height_above_datum" --compute-translation-only --output-prefix /path/to/WV03_20220417_1040010074793300_1040010075633C00/pc_align/pc_align_ground /path/to/WV03_20220417_1040010074793300_1040010075633C00/stereo/20220417_2252_1040010074793300_1040010075633C00-DEM_1m.tif atl06sr_for_pc_align_ground.csv 
 
 uname -a
 Darwin Bens-MacBook-Air-2.local 23.6.0 Darwin Kernel Version 23.6.0: Mon Jul 29 21:16:46 PDT 2024; root:xnu-10063.141.2~1/RELEASE_ARM64_T8112 x86_64
@@ -42,7 +42,7 @@ Vision Workbench log started at 2024-11-25 15:52:26.
 2024-11-25 15:52:38 {0} [ console ] : Source points box:    Origin: (-156.819, 71.2663) width: 0.395745 height: 0.120229
 2024-11-25 15:52:39 {0} [ console ] : Intersection reference box:  Origin: (-156.819, 71.2694) width: 0.3952 height: 0.117141
 2024-11-25 15:52:39 {0} [ console ] : Intersection source    box:  Origin: (-156.819, 71.2694) width: 0.3952 height: 0.117141
-2024-11-25 15:52:39 {0} [ console ] : Reading: /Users/ben/Dropbox/UW_Shean/WV/2022/WV03_20220417_1040010074793300_1040010075633C00/stereo/20220417_2252_1040010074793300_1040010075633C00-DEM_1m.tif
+2024-11-25 15:52:39 {0} [ console ] : Reading: /path/to/WV03_20220417_1040010074793300_1040010075633C00/stereo/20220417_2252_1040010074793300_1040010075633C00-DEM_1m.tif
 2024-11-25 15:53:26 {0} [ console ] : Loaded points: 82687133
 2024-11-25 15:53:26 {0} [ console ] : Loading the reference point cloud took 47.7141 s
 2024-11-25 15:53:26 {0} [ console ] : Reading: atl06sr_for_pc_align_ground.csv
@@ -83,9 +83,9 @@ Vision Workbench log started at 2024-11-25 15:52:26.
 2024-11-25 15:54:23 {0} [ console ] : Euler angles (degrees): Vector3(0,-0,0)
 2024-11-25 15:54:23 {0} [ console ] : Euler angles (North-East-Down, degrees): Vector3(7.9513867e-16,-0,1.4001392e-15)
 2024-11-25 15:54:23 {0} [ console ] : Axis of rotation and angle (degrees): Vector3(nan,nan,nan) 0
-2024-11-25 15:54:23 {0} [ console ] : Writing: /Users/ben/Dropbox/UW_Shean/WV/2022/WV03_20220417_1040010074793300_1040010075633C00/pc_align/pc_align_ground-transform.txt
-2024-11-25 15:54:23 {0} [ console ] : Writing: /Users/ben/Dropbox/UW_Shean/WV/2022/WV03_20220417_1040010074793300_1040010075633C00/pc_align/pc_align_ground-inverse-transform.txt
-2024-11-25 15:54:23 {0} [ console ] : Writing: /Users/ben/Dropbox/UW_Shean/WV/2022/WV03_20220417_1040010074793300_1040010075633C00/pc_align/pc_align_ground-beg_errors.csv
-2024-11-25 15:54:23 {0} [ console ] : Writing: /Users/ben/Dropbox/UW_Shean/WV/2022/WV03_20220417_1040010074793300_1040010075633C00/pc_align/pc_align_ground-end_errors.csv
-2024-11-25 15:54:23 {0} [ console ] : Writing: /Users/ben/Dropbox/UW_Shean/WV/2022/WV03_20220417_1040010074793300_1040010075633C00/pc_align/pc_align_ground-iterationInfo.csv
+2024-11-25 15:54:23 {0} [ console ] : Writing: /path/to/WV03_20220417_1040010074793300_1040010075633C00/pc_align/pc_align_ground-transform.txt
+2024-11-25 15:54:23 {0} [ console ] : Writing: /path/to/WV03_20220417_1040010074793300_1040010075633C00/pc_align/pc_align_ground-inverse-transform.txt
+2024-11-25 15:54:23 {0} [ console ] : Writing: /path/to/WV03_20220417_1040010074793300_1040010075633C00/pc_align/pc_align_ground-beg_errors.csv
+2024-11-25 15:54:23 {0} [ console ] : Writing: /path/to/WV03_20220417_1040010074793300_1040010075633C00/pc_align/pc_align_ground-end_errors.csv
+2024-11-25 15:54:23 {0} [ console ] : Writing: /path/to/WV03_20220417_1040010074793300_1040010075633C00/pc_align/pc_align_ground-iterationInfo.csv
 2024-11-25 15:54:23 {0} [ console ] : Saving to disk took 0.279139 s

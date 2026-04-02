@@ -202,7 +202,7 @@ class StereopairMetadataParser:
         ValueError
             If no XML files are found in the directory
         """
-        self.directory = directory
+        self.directory = os.path.expanduser(directory)
 
         self.image_list = glob_file(self.directory, "*.[Xx][Mm][Ll]", all_files=True)
 
@@ -289,7 +289,7 @@ class StereopairMetadataParser:
 
         # TODO: need to improve logic and looping here and in get_id_dict for dictionary creation when
         # there are multiple XML files for a given scene
-        # use ~/Dropbox/UW_Shean/WV/antarctica/tiled_xmls_example for testing this
+        # use ~/Desktop/asp-plot-examples/antarctica/tiled_xmls_example for testing this
 
         return catid_xmls
 

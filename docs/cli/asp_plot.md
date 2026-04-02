@@ -121,10 +121,12 @@ Options:
                                   for a custom range (e.g.
                                   "2020-01-01,2024-12-31"). Default:
                                   auto-detect from scene metadata +/- 1 year.
-  --report_filename TEXT          PDF file to write out for report into the
-                                  processing directory supplied by
-                                  --directory. Default: Directory name of ASP
-                                  processing.
+  --report_filename TEXT          PDF report filename or path. A bare
+                                  filename (e.g. 'report.pdf') is saved in
+                                  the stereo directory. A path (e.g.
+                                  'reports/report.pdf') is used as-is.
+                                  Default: auto-generated from directory
+                                  name.
   --report_title TEXT             Title for the report. Default: Directory
                                   name of ASP processing.
   --help                          Show this message and exit.

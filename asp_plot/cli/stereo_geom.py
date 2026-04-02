@@ -40,6 +40,10 @@ def main(
     Generate stereo geometry plots for DigitalGlobe/Maxar XML files.
     This tool creates a skyplot and map visualization of the satellite positions and ground footprints.
     """
+    directory = os.path.expanduser(directory)
+    if output_directory:
+        output_directory = os.path.expanduser(output_directory)
+
     print(f"\nProcessing stereo geometry for XML files in {directory}\n")
 
     # Get directory name for default output filename

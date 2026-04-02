@@ -46,6 +46,7 @@ def main(dem, email, channels):
     """
     from asp_plot.altimetry import GDS_BASE_URL, gds_query_async
 
+    dem = os.path.expanduser(dem)
     body = detect_planetary_body(dem)
 
     if body == "earth":
