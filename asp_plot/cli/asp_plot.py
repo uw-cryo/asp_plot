@@ -106,7 +106,7 @@ from asp_plot.utils import Raster, detect_planetary_body
     "--report_filename",
     prompt=False,
     default=None,
-    help="PDF file to write out for report into the processing directory supplied by --directory. Default: Directory name of ASP processing.",
+    help="PDF report filename or path. A bare filename (e.g. 'report.pdf') is saved in the stereo directory. A path (e.g. 'reports/report.pdf' or '/tmp/report.pdf') is used as-is. Default: auto-generated from directory name.",
 )
 @click.option(
     "--report_title",
@@ -168,10 +168,14 @@ def main(
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         report_filename = f"asp_plot_report_{report_title}_{timestamp}.pdf"
 
-    # Save output report in the same directory as processed DEM
-    report_pdf_path = os.path.join(
-        directory, os.path.join(stereo_directory, report_filename)
-    )
+    # If report_filename is an absolute or relative path, use it directly;
+    # otherwise save alongside the processed DEM in the stereo directory.
+    if os.path.dirname(report_filename):
+        report_pdf_path = os.path.expanduser(report_filename)
+    else:
+        report_pdf_path = os.path.join(
+            directory, os.path.join(stereo_directory, report_filename)
+        )
 
     sections = []
     figure_counter = count(0)
