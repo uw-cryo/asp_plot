@@ -116,11 +116,11 @@ Options:
   --subset_km FLOAT               Size in km of the subset to plot for the
                                   detailed hillshade. Default: 1 km.
   --atl06sr_time_range TEXT       Time range for ICESat-2 ATL06-SR data
-                                  requests. Use "all" for all available data
+                                  requests. "all" for all available data
                                   (mission start to present), or "START,END"
                                   for a custom range (e.g.
-                                  "2020-01-01,2024-12-31"). Default:
-                                  auto-detect from scene metadata +/- 1 year.
+                                  "2020-01-01,2024-12-31"), or "auto" for
+                                  scene metadata +/- 1 year. Default: all.
   --report_filename TEXT          PDF report filename or path. A bare
                                   filename (e.g. 'report.pdf') is saved in
                                   the stereo directory. A path (e.g.
