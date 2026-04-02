@@ -67,7 +67,7 @@ class ScenePlotter(Plotter):
         "-L_sub.tif" and "-R_sub.tif" respectively.
         """
         super().__init__(**kwargs)
-        self.directory = directory
+        self.directory = os.path.expanduser(directory)
         self.stereo_directory = stereo_directory
         self.full_stereo_directory = os.path.join(directory, stereo_directory)
 

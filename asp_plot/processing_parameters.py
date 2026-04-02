@@ -69,7 +69,7 @@ class ProcessingParameters:
         specified directories. If directories or log files are not found,
         the corresponding attributes are set to None.
         """
-        self.processing_directory = processing_directory
+        self.processing_directory = os.path.expanduser(processing_directory)
         self.bundle_adjust_directory = bundle_adjust_directory
         self.stereo_directory = stereo_directory
         self.full_ba_directory = (

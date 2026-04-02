@@ -150,6 +150,12 @@ def main(
             cmd_parts.append(f"--{param.name} {shlex.quote(str(val))}")
     report_command = " ".join(cmd_parts)
 
+    directory = os.path.expanduser(directory)
+    if reference_dem:
+        reference_dem = os.path.expanduser(reference_dem)
+    if altimetry_csv:
+        altimetry_csv = os.path.expanduser(altimetry_csv)
+
     print(f"\nProcessing ASP files in {directory}\n")
 
     plots_directory = os.path.join(directory, "tmp_asp_report_plots/")

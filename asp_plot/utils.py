@@ -595,10 +595,10 @@ class Raster:
         downsample : int or float, optional
             Downsampling factor for reading data, default is 1 (no downsampling)
         """
-        self.fn = fn
+        self.fn = os.path.expanduser(fn)
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=NotGeoreferencedWarning)
-            self.ds = rio.open(fn)
+            self.ds = rio.open(self.fn)
         self.downsample = downsample
         self._data = None
         self._transform = self.ds.transform

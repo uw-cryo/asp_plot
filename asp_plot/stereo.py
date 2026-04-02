@@ -96,7 +96,7 @@ class StereoPlotter(Plotter):
         stereo directory with a pattern like *-DEM.tif or *_dem.tif.
         """
         super().__init__(**kwargs)
-        self.directory = directory
+        self.directory = os.path.expanduser(directory)
         self.stereo_directory = stereo_directory
         self.is_vantor = detect_vantor_satellite(self.directory)
 

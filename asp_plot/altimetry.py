@@ -183,14 +183,17 @@ class Altimetry:
         Initializes a SlideRule session, which requires an active internet connection.
         This can be modified to work offline with pre-downloaded datasets.
         """
-        self.directory = directory
+        self.directory = os.path.expanduser(directory)
 
+        dem_fn = os.path.expanduser(dem_fn)
         if not os.path.exists(dem_fn):
             raise ValueError(f"DEM file not found: {dem_fn}")
         self.dem_fn = dem_fn
 
-        if aligned_dem_fn is not None and not os.path.exists(aligned_dem_fn):
-            raise ValueError(f"Aligned DEM file not found: {aligned_dem_fn}")
+        if aligned_dem_fn is not None:
+            aligned_dem_fn = os.path.expanduser(aligned_dem_fn)
+            if not os.path.exists(aligned_dem_fn):
+                raise ValueError(f"Aligned DEM file not found: {aligned_dem_fn}")
         self.aligned_dem_fn = aligned_dem_fn
 
         self.atl06sr_processing_levels = atl06sr_processing_levels

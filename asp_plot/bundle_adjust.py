@@ -58,9 +58,9 @@ class ReadBundleAdjustFiles:
         bundle_adjust_directory : str
             Subdirectory containing bundle adjustment outputs
         """
-        self.directory = directory
+        self.directory = os.path.expanduser(directory)
         self.bundle_adjust_directory = bundle_adjust_directory
-        self.full_directory = os.path.join(directory, bundle_adjust_directory)
+        self.full_directory = os.path.join(self.directory, bundle_adjust_directory)
 
     def get_csv_paths(self, geodiff_files=False):
         """
