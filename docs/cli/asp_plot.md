@@ -2,6 +2,14 @@
 
 The main CLI tool generates a comprehensive PDF report of ASP processing results.
 
+## Files needed from ASP processing
+
+During the `stereo` or `parallel_stereo` steps, add this flag to retain the files needed for plotting:
+
+```
+--keep-only '.mask .txt .exr .match -L.tif -L_sub.tif -R_sub.tif -D_sub.tif -D.tif -RD.tif -F.tif -PC.tif'
+```
+
 ## Basic usage
 
 At its simplest, run from the ASP processing directory:
@@ -52,6 +60,18 @@ asp_plot --directory ./ \
 ```
 
 If `--plot_altimetry` is True (the default) and the DEM is non-Earth but no `--altimetry_csv` is provided, the tool prints instructions and skips altimetry plots.
+
+## ICESat-2 time filtering
+
+The `--atl06sr_time_range` option controls which ICESat-2 data is requested from the SlideRule API. Requesting fewer granules speeds up processing but may miss useful data.
+
+**`"all"` (default)** requests every ICESat-2 pass over the DEM footprint from mission start (2018-10-14) to present. This is recommended for most surfaces, as the full ~7 years of data provides the largest sample for validation.
+
+**`"auto"`** activates date-buffered filtering. It attempts to detect the scene acquisition date from the stereopair XML metadata and requests data within ±1 year of that date. If no XML metadata is found, it falls back to requesting all data.
+
+**`"START,END"`** (e.g. `"2020-01-01,2024-12-31"`) requests data within an explicit date range.
+
+For areas with known temporal surface change (e.g. ice sheets, glaciers), consider using `"auto"` or an explicit date range to restrict the ICESat-2 data to a time window that matches the DEM acquisition. Seasonal or multi-temporal filtering is also available via the Python API (`predefined_temporal_filter_atl06sr`, `generic_temporal_filter_atl06sr`).
 
 ## Full options
 
@@ -131,8 +151,6 @@ Options:
                                   name of ASP processing.
   --help                          Show this message and exit.
 ```
-
-## Files needed from ASP processing
 
 During the `stereo` or `parallel_stereo` steps, add this flag to retain the files needed for plotting:
 

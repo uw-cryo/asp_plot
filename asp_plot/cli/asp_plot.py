@@ -464,18 +464,20 @@ def main(
             ctx_kwargs_altimetry = ctx_kwargs
 
         if body == "earth":
-            # Parse --atl06sr_time_range into t0/t1 kwargs
+            # Parse --atl06sr_time_range into time_range/t0/t1 kwargs
             atl06sr_time_kwargs = {}
             if atl06sr_time_range is not None:
-                if atl06sr_time_range.lower() == "auto":
-                    pass  # No kwargs → falls through to XML auto-detect
-                elif atl06sr_time_range.lower() == "all":
-                    atl06sr_time_kwargs["t0"] = "all"
+                if atl06sr_time_range.lower() == "all":
+                    atl06sr_time_kwargs["time_range"] = "all"
+                elif atl06sr_time_range.lower() == "auto":
+                    atl06sr_time_kwargs["time_range"] = "buffered"
                 elif "," in atl06sr_time_range:
                     parts = atl06sr_time_range.split(",", 1)
+                    atl06sr_time_kwargs["time_range"] = "buffered"
                     atl06sr_time_kwargs["t0"] = parts[0].strip()
                     atl06sr_time_kwargs["t1"] = parts[1].strip()
                 else:
+                    atl06sr_time_kwargs["time_range"] = "buffered"
                     atl06sr_time_kwargs["t0"] = atl06sr_time_range.strip()
 
             # Existing ICESat-2 workflow (3 plots: map, histogram, profile)
@@ -489,14 +491,12 @@ def main(
 
             icesat.filter_esa_worldcover(filter_out="water")
 
-            # Compute dh, then remove outliers (3-sigma) before plotting
+            # Compute dh (includes 3-sigma outlier filtering by default)
             icesat.atl06sr_to_dem_dh()
-            icesat.filter_outliers(n_sigma=3)
 
             fig_fn = f"{next(figure_counter):02}.png"
             icesat.mapview_plot_atl06sr_to_dem(
                 key="all",
-                clim=(-10, 10),
                 save_dir=plots_directory,
                 fig_fn=fig_fn,
                 map_crs=map_crs,
@@ -513,7 +513,6 @@ def main(
             fig_fn = f"{next(figure_counter):02}.png"
             icesat.histogram_by_landcover(
                 key="all",
-                xlim=(-10, 10),
                 save_dir=plots_directory,
                 fig_fn=fig_fn,
             )

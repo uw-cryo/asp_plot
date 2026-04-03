@@ -221,65 +221,74 @@ class Altimetry:
             self._sliderule_initialized = True
 
     def _resolve_time_range(
-        self, scene_date=None, time_buffer_days=365, t0=None, t1=None
+        self,
+        time_range="all",
+        scene_date=None,
+        time_buffer_days=365,
+        t0=None,
+        t1=None,
     ):
         """
         Resolve the t0/t1 time range for SlideRule API requests.
 
-        Uses a four-tier cascade:
-        1. Explicit ``t0``/``t1`` parameters (highest priority)
-        2. Explicit ``scene_date`` parameter +/- ``time_buffer_days``
-        3. Auto-detect from stereopair XML metadata +/- ``time_buffer_days``
-        4. Fallback to most recent 2 years
-
         Parameters
         ----------
+        time_range : str, optional
+            ``"all"`` (default) returns full ICESat-2 mission range.
+            ``"buffered"`` activates the cascade: explicit ``t0``/``t1``
+            > ``scene_date`` ± ``time_buffer_days`` > XML metadata
+            ± ``time_buffer_days`` > fall back to ``"all"``.
         scene_date : str or datetime-like, optional
-            Explicit scene date. Parsed via ``pd.Timestamp``.
+            Explicit scene date. Only used when ``time_range="buffered"``.
         time_buffer_days : int, optional
             Days before/after the resolved date, default 365.
         t0 : str or datetime-like, optional
-            Explicit start date for the time range. If both ``t0`` and
-            ``t1`` are provided, they override all other time resolution.
-            Use ``t0="all"`` to request all data from ICESat-2 mission
-            start to present.
+            Explicit start date. Only used when ``time_range="buffered"``.
         t1 : str or datetime-like, optional
-            Explicit end date for the time range.
+            Explicit end date. Defaults to present if only ``t0`` given.
 
         Returns
         -------
         tuple of (str, str, datetime or None)
             (t0_str, t1_str, resolved_date) formatted as
-            ``"%Y-%m-%dT%H:%M:%SZ"``. resolved_date is None when
-            the explicit t0/t1, 2-year fallback, or "all" is used.
+            ``"%Y-%m-%dT%H:%M:%SZ"``. resolved_date is the scene date
+            when buffered from a date, otherwise None.
         """
         fmt = "%Y-%m-%dT%H:%M:%SZ"
         now = datetime.now(tz=timezone.utc)
 
-        # Tier 1: explicit t0/t1 or "all"
+        def _set_all():
+            self._scene_date = None
+            self._t0 = ICESAT2_MISSION_START
+            self._t1 = now
+            return (
+                ICESAT2_MISSION_START.strftime(fmt),
+                now.strftime(fmt),
+                None,
+            )
+
+        if time_range == "all":
+            return _set_all()
+
+        # time_range == "buffered": cascade t0/t1 > scene_date > XML > all
+
+        # 1. Explicit t0/t1
         if t0 is not None:
-            if str(t0).lower() == "all":
-                t0_dt = ICESAT2_MISSION_START
-                t1_dt = now
-            else:
-                t0_dt = pd.Timestamp(t0, tz="UTC").to_pydatetime()
-                t1_dt = (
-                    pd.Timestamp(t1, tz="UTC").to_pydatetime()
-                    if t1 is not None
-                    else now
-                )
+            t0_dt = pd.Timestamp(t0, tz="UTC").to_pydatetime()
+            t1_dt = (
+                pd.Timestamp(t1, tz="UTC").to_pydatetime() if t1 is not None else now
+            )
             self._scene_date = None
             self._t0 = t0_dt
             self._t1 = t1_dt
             return (t0_dt.strftime(fmt), t1_dt.strftime(fmt), None)
 
+        # 2. Explicit scene_date
         resolved_date = None
-
-        # Tier 2: explicit date
         if scene_date is not None:
             resolved_date = pd.Timestamp(scene_date, tz="UTC").to_pydatetime()
 
-        # Tier 3: auto-detect from XML metadata
+        # 3. Auto-detect from XML metadata
         if resolved_date is None:
             try:
                 cdate = StereopairMetadataParser(self.directory).get_pair_dict()[
@@ -294,21 +303,14 @@ class Altimetry:
             t0_dt = resolved_date - timedelta(days=time_buffer_days)
             t1_dt = resolved_date + timedelta(days=time_buffer_days)
             t0_dt = max(t0_dt, ICESAT2_MISSION_START)
-            # If entire range predates mission, fall through to tier 3
             if t1_dt >= ICESAT2_MISSION_START:
                 self._scene_date = resolved_date
                 self._t0 = t0_dt
                 self._t1 = t1_dt
                 return (t0_dt.strftime(fmt), t1_dt.strftime(fmt), resolved_date)
 
-        # Tier 4: fallback to most recent 2 years
-        t1_dt = now
-        t0_dt = max(now - timedelta(days=2 * 365), ICESAT2_MISSION_START)
-
-        self._scene_date = None
-        self._t0 = t0_dt
-        self._t1 = t1_dt
-        return (t0_dt.strftime(fmt), t1_dt.strftime(fmt), None)
+        # Fallback: all
+        return _set_all()
 
     @property
     def _time_range_label(self):
@@ -338,6 +340,7 @@ class Altimetry:
         save_to_parquet=False,
         filename="atl06sr",
         region=None,
+        time_range="all",
         scene_date=None,
         time_buffer_days=365,
         t0=None,
@@ -375,20 +378,23 @@ class Altimetry:
         region : list or None, optional
             Region bounds as [minx, miny, maxx, maxy] in lat/lon,
             default is None (derived from DEM)
+        time_range : str, optional
+            ``"all"`` (default) requests all ICESat-2 data from mission
+            start to present. ``"buffered"`` activates time filtering
+            via the cascade: ``t0``/``t1`` > ``scene_date`` ±
+            ``time_buffer_days`` > XML metadata ±
+            ``time_buffer_days`` > fall back to all.
         scene_date : str or datetime-like, optional
-            Scene acquisition date for server-side time filtering.
+            Scene acquisition date, used when ``time_range="buffered"``.
             If None, auto-detected from stereopair XML metadata.
-            Falls back to most recent 2 years if unavailable.
         time_buffer_days : int, optional
             Days before/after scene_date defining the time window,
             default is 365
         t0 : str or datetime-like, optional
-            Explicit start date for the time range (e.g. "2020-01-01").
-            Use ``"all"`` to request all data from ICESat-2 mission
-            start (2018-10-14) to present. Overrides ``scene_date``
-            and ``time_buffer_days`` when provided.
+            Explicit start date (e.g. "2020-01-01"), used when
+            ``time_range="buffered"``. Overrides ``scene_date``.
         t1 : str or datetime-like, optional
-            Explicit end date for the time range (e.g. "2024-12-31").
+            Explicit end date (e.g. "2024-12-31").
             Defaults to present if only ``t0`` is provided.
 
         Returns
@@ -410,18 +416,23 @@ class Altimetry:
 
         # Resolve server-side time range to limit granules processed
         t0_str, t1_str, resolved_date = self._resolve_time_range(
-            scene_date=scene_date, time_buffer_days=time_buffer_days, t0=t0, t1=t1
+            time_range=time_range,
+            scene_date=scene_date,
+            time_buffer_days=time_buffer_days,
+            t0=t0,
+            t1=t1,
         )
-        if t0 is not None:
-            label = "all available" if str(t0).lower() == "all" else "custom range"
-            print(f"Time filter: {t0_str} to {t1_str} ({label})")
+        if time_range == "all" and resolved_date is None and t0 is None:
+            print(f"Time filter: {t0_str} to {t1_str} (all available)")
         elif resolved_date is not None:
             print(
                 f"Time filter: {t0_str} to {t1_str} "
                 f"(+/- {time_buffer_days} days from {resolved_date.date()})"
             )
+        elif t0 is not None:
+            print(f"Time filter: {t0_str} to {t1_str} (custom range)")
         else:
-            print(f"Time filter: {t0_str} to {t1_str} (2-year fallback)")
+            print(f"Time filter: {t0_str} to {t1_str} (all available, fallback)")
 
         # See parameter discussion on: https://github.com/SlideRuleEarth/sliderule/issues/448
         # "srt": -1 tells the server side code to look at the ATL03 confidence array for each photon
@@ -1671,17 +1682,20 @@ class Altimetry:
         if save_dir and fig_fn:
             save_figure(fig, save_dir, fig_fn)
 
-    def atl06sr_to_dem_dh(self):
+    def atl06sr_to_dem_dh(self, n_sigma=3):
         """
         Calculate height differences between ATL06-SR data and DEMs.
 
         Interpolates DEM heights at ATL06-SR point locations and calculates
         the difference between ICESat-2 heights and DEM heights. If an aligned
-        DEM is available, also calculates differences against it.
+        DEM is available, also calculates differences against it. Outliers
+        beyond ``n_sigma`` × NMAD from the median are removed by default.
 
         Parameters
         ----------
-        None
+        n_sigma : float or None, optional
+            Remove dh outliers beyond this many NMAD from the median.
+            Default 3. Pass None to skip outlier filtering.
 
         Returns
         -------
@@ -1728,6 +1742,9 @@ class Altimetry:
                     atl06sr["h_mean"] - atl06sr["aligned_dem_height"]
                 )
                 self.atl06sr_processing_levels_filtered[key] = atl06sr
+
+        if n_sigma is not None:
+            self.filter_outliers(n_sigma=n_sigma)
 
     def mapview_plot_atl06sr_to_dem(
         self,
@@ -1791,10 +1808,16 @@ class Altimetry:
             )
             self.atl06sr_to_dem_dh()
 
-        if clim is not None:
-            symm_clim = False
+        if clim is None:
+            # Symmetric 1st-99th percentile centered on 0
+            atl06sr = self.atl06sr_processing_levels_filtered[key]
+            dh = atl06sr[column_name].dropna()
+            if not dh.empty:
+                abs_max = max(abs(dh.quantile(0.01)), abs(dh.quantile(0.99)))
+                clim = (-abs_max, abs_max)
+            cbar_label = "ICESat-2 minus DEM (m)\n[1st–99th percentile]"
         else:
-            symm_clim = True
+            cbar_label = "ICESat-2 minus DEM (m)"
 
         if not map_crs:
             dem = rioxarray.open_rasterio(self.dem_fn, masked=True).squeeze()
@@ -1804,9 +1827,9 @@ class Altimetry:
         self.plot_atl06sr(
             key=key,
             column_name=column_name,
-            cbar_label="ICESat-2 minus DEM (m)",
+            cbar_label=cbar_label,
             clim=clim,
-            symm_clim=symm_clim,
+            symm_clim=False,
             cmap="RdBu",
             map_crs=map_crs,
             save_dir=save_dir,
@@ -1880,7 +1903,7 @@ class Altimetry:
 
             xmin = atl06sr[column_name].quantile(0.01)
             xmax = atl06sr[column_name].quantile(0.99)
-            plot_kwargs = {"bins": 128, "alpha": 0.5, "range": (xmin, xmax)}
+            plot_kwargs = {"bins": 128, "alpha": 0.5}
             atl06sr.hist(
                 ax=ax,
                 column=column_name,
@@ -1888,6 +1911,7 @@ class Altimetry:
                 **plot_kwargs,
             )
 
+        ax.set_xlim(xmin, xmax)
         ax.legend()
         ax.set_title(None)
         ax.set_xlabel("ICESat-2 - DEM (m)")
@@ -2032,10 +2056,14 @@ class Altimetry:
 
         if xlim is not None:
             xmin, xmax = xlim
+            xlabel_note = ""
         else:
-            xmin = dh.quantile(0.01)
-            xmax = dh.quantile(0.99)
-        ax.hist(dh.values, bins=128, range=(xmin, xmax), alpha=0.7, color="steelblue")
+            # Symmetric 1st-99th percentile centered on 0
+            abs_max = max(abs(dh.quantile(0.01)), abs(dh.quantile(0.99)))
+            xmin, xmax = -abs_max, abs_max
+            xlabel_note = " [1st–99th percentile]"
+        ax.hist(dh.values, bins=128, alpha=0.7, color="steelblue")
+        ax.set_xlim(xmin, xmax)
 
         stats_text = "\n".join(stats_lines)
         ax.text(
@@ -2049,7 +2077,7 @@ class Altimetry:
             bbox=dict(boxstyle="round,pad=0.4", facecolor="white", alpha=0.9),
         )
 
-        ax.set_xlabel("ICESat-2 - DEM (m)")
+        ax.set_xlabel(f"ICESat-2 - DEM (m){xlabel_note}")
         ax.set_ylabel("Count")
         suptitle = f"{title}\n{key} (n={overall_n})"
         if self._time_range_label:
