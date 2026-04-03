@@ -30,7 +30,7 @@ dependencies = [
     "scipy",
     "shapely",
     "pyyaml",
-    "sliderule",
+    "sliderule>=5.3.0",
     "xarray",
 ]
 classifiers = [

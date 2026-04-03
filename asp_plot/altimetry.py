@@ -255,15 +255,18 @@ class Altimetry:
             when buffered from a date, otherwise None.
         """
         fmt = "%Y-%m-%dT%H:%M:%SZ"
-        now = datetime.now(tz=timezone.utc)
+        # Truncate to midnight UTC so cached parquet params stay stable within a day
+        today = datetime.now(tz=timezone.utc).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
 
         def _set_all():
             self._scene_date = None
             self._t0 = ICESAT2_MISSION_START
-            self._t1 = now
+            self._t1 = today
             return (
                 ICESAT2_MISSION_START.strftime(fmt),
-                now.strftime(fmt),
+                today.strftime(fmt),
                 None,
             )
 
@@ -276,7 +279,7 @@ class Altimetry:
         if t0 is not None:
             t0_dt = pd.Timestamp(t0, tz="UTC").to_pydatetime()
             t1_dt = (
-                pd.Timestamp(t1, tz="UTC").to_pydatetime() if t1 is not None else now
+                pd.Timestamp(t1, tz="UTC").to_pydatetime() if t1 is not None else today
             )
             self._scene_date = None
             self._t0 = t0_dt
@@ -461,7 +464,7 @@ class Altimetry:
                     "asset": "esa-worldcover-10meter",
                 },
                 "cop30": {
-                    "asset": "cop30-dem",
+                    "asset": "esa-copernicus-30meter",
                 },
             },
         }

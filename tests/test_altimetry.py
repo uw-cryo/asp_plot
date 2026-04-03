@@ -171,9 +171,10 @@ class TestResolveTimeRange:
         t0, t1, resolved = alt._resolve_time_range()
         assert resolved is None
         assert t0 == ICESAT2_MISSION_START.strftime("%Y-%m-%dT%H:%M:%SZ")
-        now = datetime.now(tz=timezone.utc)
-        t1_dt = datetime.strptime(t1, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
-        assert abs((t1_dt - now).total_seconds()) < 60
+        today = datetime.now(tz=timezone.utc).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        assert t1 == today.strftime("%Y-%m-%dT%H:%M:%SZ")
 
     def test_explicit_date(self, alt):
         t0, t1, resolved = alt._resolve_time_range(
@@ -198,9 +199,10 @@ class TestResolveTimeRange:
         # Falls back to "all"
         assert resolved is None
         assert t0 == ICESAT2_MISSION_START.strftime("%Y-%m-%dT%H:%M:%SZ")
-        now = datetime.now(tz=timezone.utc)
-        t1_dt = datetime.strptime(t1, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
-        assert abs((t1_dt - now).total_seconds()) < 60
+        today = datetime.now(tz=timezone.utc).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        assert t1 == today.strftime("%Y-%m-%dT%H:%M:%SZ")
 
     def test_auto_detect_from_xml(self, alt):
         t0, t1, resolved = alt._resolve_time_range(time_range="buffered")
