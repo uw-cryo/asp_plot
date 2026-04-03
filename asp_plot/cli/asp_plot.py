@@ -99,8 +99,8 @@ from asp_plot.utils import Raster, detect_planetary_body
 @click.option(
     "--atl06sr_time_range",
     prompt=False,
-    default=None,
-    help='Time range for ICESat-2 ATL06-SR data requests. Use "all" for all available data (mission start to present), or "START,END" for a custom range (e.g. "2020-01-01,2024-12-31"). Default: auto-detect from scene metadata +/- 1 year.',
+    default="all",
+    help='Time range for ICESat-2 ATL06-SR data requests. "all" for all available data (mission start to present), or "START,END" for a custom range (e.g. "2020-01-01,2024-12-31"), or "auto" for scene metadata +/- 1 year. Default: all.',
 )
 @click.option(
     "--report_filename",
@@ -464,17 +464,21 @@ def main(
             ctx_kwargs_altimetry = ctx_kwargs
 
         if body == "earth":
-            # Parse --atl06sr_time_range into t0/t1 kwargs
+            # Parse --atl06sr_time_range into time_range/t0/t1 kwargs
             atl06sr_time_kwargs = {}
-            if atl06sr_time_range is not None:
-                if atl06sr_time_range.lower() == "all":
-                    atl06sr_time_kwargs["t0"] = "all"
-                elif "," in atl06sr_time_range:
-                    parts = atl06sr_time_range.split(",", 1)
-                    atl06sr_time_kwargs["t0"] = parts[0].strip()
-                    atl06sr_time_kwargs["t1"] = parts[1].strip()
-                else:
-                    atl06sr_time_kwargs["t0"] = atl06sr_time_range.strip()
+            if atl06sr_time_range.lower() == "all":
+                atl06sr_time_kwargs["time_range"] = "all"
+            elif atl06sr_time_range.lower() == "auto":
+                atl06sr_time_kwargs["time_range"] = "buffered"
+            elif "," in atl06sr_time_range:
+                parts = atl06sr_time_range.split(",", 1)
+                atl06sr_time_kwargs["time_range"] = "buffered"
+                atl06sr_time_kwargs["t0"] = parts[0].strip()
+                atl06sr_time_kwargs["t1"] = parts[1].strip()
+            else:
+                # Single date → buffer around it
+                atl06sr_time_kwargs["time_range"] = "buffered"
+                atl06sr_time_kwargs["scene_date"] = atl06sr_time_range.strip()
 
             # Existing ICESat-2 workflow (3 plots: map, histogram, profile)
             icesat = Altimetry(directory=directory, dem_fn=asp_dem)
@@ -486,6 +490,9 @@ def main(
             )
 
             icesat.filter_esa_worldcover(filter_out="water")
+
+            # Compute dh (includes 3-sigma outlier filtering by default)
+            icesat.atl06sr_to_dem_dh()
 
             fig_fn = f"{next(figure_counter):02}.png"
             icesat.mapview_plot_atl06sr_to_dem(
@@ -527,7 +534,21 @@ def main(
                 ReportSection(
                     title="ICESat-2 ATL06-SR Profile",
                     image_path=os.path.join(plots_directory, fig_fn),
-                    caption="Elevation profile along the ICESat-2 track with the most valid points, comparing ATL06-SR and DEM.",
+                    caption="Elevation profile along the ICESat-2 track with the most valid points, comparing ATL06-SR and DEM heights (top) and height differences (middle).",
+                )
+            )
+
+            fig_fn = f"{next(figure_counter):02}.png"
+            icesat.plot_best_worst_segments(
+                key="all",
+                save_dir=plots_directory,
+                fig_fn=fig_fn,
+            )
+            sections.append(
+                ReportSection(
+                    title="ICESat-2 ATL06-SR Best/Worst Segments",
+                    image_path=os.path.join(plots_directory, fig_fn),
+                    caption="Best and worst 1 km segments along the ICESat-2 track, scored by |median(dh)| + NMAD.",
                 )
             )
 

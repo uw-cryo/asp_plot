@@ -221,65 +221,77 @@ class Altimetry:
             self._sliderule_initialized = True
 
     def _resolve_time_range(
-        self, scene_date=None, time_buffer_days=365, t0=None, t1=None
+        self,
+        time_range="all",
+        scene_date=None,
+        time_buffer_days=365,
+        t0=None,
+        t1=None,
     ):
         """
         Resolve the t0/t1 time range for SlideRule API requests.
 
-        Uses a four-tier cascade:
-        1. Explicit ``t0``/``t1`` parameters (highest priority)
-        2. Explicit ``scene_date`` parameter +/- ``time_buffer_days``
-        3. Auto-detect from stereopair XML metadata +/- ``time_buffer_days``
-        4. Fallback to most recent 2 years
-
         Parameters
         ----------
+        time_range : str, optional
+            ``"all"`` (default) returns full ICESat-2 mission range.
+            ``"buffered"`` activates the cascade: explicit ``t0``/``t1``
+            > ``scene_date`` ± ``time_buffer_days`` > XML metadata
+            ± ``time_buffer_days`` > fall back to ``"all"``.
         scene_date : str or datetime-like, optional
-            Explicit scene date. Parsed via ``pd.Timestamp``.
+            Explicit scene date. Only used when ``time_range="buffered"``.
         time_buffer_days : int, optional
             Days before/after the resolved date, default 365.
         t0 : str or datetime-like, optional
-            Explicit start date for the time range. If both ``t0`` and
-            ``t1`` are provided, they override all other time resolution.
-            Use ``t0="all"`` to request all data from ICESat-2 mission
-            start to present.
+            Explicit start date. Only used when ``time_range="buffered"``.
         t1 : str or datetime-like, optional
-            Explicit end date for the time range.
+            Explicit end date. Defaults to present if only ``t0`` given.
 
         Returns
         -------
         tuple of (str, str, datetime or None)
             (t0_str, t1_str, resolved_date) formatted as
-            ``"%Y-%m-%dT%H:%M:%SZ"``. resolved_date is None when
-            the explicit t0/t1, 2-year fallback, or "all" is used.
+            ``"%Y-%m-%dT%H:%M:%SZ"``. resolved_date is the scene date
+            when buffered from a date, otherwise None.
         """
         fmt = "%Y-%m-%dT%H:%M:%SZ"
-        now = datetime.now(tz=timezone.utc)
+        # Truncate to midnight UTC so cached parquet params stay stable within a day
+        today = datetime.now(tz=timezone.utc).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
 
-        # Tier 1: explicit t0/t1 or "all"
+        def _set_all():
+            self._scene_date = None
+            self._t0 = ICESAT2_MISSION_START
+            self._t1 = today
+            return (
+                ICESAT2_MISSION_START.strftime(fmt),
+                today.strftime(fmt),
+                None,
+            )
+
+        if time_range == "all":
+            return _set_all()
+
+        # time_range == "buffered": cascade t0/t1 > scene_date > XML > all
+
+        # 1. Explicit t0/t1
         if t0 is not None:
-            if str(t0).lower() == "all":
-                t0_dt = ICESAT2_MISSION_START
-                t1_dt = now
-            else:
-                t0_dt = pd.Timestamp(t0, tz="UTC").to_pydatetime()
-                t1_dt = (
-                    pd.Timestamp(t1, tz="UTC").to_pydatetime()
-                    if t1 is not None
-                    else now
-                )
+            t0_dt = pd.Timestamp(t0, tz="UTC").to_pydatetime()
+            t1_dt = (
+                pd.Timestamp(t1, tz="UTC").to_pydatetime() if t1 is not None else today
+            )
             self._scene_date = None
             self._t0 = t0_dt
             self._t1 = t1_dt
             return (t0_dt.strftime(fmt), t1_dt.strftime(fmt), None)
 
+        # 2. Explicit scene_date
         resolved_date = None
-
-        # Tier 2: explicit date
         if scene_date is not None:
             resolved_date = pd.Timestamp(scene_date, tz="UTC").to_pydatetime()
 
-        # Tier 3: auto-detect from XML metadata
+        # 3. Auto-detect from XML metadata
         if resolved_date is None:
             try:
                 cdate = StereopairMetadataParser(self.directory).get_pair_dict()[
@@ -294,21 +306,14 @@ class Altimetry:
             t0_dt = resolved_date - timedelta(days=time_buffer_days)
             t1_dt = resolved_date + timedelta(days=time_buffer_days)
             t0_dt = max(t0_dt, ICESAT2_MISSION_START)
-            # If entire range predates mission, fall through to tier 3
             if t1_dt >= ICESAT2_MISSION_START:
                 self._scene_date = resolved_date
                 self._t0 = t0_dt
                 self._t1 = t1_dt
                 return (t0_dt.strftime(fmt), t1_dt.strftime(fmt), resolved_date)
 
-        # Tier 4: fallback to most recent 2 years
-        t1_dt = now
-        t0_dt = max(now - timedelta(days=2 * 365), ICESAT2_MISSION_START)
-
-        self._scene_date = None
-        self._t0 = t0_dt
-        self._t1 = t1_dt
-        return (t0_dt.strftime(fmt), t1_dt.strftime(fmt), None)
+        # Fallback: all
+        return _set_all()
 
     @property
     def _time_range_label(self):
@@ -338,6 +343,7 @@ class Altimetry:
         save_to_parquet=False,
         filename="atl06sr",
         region=None,
+        time_range="all",
         scene_date=None,
         time_buffer_days=365,
         t0=None,
@@ -375,20 +381,23 @@ class Altimetry:
         region : list or None, optional
             Region bounds as [minx, miny, maxx, maxy] in lat/lon,
             default is None (derived from DEM)
+        time_range : str, optional
+            ``"all"`` (default) requests all ICESat-2 data from mission
+            start to present. ``"buffered"`` activates time filtering
+            via the cascade: ``t0``/``t1`` > ``scene_date`` ±
+            ``time_buffer_days`` > XML metadata ±
+            ``time_buffer_days`` > fall back to all.
         scene_date : str or datetime-like, optional
-            Scene acquisition date for server-side time filtering.
+            Scene acquisition date, used when ``time_range="buffered"``.
             If None, auto-detected from stereopair XML metadata.
-            Falls back to most recent 2 years if unavailable.
         time_buffer_days : int, optional
             Days before/after scene_date defining the time window,
             default is 365
         t0 : str or datetime-like, optional
-            Explicit start date for the time range (e.g. "2020-01-01").
-            Use ``"all"`` to request all data from ICESat-2 mission
-            start (2018-10-14) to present. Overrides ``scene_date``
-            and ``time_buffer_days`` when provided.
+            Explicit start date (e.g. "2020-01-01"), used when
+            ``time_range="buffered"``. Overrides ``scene_date``.
         t1 : str or datetime-like, optional
-            Explicit end date for the time range (e.g. "2024-12-31").
+            Explicit end date (e.g. "2024-12-31").
             Defaults to present if only ``t0`` is provided.
 
         Returns
@@ -410,18 +419,23 @@ class Altimetry:
 
         # Resolve server-side time range to limit granules processed
         t0_str, t1_str, resolved_date = self._resolve_time_range(
-            scene_date=scene_date, time_buffer_days=time_buffer_days, t0=t0, t1=t1
+            time_range=time_range,
+            scene_date=scene_date,
+            time_buffer_days=time_buffer_days,
+            t0=t0,
+            t1=t1,
         )
-        if t0 is not None:
-            label = "all available" if str(t0).lower() == "all" else "custom range"
-            print(f"Time filter: {t0_str} to {t1_str} ({label})")
+        if time_range == "all" and resolved_date is None and t0 is None:
+            print(f"Time filter: {t0_str} to {t1_str} (all available)")
         elif resolved_date is not None:
             print(
                 f"Time filter: {t0_str} to {t1_str} "
                 f"(+/- {time_buffer_days} days from {resolved_date.date()})"
             )
+        elif t0 is not None:
+            print(f"Time filter: {t0_str} to {t1_str} (custom range)")
         else:
-            print(f"Time filter: {t0_str} to {t1_str} (2-year fallback)")
+            print(f"Time filter: {t0_str} to {t1_str} (all available, fallback)")
 
         # See parameter discussion on: https://github.com/SlideRuleEarth/sliderule/issues/448
         # "srt": -1 tells the server side code to look at the ATL03 confidence array for each photon
@@ -448,7 +462,10 @@ class Altimetry:
             "samples": {
                 "esa_worldcover": {
                     "asset": "esa-worldcover-10meter",
-                }
+                },
+                "cop30": {
+                    "asset": "esa-copernicus-30meter",
+                },
             },
         }
 
@@ -649,6 +666,37 @@ class Altimetry:
         else:
             logger.warning(f"\nESA WorldCover filter value not found: {filter_out}\n")
             return
+
+    def filter_outliers(self, column="icesat_minus_dem", n_sigma=3):
+        """
+        Remove dh outliers beyond *n_sigma* × NMAD from the median.
+
+        Parameters
+        ----------
+        column : str, optional
+            Column to filter on, default ``"icesat_minus_dem"``.
+        n_sigma : float, optional
+            Number of NMAD-scaled deviations to allow, default 3.
+        """
+        for key, atl06sr in self.atl06sr_processing_levels_filtered.items():
+            if column not in atl06sr.columns:
+                continue
+            dh = atl06sr[column]
+            med = np.nanmedian(dh)
+            nmad_val = _nmad(dh.dropna().values)
+            if nmad_val == 0 or np.isnan(nmad_val):
+                continue
+            mask = (dh - med).abs() <= n_sigma * nmad_val
+            # Keep rows where column is NaN (no dh yet) so they aren't dropped
+            mask = mask | dh.isna()
+            n_before = len(atl06sr)
+            self.atl06sr_processing_levels_filtered[key] = atl06sr[mask]
+            n_after = len(self.atl06sr_processing_levels_filtered[key])
+            if n_before != n_after:
+                print(
+                    f"  Outlier filter ({n_sigma}σ): {key} {n_before} → {n_after} "
+                    f"(removed {n_before - n_after})"
+                )
 
     def predefined_temporal_filter_atl06sr(self, date=None):
         """
@@ -1637,17 +1685,20 @@ class Altimetry:
         if save_dir and fig_fn:
             save_figure(fig, save_dir, fig_fn)
 
-    def atl06sr_to_dem_dh(self):
+    def atl06sr_to_dem_dh(self, n_sigma=3):
         """
         Calculate height differences between ATL06-SR data and DEMs.
 
         Interpolates DEM heights at ATL06-SR point locations and calculates
         the difference between ICESat-2 heights and DEM heights. If an aligned
-        DEM is available, also calculates differences against it.
+        DEM is available, also calculates differences against it. Outliers
+        beyond ``n_sigma`` × NMAD from the median are removed by default.
 
         Parameters
         ----------
-        None
+        n_sigma : float or None, optional
+            Remove dh outliers beyond this many NMAD from the median.
+            Default 3. Pass None to skip outlier filtering.
 
         Returns
         -------
@@ -1694,6 +1745,9 @@ class Altimetry:
                     atl06sr["h_mean"] - atl06sr["aligned_dem_height"]
                 )
                 self.atl06sr_processing_levels_filtered[key] = atl06sr
+
+        if n_sigma is not None:
+            self.filter_outliers(n_sigma=n_sigma)
 
     def mapview_plot_atl06sr_to_dem(
         self,
@@ -1757,10 +1811,16 @@ class Altimetry:
             )
             self.atl06sr_to_dem_dh()
 
-        if clim is not None:
-            symm_clim = False
+        if clim is None:
+            # Symmetric 1st-99th percentile centered on 0
+            atl06sr = self.atl06sr_processing_levels_filtered[key]
+            dh = atl06sr[column_name].dropna()
+            if not dh.empty:
+                abs_max = max(abs(dh.quantile(0.01)), abs(dh.quantile(0.99)))
+                clim = (-abs_max, abs_max)
+            cbar_label = "ICESat-2 minus DEM (m)\n[1st–99th percentile]"
         else:
-            symm_clim = True
+            cbar_label = "ICESat-2 minus DEM (m)"
 
         if not map_crs:
             dem = rioxarray.open_rasterio(self.dem_fn, masked=True).squeeze()
@@ -1770,9 +1830,9 @@ class Altimetry:
         self.plot_atl06sr(
             key=key,
             column_name=column_name,
-            cbar_label="ICESat-2 minus DEM (m)",
+            cbar_label=cbar_label,
             clim=clim,
-            symm_clim=symm_clim,
+            symm_clim=False,
             cmap="RdBu",
             map_crs=map_crs,
             save_dir=save_dir,
@@ -1846,7 +1906,7 @@ class Altimetry:
 
             xmin = atl06sr[column_name].quantile(0.01)
             xmax = atl06sr[column_name].quantile(0.99)
-            plot_kwargs = {"bins": 128, "alpha": 0.5, "range": (xmin, xmax)}
+            plot_kwargs = {"bins": 128, "alpha": 0.5}
             atl06sr.hist(
                 ax=ax,
                 column=column_name,
@@ -1854,6 +1914,7 @@ class Altimetry:
                 **plot_kwargs,
             )
 
+        ax.set_xlim(xmin, xmax)
         ax.legend()
         ax.set_title(None)
         ax.set_xlabel("ICESat-2 - DEM (m)")
@@ -1915,6 +1976,7 @@ class Altimetry:
         key="all",
         top_n=4,
         title="ICESat-2 ATL06-SR vs DEM",
+        xlim=None,
         save_dir=None,
         fig_fn=None,
     ):
@@ -1933,6 +1995,9 @@ class Altimetry:
             Number of top landcover classes to report, default is 4
         title : str, optional
             Plot title, default is "ICESat-2 ATL06-SR vs DEM"
+        xlim : tuple or None, optional
+            Symmetric x-axis limits as (min, max). If None, uses 1st-99th
+            percentile range.
         save_dir : str or None, optional
             Directory to save figure, default is None
         fig_fn : str or None, optional
@@ -1992,9 +2057,16 @@ class Altimetry:
 
         fig, ax = plt.subplots(1, 1, figsize=(8, 5), dpi=220)
 
-        xmin = dh.quantile(0.01)
-        xmax = dh.quantile(0.99)
-        ax.hist(dh.values, bins=128, range=(xmin, xmax), alpha=0.7, color="steelblue")
+        if xlim is not None:
+            xmin, xmax = xlim
+            xlabel_note = ""
+        else:
+            # Symmetric 1st-99th percentile centered on 0
+            abs_max = max(abs(dh.quantile(0.01)), abs(dh.quantile(0.99)))
+            xmin, xmax = -abs_max, abs_max
+            xlabel_note = " [1st–99th percentile]"
+        ax.hist(dh.values, bins=128, alpha=0.7, color="steelblue")
+        ax.set_xlim(xmin, xmax)
 
         stats_text = "\n".join(stats_lines)
         ax.text(
@@ -2008,7 +2080,7 @@ class Altimetry:
             bbox=dict(boxstyle="round,pad=0.4", facecolor="white", alpha=0.9),
         )
 
-        ax.set_xlabel("ICESat-2 - DEM (m)")
+        ax.set_xlabel(f"ICESat-2 - DEM (m){xlabel_note}")
         ax.set_ylabel("Count")
         suptitle = f"{title}\n{key} (n={overall_n})"
         if self._time_range_label:
@@ -2018,47 +2090,20 @@ class Altimetry:
         if save_dir and fig_fn:
             save_figure(fig, save_dir, fig_fn)
 
-    def plot_atl06sr_dem_profile(
-        self,
-        key="all",
-        rgt=None,
-        cycle=None,
-        spot=None,
-        plot_aligned=False,
-        save_dir=None,
-        fig_fn=None,
-    ):
+    def _resolve_best_track(self, key="all", rgt=None, cycle=None, spot=None):
         """
-        Plot elevation profile comparing ICESat-2 and DEM along the best track.
+        Resolve track selection and return the filtered, sorted track DataFrame.
 
-        Creates a three-row figure:
-        - Row 1: Combined elevation profile (left y-axis) and dh (right y-axis)
-        - Row 2: Two 1 km zoom segments at the locations of minimum and
-          maximum rolling-mean dh, with normalized elevations
-        - Row 3: DEM hillshade map with the full track and segment extents
-
-        Parameters
-        ----------
-        key : str, optional
-            Processing level key, default is "all"
-        rgt : int or None, optional
-            Reference ground track (auto-selected if None)
-        cycle : int or None, optional
-            Cycle number (auto-selected if None)
-        spot : int or None, optional
-            Spot number (auto-selected if None)
-        plot_aligned : bool, optional
-            Whether to also plot the aligned DEM profile, default is False
-        save_dir : str or None, optional
-            Directory to save figure, default is None
-        fig_fn : str or None, optional
-            Filename for saved figure, default is None
+        Returns
+        -------
+        tuple of (track, rgt, cycle, spot, track_count, track_date, dist, dh_vals)
+            or None if no valid track found.
         """
         if not all([rgt, cycle, spot]):
             best = self._select_best_track(key)
             if best is None:
                 logger.warning("\nNo valid tracks found for profile plot. Skipping.\n")
-                return
+                return None
             rgt, cycle, spot = best["rgt"], best["cycle"], best["spot"]
             track_count = best["count"]
             track_date = best["date"]
@@ -2080,12 +2125,11 @@ class Altimetry:
 
         if track.empty:
             logger.warning(
-                f"\nNo data for RGT={rgt}, Cycle={cycle}, Spot={spot}. Skipping profile.\n"
+                f"\nNo data for RGT={rgt}, Cycle={cycle}, Spot={spot}. Skipping.\n"
             )
-            return
+            return None
 
         track = track.sort_values("x_atc")
-        x_atc = track["x_atc"].values
         dist = (track["x_atc"] - track["x_atc"].min()) / 1000.0
 
         if track_date is None:
@@ -2093,239 +2137,102 @@ class Altimetry:
         if track_count is None:
             track_count = len(track)
 
-        # --- Segment selection: sliding 1 km window scored by |med(dh)| + NMAD ---
-        dh_col = "icesat_minus_dem"
-        dh_vals = track[dh_col].dropna()
+        dh_vals = track["icesat_minus_dem"].dropna()
+
+        return (track, rgt, cycle, spot, track_count, track_date, dist, dh_vals)
+
+    def _find_best_worst_segments(self, track, dh_col="icesat_minus_dem"):
+        """
+        Identify best and worst 1 km segments along a track.
+
+        Returns
+        -------
+        dict or None
+            Dictionary with keys: seg_best_mask, seg_worst_mask,
+            seg_best_start_km, seg_best_end_km, seg_worst_start_km,
+            seg_worst_end_km. None if segments cannot be identified.
+        """
+        x_atc = track["x_atc"].values
         track_length_m = x_atc[-1] - x_atc[0] if len(x_atc) > 1 else 0
         diffs = np.diff(x_atc)
         median_spacing = np.median(diffs) if len(diffs) > 0 else 0
-        show_segments = median_spacing > 0 and track_length_m >= 1000
+        if not (median_spacing > 0 and track_length_m >= 1000):
+            return None
 
-        seg_best_mask = None
-        seg_worst_mask = None
-        if show_segments:
-            # Evaluate candidate segments centered on each point
-            half_win = 500  # meters
-            scores = []
-            for i, xc in enumerate(x_atc):
-                mask_i = (track["x_atc"] >= xc - half_win) & (
-                    track["x_atc"] <= xc + half_win
-                )
-                seg_i = track.loc[mask_i]
-                n_total = len(seg_i)
-                if n_total < 3:
-                    scores.append(np.nan)
-                    continue
-                # Require >75% DEM coverage
-                dem_valid = seg_i["dem_height"].notna().sum()
-                if dem_valid / n_total < 0.75:
-                    scores.append(np.nan)
-                    continue
-                seg_dh = seg_i[dh_col].dropna().values
-                if len(seg_dh) < 3:
-                    scores.append(np.nan)
-                    continue
-                scores.append(abs(np.nanmedian(seg_dh)) + _nmad(seg_dh))
-
-            scores = np.array(scores)
-            valid_scores = ~np.isnan(scores)
-            if valid_scores.sum() >= 2:
-                idx_best = np.nanargmin(scores)
-                idx_worst = np.nanargmax(scores)
-                x_atc_lo = x_atc[0]
-                x_atc_hi = x_atc[-1]
-
-                best_center = x_atc[idx_best]
-                worst_center = x_atc[idx_worst]
-
-                seg_best_start = max(best_center - half_win, x_atc_lo)
-                seg_best_end = min(best_center + half_win, x_atc_hi)
-                seg_worst_start = max(worst_center - half_win, x_atc_lo)
-                seg_worst_end = min(worst_center + half_win, x_atc_hi)
-
-                seg_best_mask = (track["x_atc"] >= seg_best_start) & (
-                    track["x_atc"] <= seg_best_end
-                )
-                seg_worst_mask = (track["x_atc"] >= seg_worst_start) & (
-                    track["x_atc"] <= seg_worst_end
-                )
-
-                # Convert to km for axvspan on Row 1
-                seg_best_start_km = (seg_best_start - x_atc[0]) / 1000.0
-                seg_best_end_km = (seg_best_end - x_atc[0]) / 1000.0
-                seg_worst_start_km = (seg_worst_start - x_atc[0]) / 1000.0
-                seg_worst_end_km = (seg_worst_end - x_atc[0]) / 1000.0
-            else:
-                show_segments = False
-
-        # --- Figure layout ---
-        if show_segments:
-            fig = plt.figure(figsize=(12, 14))
-            gs = fig.add_gridspec(
-                3, 2, height_ratios=[2, 1.5, 2], hspace=0.3, wspace=0.25
+        half_win = 500  # meters
+        scores = []
+        for xc in x_atc:
+            mask_i = (track["x_atc"] >= xc - half_win) & (
+                track["x_atc"] <= xc + half_win
             )
-            ax1 = fig.add_subplot(gs[0, :])
-            ax2_left = fig.add_subplot(gs[1, 0])
-            ax2_right = fig.add_subplot(gs[1, 1])
-            ax3 = fig.add_subplot(gs[2, :])
-        else:
-            fig = plt.figure(figsize=(12, 10))
-            gs = fig.add_gridspec(2, 1, height_ratios=[2, 2], hspace=0.3)
-            ax1 = fig.add_subplot(gs[0])
-            ax3 = fig.add_subplot(gs[1])
+            seg_i = track.loc[mask_i]
+            n_total = len(seg_i)
+            if n_total < 3:
+                scores.append(np.nan)
+                continue
+            dem_valid = seg_i["dem_height"].notna().sum()
+            if dem_valid / n_total < 0.75:
+                scores.append(np.nan)
+                continue
+            seg_dh = seg_i[dh_col].dropna().values
+            if len(seg_dh) < 3:
+                scores.append(np.nan)
+                continue
+            scores.append(abs(np.nanmedian(seg_dh)) + _nmad(seg_dh))
 
-        # ===================== Row 1: Combined profile =====================
-        # Left y-axis: elevation
-        valid_dem = track["dem_height"].dropna()
-        if not valid_dem.empty:
-            ax1.plot(
-                dist.loc[valid_dem.index],
-                valid_dem,
-                color="gray",
-                linewidth=1,
-                label="DEM (left axis)",
-                zorder=1,
-            )
+        scores = np.array(scores)
+        if (~np.isnan(scores)).sum() < 2:
+            return None
 
-        if plot_aligned and self.aligned_dem_fn:
-            if "aligned_dem_height" in track.columns:
-                valid_aligned = track["aligned_dem_height"].dropna()
-                if not valid_aligned.empty:
-                    ax1.plot(
-                        dist.loc[valid_aligned.index],
-                        valid_aligned,
-                        color="orange",
-                        linewidth=1,
-                        label="Aligned DEM (left axis)",
-                        zorder=2,
-                    )
+        idx_best = np.nanargmin(scores)
+        idx_worst = np.nanargmax(scores)
+        x_atc_lo, x_atc_hi = x_atc[0], x_atc[-1]
 
-        ax1.scatter(
-            dist,
-            track["h_mean"],
-            color="steelblue",
-            s=8,
-            label="ICESat-2 ATL06-SR (left axis)",
-            zorder=3,
-        )
+        seg_best_start = max(x_atc[idx_best] - half_win, x_atc_lo)
+        seg_best_end = min(x_atc[idx_best] + half_win, x_atc_hi)
+        seg_worst_start = max(x_atc[idx_worst] - half_win, x_atc_lo)
+        seg_worst_end = min(x_atc[idx_worst] + half_win, x_atc_hi)
 
-        ax1.set_ylabel("Elevation (m HAE)")
-        ax1.set_xlabel("Along-track distance (km)")
+        return {
+            "seg_best_mask": (track["x_atc"] >= seg_best_start)
+            & (track["x_atc"] <= seg_best_end),
+            "seg_worst_mask": (track["x_atc"] >= seg_worst_start)
+            & (track["x_atc"] <= seg_worst_end),
+            "seg_best_start_km": (seg_best_start - x_atc[0]) / 1000.0,
+            "seg_best_end_km": (seg_best_end - x_atc[0]) / 1000.0,
+            "seg_worst_start_km": (seg_worst_start - x_atc[0]) / 1000.0,
+            "seg_worst_end_km": (seg_worst_end - x_atc[0]) / 1000.0,
+        }
 
-        # Segment highlight spans
+    def _plot_hillshade_map(self, ax, track, seg_info=None):
+        """
+        Plot DEM hillshade with track overlay on the given axes.
+
+        Parameters
+        ----------
+        ax : matplotlib.axes.Axes
+        track : GeoDataFrame
+        seg_info : dict or None
+            Output from ``_find_best_worst_segments``.
+        """
         seg_best_color = "tab:blue"
         seg_worst_color = "tab:red"
-        if show_segments:
-            ax1.axvspan(
-                seg_best_start_km,
-                seg_best_end_km,
-                alpha=0.15,
-                color=seg_best_color,
-                zorder=0,
-            )
-            ax1.axvspan(
-                seg_worst_start_km,
-                seg_worst_end_km,
-                alpha=0.15,
-                color=seg_worst_color,
-                zorder=0,
-            )
-
-        # Right y-axis: dh
-        ax1_dh = ax1.twinx()
-        if not dh_vals.empty:
-            med = np.nanmedian(dh_vals.values)
-            nmad_val = _nmad(dh_vals.values)
-            ax1_dh.scatter(
-                dist.loc[dh_vals.index],
-                dh_vals,
-                color="salmon",
-                s=4,
-                alpha=0.6,
-                zorder=4,
-                label=f"dh (right axis) Med={med:+.2f} m, NMAD={nmad_val:.2f} m",
-            )
-            ax1_dh.axhline(0, color="black", linewidth=0.5, linestyle="--", zorder=1)
-            ax1_dh.set_ylabel("ICESat-2 − DEM (m)")
-
-        # Combined legend from both axes
-        handles1, labels1 = ax1.get_legend_handles_labels()
-        handles2, labels2 = ax1_dh.get_legend_handles_labels()
-        ax1.legend(handles1 + handles2, labels1 + labels2, fontsize=8, loc="upper left")
-
-        # =============== Row 2: Zoom segments (if available) ===============
-        if show_segments:
-            for ax_seg, mask, color, label_prefix in [
-                (ax2_left, seg_best_mask, seg_best_color, "Best"),
-                (ax2_right, seg_worst_mask, seg_worst_color, "Worst"),
-            ]:
-                seg = track.loc[mask]
-
-                # DEM line
-                seg_dem = seg["dem_height"].dropna()
-                seg_h = seg["h_mean"].dropna()
-                if not seg_dem.empty:
-                    seg_dem_dist = (
-                        seg.loc[seg_dem.index, "x_atc"].values - seg["x_atc"].values[0]
-                    )
-                    ax_seg.plot(
-                        seg_dem_dist,
-                        seg_dem.values,
-                        color="gray",
-                        linewidth=1,
-                        label="DEM",
-                    )
-                # ICESat-2 scatter
-                if not seg_h.empty:
-                    seg_h_dist = (
-                        seg.loc[seg_h.index, "x_atc"].values - seg["x_atc"].values[0]
-                    )
-                    ax_seg.scatter(
-                        seg_h_dist,
-                        seg_h.values,
-                        color="steelblue",
-                        s=8,
-                        label="ICESat-2",
-                    )
-
-                seg_dh = seg[dh_col].dropna()
-                seg_med = np.nanmedian(seg_dh.values) if not seg_dh.empty else 0
-                seg_nmad = _nmad(seg_dh.values) if len(seg_dh) >= 3 else 0
-                ax_seg.set_title(
-                    f"{label_prefix} (Med={seg_med:+.1f} m, NMAD={seg_nmad:.1f} m)",
-                    fontsize=9,
-                    color=color,
-                )
-                ax_seg.set_xlabel("Along-track distance (m)")
-                ax_seg.set_ylabel("Elevation (m HAE)")
-                # Add background color tint matching the span color
-                ax_seg.set_facecolor((*plt.matplotlib.colors.to_rgb(color), 0.05))
-
-            ax2_left.legend(fontsize=7, loc="best")
-
-        # =================== Row 3: Map view ====================
         try:
             raster = Raster(self.dem_fn, downsample=5)
             dem_data, dem_extent = raster.read_array(extent=True)
             epsg = raster.get_epsg_code()
 
-            # Generate hillshade from downsampled data using matplotlib
             from matplotlib.colors import LightSource
 
             ls = LightSource(azdeg=315, altdeg=45)
-            # Fill masked values for hillshade computation
             fill_val = np.nanmedian(np.asarray(dem_data))
             dem_filled = np.asarray(np.ma.filled(dem_data, fill_val))
             hs = ls.hillshade(dem_filled)
 
-            ax3.imshow(
-                hs,
-                extent=dem_extent,
-                cmap="gray",
-                origin="upper",
-                aspect="equal",
+            ax.imshow(
+                hs, extent=dem_extent, cmap="gray", origin="upper", aspect="equal"
             )
-            ax3.imshow(
+            ax.imshow(
                 dem_data,
                 extent=dem_extent,
                 cmap="terrain",
@@ -2334,9 +2241,8 @@ class Altimetry:
                 aspect="equal",
             )
 
-            # Reproject track to DEM CRS and plot
             track_proj = track.to_crs(f"EPSG:{epsg}")
-            ax3.plot(
+            ax.plot(
                 track_proj.geometry.x,
                 track_proj.geometry.y,
                 color="black",
@@ -2345,15 +2251,14 @@ class Altimetry:
                 zorder=5,
             )
 
-            # Overlay segment extents
-            if show_segments:
-                for mask, color, label in [
-                    (seg_best_mask, seg_best_color, "Best"),
-                    (seg_worst_mask, seg_worst_color, "Worst"),
+            if seg_info is not None:
+                for mask_key, color, label in [
+                    ("seg_best_mask", seg_best_color, "Best"),
+                    ("seg_worst_mask", seg_worst_color, "Worst"),
                 ]:
-                    seg_proj = track_proj.loc[mask]
+                    seg_proj = track_proj.loc[seg_info[mask_key]]
                     if not seg_proj.empty:
-                        ax3.plot(
+                        ax.plot(
                             seg_proj.geometry.x,
                             seg_proj.geometry.y,
                             color=color,
@@ -2362,28 +2267,187 @@ class Altimetry:
                             zorder=6,
                         )
 
-            # Zoom to track extent with padding
-            track_bounds = track_proj.total_bounds  # [minx, miny, maxx, maxy]
+            track_bounds = track_proj.total_bounds
             dx = track_bounds[2] - track_bounds[0]
             dy = track_bounds[3] - track_bounds[1]
             pad = max(dx, dy) * 0.2
-            ax3.set_xlim(track_bounds[0] - pad, track_bounds[2] + pad)
-            ax3.set_ylim(track_bounds[1] - pad, track_bounds[3] + pad)
-            ax3.set_xticks([])
-            ax3.set_yticks([])
-            ax3.legend(fontsize=8, loc="upper left")
+            ax.set_xlim(track_bounds[0] - pad, track_bounds[2] + pad)
+            ax.set_ylim(track_bounds[1] - pad, track_bounds[3] + pad)
+            ax.set_xticks([])
+            ax.set_yticks([])
+            ax.legend(fontsize=8, loc="upper left")
         except Exception:
             logger.warning("Could not generate map view for profile plot.")
-            ax3.text(
+            ax.text(
                 0.5,
                 0.5,
                 "Map view unavailable",
-                transform=ax3.transAxes,
+                transform=ax.transAxes,
                 ha="center",
                 va="center",
             )
-            ax3.set_xticks([])
-            ax3.set_yticks([])
+            ax.set_xticks([])
+            ax.set_yticks([])
+
+    def plot_atl06sr_dem_profile(
+        self,
+        key="all",
+        rgt=None,
+        cycle=None,
+        spot=None,
+        plot_aligned=False,
+        save_dir=None,
+        fig_fn=None,
+    ):
+        """
+        Plot elevation profile comparing ICESat-2 and DEM along the best track.
+
+        Creates a three-row figure:
+        - Row 1: Absolute elevation profile (DEM, COP30, ICESat-2)
+        - Row 2: Height difference profile (ICESat-2 minus DEM)
+        - Row 3: DEM hillshade map with the full track and segment extents
+
+        Parameters
+        ----------
+        key : str, optional
+            Processing level key, default is "all"
+        rgt : int or None, optional
+            Reference ground track (auto-selected if None)
+        cycle : int or None, optional
+            Cycle number (auto-selected if None)
+        spot : int or None, optional
+            Spot number (auto-selected if None)
+        plot_aligned : bool, optional
+            Whether to also plot the aligned DEM profile, default is False
+        save_dir : str or None, optional
+            Directory to save figure, default is None
+        fig_fn : str or None, optional
+            Filename for saved figure, default is None
+        """
+        resolved = self._resolve_best_track(key, rgt, cycle, spot)
+        if resolved is None:
+            return
+        track, rgt, cycle, spot, track_count, track_date, dist, dh_vals = resolved
+
+        # Segment selection
+        seg_info = self._find_best_worst_segments(track)
+
+        # --- Figure layout: 3 rows (elevation, dh, map) ---
+        fig = plt.figure(figsize=(12, 14))
+        gs = fig.add_gridspec(3, 1, height_ratios=[2, 1.2, 2], hspace=0.25)
+        ax_elev = fig.add_subplot(gs[0])
+        ax_dh = fig.add_subplot(gs[1], sharex=ax_elev)
+        ax_map = fig.add_subplot(gs[2])
+
+        # ===================== Row 1: Absolute elevation =====================
+        valid_dem = track["dem_height"].dropna()
+        if not valid_dem.empty:
+            ax_elev.plot(
+                dist.loc[valid_dem.index],
+                valid_dem,
+                color="gray",
+                linewidth=1,
+                label="ASP DEM",
+                zorder=1,
+            )
+
+        # COP30 sampled height (if available from SlideRule)
+        cop30_col = "cop30.value"
+        if cop30_col in track.columns:
+            valid_cop30 = track[cop30_col].dropna()
+            if not valid_cop30.empty:
+                ax_elev.scatter(
+                    dist.loc[valid_cop30.index],
+                    valid_cop30,
+                    color="darkgoldenrod",
+                    s=4,
+                    alpha=0.6,
+                    label="COP30",
+                    zorder=2,
+                )
+
+        if plot_aligned and self.aligned_dem_fn:
+            if "aligned_dem_height" in track.columns:
+                valid_aligned = track["aligned_dem_height"].dropna()
+                if not valid_aligned.empty:
+                    ax_elev.plot(
+                        dist.loc[valid_aligned.index],
+                        valid_aligned,
+                        color="orange",
+                        linewidth=1,
+                        label="Aligned DEM",
+                        zorder=3,
+                    )
+
+        ax_elev.scatter(
+            dist,
+            track["h_mean"],
+            color="steelblue",
+            s=8,
+            label="ICESat-2 ATL06-SR",
+            zorder=4,
+        )
+
+        # Segment highlight spans
+        seg_best_color = "tab:blue"
+        seg_worst_color = "tab:red"
+        if seg_info is not None:
+            ax_elev.axvspan(
+                seg_info["seg_best_start_km"],
+                seg_info["seg_best_end_km"],
+                alpha=0.15,
+                color=seg_best_color,
+                zorder=0,
+            )
+            ax_elev.axvspan(
+                seg_info["seg_worst_start_km"],
+                seg_info["seg_worst_end_km"],
+                alpha=0.15,
+                color=seg_worst_color,
+                zorder=0,
+            )
+
+        ax_elev.set_ylabel("Elevation (m HAE)")
+        ax_elev.legend(fontsize=8, loc="upper left")
+        plt.setp(ax_elev.get_xticklabels(), visible=False)
+
+        # ===================== Row 2: dh profile =====================
+        if not dh_vals.empty:
+            med = np.nanmedian(dh_vals.values)
+            nmad_val = _nmad(dh_vals.values)
+            ax_dh.scatter(
+                dist.loc[dh_vals.index],
+                dh_vals,
+                color="salmon",
+                s=4,
+                alpha=0.6,
+                zorder=2,
+                label=f"Med={med:+.2f} m, NMAD={nmad_val:.2f} m",
+            )
+            ax_dh.axhline(0, color="black", linewidth=0.5, linestyle="--", zorder=1)
+
+        if seg_info is not None:
+            ax_dh.axvspan(
+                seg_info["seg_best_start_km"],
+                seg_info["seg_best_end_km"],
+                alpha=0.15,
+                color=seg_best_color,
+                zorder=0,
+            )
+            ax_dh.axvspan(
+                seg_info["seg_worst_start_km"],
+                seg_info["seg_worst_end_km"],
+                alpha=0.15,
+                color=seg_worst_color,
+                zorder=0,
+            )
+
+        ax_dh.set_ylabel("ICESat-2 − DEM (m)")
+        ax_dh.set_xlabel("Along-track distance (km)")
+        ax_dh.legend(fontsize=8, loc="upper left")
+
+        # =================== Row 3: Map view ====================
+        self._plot_hillshade_map(ax_map, track, seg_info)
 
         # Title
         title_str = f"RGT {rgt}, Cycle {cycle}, Spot {spot} ({track_date})"
@@ -2393,7 +2457,145 @@ class Altimetry:
             title_str += f"\n{self._time_range_label}"
         fig.suptitle(title_str, size=10)
 
-        # Use subplots_adjust instead of tight_layout to avoid warnings with twinx
-        fig.subplots_adjust(top=0.93, bottom=0.04, left=0.08, right=0.92)
+        fig.subplots_adjust(top=0.93, bottom=0.04, left=0.08, right=0.95)
+        if save_dir and fig_fn:
+            save_figure(fig, save_dir, fig_fn)
+
+    def plot_best_worst_segments(
+        self,
+        key="all",
+        rgt=None,
+        cycle=None,
+        spot=None,
+        save_dir=None,
+        fig_fn=None,
+    ):
+        """
+        Plot best and worst 1 km segments as a 3-column figure.
+
+        Creates a single-row, 3-column figure:
+        - Column 1: Context map (DEM hillshade with track and segment extents)
+        - Column 2: Best 1 km segment elevation profile
+        - Column 3: Worst 1 km segment elevation profile
+
+        Parameters
+        ----------
+        key : str, optional
+            Processing level key, default is "all"
+        rgt : int or None, optional
+            Reference ground track (auto-selected if None)
+        cycle : int or None, optional
+            Cycle number (auto-selected if None)
+        spot : int or None, optional
+            Spot number (auto-selected if None)
+        save_dir : str or None, optional
+            Directory to save figure, default is None
+        fig_fn : str or None, optional
+            Filename for saved figure, default is None
+        """
+        resolved = self._resolve_best_track(key, rgt, cycle, spot)
+        if resolved is None:
+            return
+        track, rgt, cycle, spot, track_count, track_date, dist, dh_vals = resolved
+
+        seg_info = self._find_best_worst_segments(track)
+        if seg_info is None:
+            logger.warning(
+                "\nTrack too short or insufficient data for best/worst segments.\n"
+            )
+            return
+
+        dh_col = "icesat_minus_dem"
+        seg_best_color = "tab:blue"
+        seg_worst_color = "tab:red"
+
+        # --- 3-column layout: map | best | worst ---
+        fig, axes = plt.subplots(
+            1,
+            3,
+            figsize=(18, 6),
+            dpi=220,
+            gridspec_kw={"width_ratios": [1.2, 1, 1], "wspace": 0.3},
+        )
+        ax_map, ax_best, ax_worst = axes
+
+        # Column 1: Context map
+        self._plot_hillshade_map(ax_map, track, seg_info)
+
+        # Columns 2 & 3: Best/Worst segment profiles
+        for ax_seg, mask, color, label_prefix in [
+            (ax_best, seg_info["seg_best_mask"], seg_best_color, "Best"),
+            (ax_worst, seg_info["seg_worst_mask"], seg_worst_color, "Worst"),
+        ]:
+            seg = track.loc[mask]
+
+            seg_dem = seg["dem_height"].dropna()
+            seg_h = seg["h_mean"].dropna()
+            if not seg_dem.empty:
+                seg_dem_dist = (
+                    seg.loc[seg_dem.index, "x_atc"].values - seg["x_atc"].values[0]
+                )
+                ax_seg.plot(
+                    seg_dem_dist,
+                    seg_dem.values,
+                    color="gray",
+                    linewidth=1,
+                    label="DEM",
+                )
+
+            # COP30 in segment
+            cop30_col = "cop30.value"
+            if cop30_col in seg.columns:
+                seg_cop30 = seg[cop30_col].dropna()
+                if not seg_cop30.empty:
+                    seg_cop30_dist = (
+                        seg.loc[seg_cop30.index, "x_atc"].values
+                        - seg["x_atc"].values[0]
+                    )
+                    ax_seg.scatter(
+                        seg_cop30_dist,
+                        seg_cop30.values,
+                        color="darkgoldenrod",
+                        s=6,
+                        alpha=0.6,
+                        label="COP30",
+                    )
+
+            if not seg_h.empty:
+                seg_h_dist = (
+                    seg.loc[seg_h.index, "x_atc"].values - seg["x_atc"].values[0]
+                )
+                ax_seg.scatter(
+                    seg_h_dist,
+                    seg_h.values,
+                    color="steelblue",
+                    s=8,
+                    label="ICESat-2",
+                )
+
+            seg_dh = seg[dh_col].dropna()
+            seg_med = np.nanmedian(seg_dh.values) if not seg_dh.empty else 0
+            seg_nmad = _nmad(seg_dh.values) if len(seg_dh) >= 3 else 0
+            ax_seg.set_title(
+                f"{label_prefix} (Med={seg_med:+.1f} m, NMAD={seg_nmad:.1f} m)",
+                fontsize=9,
+                color=color,
+            )
+            ax_seg.set_xlabel("Along-track distance (m)")
+            ax_seg.set_ylabel("Elevation (m HAE)")
+            ax_seg.set_facecolor((*plt.matplotlib.colors.to_rgb(color), 0.05))
+
+        ax_best.legend(fontsize=7, loc="best")
+
+        # Title
+        title_str = (
+            f"Best/Worst 1 km — RGT {rgt}, Cycle {cycle}, Spot {spot} ({track_date})"
+        )
+        if track_count:
+            title_str += f" — n={track_count}"
+        if self._time_range_label:
+            title_str += f"\n{self._time_range_label}"
+        fig.suptitle(title_str, size=10)
+        fig.subplots_adjust(top=0.90, bottom=0.08, left=0.04, right=0.98, wspace=0.3)
         if save_dir and fig_fn:
             save_figure(fig, save_dir, fig_fn)
