@@ -331,15 +331,8 @@ class Altimetry:
             return x[0] if x else x
         return x
 
-    def request_atl06sr_multi_processing(
+    def request_atl06sr(
         self,
-        processing_levels=["all", "ground", "canopy", "top_of_canopy"],
-        res=20,
-        len=40,
-        ats=20,
-        cnt=10,
-        maxi=6,
-        h_sigma_quantile=1.0,
         save_to_parquet=False,
         filename="atl06sr",
         region=None,
@@ -350,74 +343,38 @@ class Altimetry:
         t1=None,
     ):
         """
-        Request ICESat-2 ATL06-SR data for multiple processing levels.
+        Request pre-processed ICESat-2 ATL06 data via SlideRule.
 
-        Downloads ATL06-SR data from the SlideRule API for specified
-        processing levels (surface types), with options to filter and
-        save the results. Each processing level targets different surface
-        types like ground, canopy, etc.
+        Uses ``atl06sp`` to subset the official NASA ATL06 product in
+        parallel, sampling ESA WorldCover and Copernicus COP30 DEM at
+        each point. Much faster than reprocessing from ATL03 photons.
+        Results are stored under the key ``"all"`` for downstream use.
 
         Parameters
         ----------
-        processing_levels : list, optional
-            List of processing levels to request, default is
-            ["all", "ground", "canopy", "top_of_canopy"]
-        res : int, optional
-            ATL06-SR segment resolution in meters, default is 20
-        len : int, optional
-            ATL06-SR segment length in meters, default is 40
-        ats : int, optional
-            Along-track sigma, default is 20
-        cnt : int, optional
-            Minimum number of photons for segment, default is 10
-        maxi : int, optional
-            Maximum iterations for surface fit, default is 6
-        h_sigma_quantile : float, optional
-            Quantile for filtering by h_sigma, default is 1.0
         save_to_parquet : bool, optional
-            Whether to save results to parquet files, default is False
+            Cache results to a parquet file, default False.
         filename : str, optional
-            Base filename for saved data, default is "atl06sr"
+            Base filename for cached parquet, default ``"atl06sr"``.
         region : list or None, optional
-            Region bounds as [minx, miny, maxx, maxy] in lat/lon,
-            default is None (derived from DEM)
+            Bounding polygon as lon/lat dicts. None derives from DEM.
         time_range : str, optional
-            ``"all"`` (default) requests all ICESat-2 data from mission
-            start to present. ``"buffered"`` activates time filtering
-            via the cascade: ``t0``/``t1`` > ``scene_date`` ±
-            ``time_buffer_days`` > XML metadata ±
-            ``time_buffer_days`` > fall back to all.
+            ``"all"`` (default) for full mission, ``"buffered"`` for
+            date-based filtering (see ``_resolve_time_range``).
         scene_date : str or datetime-like, optional
-            Scene acquisition date, used when ``time_range="buffered"``.
-            If None, auto-detected from stereopair XML metadata.
+            Scene date for buffered filtering.
         time_buffer_days : int, optional
-            Days before/after scene_date defining the time window,
-            default is 365
+            Buffer in days around scene_date, default 365.
         t0 : str or datetime-like, optional
-            Explicit start date (e.g. "2020-01-01"), used when
-            ``time_range="buffered"``. Overrides ``scene_date``.
+            Explicit start date for buffered filtering.
         t1 : str or datetime-like, optional
-            Explicit end date (e.g. "2024-12-31").
-            Defaults to present if only ``t0`` is provided.
-
-        Returns
-        -------
-        None
-            Results are stored in the class attributes
-
-        Notes
-        -----
-        This method makes SlideRule API calls which require internet connectivity.
-        It also samples ESA WorldCover data for land cover classification of the
-        ICESat-2 data points. The method includes filtering to improve data quality
-        by removing points with high uncertainty and from early mission cycles.
+            Explicit end date for buffered filtering.
         """
         self._ensure_sliderule()
 
         if not region:
             region = Raster(self.dem_fn).get_bounds(latlon=True)
 
-        # Resolve server-side time range to limit granules processed
         t0_str, t1_str, resolved_date = self._resolve_time_range(
             time_range=time_range,
             scene_date=scene_date,
@@ -425,40 +382,21 @@ class Altimetry:
             t0=t0,
             t1=t1,
         )
-        if time_range == "all" and resolved_date is None and t0 is None:
-            print(f"Time filter: {t0_str} to {t1_str} (all available)")
-        elif resolved_date is not None:
+        if resolved_date is not None:
             print(
                 f"Time filter: {t0_str} to {t1_str} "
                 f"(+/- {time_buffer_days} days from {resolved_date.date()})"
             )
-        elif t0 is not None:
-            print(f"Time filter: {t0_str} to {t1_str} (custom range)")
         else:
-            print(f"Time filter: {t0_str} to {t1_str} (all available, fallback)")
+            label = "custom range" if t0 is not None else "all available"
+            print(f"Time filter: {t0_str} to {t1_str} ({label})")
 
-        # See parameter discussion on: https://github.com/SlideRuleEarth/sliderule/issues/448
-        # "srt": -1 tells the server side code to look at the ATL03 confidence array for each photon
-        # and choose the confidence level that is highest across all five surface type entries.
-        # cnf options: {"atl03_tep", "atl03_not_considered", "atl03_background", "atl03_within_10m", \
-        # "atl03_low", "atl03_medium", "atl03_high"}
-        # Note reduced count for limited number of ground photons
+        from sliderule import icesat2
 
-        # TODO: use the WorldCover values to determine if we should report canopy or top of canopy
-        #   This is tricky, and not clear yet how to go about this. For now, just request all processing levels.
-
-        # TODO: Use more generic variable names and strings for functions that are not just limited to atl06
-        #   This can be done when we implement additional requests for other data types
-
-        # Shared parameters for all processing levels
-        shared_parms = {
+        parms = {
             "poly": region,
             "t0": t0_str,
             "t1": t1_str,
-            "res": res,
-            "len": len,
-            "ats": ats,
-            "fit": {"maxi": maxi},
             "samples": {
                 "esa_worldcover": {
                     "asset": "esa-worldcover-10meter",
@@ -469,118 +407,72 @@ class Altimetry:
             },
         }
 
-        # Custom parameters for each processing level
-        custom_parms = {
-            "all": {
-                "cnf": "atl03_high",
-                "srt": -1,
-                "cnt": cnt,
-            },
-            "ground": {
-                "cnf": "atl03_low",
-                "srt": -1,
-                "cnt": 5,
-                "atl08_class": "atl08_ground",
-            },
-            "canopy": {
-                "cnf": "atl03_medium",
-                "srt": -1,
-                "cnt": 5,
-                "atl08_class": "atl08_canopy",
-            },
-            "top_of_canopy": {
-                "cnf": "atl03_medium",
-                "srt": -1,
-                "cnt": 5,
-                "atl08_class": "atl08_top_of_canopy",
-            },
-        }
+        fn = f"{filename}.parquet"
+        print("\nICESat-2 ATL06 request (atl06sp — pre-processed, parallel)")
+        print(parms)
 
-        # Filter custom_parms to only include requested processing levels
-        custom_parms = {
-            key: parms
-            for key, parms in custom_parms.items()
-            if key in processing_levels
-        }
+        # Check for cached file with matching parameters
+        need_request = True
+        if os.path.exists(fn):
+            print(f"Existing file found, reading in: {fn}")
+            atl06sr = gpd.read_parquet(fn)
 
-        for key, custom_parm in custom_parms.items():
-            parms = {**shared_parms, **custom_parm}
+            if "sliderule_parameters" in atl06sr.columns:
+                try:
+                    file_parms = json.loads(atl06sr["sliderule_parameters"].iloc[0])
+                    parms_copy = parms.copy()
+                    parms_copy["poly"] = str(parms_copy["poly"])
 
-            fn_base = f"{filename}_{key}"
-
-            print(f"\nICESat-2 ATL06 request processing for: {key}")
-            fn = f"{fn_base}.parquet"
-
-            print(parms)
-
-            # Check for existing file with matching parameters
-            if os.path.exists(fn):
-                print(f"Existing file found, reading in: {fn}")
-                atl06sr = gpd.read_parquet(fn)
-
-                # Check for parameters in the column
-                if "sliderule_parameters" in atl06sr.columns:
-                    try:
-                        file_parms = json.loads(atl06sr["sliderule_parameters"].iloc[0])
-                        parms_copy = parms.copy()
-                        parms_copy["poly"] = str(parms_copy["poly"])
-
-                        if str(parms_copy) != str(file_parms):
-                            print("Parameters don't match request. Regenerating...")
-                            atl06sr = sliderule_api.run("atl03x", parms)
-                            if save_to_parquet:
-                                self._save_to_parquet(fn, atl06sr, parms)
-                    except Exception as e:
-                        print(f"Error checking sliderule_parameters column: {e}")
-                else:
-                    print("No parameters column found, regenerating...")
-                    atl06sr = sliderule_api.run("atl03x", parms)
-                    if save_to_parquet:
-                        self._save_to_parquet(fn, atl06sr, parms)
+                    if str(parms_copy) == str(file_parms):
+                        need_request = False
+                    else:
+                        print("Parameters don't match request. Regenerating...")
+                except Exception as e:
+                    print(f"Could not parse cached parameters: {e}. " "Regenerating...")
             else:
-                atl06sr = sliderule_api.run("atl03x", parms)
-                if save_to_parquet:
-                    self._save_to_parquet(fn, atl06sr, parms)
+                print("No parameters column found, regenerating...")
 
-            # Normalize index: x-series returns time_ns (Unix nanoseconds),
-            # legacy returns time (GPS seconds). Ensure a DatetimeIndex named "time".
-            if atl06sr.index.name == "time_ns" or not isinstance(
-                atl06sr.index, pd.DatetimeIndex
-            ):
-                if "time_ns" in atl06sr.columns:
-                    atl06sr.index = pd.to_datetime(atl06sr["time_ns"], unit="ns")
-                elif atl06sr.index.name == "time_ns":
-                    atl06sr.index = pd.to_datetime(atl06sr.index, unit="ns")
-                atl06sr.index.name = "time"
+        if need_request:
+            atl06sr = icesat2.atl06sp(parms)
+            if save_to_parquet:
+                self._save_to_parquet(fn, atl06sr, parms)
 
-            # Normalize sample columns: x-series may return array values
-            # instead of scalars for raster samples (e.g., esa_worldcover.value).
-            # Extract the first element from any array-valued cells.
-            # After parquet round-trip, arrays may deserialize as lists.
-            for col in atl06sr.columns:
-                if atl06sr[col].dtype == object and atl06sr.shape[0] > 0:
-                    first_val = atl06sr[col].iloc[0]
-                    if isinstance(first_val, (np.ndarray, list)):
-                        atl06sr[col] = atl06sr[col].apply(self._extract_scalar)
+        # Normalize index to DatetimeIndex named "time"
+        if atl06sr.index.name == "time_ns" or not isinstance(
+            atl06sr.index, pd.DatetimeIndex
+        ):
+            if "time_ns" in atl06sr.columns:
+                atl06sr.index = pd.to_datetime(atl06sr["time_ns"], unit="ns")
+            elif atl06sr.index.name == "time_ns":
+                atl06sr.index = pd.to_datetime(atl06sr.index, unit="ns")
+            atl06sr.index.name = "time"
 
-            self.atl06sr_processing_levels[key] = atl06sr
+        # Normalize array-valued sample columns to scalars
+        for col in atl06sr.columns:
+            if atl06sr[col].dtype == object and atl06sr.shape[0] > 0:
+                first_val = atl06sr[col].iloc[0]
+                if isinstance(first_val, (np.ndarray, list)):
+                    atl06sr[col] = atl06sr[col].apply(self._extract_scalar)
 
-            print(f"Filtering ATL06-SR {key}")
+        self.atl06sr_processing_levels["all"] = atl06sr
 
-            # From Aimee Gibbons:
-            # I'd recommend anything cycle 03 and later, due to pointing issues before cycle 03.
-            atl06sr_filtered = atl06sr[atl06sr["cycle"] >= 3]
+        # Basic quality filtering
+        # Cycle >= 3 (early cycles had pointing issues)
+        atl06sr_filtered = atl06sr[atl06sr["cycle"] >= 3]
+        # Remove h_sigma == 0 (bad fits)
+        atl06sr_filtered = atl06sr_filtered[atl06sr_filtered["h_sigma"] != 0]
 
-            # Remove bad fits using high percentile of `h_sigma`, the error estimate for the least squares fit model.
-            # TODO: not sure about h_sigma quantile...might throw out too much. Maybe just remove 0 values?
-            atl06sr_filtered = atl06sr_filtered[
-                atl06sr_filtered["h_sigma"]
-                < atl06sr_filtered["h_sigma"].quantile(h_sigma_quantile)
-            ]
-            # Also need to filter out 0 values, not sure what these are caused by, but also very bad points.
-            atl06sr_filtered = atl06sr_filtered[atl06sr_filtered["h_sigma"] != 0]
+        print(f"  {len(atl06sr)} points → {len(atl06sr_filtered)} after filtering")
 
-            self.atl06sr_processing_levels_filtered[key] = atl06sr_filtered
+        self.atl06sr_processing_levels_filtered["all"] = atl06sr_filtered
+
+    def request_atl06sr_multi_processing(self, processing_levels=None, **kwargs):
+        """Deprecated wrapper — calls ``request_atl06sr``."""
+        print(
+            "Note: request_atl06sr_multi_processing is deprecated. "
+            "Use request_atl06sr() instead."
+        )
+        self.request_atl06sr(**kwargs)
 
     def _save_to_parquet(self, fn, df, parms):
         """
