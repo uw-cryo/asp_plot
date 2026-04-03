@@ -466,19 +466,19 @@ def main(
         if body == "earth":
             # Parse --atl06sr_time_range into time_range/t0/t1 kwargs
             atl06sr_time_kwargs = {}
-            if atl06sr_time_range is not None:
-                if atl06sr_time_range.lower() == "all":
-                    atl06sr_time_kwargs["time_range"] = "all"
-                elif atl06sr_time_range.lower() == "auto":
-                    atl06sr_time_kwargs["time_range"] = "buffered"
-                elif "," in atl06sr_time_range:
-                    parts = atl06sr_time_range.split(",", 1)
-                    atl06sr_time_kwargs["time_range"] = "buffered"
-                    atl06sr_time_kwargs["t0"] = parts[0].strip()
-                    atl06sr_time_kwargs["t1"] = parts[1].strip()
-                else:
-                    atl06sr_time_kwargs["time_range"] = "buffered"
-                    atl06sr_time_kwargs["t0"] = atl06sr_time_range.strip()
+            if atl06sr_time_range.lower() == "all":
+                atl06sr_time_kwargs["time_range"] = "all"
+            elif atl06sr_time_range.lower() == "auto":
+                atl06sr_time_kwargs["time_range"] = "buffered"
+            elif "," in atl06sr_time_range:
+                parts = atl06sr_time_range.split(",", 1)
+                atl06sr_time_kwargs["time_range"] = "buffered"
+                atl06sr_time_kwargs["t0"] = parts[0].strip()
+                atl06sr_time_kwargs["t1"] = parts[1].strip()
+            else:
+                # Single date → buffer around it
+                atl06sr_time_kwargs["time_range"] = "buffered"
+                atl06sr_time_kwargs["scene_date"] = atl06sr_time_range.strip()
 
             # Existing ICESat-2 workflow (3 plots: map, histogram, profile)
             icesat = Altimetry(directory=directory, dem_fn=asp_dem)
