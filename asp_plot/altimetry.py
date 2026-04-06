@@ -217,7 +217,11 @@ class Altimetry:
     def _ensure_sliderule(self):
         """Initialize the SlideRule session on first use."""
         if not self._sliderule_initialized:
-            sliderule_api.init("slideruleearth.io", verbose=True)
+            sliderule_api.init(
+                "slideruleearth.io", verbose=False, loglevel=logging.WARNING
+            )
+            # Also silence the chatty sliderule.session logger
+            logging.getLogger("sliderule.session").setLevel(logging.WARNING)
             self._sliderule_initialized = True
 
     def _resolve_time_range(
@@ -505,31 +509,36 @@ class Altimetry:
 
             print(parms)
 
-            # Check for existing file with matching parameters
+            # Check for cached file with matching parameters
+            need_request = True
             if os.path.exists(fn):
                 print(f"Existing file found, reading in: {fn}")
                 atl06sr = gpd.read_parquet(fn)
 
-                # Check for parameters in the column
                 if "sliderule_parameters" in atl06sr.columns:
                     try:
                         file_parms = json.loads(atl06sr["sliderule_parameters"].iloc[0])
                         parms_copy = parms.copy()
                         parms_copy["poly"] = str(parms_copy["poly"])
+                        # Strip "output" (contains a random temp path
+                        # injected by SlideRule during run()) from both
+                        # sides before comparison.
+                        parms_copy.pop("output", None)
+                        file_parms.pop("output", None)
 
-                        if str(parms_copy) != str(file_parms):
+                        if str(parms_copy) == str(file_parms):
+                            need_request = False
+                        else:
                             print("Parameters don't match request. Regenerating...")
-                            atl06sr = sliderule_api.run("atl03x", parms)
-                            if save_to_parquet:
-                                self._save_to_parquet(fn, atl06sr, parms)
                     except Exception as e:
-                        print(f"Error checking sliderule_parameters column: {e}")
+                        print(
+                            f"Could not parse cached parameters: {e}. "
+                            "Regenerating..."
+                        )
                 else:
                     print("No parameters column found, regenerating...")
-                    atl06sr = sliderule_api.run("atl03x", parms)
-                    if save_to_parquet:
-                        self._save_to_parquet(fn, atl06sr, parms)
-            else:
+
+            if need_request:
                 atl06sr = sliderule_api.run("atl03x", parms)
                 if save_to_parquet:
                     self._save_to_parquet(fn, atl06sr, parms)
@@ -596,6 +605,9 @@ class Altimetry:
         # was proving rather difficult.
         parms_copy = parms.copy()
         parms_copy["poly"] = str(parms_copy["poly"])
+        # SlideRule injects a random temp file path into parms["output"]
+        # during run(); strip it so cached params are stable across runs.
+        parms_copy.pop("output", None)
         df["sliderule_parameters"] = json.dumps(parms_copy)
         df.to_parquet(fn)
 
