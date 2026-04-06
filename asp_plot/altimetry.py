@@ -459,11 +459,6 @@ class Altimetry:
             "len": len,
             "ats": ats,
             "fit": {"maxi": maxi},
-            "samples": {
-                "esa_worldcover": {
-                    "asset": "esa-worldcover-10meter",
-                },
-            },
         }
 
         # Custom parameters for each processing level
@@ -663,6 +658,83 @@ class Altimetry:
         else:
             logger.warning(f"\nESA WorldCover filter value not found: {filter_out}\n")
             return
+
+    @staticmethod
+    def _worldcover_tile_url(lat, lon):
+        """Return the AWS S3 URL for the ESA WorldCover tile covering (lat, lon)."""
+        # Tiles are 3×3 degree; tile name = lower-left corner snapped to 3-degree grid
+        tile_lat = int(np.floor(lat / 3.0) * 3)
+        tile_lon = int(np.floor(lon / 3.0) * 3)
+        ns = "N" if tile_lat >= 0 else "S"
+        ew = "E" if tile_lon >= 0 else "W"
+        name = f"{ns}{abs(tile_lat):02d}{ew}{abs(tile_lon):03d}"
+        return (
+            f"https://esa-worldcover.s3.amazonaws.com/v200/2021/map/"
+            f"ESA_WorldCover_10m_2021_v200_{name}_Map.tif"
+        )
+
+    def sample_esa_worldcover(self):
+        """
+        Sample ESA WorldCover 10m values at ICESat-2 point locations.
+
+        Reads Cloud Optimized GeoTIFFs directly from AWS S3 (no
+        authentication required) and adds an ``esa_worldcover.value``
+        column to each filtered processing level.
+        """
+        import rasterio
+        from rasterio.errors import RasterioIOError
+
+        wc_col = "esa_worldcover.value"
+
+        for key, atl06sr in self.atl06sr_processing_levels_filtered.items():
+            if wc_col in atl06sr.columns:
+                continue
+
+            gdf_4326 = atl06sr.to_crs("EPSG:4326")
+            lons = gdf_4326.geometry.x.values
+            lats = gdf_4326.geometry.y.values
+
+            # Determine unique tiles needed
+            tile_keys = set()
+            for lat, lon in zip(lats, lons):
+                tile_keys.add(self._worldcover_tile_url(lat, lon))
+
+            print(
+                f"  Sampling ESA WorldCover for {len(atl06sr)} points "
+                f"({len(tile_keys)} tile(s))..."
+            )
+
+            # Sample each tile
+            values = np.full(len(atl06sr), np.nan)
+            for url in tile_keys:
+                try:
+                    with rasterio.Env(
+                        GDAL_DISABLE_READDIR_ON_OPEN="YES",
+                        CPL_VSIL_CURL_USE_HEAD="NO",
+                    ):
+                        with rasterio.open(url) as src:
+                            bounds = src.bounds
+                            # Mask points within this tile
+                            mask = (
+                                (lons >= bounds.left)
+                                & (lons < bounds.right)
+                                & (lats >= bounds.bottom)
+                                & (lats < bounds.top)
+                            )
+                            if not mask.any():
+                                continue
+                            coords = list(zip(lons[mask], lats[mask]))
+                            sampled = np.array([v[0] for v in src.sample(coords)])
+                            values[mask] = sampled
+                except RasterioIOError as e:
+                    logger.warning(f"Could not read WorldCover tile {url}: {e}")
+
+            atl06sr = atl06sr.copy()
+            atl06sr[wc_col] = values
+            self.atl06sr_processing_levels_filtered[key] = atl06sr
+
+            n_valid = np.isfinite(values).sum()
+            print(f"  WorldCover: {n_valid}/{len(atl06sr)} points sampled")
 
     def filter_outliers(self, column="icesat_minus_dem", n_sigma=3):
         """
