@@ -463,9 +463,6 @@ class Altimetry:
                 "esa_worldcover": {
                     "asset": "esa-worldcover-10meter",
                 },
-                "cop30": {
-                    "asset": "esa-copernicus-30meter",
-                },
             },
         }
 
@@ -509,7 +506,7 @@ class Altimetry:
             fn_base = f"{filename}_{key}"
 
             print(f"\nICESat-2 ATL06 request processing for: {key}")
-            fn = f"{fn_base}.parquet"
+            fn = os.path.join(self.directory, f"{fn_base}.parquet")
 
             print(parms)
 
