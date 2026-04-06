@@ -489,6 +489,7 @@ def main(
                 **atl06sr_time_kwargs,
             )
 
+            icesat.sample_esa_worldcover()
             icesat.filter_esa_worldcover(filter_out="water")
 
             # Compute dh (includes 3-sigma outlier filtering by default)
