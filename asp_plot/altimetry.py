@@ -540,6 +540,10 @@ class Altimetry:
 
             if need_request:
                 atl06sr = sliderule_api.run("atl03x", parms)
+                # Sample ESA WorldCover before caching so the column
+                # is persisted in the parquet and doesn't have to be
+                # re-sampled on subsequent runs.
+                atl06sr = self._sample_worldcover_into_gdf(atl06sr)
                 if save_to_parquet:
                     self._save_to_parquet(fn, atl06sr, parms)
 
@@ -685,68 +689,78 @@ class Altimetry:
             f"ESA_WorldCover_10m_2021_v200_{name}_Map.tif"
         )
 
-    def sample_esa_worldcover(self):
+    def _sample_worldcover_into_gdf(self, atl06sr):
         """
-        Sample ESA WorldCover 10m values at ICESat-2 point locations.
+        Sample ESA WorldCover 10m at each point in ``atl06sr`` and return
+        a copy with an ``esa_worldcover.value`` column added.
 
-        Reads Cloud Optimized GeoTIFFs directly from AWS S3 (no
-        authentication required) and adds an ``esa_worldcover.value``
-        column to each filtered processing level.
+        Reads Cloud Optimized GeoTIFFs directly from AWS S3. If the
+        column already exists on the input, returns it unchanged.
         """
         import rasterio
         from rasterio.errors import RasterioIOError
 
         wc_col = "esa_worldcover.value"
+        if wc_col in atl06sr.columns:
+            return atl06sr
 
+        gdf_4326 = atl06sr.to_crs("EPSG:4326")
+        lons = gdf_4326.geometry.x.values
+        lats = gdf_4326.geometry.y.values
+
+        tile_keys = set()
+        for lat, lon in zip(lats, lons):
+            tile_keys.add(self._worldcover_tile_url(lat, lon))
+
+        print(
+            f"  Sampling ESA WorldCover for {len(atl06sr)} points "
+            f"({len(tile_keys)} tile(s))..."
+        )
+
+        values = np.full(len(atl06sr), np.nan)
+        for url in tile_keys:
+            try:
+                with rasterio.Env(
+                    GDAL_DISABLE_READDIR_ON_OPEN="YES",
+                    CPL_VSIL_CURL_USE_HEAD="NO",
+                ):
+                    with rasterio.open(url) as src:
+                        bounds = src.bounds
+                        mask = (
+                            (lons >= bounds.left)
+                            & (lons < bounds.right)
+                            & (lats >= bounds.bottom)
+                            & (lats < bounds.top)
+                        )
+                        if not mask.any():
+                            continue
+                        coords = list(zip(lons[mask], lats[mask]))
+                        sampled = np.array([v[0] for v in src.sample(coords)])
+                        values[mask] = sampled
+            except RasterioIOError as e:
+                logger.warning(f"Could not read WorldCover tile {url}: {e}")
+
+        atl06sr = atl06sr.copy()
+        atl06sr[wc_col] = values
+
+        n_valid = np.isfinite(values).sum()
+        print(f"  WorldCover: {n_valid}/{len(atl06sr)} points sampled")
+        return atl06sr
+
+    def sample_esa_worldcover(self):
+        """
+        Sample ESA WorldCover 10m values into every filtered processing
+        level that doesn't already have them.
+
+        Normally not needed when data is requested via
+        ``request_atl06sr_multi_processing``, which samples WorldCover
+        automatically before caching. Use this when working with
+        manually-loaded data.
+        """
         for key, atl06sr in self.atl06sr_processing_levels_filtered.items():
-            if wc_col in atl06sr.columns:
-                continue
-
-            gdf_4326 = atl06sr.to_crs("EPSG:4326")
-            lons = gdf_4326.geometry.x.values
-            lats = gdf_4326.geometry.y.values
-
-            # Determine unique tiles needed
-            tile_keys = set()
-            for lat, lon in zip(lats, lons):
-                tile_keys.add(self._worldcover_tile_url(lat, lon))
-
-            print(
-                f"  Sampling ESA WorldCover for {len(atl06sr)} points "
-                f"({len(tile_keys)} tile(s))..."
+            self.atl06sr_processing_levels_filtered[key] = (
+                self._sample_worldcover_into_gdf(atl06sr)
             )
-
-            # Sample each tile
-            values = np.full(len(atl06sr), np.nan)
-            for url in tile_keys:
-                try:
-                    with rasterio.Env(
-                        GDAL_DISABLE_READDIR_ON_OPEN="YES",
-                        CPL_VSIL_CURL_USE_HEAD="NO",
-                    ):
-                        with rasterio.open(url) as src:
-                            bounds = src.bounds
-                            # Mask points within this tile
-                            mask = (
-                                (lons >= bounds.left)
-                                & (lons < bounds.right)
-                                & (lats >= bounds.bottom)
-                                & (lats < bounds.top)
-                            )
-                            if not mask.any():
-                                continue
-                            coords = list(zip(lons[mask], lats[mask]))
-                            sampled = np.array([v[0] for v in src.sample(coords)])
-                            values[mask] = sampled
-                except RasterioIOError as e:
-                    logger.warning(f"Could not read WorldCover tile {url}: {e}")
-
-            atl06sr = atl06sr.copy()
-            atl06sr[wc_col] = values
-            self.atl06sr_processing_levels_filtered[key] = atl06sr
-
-            n_valid = np.isfinite(values).sum()
-            print(f"  WorldCover: {n_valid}/{len(atl06sr)} points sampled")
 
     def filter_outliers(self, column="icesat_minus_dem", n_sigma=3):
         """
@@ -2263,7 +2277,12 @@ class Altimetry:
 
     def _find_best_worst_segments(self, track, dh_col="icesat_minus_dem"):
         """
-        Identify best and worst 1 km segments along a track.
+        Identify 1 km segments with better and worse agreement along a track.
+
+        Agreement is scored as ``3·|median(dh)| + NMAD(dh)``, weighting the
+        median bias three times more than the dispersion so that a segment
+        with a large bias cannot be selected as "better agreement" just
+        because its NMAD is small.
 
         Returns
         -------
@@ -2280,6 +2299,7 @@ class Altimetry:
             return None
 
         half_win = 500  # meters
+        median_weight = 3.0  # weight |median(dh)| more heavily than NMAD
         scores = []
         for xc in x_atc:
             mask_i = (track["x_atc"] >= xc - half_win) & (
@@ -2298,7 +2318,7 @@ class Altimetry:
             if len(seg_dh) < 3:
                 scores.append(np.nan)
                 continue
-            scores.append(abs(np.nanmedian(seg_dh)) + _nmad(seg_dh))
+            scores.append(median_weight * abs(np.nanmedian(seg_dh)) + _nmad(seg_dh))
 
         scores = np.array(scores)
         if (~np.isnan(scores)).sum() < 2:
@@ -2335,8 +2355,10 @@ class Altimetry:
         seg_info : dict or None
             Output from ``_find_best_worst_segments``.
         """
-        seg_best_color = "tab:blue"
-        seg_worst_color = "tab:red"
+        # Use brighter colors on the map view for visibility against
+        # the hillshade+terrain background
+        seg_best_color = "#00e5ff"  # bright cyan-blue
+        seg_worst_color = "#ff1744"  # bright red
         try:
             raster = Raster(self.dem_fn, downsample=5)
             dem_data, dem_extent = raster.read_array(extent=True)
@@ -2373,8 +2395,8 @@ class Altimetry:
 
             if seg_info is not None:
                 for mask_key, color, label in [
-                    ("seg_best_mask", seg_best_color, "Best"),
-                    ("seg_worst_mask", seg_worst_color, "Worst"),
+                    ("seg_best_mask", seg_best_color, "Better agreement"),
+                    ("seg_worst_mask", seg_worst_color, "Worse agreement"),
                 ]:
                     seg_proj = track_proj.loc[seg_info[mask_key]]
                     if not seg_proj.empty:
@@ -2422,10 +2444,13 @@ class Altimetry:
         """
         Plot elevation profile comparing ICESat-2 and DEM along the best track.
 
-        Creates a three-row figure:
-        - Row 1: Absolute elevation profile (DEM, COP30, ICESat-2)
-        - Row 2: Height difference profile (ICESat-2 minus DEM)
-        - Row 3: DEM hillshade map with the full track and segment extents
+        Creates a 2×2 figure with the profile stack on the left and a map
+        view spanning the full height on the right:
+        - Top-left: Absolute elevation profile (DEM, COP30, ICESat-2)
+        - Bottom-left: Height difference profile (ICESat-2 minus DEM)
+          (shares x-axis with top-left, no vertical space between them)
+        - Right column: DEM hillshade map with the full track and segment
+          extents, spanning the full vertical height
 
         Parameters
         ----------
@@ -2452,12 +2477,20 @@ class Altimetry:
         # Segment selection
         seg_info = self._find_best_worst_segments(track)
 
-        # --- Figure layout: 3 rows (elevation, dh, map) ---
-        fig = plt.figure(figsize=(12, 14))
-        gs = fig.add_gridspec(3, 1, height_ratios=[2, 1.2, 2], hspace=0.25)
-        ax_elev = fig.add_subplot(gs[0])
-        ax_dh = fig.add_subplot(gs[1], sharex=ax_elev)
-        ax_map = fig.add_subplot(gs[2])
+        # --- Figure layout: left column = stacked elevation/dh (no gap),
+        # right column = map spanning both rows ---
+        fig = plt.figure(figsize=(16, 8))
+        gs = fig.add_gridspec(
+            2,
+            2,
+            height_ratios=[2, 1.2],
+            width_ratios=[2, 1],
+            hspace=0.0,
+            wspace=0.1,
+        )
+        ax_elev = fig.add_subplot(gs[0, 0])
+        ax_dh = fig.add_subplot(gs[1, 0], sharex=ax_elev)
+        ax_map = fig.add_subplot(gs[:, 1])
 
         # ===================== Row 1: Absolute elevation =====================
         valid_dem = track["dem_height"].dropna()
@@ -2529,6 +2562,8 @@ class Altimetry:
 
         ax_elev.set_ylabel("Elevation (m HAE)")
         ax_elev.legend(fontsize=8, loc="upper left")
+        ax_elev.grid(True, color="lightgray", linewidth=0.5, alpha=0.7)
+        ax_elev.set_axisbelow(True)
         plt.setp(ax_elev.get_xticklabels(), visible=False)
 
         # ===================== Row 2: dh profile =====================
@@ -2538,7 +2573,7 @@ class Altimetry:
             ax_dh.scatter(
                 dist.loc[dh_vals.index],
                 dh_vals,
-                color="salmon",
+                color="gray",
                 s=4,
                 alpha=0.6,
                 zorder=2,
@@ -2565,6 +2600,8 @@ class Altimetry:
         ax_dh.set_ylabel("ICESat-2 − DEM (m)")
         ax_dh.set_xlabel("Along-track distance (km)")
         ax_dh.legend(fontsize=8, loc="upper left")
+        ax_dh.grid(True, color="lightgray", linewidth=0.5, alpha=0.7)
+        ax_dh.set_axisbelow(True)
 
         # =================== Row 3: Map view ====================
         self._plot_hillshade_map(ax_map, track, seg_info)
@@ -2577,7 +2614,7 @@ class Altimetry:
             title_str += f"\n{self._time_range_label}"
         fig.suptitle(title_str, size=10)
 
-        fig.subplots_adjust(top=0.93, bottom=0.04, left=0.08, right=0.95)
+        fig.subplots_adjust(top=0.92, bottom=0.08, left=0.07, right=0.97)
         if save_dir and fig_fn:
             save_figure(fig, save_dir, fig_fn)
 
@@ -2591,12 +2628,14 @@ class Altimetry:
         fig_fn=None,
     ):
         """
-        Plot best and worst 1 km segments as a 3-column figure.
+        Plot 1 km segments with better and worse agreement as a 1×2 figure.
 
-        Creates a single-row, 3-column figure:
-        - Column 1: Context map (DEM hillshade with track and segment extents)
-        - Column 2: Best 1 km segment elevation profile
-        - Column 3: Worst 1 km segment elevation profile
+        Creates a single-row, 2-column figure:
+        - Column 1: Better agreement segment (lowest score)
+        - Column 2: Worse agreement segment (highest score)
+
+        Segment score is ``3·|median(dh)| + NMAD(dh)`` (see
+        ``_find_best_worst_segments``).
 
         Parameters
         ----------
@@ -2616,12 +2655,12 @@ class Altimetry:
         resolved = self._resolve_best_track(key, rgt, cycle, spot)
         if resolved is None:
             return
-        track, rgt, cycle, spot, track_count, track_date, dist, dh_vals = resolved
+        track, rgt, cycle, spot, track_count, track_date, _, _ = resolved
 
         seg_info = self._find_best_worst_segments(track)
         if seg_info is None:
             logger.warning(
-                "\nTrack too short or insufficient data for best/worst segments.\n"
+                "\nTrack too short or insufficient data for segment selection.\n"
             )
             return
 
@@ -2629,23 +2668,19 @@ class Altimetry:
         seg_best_color = "tab:blue"
         seg_worst_color = "tab:red"
 
-        # --- 3-column layout: map | best | worst ---
+        # --- 1×2 layout: better agreement | worse agreement ---
         fig, axes = plt.subplots(
             1,
-            3,
-            figsize=(18, 6),
+            2,
+            figsize=(12, 5),
             dpi=220,
-            gridspec_kw={"width_ratios": [1.2, 1, 1], "wspace": 0.3},
+            gridspec_kw={"wspace": 0.25},
         )
-        ax_map, ax_best, ax_worst = axes
+        ax_best, ax_worst = axes
 
-        # Column 1: Context map
-        self._plot_hillshade_map(ax_map, track, seg_info)
-
-        # Columns 2 & 3: Best/Worst segment profiles
         for ax_seg, mask, color, label_prefix in [
-            (ax_best, seg_info["seg_best_mask"], seg_best_color, "Best"),
-            (ax_worst, seg_info["seg_worst_mask"], seg_worst_color, "Worst"),
+            (ax_best, seg_info["seg_best_mask"], seg_best_color, "Better agreement"),
+            (ax_worst, seg_info["seg_worst_mask"], seg_worst_color, "Worse agreement"),
         ]:
             seg = track.loc[mask]
 
@@ -2703,19 +2738,19 @@ class Altimetry:
             )
             ax_seg.set_xlabel("Along-track distance (m)")
             ax_seg.set_ylabel("Elevation (m HAE)")
+            ax_seg.grid(True, color="lightgray", linewidth=0.5, alpha=0.7)
+            ax_seg.set_axisbelow(True)
             ax_seg.set_facecolor((*plt.matplotlib.colors.to_rgb(color), 0.05))
 
         ax_best.legend(fontsize=7, loc="best")
 
         # Title
-        title_str = (
-            f"Best/Worst 1 km — RGT {rgt}, Cycle {cycle}, Spot {spot} ({track_date})"
-        )
+        title_str = f"RGT {rgt}, Cycle {cycle}, Spot {spot} ({track_date})"
         if track_count:
             title_str += f" — n={track_count}"
         if self._time_range_label:
             title_str += f"\n{self._time_range_label}"
         fig.suptitle(title_str, size=10)
-        fig.subplots_adjust(top=0.90, bottom=0.08, left=0.04, right=0.98, wspace=0.3)
+        fig.subplots_adjust(top=0.88, bottom=0.12, left=0.07, right=0.97, wspace=0.25)
         if save_dir and fig_fn:
             save_figure(fig, save_dir, fig_fn)

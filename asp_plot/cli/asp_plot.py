@@ -489,7 +489,6 @@ def main(
                 **atl06sr_time_kwargs,
             )
 
-            icesat.sample_esa_worldcover()
             icesat.filter_esa_worldcover(filter_out="water")
 
             # Compute dh (includes 3-sigma outlier filtering by default)
@@ -535,7 +534,14 @@ def main(
                 ReportSection(
                     title="ICESat-2 ATL06-SR Profile",
                     image_path=os.path.join(plots_directory, fig_fn),
-                    caption="Elevation profile along the ICESat-2 track with the most valid points, comparing ATL06-SR and DEM heights (top) and height differences (middle).",
+                    caption=(
+                        "Elevation profile along the ICESat-2 track with the "
+                        "most valid points, comparing ATL06-SR and DEM heights "
+                        "(top) and height differences (bottom), with a context "
+                        "hillshade map on the right. Blue/red highlights mark "
+                        "the 1 km segments with better and worse agreement "
+                        "between ICESat-2 and the DEM."
+                    ),
                 )
             )
 
@@ -547,9 +553,17 @@ def main(
             )
             sections.append(
                 ReportSection(
-                    title="ICESat-2 ATL06-SR Best/Worst Segments",
+                    title="ICESat-2 ATL06-SR Agreement Segments",
                     image_path=os.path.join(plots_directory, fig_fn),
-                    caption="Best and worst 1 km segments along the ICESat-2 track, scored by |median(dh)| + NMAD.",
+                    caption=(
+                        "1 km segments along the ICESat-2 track with better "
+                        "(left) and worse (right) agreement with the DEM. "
+                        "Segments are scored by 3·|median(dh)| + NMAD(dh), "
+                        "which weights the median bias three times more than "
+                        "the dispersion so that a segment with a large bias "
+                        "is not selected as 'better agreement' just because "
+                        "its NMAD is small."
+                    ),
                 )
             )
 
