@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.12.0] - 2026-04-10
+
+### Changed
+- **ICESat-2 time filter default changed to `"all"`** (full mission range) instead of auto-detect ±1 year. The `--atl06sr_time_range` CLI option now accepts `"all"` (default), `"auto"` (XML metadata ±`time_buffer_days`), `"START,END"`, or a single date (buffered). Programmatic API: `_resolve_time_range()` and `request_atl06sr_multi_processing()` take a new `time_range` parameter (`"all"` or `"buffered"`) with cascade: `t0`/`t1` > `scene_date` > XML metadata > fall back to `"all"`. `t1` is truncated to midnight UTC for stable parquet caching.
+- **ESA WorldCover sampled locally from AWS S3 COGs** via `rasterio` vsicurl instead of through the slow SlideRule `samples` parameter. WorldCover is now sampled inside `request_atl06sr_multi_processing` before the parquet save, so the column is persisted in the cache and doesn't have to be re-sampled on subsequent runs. COP30 also sampled alongside (asset name corrected to `esa-copernicus-30meter`).
+- **3σ outlier filter** applied by default in `atl06sr_to_dem_dh` (and `planetary_to_dem_dh`) using the true mean ± 3·standard deviation (not NMAD). Pass `n_sigma=None` to skip. Dh colorbars and histograms use symmetric ±|filtered min/max| (≈ ±3σ) centered on 0 as display limits; all data is still plotted. Displayed stats remain Median / NMAD.
+- **Profile plot (`plot_atl06sr_dem_profile`) restructured**: stacked elevation/dh plots on the left (shared x-axis, no vertical gap, grid lines), map view on the right spanning both rows. Figure reshaped to 16×8. Dh points colored gray instead of salmon.
+- **Best/worst segments (`plot_best_worst_segments`) simplified** to a 1×2 figure (removed the context map). Scoring formula changed from `|median(dh)| + NMAD(dh)` to `3·|median(dh)| + NMAD(dh)` so a large median bias can't be hidden by a small NMAD. Labels "Better agreement" / "Worse agreement" instead of "Best" / "Worst". CLI report caption documents the formula.
+- **Parquet cache** saved next to the ASP processing directory (`self.directory`) instead of the current working directory.
+- **SlideRule logging** silenced (`verbose=False`, WARNING level, explicit filter on `sliderule.session`).
+
+### Added
+- `filter_outliers()` method: removes dh points beyond `n_sigma` × standard deviation from the mean.
+- `sample_esa_worldcover()` method: samples ESA WorldCover 10m values from AWS S3 COGs for manually-loaded data (auto-called inside `request_atl06sr_multi_processing`).
+- `plot_best_worst_segments()` method: 1×2 figure showing 1 km segments with better and worse ICESat-2 vs DEM agreement.
+- ICESat-2 time filtering documentation section in `docs/cli/asp_plot.md` explaining the three modes.
+
+### Fixed
+- **Parquet cache regeneration bug**: SlideRule mutates the `parms` dict by injecting a random temp file path at `output.path` during `run()`, causing the string comparison to fail on every subsequent run. `output` is now stripped from both sides of the comparison and from stored parameters.
+- **Parquet cache error swallowing**: the broad `try/except` around the cache comparison also wrapped the SlideRule API call; narrowed it so API errors propagate instead of being silently eaten.
+- **Histograms no longer cut data**: replaced `range=` (which excludes data outside the range from the bins) with `ax.set_xlim()`, so all data is plotted and used in stats.
+- **Single-date CLI argument** now uses `scene_date` buffering instead of being treated as a start date.
+- COP30 SlideRule asset name corrected (`esa-copernicus-30meter`, not `cop30-dem`).
+
+### Dependencies
+- Pinned `sliderule>=5.3.0` to pick up temp file handling fixes.
+
 ## [1.11.1] - 2026-03-30
 
 ### Fixed

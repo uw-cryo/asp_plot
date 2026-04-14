@@ -111,12 +111,27 @@ class TestAltimetry:
                 f"histogram_by_landcover() method raised an exception: {str(e)}"
             )
 
+    def test_filter_outliers(self, icesat):
+        icesat.atl06sr_to_dem_dh()
+        n_before = len(icesat.atl06sr_processing_levels_filtered["all"])
+        icesat.filter_outliers(n_sigma=3)
+        n_after = len(icesat.atl06sr_processing_levels_filtered["all"])
+        assert n_after <= n_before
+
     def test_plot_atl06sr_dem_profile(self, icesat):
         try:
             icesat.plot_atl06sr_dem_profile(key="all")
         except Exception as e:
             pytest.fail(
                 f"plot_atl06sr_dem_profile() method raised an exception: {str(e)}"
+            )
+
+    def test_plot_best_worst_segments(self, icesat):
+        try:
+            icesat.plot_best_worst_segments(key="all")
+        except Exception as e:
+            pytest.fail(
+                f"plot_best_worst_segments() method raised an exception: {str(e)}"
             )
 
     def test_alignment_report(self, icesat):
@@ -152,28 +167,45 @@ class TestResolveTimeRange:
             dem_fn="tests/test_data/stereo/date_time_left_right_1m-DEM.tif",
         )
 
+    def test_default_is_all(self, alt):
+        t0, t1, resolved = alt._resolve_time_range()
+        assert resolved is None
+        assert t0 == ICESAT2_MISSION_START.strftime("%Y-%m-%dT%H:%M:%SZ")
+        today = datetime.now(tz=timezone.utc).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        assert t1 == today.strftime("%Y-%m-%dT%H:%M:%SZ")
+
     def test_explicit_date(self, alt):
-        t0, t1, resolved = alt._resolve_time_range(scene_date="2022-06-15")
+        t0, t1, resolved = alt._resolve_time_range(
+            time_range="buffered", scene_date="2022-06-15"
+        )
         assert resolved == datetime(2022, 6, 15, tzinfo=timezone.utc)
         assert t0 == "2021-06-15T00:00:00Z"
         assert t1 == "2023-06-15T00:00:00Z"
 
     def test_t0_clamped_to_mission_start(self, alt):
-        t0, t1, resolved = alt._resolve_time_range(scene_date="2019-03-01")
+        t0, t1, resolved = alt._resolve_time_range(
+            time_range="buffered", scene_date="2019-03-01"
+        )
         assert resolved == datetime(2019, 3, 1, tzinfo=timezone.utc)
         assert t0 == ICESAT2_MISSION_START.strftime("%Y-%m-%dT%H:%M:%SZ")
         assert t1 == "2020-02-29T00:00:00Z"
 
     def test_pre_mission_date_triggers_fallback(self, alt):
-        t0, t1, resolved = alt._resolve_time_range(scene_date="2015-01-01")
+        t0, t1, resolved = alt._resolve_time_range(
+            time_range="buffered", scene_date="2015-01-01"
+        )
+        # Falls back to "all"
         assert resolved is None
-        now = datetime.now(tz=timezone.utc)
-        assert t0 >= ICESAT2_MISSION_START.strftime("%Y-%m-%dT%H:%M:%SZ")
-        t1_dt = datetime.strptime(t1, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
-        assert abs((t1_dt - now).total_seconds()) < 60
+        assert t0 == ICESAT2_MISSION_START.strftime("%Y-%m-%dT%H:%M:%SZ")
+        today = datetime.now(tz=timezone.utc).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        assert t1 == today.strftime("%Y-%m-%dT%H:%M:%SZ")
 
     def test_auto_detect_from_xml(self, alt):
-        t0, t1, resolved = alt._resolve_time_range()
+        t0, t1, resolved = alt._resolve_time_range(time_range="buffered")
         # Test data XMLs have dates around 2022-04-19
         assert resolved is not None
         assert resolved.year == 2022
@@ -181,13 +213,21 @@ class TestResolveTimeRange:
 
     def test_custom_buffer(self, alt):
         t0, t1, resolved = alt._resolve_time_range(
-            scene_date="2022-06-15", time_buffer_days=30
+            time_range="buffered", scene_date="2022-06-15", time_buffer_days=30
         )
         assert t0 == "2022-05-16T00:00:00Z"
         assert t1 == "2022-07-15T00:00:00Z"
 
+    def test_explicit_t0_t1(self, alt):
+        t0, t1, resolved = alt._resolve_time_range(
+            time_range="buffered", t0="2021-01-01", t1="2023-01-01"
+        )
+        assert resolved is None
+        assert t0 == "2021-01-01T00:00:00Z"
+        assert t1 == "2023-01-01T00:00:00Z"
+
     def test_cached_attributes(self, alt):
-        alt._resolve_time_range(scene_date="2022-06-15")
+        alt._resolve_time_range(time_range="buffered", scene_date="2022-06-15")
         assert alt._scene_date == datetime(2022, 6, 15, tzinfo=timezone.utc)
         assert alt._t0 == datetime(2021, 6, 15, tzinfo=timezone.utc)
         assert alt._t1 == datetime(2023, 6, 15, tzinfo=timezone.utc)
