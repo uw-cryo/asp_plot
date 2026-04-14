@@ -13,7 +13,7 @@ from asp_plot.report import ReportMetadata, ReportSection, compile_report
 from asp_plot.scenes import ScenePlotter
 from asp_plot.stereo import StereoPlotter
 from asp_plot.stereo_geometry import StereoGeometryPlotter
-from asp_plot.utils import Raster, detect_planetary_body
+from asp_plot.utils import Raster, detect_planetary_body, get_acquisition_dates
 
 
 @click.command()
@@ -217,6 +217,12 @@ def main(
             elev_range = (
                 (float(valid.min()), float(valid.max())) if valid.size else (0, 0)
             )
+            acq_extra_dirs = [os.path.join(directory, stereo_directory)]
+            if bundle_adjust_directory:
+                acq_extra_dirs.append(os.path.join(directory, bundle_adjust_directory))
+            acquisition_dates = get_acquisition_dates(
+                directory, extra_dirs=acq_extra_dirs
+            )
             report_metadata = ReportMetadata(
                 dem_dimensions=(dem_raster.ds.width, dem_raster.ds.height),
                 dem_gsd_m=dem_raster.get_gsd(),
@@ -225,6 +231,7 @@ def main(
                 dem_elevation_range=elev_range,
                 dem_filename=os.path.basename(asp_dem),
                 reference_dem=reference_dem or "",
+                acquisition_dates=acquisition_dates,
             )
         except Exception as e:
             print(f"\nCould not collect DEM metadata: {e}\n")
@@ -248,7 +255,7 @@ def main(
         ReportSection(
             title="Input Scenes",
             image_path=os.path.join(plots_directory, fig_fn),
-            caption="Left and right input scenes used for stereo processing. Non-mapprojected scenes are shown after ASP's alignment step (e.g., affineepipolar), which rotates images to create horizontal epipolar lines for correlation. Mapprojected scenes require no pre-alignment and are displayed in their map-projected orientation.",
+            caption="Left and right input scenes used for stereo processing. Non-mapprojected scenes are shown after ASP's alignment step (e.g., affineepipolar), which rotates images to create horizontal epipolar lines for correlation. Mapprojected scenes have been orthorectified with RPCs against a reference DEM to roughly align the two images prior to correlation, which reduces the disparity search range; they are displayed here in their map-projected orientation.",
         )
     )
 
@@ -273,7 +280,7 @@ def main(
         ReportSection(
             title="Match Points",
             image_path=os.path.join(plots_directory, fig_fn),
-            caption="Interest point matches between left and right images identified during stereo correlation.",
+            caption="Interest point matches between left and right images. These are produced by stereo_corr during its initial interest point matching step, which is used to set the search windows for subsequent dense correlation (not the dense correlation matches themselves).",
         )
     )
 
@@ -397,17 +404,17 @@ def main(
                 f"\n\nNo bundle adjustment files found in directory {os.path.join(directory, bundle_adjust_directory):}. If you want bundle adjustment plots, make sure you run the tool and supply the correct directory to asp_plot.\n\n"
             )
 
-    # ---- Detailed Hillshade ----
+    # ---- Disparity ----
     fig_fn = f"{next(figure_counter):02}.png"
-    stereo_plotter.title = "Hillshade with details"
-    stereo_plotter.plot_detailed_hillshade(
-        subset_km=subset_km, save_dir=plots_directory, fig_fn=fig_fn
+    stereo_plotter.title = "Disparity (pixels)"
+    stereo_plotter.plot_disparity(
+        unit="pixels", quiver=True, save_dir=plots_directory, fig_fn=fig_fn
     )
     sections.append(
         ReportSection(
-            title="Detailed Hillshade",
+            title="Disparity",
             image_path=os.path.join(plots_directory, fig_fn),
-            caption="DEM hillshade. If the intersection error is available, zoomed subsets selected from low, medium, and high (left to right) uncertainty areas are displayed in the second row. If the mapprojected image is available, corresponding ortho image subsets are displayed in the bottom row.",
+            caption="Horizontal and vertical disparity maps in pixels with quiver overlay.",
         )
     )
 
@@ -423,17 +430,17 @@ def main(
         )
     )
 
-    # ---- Disparity ----
+    # ---- Detailed Hillshade ----
     fig_fn = f"{next(figure_counter):02}.png"
-    stereo_plotter.title = "Disparity (pixels)"
-    stereo_plotter.plot_disparity(
-        unit="pixels", quiver=True, save_dir=plots_directory, fig_fn=fig_fn
+    stereo_plotter.title = "Hillshade with details"
+    stereo_plotter.plot_detailed_hillshade(
+        subset_km=subset_km, save_dir=plots_directory, fig_fn=fig_fn
     )
     sections.append(
         ReportSection(
-            title="Disparity",
+            title="Detailed Hillshade",
             image_path=os.path.join(plots_directory, fig_fn),
-            caption="Horizontal and vertical disparity maps in pixels with quiver overlay.",
+            caption="DEM hillshade. If the intersection error is available, zoomed subsets selected from low, medium, and high (left to right) uncertainty areas are displayed in the second row. If the mapprojected image is available, corresponding ortho image subsets are displayed in the bottom row.",
         )
     )
 

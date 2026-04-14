@@ -13,6 +13,7 @@ from asp_plot.utils import (
     add_copyright_overlay,
     detect_planetary_body,
     detect_vantor_satellite,
+    get_acquisition_dates,
     get_planetary_bounds,
     get_utm_epsg,
 )
@@ -324,6 +325,53 @@ class TestReportDataclasses:
         assert meta.dem_dimensions == (1000, 2000)
         assert meta.dem_gsd_m == 2.0
         assert meta.dem_crs == "EPSG:32616"
+
+
+class TestGetAcquisitionDates:
+    """Test get_acquisition_dates for WorldView XML and ASTER L1A filenames."""
+
+    def test_empty_directory(self, tmp_path):
+        assert get_acquisition_dates(str(tmp_path)) == []
+
+    def test_aster_l1a_filename(self, tmp_path):
+        # AST_L1A_<3-digit prodcode><MMDDYYYY><HHMMSS>_<...>
+        (tmp_path / "AST_L1A_00307312017190728_20200218153629_19952.zip").touch()
+        assert get_acquisition_dates(str(tmp_path)) == ["2017-07-31 19:07:28 UTC"]
+
+    def test_aster_l1a_in_subdirectory(self, tmp_path):
+        sub = tmp_path / "earthdata_download"
+        sub.mkdir()
+        (sub / "AST_L1A_00307312017190728_20200218153629_19952.zip.met").touch()
+        assert get_acquisition_dates(str(tmp_path)) == ["2017-07-31 19:07:28 UTC"]
+
+    def test_worldview_xml(self, tmp_path):
+        xml = tmp_path / "wv_scene.xml"
+        xml.write_text(
+            "<?xml version='1.0'?><isd>"
+            "<IMD><IMAGE><FIRSTLINETIME>2015-02-11T18:23:49.000000Z</FIRSTLINETIME>"
+            "</IMAGE></IMD></isd>"
+        )
+        assert get_acquisition_dates(str(tmp_path)) == ["2015-02-11 18:23:49 UTC"]
+
+    def test_duplicate_dates_deduped(self, tmp_path):
+        (tmp_path / "AST_L1A_00307312017190728_20200218153629_19952.zip").touch()
+        sub = tmp_path / "earthdata_download"
+        sub.mkdir()
+        (sub / "AST_L1A_00307312017190728_20200218153629_19952.zip.met").touch()
+        assert get_acquisition_dates(str(tmp_path)) == ["2017-07-31 19:07:28 UTC"]
+
+    def test_multiple_dates_sorted(self, tmp_path):
+        (tmp_path / "AST_L1A_00307312017190728_20200218153629_19952.zip").touch()
+        xml = tmp_path / "wv_scene.xml"
+        xml.write_text(
+            "<?xml version='1.0'?><isd>"
+            "<IMD><IMAGE><FIRSTLINETIME>2015-02-11T18:23:49.000000Z</FIRSTLINETIME>"
+            "</IMAGE></IMD></isd>"
+        )
+        assert get_acquisition_dates(str(tmp_path)) == [
+            "2015-02-11 18:23:49 UTC",
+            "2017-07-31 19:07:28 UTC",
+        ]
 
 
 class TestCompileReport:
