@@ -750,24 +750,24 @@ class Altimetry:
 
     def filter_outliers(self, column="icesat_minus_dem", n_sigma=3):
         """
-        Remove dh outliers beyond *n_sigma* × NMAD from the median.
+        Remove dh outliers beyond *n_sigma* × standard deviation from the mean.
 
         Parameters
         ----------
         column : str, optional
             Column to filter on, default ``"icesat_minus_dem"``.
         n_sigma : float, optional
-            Number of NMAD-scaled deviations to allow, default 3.
+            Number of standard deviations to allow, default 3.
         """
         for key, atl06sr in self.atl06sr_processing_levels_filtered.items():
             if column not in atl06sr.columns:
                 continue
             dh = atl06sr[column]
-            med = np.nanmedian(dh)
-            nmad_val = _nmad(dh.dropna().values)
-            if nmad_val == 0 or np.isnan(nmad_val):
+            mean_val = np.nanmean(dh)
+            std_val = np.nanstd(dh.dropna().values)
+            if std_val == 0 or np.isnan(std_val):
                 continue
-            mask = (dh - med).abs() <= n_sigma * nmad_val
+            mask = (dh - mean_val).abs() <= n_sigma * std_val
             # Keep rows where column is NaN (no dh yet) so they aren't dropped
             mask = mask | dh.isna()
             n_before = len(atl06sr)
@@ -1302,12 +1302,19 @@ class Altimetry:
         self.planetary_points = gdf
         print(f"Loaded {len(gdf)} MOLA points")
 
-    def planetary_to_dem_dh(self):
+    def planetary_to_dem_dh(self, n_sigma=3):
         """Compute height differences between planetary altimetry and DEM.
 
         Reprojects ``self.planetary_points`` to the DEM CRS, interpolates
         DEM heights at altimetry locations, and computes the difference
-        ``altimetry_minus_dem = height - dem_height``.
+        ``altimetry_minus_dem = height - dem_height``. Outliers beyond
+        ``n_sigma`` × std from the mean are removed by default.
+
+        Parameters
+        ----------
+        n_sigma : float or None, optional
+            Remove dh outliers beyond this many standard deviations from
+            the mean. Default 3. Pass None to skip outlier filtering.
 
         The results are stored as new columns on ``self.planetary_points``.
         """
@@ -1335,6 +1342,24 @@ class Altimetry:
 
         valid = self.planetary_points["altimetry_minus_dem"].dropna()
         print(f"Computed dh for {len(valid)} of {len(self.planetary_points)} points")
+
+        if n_sigma is not None and not valid.empty:
+            mean_val = np.nanmean(valid.values)
+            std_val = np.nanstd(valid.values)
+            if std_val > 0 and not np.isnan(std_val):
+                dh = self.planetary_points["altimetry_minus_dem"]
+                mask = (dh - mean_val).abs() <= n_sigma * std_val
+                # Keep rows where dh is NaN
+                mask = mask | dh.isna()
+                n_before = len(self.planetary_points)
+                self.planetary_points = self.planetary_points[mask]
+                n_after = len(self.planetary_points)
+                if n_before != n_after:
+                    print(
+                        f"  Outlier filter ({n_sigma}σ): "
+                        f"{n_before} → {n_after} "
+                        f"(removed {n_before - n_after})"
+                    )
 
     def mapview_plot_planetary_to_dem(
         self,
@@ -1395,10 +1420,14 @@ class Altimetry:
         fig, ax = plt.subplots(1, 1, figsize=(8, 6), dpi=220)
         ax.imshow(hs, cmap="gray", extent=extent, alpha=0.7, interpolation="none")
 
-        # Colour limits
+        # Symmetric ±3σ centered on 0 (data is already 3σ-filtered in
+        # planetary_to_dem_dh, so min/max ≈ ±3σ from the mean)
         if clim is None:
-            abs_max = max(abs(dh.quantile(0.02)), abs(dh.quantile(0.98)))
+            abs_max = max(abs(dh.min()), abs(dh.max()))
             clim = (-abs_max, abs_max)
+            cbar_label = f"{instrument} - DEM (m)\n[±3σ]"
+        else:
+            cbar_label = f"{instrument} - DEM (m)"
 
         gdf_proj.plot(
             ax=ax,
@@ -1408,7 +1437,7 @@ class Altimetry:
             vmax=clim[1],
             markersize=2,
             legend=True,
-            legend_kwds={"label": f"{instrument} - DEM (m)"},
+            legend_kwds={"label": cbar_label},
         )
 
         stats_text = f"n={n}\nMedian={med:+.2f} m\nNMAD={nmad:.2f} m"
@@ -1472,9 +1501,12 @@ class Altimetry:
 
         fig, ax = plt.subplots(1, 1, figsize=(8, 5), dpi=220)
 
-        xmin = dh.quantile(0.01)
-        xmax = dh.quantile(0.99)
-        ax.hist(dh.values, bins=128, range=(xmin, xmax), alpha=0.7, color="steelblue")
+        ax.hist(dh.values, bins=128, alpha=0.7, color="steelblue")
+
+        # Symmetric ±3σ centered on 0 (data is already 3σ-filtered in
+        # planetary_to_dem_dh; stats above are on the filtered data)
+        abs_max = max(abs(dh.min()), abs(dh.max()))
+        ax.set_xlim(-abs_max, abs_max)
 
         stats_text = f"n={n}\nMedian={med:+.2f} m\nNMAD={nmad:.2f} m"
         ax.text(
@@ -1488,7 +1520,7 @@ class Altimetry:
             bbox=dict(boxstyle="round,pad=0.4", facecolor="white", alpha=0.9),
         )
 
-        ax.set_xlabel(f"{instrument} - DEM (m)")
+        ax.set_xlabel(f"{instrument} - DEM (m) [±3σ]")
         ax.set_ylabel("Count")
         fig.suptitle(f"{title}\n(n={n})", size=10)
         fig.tight_layout()
@@ -1893,13 +1925,15 @@ class Altimetry:
             self.atl06sr_to_dem_dh()
 
         if clim is None:
-            # Symmetric 1st-99th percentile centered on 0
+            # Symmetric ±3σ centered on 0 (data has already been filtered
+            # to within 3σ by atl06sr_to_dem_dh, so min/max of the filtered
+            # values ≈ ±3σ from the mean)
             atl06sr = self.atl06sr_processing_levels_filtered[key]
             dh = atl06sr[column_name].dropna()
             if not dh.empty:
-                abs_max = max(abs(dh.quantile(0.01)), abs(dh.quantile(0.99)))
+                abs_max = max(abs(dh.min()), abs(dh.max()))
                 clim = (-abs_max, abs_max)
-            cbar_label = "ICESat-2 minus DEM (m)\n[1st–99th percentile]"
+            cbar_label = "ICESat-2 minus DEM (m)\n[±3σ]"
         else:
             cbar_label = "ICESat-2 minus DEM (m)"
 
@@ -1981,12 +2015,13 @@ class Altimetry:
 
         fig, ax = plt.subplots(1, 1, figsize=(6, 4), dpi=220)
 
+        abs_max = 0.0
         for column_name in column_names:
-            med = atl06sr[column_name].quantile(0.50)
-            nmad = atl06sr[[column_name]].apply(_nmad).iloc[0]
+            col = atl06sr[column_name].dropna()
+            med = col.quantile(0.50)
+            nmad = _nmad(col.values)
 
-            xmin = atl06sr[column_name].quantile(0.01)
-            xmax = atl06sr[column_name].quantile(0.99)
+            abs_max = max(abs_max, abs(col.min()), abs(col.max()))
             plot_kwargs = {"bins": 128, "alpha": 0.5}
             atl06sr.hist(
                 ax=ax,
@@ -1995,10 +2030,13 @@ class Altimetry:
                 **plot_kwargs,
             )
 
-        ax.set_xlim(xmin, xmax)
+        # Symmetric ±3σ centered on 0 (data has already been 3σ-filtered
+        # in atl06sr_to_dem_dh; stats displayed are median/NMAD over the
+        # filtered data)
+        ax.set_xlim(-abs_max, abs_max)
         ax.legend()
         ax.set_title(None)
-        ax.set_xlabel("ICESat-2 - DEM (m)")
+        ax.set_xlabel("ICESat-2 - DEM (m) [±3σ]")
 
         suptitle = f"{title}\n{key} (n={atl06sr.shape[0]})"
         if self._time_range_label:
@@ -2077,8 +2115,8 @@ class Altimetry:
         title : str, optional
             Plot title, default is "ICESat-2 ATL06-SR vs DEM"
         xlim : tuple or None, optional
-            Symmetric x-axis limits as (min, max). If None, uses 1st-99th
-            percentile range.
+            Symmetric x-axis limits as (min, max). If None, uses ±3σ
+            range (data is already 3σ-filtered in atl06sr_to_dem_dh).
         save_dir : str or None, optional
             Directory to save figure, default is None
         fig_fn : str or None, optional
@@ -2142,10 +2180,11 @@ class Altimetry:
             xmin, xmax = xlim
             xlabel_note = ""
         else:
-            # Symmetric 1st-99th percentile centered on 0
-            abs_max = max(abs(dh.quantile(0.01)), abs(dh.quantile(0.99)))
+            # Symmetric ±3σ centered on 0 (data was already 3σ-filtered in
+            # atl06sr_to_dem_dh; stats above are on the filtered data)
+            abs_max = max(abs(dh.min()), abs(dh.max()))
             xmin, xmax = -abs_max, abs_max
-            xlabel_note = " [1st–99th percentile]"
+            xlabel_note = " [±3σ]"
         ax.hist(dh.values, bins=128, alpha=0.7, color="steelblue")
         ax.set_xlim(xmin, xmax)
 
