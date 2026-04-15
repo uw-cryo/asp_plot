@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.12.1] - 2026-04-14
+
+### Changed
+- **Report panel order**: Disparity maps now follow the Bundle Adjust panels, and DEM Results precedes Detailed Hillshade (was: Hillshade → DEM Results → Disparity).
+- **Input Scenes caption** clarifies that mapprojected scenes are RPC-orthorectified against a reference DEM to roughly pre-align the stereo pair prior to correlation (reducing disparity search range), which addresses confusion for readers coming from non-ASP photogrammetry workflows.
+- **Match Points caption** notes these come from `stereo_corr`'s initial interest point matching step (used to set search windows), not dense correlation.
+
+### Added
+- **Acquisition Date(s)** row on the DEM Summary title-page table, populated when recoverable from scene metadata.
+- `get_acquisition_dates()` helper in `utils.py`: reads `FIRSTLINETIME` from WorldView/Maxar XMLs and parses the capture timestamp from `AST_L1A_...` file/directory names. Deduplicates and sorts; returns an empty list if no date can be found, in which case the summary-table row is omitted.
+- Unit tests for `get_acquisition_dates()` covering WorldView XMLs, ASTER filenames (top-level and in subdirectories), dedupe, and sorting of multi-date pairs.
+
+### Fixed
+- `--report_filename` accepts absolute and relative paths (not just bare filenames), and `~` in CLI path arguments is expanded ([#113](https://github.com/uw-cryo/asp_plot/pull/113)).
+
 ## [1.12.0] - 2026-04-10
 
 ### Changed
