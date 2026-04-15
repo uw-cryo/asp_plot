@@ -1,7 +1,7 @@
 import logging
 import os
 import textwrap
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from fpdf import FPDF
 from PIL import Image
@@ -51,6 +51,9 @@ class ReportMetadata:
         DEM filename.
     reference_dem : str
         Reference DEM path or description.
+    acquisition_dates : list of str
+        Scene acquisition date strings (e.g. "2017-07-31 19:07:28 UTC") when
+        recoverable from scene metadata. Empty list if not found.
     """
 
     dem_dimensions: tuple = (0, 0)
@@ -60,6 +63,7 @@ class ReportMetadata:
     dem_elevation_range: tuple = (0, 0)
     dem_filename: str = ""
     reference_dem: str = ""
+    acquisition_dates: list = field(default_factory=list)
 
 
 class ASPReportPDF(FPDF):
@@ -299,6 +303,11 @@ def _add_metadata_table(pdf, metadata):
         rows.append(("Elevation Range (m)", f"{lo:.1f} to {hi:.1f}"))
     if metadata.reference_dem:
         rows.append(("Reference DEM", metadata.reference_dem))
+    if metadata.acquisition_dates:
+        if len(metadata.acquisition_dates) == 1:
+            rows.append(("Acquisition Date", metadata.acquisition_dates[0]))
+        else:
+            rows.append(("Acquisition Dates", "; ".join(metadata.acquisition_dates)))
 
     if not rows:
         return

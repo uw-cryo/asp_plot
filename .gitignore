@@ -142,3 +142,4 @@ CLAUDE*
 .claude/**
 scripts/
 /*.parquet
+reports/regenerate_reports.sh

@@ -4,6 +4,7 @@ import os
 import re
 import subprocess
 import warnings
+from datetime import datetime
 
 import contextily as ctx
 import matplotlib.colors
@@ -1225,6 +1226,77 @@ def detect_vantor_satellite(directory):
         except (ValueError, Exception):
             continue
     return False
+
+
+def get_acquisition_dates(directory, extra_dirs=None):
+    """Extract scene acquisition date(s) from metadata in a processing directory.
+
+    Looks for WorldView/Maxar-style XML camera files (using the ``FIRSTLINETIME``
+    tag) and ASTER L1A file or directory names (which encode the capture date in
+    the filename: ``AST_L1A_<prodcode><MMDDYYYY><HHMMSS>_...``). Returns a sorted,
+    deduplicated list of date strings. An empty list is returned if nothing is
+    found.
+
+    Parameters
+    ----------
+    directory : str
+        Top-level ASP processing directory to search (non-recursive for XMLs,
+        recursive for ASTER L1A filenames).
+    extra_dirs : list of str, optional
+        Additional directories to search non-recursively for XML files (e.g. a
+        stereo or bundle-adjust subdirectory).
+
+    Returns
+    -------
+    list of str
+        Acquisition datetime strings formatted as ``YYYY-MM-DD HH:MM:SS UTC``.
+    """
+    directory = os.path.expanduser(directory)
+    dates = {}
+
+    search_dirs = [directory]
+    if extra_dirs:
+        for d in extra_dirs:
+            if d and d not in search_dirs:
+                search_dirs.append(d)
+
+    # WorldView/Maxar XMLs: FIRSTLINETIME
+    for d in search_dirs:
+        try:
+            xml_files = glob_file(d, "*.[Xx][Mm][Ll]", all_files=True)
+        except Exception:
+            xml_files = None
+        if not xml_files:
+            continue
+        xml_files = [f for f in xml_files if not re.search(r".*ortho.*\.xml", f)]
+        for xml_file in xml_files:
+            try:
+                first_line_time = get_xml_tag(xml_file, "FIRSTLINETIME")
+                dt = datetime.strptime(first_line_time, "%Y-%m-%dT%H:%M:%S.%fZ")
+            except (ValueError, Exception):
+                continue
+            key = dt.replace(microsecond=0).isoformat()
+            dates.setdefault(key, dt.replace(microsecond=0))
+
+    # ASTER L1A: capture date encoded in filename
+    # Pattern: AST_L1A_<3-digit production code><MM><DD><YYYY><HH><MM><SS>_...
+    aster_re = re.compile(r"AST_L1A_\d{3}(\d{2})(\d{2})(\d{4})(\d{2})(\d{2})(\d{2})")
+    skip_dirs = {"tmp_asp_report_plots", ".git", "__pycache__"}
+    for root, dirnames, filenames in os.walk(directory):
+        dirnames[:] = [d for d in dirnames if d not in skip_dirs]
+        for name in list(dirnames) + list(filenames):
+            m = aster_re.search(name)
+            if not m:
+                continue
+            mo, day, yr, hh, mi, ss = (int(x) for x in m.groups())
+            try:
+                dt = datetime(yr, mo, day, hh, mi, ss)
+            except ValueError:
+                continue
+            key = dt.isoformat()
+            dates.setdefault(key, dt)
+
+    return [dt.strftime("%Y-%m-%d %H:%M:%S UTC") for dt in sorted(dates.values())]
 
 
 def add_copyright_overlay(ax):
