@@ -9,7 +9,12 @@ import contextily as ctx
 from asp_plot.altimetry import Altimetry
 from asp_plot.bundle_adjust import PlotBundleAdjustFiles, ReadBundleAdjustFiles
 from asp_plot.processing_parameters import ProcessingParameters
-from asp_plot.report import ReportMetadata, ReportSection, compile_report
+from asp_plot.report import (
+    AlignmentReportPage,
+    ReportMetadata,
+    ReportSection,
+    compile_report,
+)
 from asp_plot.scenes import ScenePlotter
 from asp_plot.stereo import StereoPlotter
 from asp_plot.stereo_geometry import StereoGeometryPlotter
@@ -573,6 +578,107 @@ def main(
                     ),
                 )
             )
+
+            # ---- pc_align + ICESat-2 alignment report (Earth only) ----
+            align_result = icesat.align_and_evaluate(
+                processing_level="all",
+                improvement_threshold_pct=5.0,
+            )
+            stats_row = {}
+            if (
+                align_result.alignment_report_df is not None
+                and not align_result.alignment_report_df.empty
+            ):
+                row = align_result.alignment_report_df.iloc[0].to_dict()
+                row.pop("key", None)
+                stats_row = row
+
+            align_title = "DEM Alignment with ICESat-2"
+
+            if align_result.status == "insufficient_points":
+                sections.append(
+                    AlignmentReportPage(
+                        title=align_title,
+                        parameters=align_result.parameters_used,
+                        status_message=align_result.message,
+                    )
+                )
+            elif align_result.status == "no_improvement":
+                sections.append(
+                    AlignmentReportPage(
+                        title=align_title,
+                        parameters=align_result.parameters_used,
+                        stats_row=stats_row,
+                        status_message=align_result.message,
+                    )
+                )
+            elif align_result.status == "success":
+                # Page A: alignment stats + pre/post landcover histogram
+                fig_fn = f"{next(figure_counter):02}.png"
+                icesat.histogram_by_landcover(
+                    key="all",
+                    plot_aligned=True,
+                    save_dir=plots_directory,
+                    fig_fn=fig_fn,
+                )
+                sections.append(
+                    AlignmentReportPage(
+                        title=align_title,
+                        parameters=align_result.parameters_used,
+                        stats_row=stats_row,
+                        status_message=align_result.message,
+                        image_path=os.path.join(plots_directory, fig_fn),
+                        caption=(
+                            "Pre- (steelblue) and post-alignment (orange) "
+                            "distributions of ICESat-2 minus DEM height "
+                            "differences, with per-landcover statistics in "
+                            "the two stacked text boxes. Box outline color "
+                            "matches the bar color."
+                        ),
+                    )
+                )
+
+                # Page B: profile with aligned DEM
+                fig_fn = f"{next(figure_counter):02}.png"
+                icesat.plot_atl06sr_dem_profile(
+                    key="all",
+                    plot_aligned=True,
+                    save_dir=plots_directory,
+                    fig_fn=fig_fn,
+                )
+                sections.append(
+                    ReportSection(
+                        title="ICESat-2 ATL06-SR Profile (Aligned DEM)",
+                        image_path=os.path.join(plots_directory, fig_fn),
+                        caption=(
+                            "Elevation profile along the ICESat-2 track after "
+                            "pc_align. The aligned DEM is overlaid on the "
+                            "profile and used to recompute the height "
+                            "differences shown in the lower panel."
+                        ),
+                    )
+                )
+
+                # Page C: best/worst segments with aligned DEM
+                fig_fn = f"{next(figure_counter):02}.png"
+                icesat.plot_best_worst_segments(
+                    key="all",
+                    plot_aligned=True,
+                    save_dir=plots_directory,
+                    fig_fn=fig_fn,
+                )
+                sections.append(
+                    ReportSection(
+                        title="ICESat-2 ATL06-SR Agreement Segments (Aligned DEM)",
+                        image_path=os.path.join(plots_directory, fig_fn),
+                        caption=(
+                            "The same better- and worse-agreement segments "
+                            "as above, now with the aligned DEM overlaid. "
+                            "Segment selection is held fixed so Median/NMAD "
+                            "can be compared directly."
+                        ),
+                    )
+                )
 
         elif body in ("moon", "mars"):
             instrument = {"moon": "LOLA", "mars": "MOLA"}[body]
