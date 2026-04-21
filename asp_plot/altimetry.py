@@ -1260,26 +1260,45 @@ class Altimetry:
         else:
             improvement_pct = (p50_beg - p50_end) / p50_beg * 100.0
 
+        # alignment_report may decline to write the aligned DEM if the
+        # translation magnitude is under min_translation_threshold × GSD
+        # (self.aligned_dem_fn stays None in that case). Without a written
+        # aligned DEM we cannot render the success-path plots, so treat
+        # that as no_improvement even if p50 happened to drop > threshold.
+        translation_too_small = self.aligned_dem_fn is None
+
         if (
             improvement_pct is None
             or p50_end >= p50_beg
             or improvement_pct <= improvement_threshold_pct
+            or translation_too_small
         ):
             self._remove_aligned_dem_if_present()
             improvement_repr = (
                 f"{improvement_pct:.1f}%" if improvement_pct is not None else "n/a"
             )
+            if (
+                translation_too_small
+                and improvement_pct is not None
+                and (p50_end < p50_beg and improvement_pct > improvement_threshold_pct)
+            ):
+                reason = (
+                    f"Translation magnitude is below {min_translation_threshold*100:.0f}% "
+                    "of the DEM GSD, so no aligned DEM was written despite a "
+                    f"{improvement_repr} p50 reduction."
+                )
+            else:
+                reason = (
+                    f"p50 {p50_beg:.2f} m -> {p50_end:.2f} m, "
+                    f"{improvement_repr} <= {improvement_threshold_pct:.1f}% "
+                    "threshold. Aligned DEM removed."
+                )
             return AlignmentResult(
                 status="no_improvement",
                 alignment_report_df=df,
                 aligned_dem_fn=None,
                 improvement_pct=improvement_pct,
-                message=(
-                    f"No significant improvement "
-                    f"(p50 {p50_beg:.2f} m -> {p50_end:.2f} m, "
-                    f"{improvement_repr} <= {improvement_threshold_pct:.1f}% "
-                    "threshold). Aligned DEM removed."
-                ),
+                message=f"No significant improvement: {reason}",
                 parameters_used=parameters_used,
             )
 
@@ -2362,6 +2381,14 @@ class Altimetry:
                     ("icesat_minus_aligned_dem", "darkorange", "Aligned DEM")
                 )
 
+        # Preserve the pre-existing "All" header label when there is only
+        # one distribution (no plot_aligned overlay). This keeps reports
+        # generated with plot_aligned=False textually identical to prior
+        # versions.
+        if len(distributions) == 1:
+            col, color, _ = distributions[0]
+            distributions = [(col, color, "All")]
+
         dh_series = [
             (col, color, label, atl06sr[col].dropna())
             for col, color, label in distributions
@@ -2383,8 +2410,12 @@ class Altimetry:
 
         fig, ax = plt.subplots(1, 1, figsize=(8, 5), dpi=220)
 
+        # Shared bin edges so pre- and post-alignment bars line up exactly
+        # (default bins=128 recomputes edges per call, which leaves the
+        # two distributions with incompatible binning).
+        shared_bins = np.linspace(xmin, xmax, 129)
         for _, color, _, dv in dh_series:
-            ax.hist(dv.values, bins=128, alpha=0.55, color=color)
+            ax.hist(dv.values, bins=shared_bins, alpha=0.55, color=color)
         ax.set_xlim(xmin, xmax)
 
         stats_blocks = [
