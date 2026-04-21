@@ -2815,17 +2815,32 @@ class Altimetry:
         plt.setp(ax_elev.get_xticklabels(), visible=False)
 
         # ===================== Row 2: dh profile =====================
-        if not dh_vals.empty:
-            med = np.nanmedian(dh_vals.values)
-            nmad_val = _nmad(dh_vals.values)
+        # When plot_aligned is active, show the *post*-alignment dh and
+        # recompute Med/NMAD against the aligned DEM so the bottom panel
+        # reflects what the aligned-DEM page is actually evaluating.
+        use_aligned_dh = (
+            plot_aligned
+            and self.aligned_dem_fn
+            and "icesat_minus_aligned_dem" in track.columns
+        )
+        if use_aligned_dh:
+            dh_plot = track["icesat_minus_aligned_dem"].dropna()
+            dh_label_suffix = " (Aligned DEM)"
+        else:
+            dh_plot = dh_vals
+            dh_label_suffix = ""
+
+        if not dh_plot.empty:
+            med = np.nanmedian(dh_plot.values)
+            nmad_val = _nmad(dh_plot.values)
             ax_dh.scatter(
-                dist.loc[dh_vals.index],
-                dh_vals,
+                dist.loc[dh_plot.index],
+                dh_plot,
                 color="gray",
                 s=4,
                 alpha=0.6,
                 zorder=2,
-                label=f"Med={med:+.2f} m, NMAD={nmad_val:.2f} m",
+                label=f"Med={med:+.2f} m, NMAD={nmad_val:.2f} m{dh_label_suffix}",
             )
             ax_dh.axhline(0, color="black", linewidth=0.5, linestyle="--", zorder=1)
 
