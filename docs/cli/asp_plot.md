@@ -131,6 +131,12 @@ Options:
                                   from the ODE GDS API. Required for
                                   planetary altimetry plots. Obtain via:
                                   request_planetary_altimetry.
+  --pc_align BOOLEAN              If True and --plot_altimetry is True, run
+                                  pc_align against ICESat-2 (Earth only) and
+                                  append the alignment-report pages.
+                                  Disabled automatically when
+                                  --plot_altimetry / --plot_icesat is False.
+                                  Default: True.
   --plot_geometry BOOLEAN         If True, plot the stereo geometry. Default:
                                   True.
   --subset_km FLOAT               Size in km of the subset to plot for the
