@@ -1283,7 +1283,13 @@ class Altimetry:
                 parameters_used=parameters_used,
             )
 
-        self.atl06sr_to_dem_dh()
+        # Populate icesat_minus_aligned_dem without re-running the 3σ
+        # outlier filter (the unaligned column is already 3σ-clean from the
+        # initial atl06sr_to_dem_dh call, and we do not want the aligned-DEM
+        # plots to operate on a different sample than the unaligned ones).
+        # This does not re-request ICESat-2 data; it only interpolates DEM
+        # heights at the existing ATL06-SR point locations.
+        self.atl06sr_to_dem_dh(n_sigma=None)
         return AlignmentResult(
             status="success",
             alignment_report_df=df,
