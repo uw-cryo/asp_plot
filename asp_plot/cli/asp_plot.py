@@ -9,7 +9,12 @@ import contextily as ctx
 from asp_plot.altimetry import Altimetry
 from asp_plot.bundle_adjust import PlotBundleAdjustFiles, ReadBundleAdjustFiles
 from asp_plot.processing_parameters import ProcessingParameters
-from asp_plot.report import ReportMetadata, ReportSection, compile_report
+from asp_plot.report import (
+    AlignmentReportPage,
+    ReportMetadata,
+    ReportSection,
+    compile_report,
+)
 from asp_plot.scenes import ScenePlotter
 from asp_plot.stereo import StereoPlotter
 from asp_plot.stereo_geometry import StereoGeometryPlotter
@@ -85,6 +90,12 @@ from asp_plot.utils import Raster, detect_planetary_body, get_acquisition_dates
     help="Path to a LOLA/MOLA *_topo_csv.csv file from the ODE GDS API. Required for planetary altimetry plots. Obtain via: request_planetary_altimetry --dem <dem> --email <email>, then download and unzip the result.",
 )
 @click.option(
+    "--pc_align",
+    prompt=False,
+    default=True,
+    help="If True and --plot_altimetry is True, run pc_align against ICESat-2 (Earth only) and append the alignment-report pages. Disabled automatically when --plot_altimetry / --plot_icesat is False. Default: True.",
+)
+@click.option(
     "--plot_geometry",
     prompt=False,
     default=True,
@@ -126,6 +137,7 @@ def main(
     plot_altimetry,
     plot_icesat,
     altimetry_csv,
+    pc_align,
     plot_geometry,
     subset_km,
     atl06sr_time_range,
@@ -573,6 +585,151 @@ def main(
                     ),
                 )
             )
+
+            # ---- pc_align + ICESat-2 alignment report (Earth only) ----
+            if pc_align:
+                align_result = icesat.align_and_evaluate(
+                    processing_level="all",
+                    improvement_threshold_pct=5.0,
+                )
+                stats_row = {}
+                if (
+                    align_result.alignment_report_df is not None
+                    and not align_result.alignment_report_df.empty
+                ):
+                    row = align_result.alignment_report_df.iloc[0].to_dict()
+                    row.pop("key", None)
+                    stats_row = row
+
+                align_title = "DEM Alignment with ICESat-2"
+                alignment_description = (
+                    "ASP's pc_align estimates a rigid 3D translation that "
+                    "minimizes the height residuals between the ASP DEM and "
+                    "ICESat-2 ATL06-SR ground-track points used as the "
+                    "reference point cloud. The translation is applied to "
+                    "the DEM directly (geotransform + pixel-value shift, no "
+                    "resampling) to produce the aligned DEM.\n\n"
+                    "Alignment Parameters (above):\n"
+                    "  - processing_level: ATL06-SR filter key used as the "
+                    "reference; 'all' uses every filtered point.\n"
+                    "  - minimum_points: minimum ATL06-SR point count "
+                    "required; fewer points skips the alignment.\n"
+                    "  - agreement_threshold: maximum relative disagreement "
+                    "across temporal sub-filters before the aligned DEM is "
+                    "flagged as inconsistent.\n"
+                    "  - min_translation_threshold: minimum translation "
+                    "magnitude (as a fraction of the DEM GSD) required to "
+                    "write out an aligned DEM.\n"
+                    "  - improvement_threshold_pct: minimum percentage "
+                    "reduction in p50 required to keep the aligned DEM on "
+                    "disk; below this, the aligned DEM is removed.\n\n"
+                    "Alignment Statistics (above, in meters):\n"
+                    "  - p16_beg / p50_beg / p84_beg: 16th / 50th / 84th "
+                    "percentile of the DEM-vs-ICESat absolute height "
+                    "residuals before alignment.\n"
+                    "  - p16_end / p50_end / p84_end: same percentiles "
+                    "after alignment.\n"
+                    "  - N_shift / E_shift / D_shift: north / east / down "
+                    "components of the applied translation vector.\n"
+                    "  - |T|: magnitude of the translation vector."
+                )
+
+                if align_result.status == "insufficient_points":
+                    sections.append(
+                        AlignmentReportPage(
+                            title=align_title,
+                            parameters=align_result.parameters_used,
+                            description=alignment_description,
+                            status_message=align_result.message,
+                        )
+                    )
+                elif align_result.status == "no_improvement":
+                    sections.append(
+                        AlignmentReportPage(
+                            title=align_title,
+                            parameters=align_result.parameters_used,
+                            stats_row=stats_row,
+                            description=alignment_description,
+                            status_message=align_result.message,
+                        )
+                    )
+                elif align_result.status == "success":
+                    # Page A: alignment parameters + stats + description
+                    # (the histogram gets its own full page below so the
+                    # figure isn't squeezed into the remaining space)
+                    sections.append(
+                        AlignmentReportPage(
+                            title=align_title,
+                            parameters=align_result.parameters_used,
+                            stats_row=stats_row,
+                            description=alignment_description,
+                            status_message=align_result.message,
+                        )
+                    )
+
+                    # Page B: pre/post landcover histogram
+                    fig_fn = f"{next(figure_counter):02}.png"
+                    icesat.histogram_by_landcover(
+                        key="all",
+                        plot_aligned=True,
+                        save_dir=plots_directory,
+                        fig_fn=fig_fn,
+                    )
+                    sections.append(
+                        ReportSection(
+                            title="ICESat-2 ATL06-SR Histogram (Aligned DEM)",
+                            image_path=os.path.join(plots_directory, fig_fn),
+                            caption=(
+                                "Pre- (steelblue) and post-alignment (orange) "
+                                "distributions of ICESat-2 minus DEM height "
+                                "differences, with per-landcover statistics in "
+                                "the two stacked text boxes. Box outline color "
+                                "matches the bar color."
+                            ),
+                        )
+                    )
+
+                    # Page C: profile with aligned DEM
+                    fig_fn = f"{next(figure_counter):02}.png"
+                    icesat.plot_atl06sr_dem_profile(
+                        key="all",
+                        plot_aligned=True,
+                        save_dir=plots_directory,
+                        fig_fn=fig_fn,
+                    )
+                    sections.append(
+                        ReportSection(
+                            title="ICESat-2 ATL06-SR Profile (Aligned DEM)",
+                            image_path=os.path.join(plots_directory, fig_fn),
+                            caption=(
+                                "Elevation profile along the ICESat-2 track after "
+                                "pc_align. The aligned DEM is overlaid on the "
+                                "profile and used to recompute the height "
+                                "differences shown in the lower panel."
+                            ),
+                        )
+                    )
+
+                    # Page D: best/worst segments with aligned DEM
+                    fig_fn = f"{next(figure_counter):02}.png"
+                    icesat.plot_best_worst_segments(
+                        key="all",
+                        plot_aligned=True,
+                        save_dir=plots_directory,
+                        fig_fn=fig_fn,
+                    )
+                    sections.append(
+                        ReportSection(
+                            title="ICESat-2 ATL06-SR Agreement Segments (Aligned DEM)",
+                            image_path=os.path.join(plots_directory, fig_fn),
+                            caption=(
+                                "The same better- and worse-agreement segments "
+                                "as above, now with the aligned DEM overlaid. "
+                                "Segment selection is held fixed so Median/NMAD "
+                                "can be compared directly."
+                            ),
+                        )
+                    )
 
         elif body in ("moon", "mars"):
             instrument = {"moon": "LOLA", "mars": "MOLA"}[body]

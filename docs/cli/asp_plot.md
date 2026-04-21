@@ -61,6 +61,17 @@ asp_plot --directory ./ \
 
 If `--plot_altimetry` is True (the default) and the DEM is non-Earth but no `--altimetry_csv` is provided, the tool prints instructions and skips altimetry plots.
 
+## Automatic pc_align with ICESat-2
+
+When `--plot_altimetry` and `--pc_align` are both True (the defaults) and the DEM is on Earth, the report appends a `pc_align`-based alignment step after the standard ICESat-2 diagnostics. The aligned DEM is only retained on disk when `pc_align` reduces the median absolute error (`p50`) toward 0 by more than 5% **and** the translation magnitude exceeds the minimum threshold relative to the DEM GSD; otherwise the intermediate DEM file is removed so its presence is a truthy signal that the alignment is worth using.
+
+The report adds:
+
+- An **alignment report page**: the kwargs used for `pc_align`, a one-row horizontal stats table (`p16`/`p50`/`p84` before and after, `N`/`E`/`D` shifts, translation magnitude, all in meters), a description of what each column means, and a status line naming the aligned DEM path or explaining why no DEM was retained.
+- On success, three additional full-page figures against the aligned DEM: a pre/post land-cover histogram (shared bin edges, per-landcover stats in stacked text boxes whose outline colors match the bar colors), the full elevation profile, and the best/worst 1 km agreement segments. Segment selection is held fixed so Med/NMAD are directly comparable to the unaligned variants.
+
+Disable with `--pc_align False`. Automatically skipped when `--plot_altimetry` / `--plot_icesat` is False.
+
 ## ICESat-2 time filtering
 
 The `--atl06sr_time_range` option controls which ICESat-2 data is requested from the SlideRule API. Requesting fewer granules speeds up processing but may miss useful data.
@@ -131,6 +142,12 @@ Options:
                                   from the ODE GDS API. Required for
                                   planetary altimetry plots. Obtain via:
                                   request_planetary_altimetry.
+  --pc_align BOOLEAN              If True and --plot_altimetry is True, run
+                                  pc_align against ICESat-2 (Earth only) and
+                                  append the alignment-report pages.
+                                  Disabled automatically when
+                                  --plot_altimetry / --plot_icesat is False.
+                                  Default: True.
   --plot_geometry BOOLEAN         If True, plot the stereo geometry. Default:
                                   True.
   --subset_km FLOAT               Size in km of the subset to plot for the

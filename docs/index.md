@@ -69,7 +69,7 @@ Development setup, testing, and releases.
 - Stereo DEM processing visualization (hillshades, disparity maps, match points)
 - Bundle adjustment analysis (residual maps, histograms)
 - CSM camera model comparisons (position/orientation differences)
-- ICESat-2 ATL06-SR altimetry comparisons (Earth-based only)
+- ICESat-2 ATL06-SR altimetry comparisons (Earth-based only), with optional automatic `pc_align` refinement and a before/after alignment report
 - Stereo geometry visualization from satellite XML metadata
 - Comprehensive PDF report generation
 

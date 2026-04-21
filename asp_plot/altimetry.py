@@ -1,7 +1,9 @@
 import json
 import logging
 import os
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from typing import Optional
 
 import contextily as ctx
 import geopandas as gpd
@@ -41,6 +43,49 @@ WORLDCOVER_NAMES = {
 def _nmad(a, c=1.4826):
     """Normalized Median Absolute Deviation."""
     return np.nanmedian(np.fabs(a - np.nanmedian(a))) * c
+
+
+@dataclass
+class AlignmentResult:
+    """Outcome of :meth:`Altimetry.align_and_evaluate`.
+
+    Plain dataclass — importing this or the method does not pull in any
+    report/fpdf dependencies, so it is safe to use from notebooks.
+
+    Attributes
+    ----------
+    status : str
+        One of:
+          - ``"insufficient_points"``: not enough ATL06-SR points for
+            pc_align to run (the aligned DEM is removed if one was written).
+          - ``"no_improvement"``: pc_align ran but p50 did not improve
+            toward 0 by more than the ``improvement_threshold_pct``; the
+            aligned DEM has been removed.
+          - ``"success"``: p50 improved by more than the threshold; the
+            aligned DEM is retained and ``Altimetry.aligned_dem_fn`` points
+            to it.
+    alignment_report_df : pandas.DataFrame
+        The alignment report table produced by
+        :meth:`Altimetry.alignment_report`. Empty for ``insufficient_points``.
+    aligned_dem_fn : str or None
+        Path to the aligned DEM on success; None otherwise (the file is
+        cleaned up on non-success branches).
+    improvement_pct : float or None
+        ``(p50_beg - p50_end) / p50_beg * 100`` when computable, else None.
+    message : str
+        Short human-readable summary suitable for a status line in the
+        PDF report.
+    parameters_used : dict
+        The kwargs used for the alignment attempt (e.g. processing_level,
+        minimum_points, improvement_threshold_pct). Echoed into the report.
+    """
+
+    status: str
+    alignment_report_df: Optional[pd.DataFrame] = None
+    aligned_dem_fn: Optional[str] = None
+    improvement_pct: Optional[float] = None
+    message: str = ""
+    parameters_used: dict = field(default_factory=dict)
 
 
 # --- ODE GDS REST API (for LOLA/MOLA planetary altimetry) ---
@@ -1124,6 +1169,173 @@ class Altimetry:
 
         self.alignment_report_df = alignment_report_df
 
+    def align_and_evaluate(
+        self,
+        processing_level="all",
+        improvement_threshold_pct=5.0,
+        min_translation_threshold=0.1,
+        minimum_points=500,
+        agreement_threshold=0.25,
+    ):
+        """
+        Run pc_align against ICESat-2 and evaluate whether to keep the result.
+
+        Wraps :meth:`alignment_report` with a decision step so the aligned
+        DEM is only retained when it represents a meaningful improvement.
+        Returns an :class:`AlignmentResult`; notebook callers can inspect
+        ``result.status`` to decide what to display.
+
+        Decision logic:
+
+        1. If the alignment report is empty (fewer than ``minimum_points``
+           ICESat-2 points, or the pc_align log is missing), delete any
+           aligned DEM file and return ``status="insufficient_points"``.
+        2. Otherwise compute
+           ``improvement_pct = (p50_beg - p50_end) / p50_beg * 100``. If
+           ``p50_end >= p50_beg`` or
+           ``improvement_pct <= improvement_threshold_pct``, delete the
+           aligned DEM, clear ``self.aligned_dem_fn``, and return
+           ``status="no_improvement"``.
+        3. Otherwise re-run :meth:`atl06sr_to_dem_dh` so the
+           ``icesat_minus_aligned_dem`` column is populated, and return
+           ``status="success"`` with the aligned DEM retained.
+
+        Parameters
+        ----------
+        processing_level : str, optional
+            ATL06-SR processing level key to align against. Default "all".
+        improvement_threshold_pct : float, optional
+            Minimum required ``(p50_beg - p50_end) / p50_beg * 100`` for the
+            aligned DEM to be kept. Default 5.0.
+        min_translation_threshold : float, optional
+            Forwarded to :meth:`alignment_report`. Default 0.1.
+        minimum_points : int, optional
+            Forwarded to :meth:`alignment_report`. Default 500.
+        agreement_threshold : float, optional
+            Forwarded to :meth:`alignment_report`. Default 0.25.
+
+        Returns
+        -------
+        AlignmentResult
+        """
+        parameters_used = {
+            "processing_level": processing_level,
+            "minimum_points": minimum_points,
+            "agreement_threshold": agreement_threshold,
+            "min_translation_threshold": min_translation_threshold,
+            "improvement_threshold_pct": improvement_threshold_pct,
+        }
+
+        self.alignment_report(
+            processing_level=processing_level,
+            key_for_aligned_dem=processing_level,
+            minimum_points=minimum_points,
+            agreement_threshold=agreement_threshold,
+            min_translation_threshold=min_translation_threshold,
+            write_out_aligned_dem=True,
+        )
+        df = getattr(self, "alignment_report_df", None)
+
+        if df is None or df.empty:
+            self._remove_aligned_dem_if_present()
+            return AlignmentResult(
+                status="insufficient_points",
+                alignment_report_df=df if df is not None else pd.DataFrame(),
+                aligned_dem_fn=None,
+                improvement_pct=None,
+                message=(
+                    f"Alignment skipped: fewer than {minimum_points} "
+                    f"ATL06-SR points available for processing_level="
+                    f"'{processing_level}', or pc_align did not produce a "
+                    "usable log."
+                ),
+                parameters_used=parameters_used,
+            )
+
+        row = df.iloc[0]
+        p50_beg = float(row.get("p50_beg", float("nan")))
+        p50_end = float(row.get("p50_end", float("nan")))
+        if not np.isfinite(p50_beg) or not np.isfinite(p50_end) or p50_beg == 0:
+            improvement_pct = None
+        else:
+            improvement_pct = (p50_beg - p50_end) / p50_beg * 100.0
+
+        # alignment_report may decline to write the aligned DEM if the
+        # translation magnitude is under min_translation_threshold × GSD
+        # (self.aligned_dem_fn stays None in that case). Without a written
+        # aligned DEM we cannot render the success-path plots, so treat
+        # that as no_improvement even if p50 happened to drop > threshold.
+        translation_too_small = self.aligned_dem_fn is None
+
+        if (
+            improvement_pct is None
+            or p50_end >= p50_beg
+            or improvement_pct <= improvement_threshold_pct
+            or translation_too_small
+        ):
+            self._remove_aligned_dem_if_present()
+            improvement_repr = (
+                f"{improvement_pct:.1f}%" if improvement_pct is not None else "n/a"
+            )
+            if (
+                translation_too_small
+                and improvement_pct is not None
+                and (p50_end < p50_beg and improvement_pct > improvement_threshold_pct)
+            ):
+                reason = (
+                    f"Translation magnitude is below {min_translation_threshold*100:.0f}% "
+                    "of the DEM GSD, so no aligned DEM was written despite a "
+                    f"{improvement_repr} p50 reduction."
+                )
+            else:
+                reason = (
+                    f"p50 {p50_beg:.2f} m -> {p50_end:.2f} m, "
+                    f"{improvement_repr} <= {improvement_threshold_pct:.1f}% "
+                    "threshold. Aligned DEM removed."
+                )
+            return AlignmentResult(
+                status="no_improvement",
+                alignment_report_df=df,
+                aligned_dem_fn=None,
+                improvement_pct=improvement_pct,
+                message=f"No significant improvement: {reason}",
+                parameters_used=parameters_used,
+            )
+
+        # Populate icesat_minus_aligned_dem without re-running the 3σ
+        # outlier filter (the unaligned column is already 3σ-clean from the
+        # initial atl06sr_to_dem_dh call, and we do not want the aligned-DEM
+        # plots to operate on a different sample than the unaligned ones).
+        # This does not re-request ICESat-2 data; it only interpolates DEM
+        # heights at the existing ATL06-SR point locations.
+        self.atl06sr_to_dem_dh(n_sigma=None)
+        return AlignmentResult(
+            status="success",
+            alignment_report_df=df,
+            aligned_dem_fn=self.aligned_dem_fn,
+            improvement_pct=improvement_pct,
+            message=(
+                f"p50 improved from {p50_beg:.2f} m -> {p50_end:.2f} m "
+                f"({improvement_pct:.1f}% reduction). Aligned DEM written to "
+                f"{self.aligned_dem_fn}."
+            ),
+            parameters_used=parameters_used,
+        )
+
+    def _remove_aligned_dem_if_present(self):
+        """Delete the aligned DEM file if pc_align created one.
+
+        Safe to call when no aligned DEM exists. Clears
+        ``self.aligned_dem_fn`` on success.
+        """
+        aligned = getattr(self, "aligned_dem_fn", None)
+        if aligned and os.path.exists(aligned):
+            try:
+                os.remove(aligned)
+            except OSError as e:
+                logger.warning(f"\nCould not remove aligned DEM {aligned}: {e}\n")
+        self.aligned_dem_fn = None
+
     # ------------------------------------------------------------------ #
     #  Planetary altimetry: LOLA (Moon) and MOLA (Mars) via ODE GDS API  #
     # ------------------------------------------------------------------ #
@@ -2110,6 +2322,7 @@ class Altimetry:
         top_n=4,
         title="ICESat-2 ATL06-SR vs DEM",
         xlim=None,
+        plot_aligned=False,
         save_dir=None,
         fig_fn=None,
     ):
@@ -2119,6 +2332,11 @@ class Altimetry:
         Creates a histogram of the height differences between ICESat-2
         ATL06-SR data and the DEM, with a text annotation showing overall
         and per-landcover-class statistics (count, median, NMAD).
+
+        When ``plot_aligned=True`` and an aligned DEM is available,
+        overlays the pre- and post-alignment distributions and renders two
+        vertically stacked stats text boxes whose outline colors match the
+        bar colors (color serves as the legend).
 
         Parameters
         ----------
@@ -2131,6 +2349,10 @@ class Altimetry:
         xlim : tuple or None, optional
             Symmetric x-axis limits as (min, max). If None, uses ±3σ
             range (data is already 3σ-filtered in atl06sr_to_dem_dh).
+        plot_aligned : bool, optional
+            Whether to overlay the aligned-DEM distribution alongside the
+            unaligned one. Requires ``self.aligned_dem_fn`` and the
+            ``icesat_minus_aligned_dem`` column. Default is False.
         save_dir : str or None, optional
             Directory to save figure, default is None
         fig_fn : str or None, optional
@@ -2142,32 +2364,131 @@ class Altimetry:
             self.atl06sr_to_dem_dh()
             atl06sr = self.atl06sr_processing_levels_filtered[key]
 
-        dh = atl06sr["icesat_minus_dem"].dropna()
-        if dh.empty:
+        distributions = [("icesat_minus_dem", "steelblue", "DEM")]
+        if plot_aligned:
+            if not self.aligned_dem_fn:
+                logger.warning(
+                    "\nplot_aligned=True but no aligned DEM is available; "
+                    "plotting unaligned distribution only.\n"
+                )
+            elif "icesat_minus_aligned_dem" not in atl06sr.columns:
+                logger.warning(
+                    "\n'icesat_minus_aligned_dem' column missing; call "
+                    "atl06sr_to_dem_dh() after setting aligned_dem_fn.\n"
+                )
+            else:
+                distributions.append(
+                    ("icesat_minus_aligned_dem", "darkorange", "Aligned DEM")
+                )
+
+        # Preserve the pre-existing "All" header label when there is only
+        # one distribution (no plot_aligned overlay). This keeps reports
+        # generated with plot_aligned=False textually identical to prior
+        # versions.
+        if len(distributions) == 1:
+            col, color, _ = distributions[0]
+            distributions = [(col, color, "All")]
+
+        dh_series = [
+            (col, color, label, atl06sr[col].dropna())
+            for col, color, label in distributions
+        ]
+        dh_series = [t for t in dh_series if not t[3].empty]
+        if not dh_series:
             logger.warning(f"\nNo valid dh values for key: {key}\n")
             return
 
-        overall_med = np.nanmedian(dh.values)
-        overall_nmad = _nmad(dh.values)
-        overall_n = len(dh)
+        if xlim is not None:
+            xmin, xmax = xlim
+            xlabel_note = ""
+        else:
+            abs_max = max(
+                max(abs(dv.min()), abs(dv.max())) for _, _, _, dv in dh_series
+            )
+            xmin, xmax = -abs_max, abs_max
+            xlabel_note = " [±3σ]"
 
-        stats_lines = [
-            f"All: n={overall_n}, Med={overall_med:+.2f} m, NMAD={overall_nmad:.2f} m"
+        fig, ax = plt.subplots(1, 1, figsize=(8, 5), dpi=220)
+
+        # Shared bin edges so pre- and post-alignment bars line up exactly
+        # (default bins=128 recomputes edges per call, which leaves the
+        # two distributions with incompatible binning).
+        shared_bins = np.linspace(xmin, xmax, 129)
+        for _, color, _, dv in dh_series:
+            ax.hist(dv.values, bins=shared_bins, alpha=0.55, color=color)
+        ax.set_xlim(xmin, xmax)
+
+        stats_blocks = [
+            (
+                self._build_landcover_stats_text(atl06sr, col, label, top_n=top_n),
+                color,
+            )
+            for col, color, label, _ in dh_series
+        ]
+
+        # Stack text boxes vertically at top-left. Approximate each box's
+        # height from its line count so the second box doesn't overlap the
+        # first. Empirical constants tuned for fontsize=8 monospace in an
+        # 8x5 inch axes.
+        line_h_axes = 0.030
+        pad_axes = 0.04
+        gap_axes = 0.02
+        box_y = 0.98
+        for text, color in stats_blocks:
+            ax.text(
+                0.02,
+                box_y,
+                text,
+                transform=ax.transAxes,
+                verticalalignment="top",
+                fontsize=8,
+                fontfamily="monospace",
+                bbox=dict(
+                    boxstyle="round,pad=0.4",
+                    facecolor="white",
+                    edgecolor=color,
+                    linewidth=1.5,
+                    alpha=0.9,
+                ),
+            )
+            nlines = text.count("\n") + 1
+            box_y -= nlines * line_h_axes + pad_axes + gap_axes
+
+        ax.set_xlabel(f"ICESat-2 - DEM (m){xlabel_note}")
+        ax.set_ylabel("Count")
+        overall_n = len(dh_series[0][3])
+        suptitle = f"{title}\n{key} (n={overall_n})"
+        if self._time_range_label:
+            suptitle += f"\n{self._time_range_label}"
+        fig.suptitle(suptitle, size=10)
+        fig.tight_layout()
+        if save_dir and fig_fn:
+            save_figure(fig, save_dir, fig_fn)
+
+    def _build_landcover_stats_text(self, atl06sr, dh_col, label, top_n=4):
+        """Build the multi-line stats text for one dh column.
+
+        Includes an "all" header line (n, Med, NMAD) and up to ``top_n``
+        per-landcover-class rows, each requiring at least 10 points.
+        """
+        dv = atl06sr[dh_col].dropna()
+        overall_n = len(dv)
+        overall_med = np.nanmedian(dv.values)
+        overall_nmad = _nmad(dv.values)
+        lines = [
+            f"{label}: n={overall_n}, Med={overall_med:+.2f} m, NMAD={overall_nmad:.2f} m"
         ]
 
         wc_col = "esa_worldcover.value"
         if wc_col in atl06sr.columns:
-            valid = atl06sr.dropna(subset=["icesat_minus_dem"])
-            valid_wc = valid.dropna(subset=[wc_col])
-
+            valid_wc = atl06sr.dropna(subset=[dh_col, wc_col])
             if not valid_wc.empty:
                 valid_wc = valid_wc.copy()
-                valid_wc["lc_name"] = valid_wc[wc_col].map(WORLDCOVER_NAMES)
-                valid_wc["lc_name"] = valid_wc["lc_name"].fillna("Unknown")
-
-                grouped = valid_wc.groupby("lc_name")["icesat_minus_dem"]
+                valid_wc["lc_name"] = (
+                    valid_wc[wc_col].map(WORLDCOVER_NAMES).fillna("Unknown")
+                )
                 class_stats = []
-                for name, group in grouped:
+                for name, group in valid_wc.groupby("lc_name")[dh_col]:
                     if len(group) >= 10:
                         class_stats.append(
                             {
@@ -2177,52 +2498,16 @@ class Altimetry:
                                 "nmad": _nmad(group.values),
                             }
                         )
-
                 class_stats.sort(key=lambda x: x["n"], reverse=True)
                 class_stats = class_stats[:top_n]
-
                 if class_stats:
-                    stats_lines.append("─" * 35)
+                    lines.append("─" * 35)
                     for cs in class_stats:
-                        stats_lines.append(
-                            f"{cs['name']}: n={cs['n']}, Med={cs['med']:+.2f}, NMAD={cs['nmad']:.2f}"
+                        lines.append(
+                            f"{cs['name']}: n={cs['n']}, Med={cs['med']:+.2f}, "
+                            f"NMAD={cs['nmad']:.2f}"
                         )
-
-        fig, ax = plt.subplots(1, 1, figsize=(8, 5), dpi=220)
-
-        if xlim is not None:
-            xmin, xmax = xlim
-            xlabel_note = ""
-        else:
-            # Symmetric ±3σ centered on 0 (data was already 3σ-filtered in
-            # atl06sr_to_dem_dh; stats above are on the filtered data)
-            abs_max = max(abs(dh.min()), abs(dh.max()))
-            xmin, xmax = -abs_max, abs_max
-            xlabel_note = " [±3σ]"
-        ax.hist(dh.values, bins=128, alpha=0.7, color="steelblue")
-        ax.set_xlim(xmin, xmax)
-
-        stats_text = "\n".join(stats_lines)
-        ax.text(
-            0.02,
-            0.98,
-            stats_text,
-            transform=ax.transAxes,
-            verticalalignment="top",
-            fontsize=8,
-            fontfamily="monospace",
-            bbox=dict(boxstyle="round,pad=0.4", facecolor="white", alpha=0.9),
-        )
-
-        ax.set_xlabel(f"ICESat-2 - DEM (m){xlabel_note}")
-        ax.set_ylabel("Count")
-        suptitle = f"{title}\n{key} (n={overall_n})"
-        if self._time_range_label:
-            suptitle += f"\n{self._time_range_label}"
-        fig.suptitle(suptitle, size=10)
-        fig.tight_layout()
-        if save_dir and fig_fn:
-            save_figure(fig, save_dir, fig_fn)
+        return "\n".join(lines)
 
     def _resolve_best_track(self, key="all", rgt=None, cycle=None, spot=None):
         """
@@ -2567,17 +2852,32 @@ class Altimetry:
         plt.setp(ax_elev.get_xticklabels(), visible=False)
 
         # ===================== Row 2: dh profile =====================
-        if not dh_vals.empty:
-            med = np.nanmedian(dh_vals.values)
-            nmad_val = _nmad(dh_vals.values)
+        # When plot_aligned is active, show the *post*-alignment dh and
+        # recompute Med/NMAD against the aligned DEM so the bottom panel
+        # reflects what the aligned-DEM page is actually evaluating.
+        use_aligned_dh = (
+            plot_aligned
+            and self.aligned_dem_fn
+            and "icesat_minus_aligned_dem" in track.columns
+        )
+        if use_aligned_dh:
+            dh_plot = track["icesat_minus_aligned_dem"].dropna()
+            dh_label_suffix = " (Aligned DEM)"
+        else:
+            dh_plot = dh_vals
+            dh_label_suffix = ""
+
+        if not dh_plot.empty:
+            med = np.nanmedian(dh_plot.values)
+            nmad_val = _nmad(dh_plot.values)
             ax_dh.scatter(
-                dist.loc[dh_vals.index],
-                dh_vals,
+                dist.loc[dh_plot.index],
+                dh_plot,
                 color="gray",
                 s=4,
                 alpha=0.6,
                 zorder=2,
-                label=f"Med={med:+.2f} m, NMAD={nmad_val:.2f} m",
+                label=f"Med={med:+.2f} m, NMAD={nmad_val:.2f} m{dh_label_suffix}",
             )
             ax_dh.axhline(0, color="black", linewidth=0.5, linestyle="--", zorder=1)
 
@@ -2624,6 +2924,7 @@ class Altimetry:
         rgt=None,
         cycle=None,
         spot=None,
+        plot_aligned=False,
         save_dir=None,
         fig_fn=None,
     ):
@@ -2635,7 +2936,9 @@ class Altimetry:
         - Column 2: Worse agreement segment (highest score)
 
         Segment score is ``3·|median(dh)| + NMAD(dh)`` (see
-        ``_find_best_worst_segments``).
+        ``_find_best_worst_segments``). Segment selection is based on the
+        unaligned dh so best/worst segments remain comparable across the
+        pre- and post-alignment variants of this plot.
 
         Parameters
         ----------
@@ -2647,6 +2950,11 @@ class Altimetry:
             Cycle number (auto-selected if None)
         spot : int or None, optional
             Spot number (auto-selected if None)
+        plot_aligned : bool, optional
+            Whether to overlay the aligned DEM heights and include aligned
+            Median/NMAD in each segment title. Requires
+            ``self.aligned_dem_fn`` and the ``aligned_dem_height`` /
+            ``icesat_minus_aligned_dem`` columns. Default False.
         save_dir : str or None, optional
             Directory to save figure, default is None
         fig_fn : str or None, optional
@@ -2667,6 +2975,24 @@ class Altimetry:
         dh_col = "icesat_minus_dem"
         seg_best_color = "tab:blue"
         seg_worst_color = "tab:red"
+
+        show_aligned = False
+        if plot_aligned:
+            if not self.aligned_dem_fn:
+                logger.warning(
+                    "\nplot_aligned=True but no aligned DEM is available; "
+                    "showing unaligned segments only.\n"
+                )
+            elif (
+                "aligned_dem_height" not in track.columns
+                or "icesat_minus_aligned_dem" not in track.columns
+            ):
+                logger.warning(
+                    "\nAligned DEM columns missing from track; call "
+                    "atl06sr_to_dem_dh() after setting aligned_dem_fn.\n"
+                )
+            else:
+                show_aligned = True
 
         # --- 1×2 layout: better agreement | worse agreement ---
         fig, axes = plt.subplots(
@@ -2697,6 +3023,20 @@ class Altimetry:
                     linewidth=1,
                     label="DEM",
                 )
+
+            if show_aligned:
+                seg_ald = seg["aligned_dem_height"].dropna()
+                if not seg_ald.empty:
+                    seg_ald_dist = (
+                        seg.loc[seg_ald.index, "x_atc"].values - seg["x_atc"].values[0]
+                    )
+                    ax_seg.plot(
+                        seg_ald_dist,
+                        seg_ald.values,
+                        color="darkorange",
+                        linewidth=1,
+                        label="Aligned DEM",
+                    )
 
             # COP30 in segment
             cop30_col = "cop30.value"
@@ -2731,8 +3071,19 @@ class Altimetry:
             seg_dh = seg[dh_col].dropna()
             seg_med = np.nanmedian(seg_dh.values) if not seg_dh.empty else 0
             seg_nmad = _nmad(seg_dh.values) if len(seg_dh) >= 3 else 0
+            title_parts = [
+                f"{label_prefix} (Med={seg_med:+.1f} m, NMAD={seg_nmad:.1f} m)"
+            ]
+            if show_aligned:
+                seg_dh_ald = seg["icesat_minus_aligned_dem"].dropna()
+                if not seg_dh_ald.empty:
+                    med_ald = np.nanmedian(seg_dh_ald.values)
+                    nmad_ald = _nmad(seg_dh_ald.values) if len(seg_dh_ald) >= 3 else 0
+                    title_parts.append(
+                        f"Aligned (Med={med_ald:+.1f} m, NMAD={nmad_ald:.1f} m)"
+                    )
             ax_seg.set_title(
-                f"{label_prefix} (Med={seg_med:+.1f} m, NMAD={seg_nmad:.1f} m)",
+                "\n".join(title_parts),
                 fontsize=9,
                 color=color,
             )

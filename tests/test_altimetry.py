@@ -3,10 +3,11 @@ from datetime import datetime, timezone
 import geopandas as gpd
 import matplotlib
 import numpy as np
+import pandas as pd
 import pytest
 from shapely.geometry import Point
 
-from asp_plot.altimetry import ICESAT2_MISSION_START, Altimetry
+from asp_plot.altimetry import ICESAT2_MISSION_START, AlignmentResult, Altimetry
 
 matplotlib.use("Agg")
 
@@ -139,6 +140,106 @@ class TestAltimetry:
             icesat.alignment_report()
         except Exception as e:
             pytest.fail(f"alignment_report() method raised an exception: {str(e)}")
+
+    def test_histogram_by_landcover_plot_aligned_no_aligned_dem(self, icesat):
+        """plot_aligned=True without an aligned DEM should warn but not raise."""
+        icesat.atl06sr_to_dem_dh()
+        try:
+            icesat.histogram_by_landcover(key="all", plot_aligned=True)
+        except Exception as e:
+            pytest.fail(f"histogram_by_landcover(plot_aligned=True) raised: {str(e)}")
+
+    def test_plot_best_worst_segments_plot_aligned_no_aligned_dem(self, icesat):
+        """plot_aligned=True without an aligned DEM should warn but not raise."""
+        icesat.atl06sr_to_dem_dh()
+        try:
+            icesat.plot_best_worst_segments(key="all", plot_aligned=True)
+        except Exception as e:
+            pytest.fail(f"plot_best_worst_segments(plot_aligned=True) raised: {str(e)}")
+
+    def test_align_and_evaluate_insufficient_points(self, icesat, monkeypatch):
+        """Empty alignment_report_df maps to the insufficient_points branch."""
+
+        def fake_alignment_report(self, **kwargs):
+            self.alignment_report_df = pd.DataFrame()
+
+        monkeypatch.setattr(Altimetry, "alignment_report", fake_alignment_report)
+        result = icesat.align_and_evaluate()
+        assert isinstance(result, AlignmentResult)
+        assert result.status == "insufficient_points"
+        assert result.aligned_dem_fn is None
+        assert icesat.aligned_dem_fn is None
+        assert result.improvement_pct is None
+        assert "skipped" in result.message.lower()
+
+    def test_align_and_evaluate_no_improvement(self, icesat, monkeypatch, tmp_path):
+        """Unchanged p50 triggers no_improvement and deletes the aligned DEM."""
+        fake_aligned = tmp_path / "fake-DEM_pc_align_translated.tif"
+        fake_aligned.write_bytes(b"dummy")
+
+        def fake_alignment_report(self, **kwargs):
+            self.aligned_dem_fn = str(fake_aligned)
+            self.alignment_report_df = pd.DataFrame(
+                [
+                    {
+                        "key": "all",
+                        "p16_beg": 1.0,
+                        "p50_beg": 2.0,
+                        "p84_beg": 3.0,
+                        "p16_end": 1.0,
+                        "p50_end": 2.0,
+                        "p84_end": 3.0,
+                        "north_shift": 0.0,
+                        "east_shift": 0.0,
+                        "down_shift": 0.0,
+                        "translation_magnitude": 0.0,
+                    }
+                ]
+            )
+
+        monkeypatch.setattr(Altimetry, "alignment_report", fake_alignment_report)
+        result = icesat.align_and_evaluate(improvement_threshold_pct=5.0)
+        assert result.status == "no_improvement"
+        assert result.aligned_dem_fn is None
+        assert icesat.aligned_dem_fn is None
+        assert not fake_aligned.exists(), "aligned DEM should be cleaned up"
+
+    def test_align_and_evaluate_success(self, icesat, monkeypatch, tmp_path):
+        """Substantial p50 reduction maps to success and retains the aligned DEM."""
+        fake_aligned = tmp_path / "fake-DEM_pc_align_translated.tif"
+        fake_aligned.write_bytes(b"dummy")
+
+        def fake_alignment_report(self, **kwargs):
+            self.aligned_dem_fn = str(fake_aligned)
+            self.alignment_report_df = pd.DataFrame(
+                [
+                    {
+                        "key": "all",
+                        "p16_beg": 1.0,
+                        "p50_beg": 2.0,
+                        "p84_beg": 3.0,
+                        "p16_end": 0.4,
+                        "p50_end": 0.5,
+                        "p84_end": 1.0,
+                        "north_shift": 0.1,
+                        "east_shift": 0.2,
+                        "down_shift": -1.5,
+                        "translation_magnitude": 1.5,
+                    }
+                ]
+            )
+
+        def fake_atl06sr_to_dem_dh(self, n_sigma=3):
+            return
+
+        monkeypatch.setattr(Altimetry, "alignment_report", fake_alignment_report)
+        monkeypatch.setattr(Altimetry, "atl06sr_to_dem_dh", fake_atl06sr_to_dem_dh)
+        result = icesat.align_and_evaluate(improvement_threshold_pct=5.0)
+        assert result.status == "success"
+        assert result.aligned_dem_fn == str(fake_aligned)
+        assert fake_aligned.exists(), "aligned DEM should be retained"
+        assert result.improvement_pct is not None
+        assert result.improvement_pct > 5.0
 
 
 class TestLazySlideruleInit:
