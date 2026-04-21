@@ -654,7 +654,20 @@ def main(
                         )
                     )
                 elif align_result.status == "success":
-                    # Page A: alignment stats + pre/post landcover histogram
+                    # Page A: alignment parameters + stats + description
+                    # (the histogram gets its own full page below so the
+                    # figure isn't squeezed into the remaining space)
+                    sections.append(
+                        AlignmentReportPage(
+                            title=align_title,
+                            parameters=align_result.parameters_used,
+                            stats_row=stats_row,
+                            description=alignment_description,
+                            status_message=align_result.message,
+                        )
+                    )
+
+                    # Page B: pre/post landcover histogram
                     fig_fn = f"{next(figure_counter):02}.png"
                     icesat.histogram_by_landcover(
                         key="all",
@@ -663,12 +676,8 @@ def main(
                         fig_fn=fig_fn,
                     )
                     sections.append(
-                        AlignmentReportPage(
-                            title=align_title,
-                            parameters=align_result.parameters_used,
-                            stats_row=stats_row,
-                            description=alignment_description,
-                            status_message=align_result.message,
+                        ReportSection(
+                            title="ICESat-2 ATL06-SR Histogram (Aligned DEM)",
                             image_path=os.path.join(plots_directory, fig_fn),
                             caption=(
                                 "Pre- (steelblue) and post-alignment (orange) "
@@ -680,7 +689,7 @@ def main(
                         )
                     )
 
-                    # Page B: profile with aligned DEM
+                    # Page C: profile with aligned DEM
                     fig_fn = f"{next(figure_counter):02}.png"
                     icesat.plot_atl06sr_dem_profile(
                         key="all",
@@ -701,7 +710,7 @@ def main(
                         )
                     )
 
-                    # Page C: best/worst segments with aligned DEM
+                    # Page D: best/worst segments with aligned DEM
                     fig_fn = f"{next(figure_counter):02}.png"
                     icesat.plot_best_worst_segments(
                         key="all",
