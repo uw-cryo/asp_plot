@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.0] - 2026-04-20
+
+### Added
+- **Automatic `pc_align` step in the Earth altimetry block**, gated by a new `--pc_align` CLI flag (default `True`; disabled automatically when `--plot_altimetry` / `--plot_icesat` is `False`). Runs `pc_align` against ICESat-2 ATL06-SR, evaluates whether the aligned DEM is worth keeping, and appends the outcome as one or more report pages:
+  - Always: an **alignment report page** with the parameters table, a single-row horizontal stats table (p16/p50/p84 beg/end, north/east/down shifts, translation magnitude, values to 2 sig figs), a description explaining what `pc_align` does and the meaning of every column in the tables above, and a bold status line for the outcome of this run.
+  - On success (p50 drops toward 0 by more than `improvement_threshold_pct`, default 5%, **and** `pc_align` actually wrote an aligned DEM): three additional full-page diagnostic figures against the aligned DEM — a pre-/post-alignment landcover histogram, the full profile, and the best/worst 1 km segments.
+  - On insufficient ATL06-SR coverage or no meaningful improvement: the aligned DEM on disk is cleaned up so its presence is a truthy signal that the alignment is worth using.
+- **`Altimetry.align_and_evaluate(...)`** (new method) returning a plain `AlignmentResult` dataclass (`status ∈ {"insufficient_points", "no_improvement", "success"}`, `alignment_report_df`, `aligned_dem_fn`, `improvement_pct`, `message`, `parameters_used`). Does not import any `fpdf` / report dependencies, so it is safe to call from notebooks.
+- **`plot_aligned` kwargs** on `Altimetry.histogram_by_landcover` and `Altimetry.plot_best_worst_segments`:
+  - `histogram_by_landcover(plot_aligned=True)` overlays the pre- and post-alignment distributions using shared bin edges and renders two vertically stacked per-landcover stats text boxes whose outline colors match the bar colors (color = legend).
+  - `plot_best_worst_segments(plot_aligned=True)` keeps segment selection fixed (based on the unaligned `dh` so segments are comparable), overlays aligned DEM heights on each segment, and appends aligned Median/NMAD to the segment titles.
+- **`AlignmentReportPage`** dataclass in `asp_plot.report`: a report-section type that renders a kwargs table + single-row stats table + description + bold status line + optional figure with caption. Body text blocks render left-aligned to avoid justified word-spacing gaps.
+
+### Changed
+- **Processing Parameters is now page 2 of the PDF**, immediately after the DEM Summary on the title page, instead of the trailing appendix. Page order is now: title + DEM summary → processing parameters → diagnostic figures → (if any) alignment results.
+- **`plot_atl06sr_dem_profile(plot_aligned=True)`**: the lower `dh` panel now plots the post-alignment residuals (`icesat_minus_aligned_dem`) with Med/NMAD recomputed against the aligned DEM, with the legend entry tagged `"(Aligned DEM)"`. The upper elevation panel still overlays both the unaligned and aligned DEM for comparison. `plot_aligned=False` behavior is unchanged.
+
 ## [1.12.1] - 2026-04-14
 
 ### Changed
