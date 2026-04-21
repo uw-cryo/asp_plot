@@ -38,9 +38,10 @@ class AlignmentReportPage:
     """A PDF page for the pc_align-vs-ICESat-2 alignment workflow.
 
     Each page carries (optionally) a small kwargs table, a single-row
-    alignment-stats table, a status/message block, and an optional figure
-    with caption below. Rendered by compile_report alongside ReportSection
-    entries.
+    alignment-stats table, a description paragraph, a status/message block,
+    and an optional figure with caption below. Rendered by compile_report
+    alongside ReportSection entries. Body text blocks are rendered
+    left-aligned (not justified) to avoid large inter-word gaps.
 
     Attributes
     ----------
@@ -55,6 +56,10 @@ class AlignmentReportPage:
         ``pc_align_report``). Rendered as a horizontal 1-row table with
         column headers. Values are formatted to two significant figures.
         Use an empty dict to skip.
+    description : str
+        Long-form explanation of pc_align and the meaning of each column in
+        the parameters and stats tables. Rendered between the stats table
+        and the status message. Empty string to skip.
     status_message : str
         Short status paragraph (e.g. path to aligned DEM, or a note that
         alignment was skipped / produced no significant improvement).
@@ -69,6 +74,7 @@ class AlignmentReportPage:
     title: str
     parameters: dict = field(default_factory=dict)
     stats_row: dict = field(default_factory=dict)
+    description: str = ""
     status_message: str = ""
     image_path: Optional[str] = None
     caption: str = ""
@@ -317,9 +323,14 @@ def _render_alignment_report_page(pdf, page):
         _add_alignment_stats_row_table(pdf, page.stats_row)
         pdf.ln(3)
 
+    if page.description:
+        pdf.set_font("Helvetica", "", 9)
+        pdf.multi_cell(0, 4.5, page.description, align="L")
+        pdf.ln(2)
+
     if page.status_message:
-        pdf.set_font("Helvetica", "", 10)
-        pdf.multi_cell(0, 5, page.status_message)
+        pdf.set_font("Helvetica", "B", 10)
+        pdf.multi_cell(0, 5, page.status_message, align="L")
         pdf.ln(3)
 
     if page.image_path and os.path.exists(page.image_path):

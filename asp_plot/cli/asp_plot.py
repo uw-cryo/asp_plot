@@ -602,12 +602,44 @@ def main(
                     stats_row = row
 
                 align_title = "DEM Alignment with ICESat-2"
+                alignment_description = (
+                    "ASP's pc_align estimates a rigid 3D translation that "
+                    "minimizes the height residuals between the ASP DEM and "
+                    "ICESat-2 ATL06-SR ground-track points used as the "
+                    "reference point cloud. The translation is applied to "
+                    "the DEM directly (geotransform + pixel-value shift, no "
+                    "resampling) to produce the aligned DEM.\n\n"
+                    "Alignment Parameters (above):\n"
+                    "  - processing_level: ATL06-SR filter key used as the "
+                    "reference; 'all' uses every filtered point.\n"
+                    "  - minimum_points: minimum ATL06-SR point count "
+                    "required; fewer points skips the alignment.\n"
+                    "  - agreement_threshold: maximum relative disagreement "
+                    "across temporal sub-filters before the aligned DEM is "
+                    "flagged as inconsistent.\n"
+                    "  - min_translation_threshold: minimum translation "
+                    "magnitude (as a fraction of the DEM GSD) required to "
+                    "write out an aligned DEM.\n"
+                    "  - improvement_threshold_pct: minimum percentage "
+                    "reduction in p50 required to keep the aligned DEM on "
+                    "disk; below this, the aligned DEM is removed.\n\n"
+                    "Alignment Statistics (above, in meters):\n"
+                    "  - p16_beg / p50_beg / p84_beg: 16th / 50th / 84th "
+                    "percentile of the DEM-vs-ICESat absolute height "
+                    "residuals before alignment.\n"
+                    "  - p16_end / p50_end / p84_end: same percentiles "
+                    "after alignment.\n"
+                    "  - N_shift / E_shift / D_shift: north / east / down "
+                    "components of the applied translation vector.\n"
+                    "  - |T|: magnitude of the translation vector."
+                )
 
                 if align_result.status == "insufficient_points":
                     sections.append(
                         AlignmentReportPage(
                             title=align_title,
                             parameters=align_result.parameters_used,
+                            description=alignment_description,
                             status_message=align_result.message,
                         )
                     )
@@ -617,6 +649,7 @@ def main(
                             title=align_title,
                             parameters=align_result.parameters_used,
                             stats_row=stats_row,
+                            description=alignment_description,
                             status_message=align_result.message,
                         )
                     )
@@ -634,6 +667,7 @@ def main(
                             title=align_title,
                             parameters=align_result.parameters_used,
                             stats_row=stats_row,
+                            description=alignment_description,
                             status_message=align_result.message,
                             image_path=os.path.join(plots_directory, fig_fn),
                             caption=(
