@@ -14,11 +14,25 @@ Examples of modular usage of `asp_plot`, organized by sensor type. Each notebook
 Stereo processing of publicly available SpaceNet Atlanta WorldView-2 data.
 :::
 
+:::{grid-item-card} WorldView — SpaceNet Atlanta (Scene Selection)
+:link: notebooks/worldview_spacenet_atlanta_stereo_scene_selection
+:link-type: doc
+
+Pair-ranking and DEM-vs-ICESat-2 comparison used to choose the Atlanta stereo pair processed in the companion notebook.
+:::
+
 :::{grid-item-card} WorldView — SpaceNet UCSD
 :link: notebooks/worldview_spacenet_ucsd_stereo
 :link-type: doc
 
 Stereo processing of publicly available IARPA CORE3D UCSD WorldView-3 data.
+:::
+
+:::{grid-item-card} WorldView — SpaceNet UCSD (Scene Selection)
+:link: notebooks/worldview_spacenet_ucsd_stereo_scene_selection
+:link-type: doc
+
+Pair-ranking and DEM-vs-ICESat-2 comparison used to choose the UCSD stereo pair processed in the companion notebook.
 :::
 
 :::{grid-item-card} WorldView — Uyuni Jitter Plots
@@ -91,7 +105,9 @@ Mars Reconnaissance Orbiter High Resolution Imaging Science Experiment processin
 :hidden:
 
 notebooks/worldview_spacenet_atlanta_stereo
+notebooks/worldview_spacenet_atlanta_stereo_scene_selection
 notebooks/worldview_spacenet_ucsd_stereo
+notebooks/worldview_spacenet_ucsd_stereo_scene_selection
 notebooks/worldview_uyuni_jitter_plots
 notebooks/aster_with_mapprojection
 notebooks/aster_with_bundle_adjust_and_jitter_correction
