@@ -57,7 +57,13 @@ intersphinx_mapping = {
 }
 
 # -- General -----------------------------------------------------------------
-exclude_patterns = ["_build", "**.ipynb_checkpoints", ".DS_Store"]
+exclude_patterns = [
+    "_build",
+    "**.ipynb_checkpoints",
+    ".DS_Store",
+    # Notebooks kept in the repo but intentionally excluded from the docs.
+    "examples/notebooks/worldview_utqiagvik_stereo.ipynb",
+]
 html_static_path = ["_static"]
 html_extra_path = ["_extra"]
 templates_path = ["_templates"]
