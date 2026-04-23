@@ -84,21 +84,37 @@ The boundary defines a 3 km × 3 km UTM 11N area matching the ASP processing ext
 
 | Metric | Value |
 |---|---|
-| Computation time | _pending current run_ |
-| Peak memory (SETSM-reported) | _pending current run_ |
+| Computation time | ~20 min |
+| Peak memory (SETSM-reported) | 2.72 GB |
 | Docker `--memory` limit | 11 GB |
-| Output DEM | _pending current run_ |
-| Output std dev | _pending current run_ |
+| Output DEM | 1500 × 1500 px, 2 m, EPSG:32611 |
+| Output std dev | 39.6 m |
 | Convergence angle | 21.2° |
 
 ### Hillshade Comparison
 
-_Pending current run — will be added once SETSM completes on the canonical pair._
+::::{grid} 3
+:::{grid-item}
+![Copernicus 30m](../examples/figures/ucsd-cop30m-hillshade.png)
+**Copernicus 30m DEM**
+:::
+:::{grid-item}
+![ASP 2m](../examples/figures/ucsd-asp2m-hillshade.png)
+**ASP 2m DEM**
+:::
+:::{grid-item}
+![SETSM 2m](../examples/figures/ucsd-setsm2m-hillshade.png)
+**SETSM 2m DEM**
+:::
+::::
+
+SETSM resolves the same urban structure as ASP — buildings, streets, and the campus / Mount Soledad topography are all clearly visible. The SETSM hillshade is somewhat speckled compared to ASP's, but the underlying geometry is recovered. No tile-boundary artifacts.
 
 :::{dropdown} Additional notes
 :icon: note
 
 - SETSM's user manual warns against `-seed <filepath> <sigma>`: *"We caution that it is better to not use a seed DEM if possible, as it can only negatively impact the quality of the SETSM DEM."*
+- The run did not produce `results_hillshade.tif`; the hillshade above was generated from `results_dem.tif` with a matplotlib `LightSource` shader.
 :::
 
 ## References
