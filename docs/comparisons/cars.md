@@ -21,8 +21,10 @@ Same WorldView-3 stereo pair as the [SETSM comparison](setsm):
 
 | Catalog ID | Date | Off-nadir | Image size |
 |---|---|---|---|
-| 1040010007A3D100 | 2015-02-11 | 24.3° | 43008 x 44032 px |
-| 1040010007A93700 | 2015-02-12 | 9.6° | 43008 x 46080 px |
+| 1040010007A93700 | 2015-02-12 | 8.4° | 43008 × 46080 px |
+| 1040010007CA4D00 | 2015-02-24 | 12.9° | 43008 × 46080 px |
+
+This is the same pair (`21deg_12d`, convergence 21.2°) used in the [scene-selection notebook](../examples/notebooks/worldview_spacenet_ucsd_stereo_scene_selection) and the [ASP processing notebook](../examples/notebooks/worldview_spacenet_ucsd_stereo).
 
 ## Processing Approach: ROI on Full Images
 
@@ -59,9 +61,9 @@ docker run --platform linux/amd64 --rm \
 input:
   sensors:
     left:
-      image: /input/1040010007A3D100_P001.tif
-    right:
       image: /input/1040010007A93700_P001.tif
+    right:
+      image: /input/1040010007CA4D00_P001.tif
   roi:
     type: FeatureCollection
     features:
@@ -107,22 +109,20 @@ Expected outputs in `results/`:
 - **Initial elevation**: Providing a coarse DEM via `input.initial_elevation.dem` narrows the disparity search range and speeds processing.
 :::
 
+## Run Metrics
+
+| Metric | Value |
+|---|---|
+| Computation time | _pending current run_ |
+| Peak memory | _pending current run_ |
+| Docker `--memory` limit | 11 GB |
+| Output DSM | _pending current run_ |
+| Output std dev | _pending current run_ |
+| Convergence angle | 21.2° |
+
 ## Hillshade Comparison
 
-::::{grid} 3
-:::{grid-item}
-![Copernicus 30m](../examples/figures/ucsd-cop30m-hillshade.png)
-**Copernicus 30m DEM**
-:::
-:::{grid-item}
-![ASP 2m](../examples/figures/ucsd-asp2m-hillshade.png)
-**ASP 2m DEM**
-:::
-:::{grid-item}
-![CARS 2m](../examples/figures/ucsd-cars2m-hillshade.png)
-**CARS 2m DEM**
-:::
-::::
+_Pending current run — will be added once CARS completes on the canonical pair._
 
 ## References
 
