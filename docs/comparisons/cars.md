@@ -83,15 +83,15 @@ output:
 
 orchestrator:
   mode: multiprocessing
-  nb_workers: 4
-  max_ram_per_worker: 2000
+  nb_workers: 2
+  max_ram_per_worker: 1500
 ```
 
 Key parameters:
 - `output.resolution: 2.0` — 2 m output to match ASP processing
 - `output.epsg: 32611` — UTM 11N (same CRS as ASP DEM)
-- `orchestrator.nb_workers: 4` — limit parallelism for 16 GB laptop
-- `orchestrator.max_ram_per_worker: 2000` — 2 GB per worker (CARS default)
+- `orchestrator.nb_workers: 2` — limit parallelism for 16 GB laptop
+- `orchestrator.max_ram_per_worker: 1500` — 1.5 GB per worker
 :::
 
 Expected outputs in `results/`:
