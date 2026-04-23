@@ -113,16 +113,34 @@ Expected outputs in `results/`:
 
 | Metric | Value |
 |---|---|
-| Computation time | _pending current run_ |
-| Peak memory | _pending current run_ |
+| Computation time | ~17 h 18 min |
+| Peak memory | ~10.3 GB (hit CARS' `RAM available < 500 Mb` warnings near the end) |
 | Docker `--memory` limit | 11 GB |
-| Output DSM | _pending current run_ |
-| Output std dev | _pending current run_ |
+| Output DSM | 2017 × 2001 px, 2 m, EPSG:32611 + EGM96 |
+| Output std dev (raw) | 134.6 m (inflated by edge blunders outside the 3 km comparison box) |
+| Output std dev (3 km comparison crop) | 48.7 m |
 | Convergence angle | 21.2° |
+
+CARS is much slower than SETSM on this laptop (17 h vs 20 min), primarily because Pandora's per-tile Census + SGM matching is done in pure Python multiprocessing with two workers at 1.5 GB each. The run reports `RAM available < 500 Mb` warnings during the final `texture / dsm / dsm_weights` passes but completes successfully. The raw DSM carries some edge blunders (min −321 m, max 1273 m) outside the canonical 3 km comparison area; inside the comparison crop the range collapses to approximately −200 m to +200 m with outliers concentrated at the seaward edge.
 
 ## Hillshade Comparison
 
-_Pending current run — will be added once CARS completes on the canonical pair._
+::::{grid} 3
+:::{grid-item}
+![Copernicus 30m](../examples/figures/ucsd-cop30m-hillshade.png)
+**Copernicus 30m DEM**
+:::
+:::{grid-item}
+![ASP 2m](../examples/figures/ucsd-asp2m-hillshade.png)
+**ASP 2m DEM**
+:::
+:::{grid-item}
+![CARS 2m](../examples/figures/ucsd-cars2m-hillshade.png)
+**CARS 2m DEM**
+:::
+::::
+
+CARS resolves the urban structure cleanly — buildings, streets, the I-5 freeway on the east, Mount Soledad terrain on the west — comparable to ASP in detail. Some speckle remains in low-matching-confidence zones (coastal edge, vegetation canopies). No tile-boundary artifacts.
 
 ## References
 
