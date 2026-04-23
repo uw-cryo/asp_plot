@@ -140,7 +140,7 @@ CARS is much slower than SETSM on this laptop (17 h vs 20 min), primarily becaus
 :::
 ::::
 
-CARS resolves the urban structure cleanly — buildings, streets, the I-5 freeway on the east, Mount Soledad terrain on the west — comparable to ASP in detail. Some speckle remains in low-matching-confidence zones (coastal edge, vegetation canopies). No tile-boundary artifacts.
+CARS resolves the urban structure cleanly — buildings, streets, the I-5 freeway on the east, Mount Soledad terrain on the west — comparable to ASP in detail. Some speckle remains along the seaward edge where CARS' ROI extends beyond the stereo overlap. No tile-boundary artifacts.
 
 ## References
 
