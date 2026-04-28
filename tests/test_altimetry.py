@@ -1,3 +1,4 @@
+import os
 from datetime import datetime, timezone
 
 import geopandas as gpd
@@ -395,6 +396,55 @@ class TestPlanetaryDh:
             alt_with_points.histogram_planetary_to_dem()
         except Exception as e:
             pytest.fail(f"histogram_planetary_to_dem raised: {e}")
+
+    def test_to_csv_for_pc_align_planetary(self, alt_with_points, tmp_path):
+        """to_csv_for_pc_align_planetary writes lon/lat/radius_m only."""
+        # Add the radius_m column the loaders normally populate
+        alt_with_points.planetary_points["radius_m"] = (
+            alt_with_points.planetary_points["height"] + 6_378_137.0
+        )
+        alt_with_points.directory = str(tmp_path)
+        csv_fn = alt_with_points.to_csv_for_pc_align_planetary()
+        assert os.path.exists(csv_fn)
+        df = pd.read_csv(csv_fn)
+        assert list(df.columns) == ["lon", "lat", "radius_m"]
+        assert len(df) > 0
+        # No NaNs in the exported file
+        assert not df.isna().any().any()
+
+    def test_to_csv_for_pc_align_planetary_requires_radius(
+        self, alt_with_points, tmp_path
+    ):
+        """Missing radius_m column raises a clear error."""
+        alt_with_points.directory = str(tmp_path)
+        # Strip radius_m if present
+        if "radius_m" in alt_with_points.planetary_points.columns:
+            alt_with_points.planetary_points = alt_with_points.planetary_points.drop(
+                columns=["radius_m"]
+            )
+        with pytest.raises(ValueError, match="radius_m"):
+            alt_with_points.to_csv_for_pc_align_planetary()
+
+    def test_align_and_evaluate_planetary_no_points(self, alt_with_points):
+        """No planetary points loaded → insufficient_points status."""
+        alt_with_points.planetary_points = None
+        result = alt_with_points.align_and_evaluate_planetary()
+        assert result.status == "insufficient_points"
+        assert result.aligned_dem_fn is None
+
+    def test_align_and_evaluate_planetary_too_few_overlap(
+        self, alt_with_points, tmp_path
+    ):
+        """Few overlapping valid dh points → insufficient_points status."""
+        alt_with_points.directory = str(tmp_path)
+        # All points are nominally valid in the fixture; force minimum_points
+        # higher than the available count to take the early-exit branch.
+        alt_with_points.planetary_points["radius_m"] = (
+            alt_with_points.planetary_points["height"] + 6_378_137.0
+        )
+        result = alt_with_points.align_and_evaluate_planetary(minimum_points=10_000)
+        assert result.status == "insufficient_points"
+        assert result.aligned_dem_fn is None
 
 
 class TestLoadPlanetaryCsv:
