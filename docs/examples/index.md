@@ -14,6 +14,13 @@ Examples of modular usage of `asp_plot`, organized by sensor type. Each notebook
 Stereo processing of publicly available SpaceNet Atlanta WorldView-2 data.
 :::
 
+:::{grid-item-card} WorldView — SpaceNet Atlanta (No Mapprojection)
+:link: notebooks/worldview_spacenet_atlanta_stereo_without_mapprojection
+:link-type: doc
+
+Same Atlanta stereopair as the main notebook but processed without the mapprojection step (`--alignment-method affineepipolar`), with a side-by-side ICESat-2 histogram comparison.
+:::
+
 :::{grid-item-card} WorldView — SpaceNet Atlanta (Scene Selection)
 :link: notebooks/worldview_spacenet_atlanta_stereo_scene_selection
 :link-type: doc
@@ -105,6 +112,7 @@ Mars Reconnaissance Orbiter High Resolution Imaging Science Experiment processin
 :hidden:
 
 notebooks/worldview_spacenet_atlanta_stereo
+notebooks/worldview_spacenet_atlanta_stereo_without_mapprojection
 notebooks/worldview_spacenet_atlanta_stereo_scene_selection
 notebooks/worldview_spacenet_ucsd_stereo
 notebooks/worldview_spacenet_ucsd_stereo_scene_selection
