@@ -1505,9 +1505,18 @@ class Altimetry:
         )
 
         if is_radius:
+            # LOLA RDR Pt_Radius is in KILOMETERS (per the ODE GDS Point
+            # per Row CSV header), unlike MOLA PEDR PLANET_RAD which is
+            # in meters. Detect units by magnitude (~1737 vs ~1737000)
+            # and normalize to meters.
+            if df["height_raw"].median() < 10000:
+                df["height_raw"] = df["height_raw"] * 1000.0
+                unit_note = " (km → m)"
+            else:
+                unit_note = ""
             df["height"] = df["height_raw"] - MOON_IAU_SPHERE_RADIUS
             df["radius_m"] = df["height_raw"]
-            source = "Pt_Radius"
+            source = f"Pt_Radius{unit_note}"
         else:
             # Topography path: the Moon is essentially spherical so LOLA
             # topography ≈ height above the IAU 1737.4 km sphere.

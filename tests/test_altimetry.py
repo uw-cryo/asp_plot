@@ -458,7 +458,7 @@ class TestLoadPlanetaryCsv:
         )
 
     def test_load_lola_csv(self, alt, tmp_path):
-        """Test LOLA CSV parsing with valid data."""
+        """Test LOLA CSV parsing with topo CSV (no Pt_Radius)."""
         csv = tmp_path / "lola.csv"
         csv.write_text(
             "Pt_Longitude, Pt_Latitude, Topography\n"
@@ -470,9 +470,28 @@ class TestLoadPlanetaryCsv:
         assert alt.planetary_points is not None
         assert len(alt.planetary_points) == 3
         assert "height" in alt.planetary_points.columns
-        assert "lon" in alt.planetary_points.columns
+        assert "radius_m" in alt.planetary_points.columns
         # Height should equal topography directly for LOLA
         assert alt.planetary_points["height"].iloc[0] == pytest.approx(295.81)
+        # radius_m back-computed against the IAU 1737.4 km sphere
+        assert alt.planetary_points["radius_m"].iloc[0] == pytest.approx(1737695.81)
+
+    def test_load_lola_csv_pts_radius_km(self, alt, tmp_path):
+        """LOLA Point per Row CSV has Pt_Radius in km — auto-convert to m."""
+        csv = tmp_path / "lola_pts.csv"
+        csv.write_text(
+            "Pt_Longitude, Pt_Latitude, Pt_Radius\n"
+            " 15.3287,  -9.6003, 1737.668720\n"
+            " 15.3286,  -9.6021, 1737.666748\n"
+        )
+        alt._load_lola_csv(str(csv))
+        # Pt_Radius is preferred; km auto-detected and converted to m.
+        assert alt.planetary_points["radius_m"].iloc[0] == pytest.approx(
+            1737668.720, abs=1e-3
+        )
+        assert alt.planetary_points["height"].iloc[0] == pytest.approx(
+            268.720, abs=1e-3
+        )
 
     def test_load_mola_csv(self, alt, tmp_path):
         """Test MOLA CSV parsing with PLANET_RAD column (the supported path)."""
