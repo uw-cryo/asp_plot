@@ -77,18 +77,11 @@ ASTER processing with bundle adjustment and jitter correction.
 LRO Narrow Angle Camera stereo processing on the lunar surface.
 :::
 
-:::{grid-item-card} Mars MGS MOC
+:::{grid-item-card} Mars MGS MOC NA
 :link: notebooks/mars_mgs_orbital_camera
 :link-type: doc
 
-Mars Global Surveyor Mars Orbital Camera processing.
-:::
-
-:::{grid-item-card} Mars MGS MOC Narrow Angle
-:link: notebooks/mars_mgs_orbital_camera_narrow_angle
-:link-type: doc
-
-Mars Global Surveyor MOC Narrow Angle camera processing.
+Mars Global Surveyor MOC Narrow Angle stereo, both mapprojected and non-mapprojected, with MOLA `pc_align`.
 :::
 
 :::{grid-item-card} Mars MRO CTX
@@ -121,7 +114,6 @@ notebooks/aster_with_mapprojection
 notebooks/aster_with_bundle_adjust_and_jitter_correction
 notebooks/lunar_recon_orbiter
 notebooks/mars_mgs_orbital_camera
-notebooks/mars_mgs_orbital_camera_narrow_angle
 notebooks/mars_mro_ctx
 notebooks/mars_mro_hirise
 ```
