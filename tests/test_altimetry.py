@@ -425,26 +425,38 @@ class TestLoadPlanetaryCsv:
         assert alt.planetary_points["height"].iloc[0] == pytest.approx(295.81)
 
     def test_load_mola_csv(self, alt, tmp_path):
-        """Test MOLA CSV parsing with valid topo data."""
+        """Test MOLA CSV parsing with PLANET_RAD column (the supported path)."""
         csv = tmp_path / "mola.csv"
         csv.write_text(
-            "LONG_EAST,LAT_NORTH, TOPOGRAPHY,            UTC\n"
-            "137.13264, -4.91750,   -4499.73,1999-08-31T19:13:24.847\n"
-            "137.13197, -4.91240,   -4505.07,1999-08-31T19:13:24.947\n"
+            "LONG_EAST,LAT_NORTH, TOPOGRAPHY, PLANET_RAD,            UTC\n"
+            "137.13264, -4.91750,   -4499.73, 3391690.27,1999-08-31T19:13:24.847\n"
+            "137.13197, -4.91240,   -4505.07, 3391684.93,1999-08-31T19:13:24.947\n"
         )
         alt._load_mola_csv(str(csv))
         assert alt.planetary_points is not None
         assert len(alt.planetary_points) == 2
         assert "height" in alt.planetary_points.columns
-        # Topography used directly (no -190 m correction)
+        assert "radius_m" in alt.planetary_points.columns
+        # height = PLANET_RAD - 3,396,190 (IAU sphere)
         assert alt.planetary_points["height"].iloc[0] == pytest.approx(-4499.73)
+        assert alt.planetary_points["radius_m"].iloc[0] == pytest.approx(3391690.27)
+
+    def test_load_mola_topo_only_raises(self, alt, tmp_path):
+        """Test that a *_topo_csv.csv (no PLANET_RAD) is rejected with help."""
+        csv = tmp_path / "mola_topo.csv"
+        csv.write_text(
+            "LONG_EAST,LAT_NORTH, TOPOGRAPHY,            UTC\n"
+            "137.13264, -4.91750,   -4499.73,1999-08-31T19:13:24.847\n"
+        )
+        with pytest.raises(ValueError, match="PLANET_RAD"):
+            alt._load_mola_csv(str(csv))
 
     def test_load_mola_csv_lon_conversion(self, alt, tmp_path):
         """Test that MOLA 0-360 longitude is converted to -180/180."""
         csv = tmp_path / "mola.csv"
         csv.write_text(
-            "LONG_EAST,LAT_NORTH, TOPOGRAPHY,            UTC\n"
-            "270.0, 10.0, -3000.0, 1999-01-01T00:00:00\n"
+            "LONG_EAST,LAT_NORTH, TOPOGRAPHY, PLANET_RAD,            UTC\n"
+            "270.0, 10.0, -3000.0, 3393190.0, 1999-01-01T00:00:00\n"
         )
         alt._load_mola_csv(str(csv))
         assert alt.planetary_points["lon"].iloc[0] == pytest.approx(-90.0)
@@ -460,7 +472,7 @@ class TestLoadPlanetaryCsv:
         """Test that wrong columns raise ValueError with helpful message."""
         csv = tmp_path / "wrong.csv"
         csv.write_text("col_a, col_b, col_c\n1,2,3\n")
-        with pytest.raises(ValueError, match="topo_csv.csv"):
+        with pytest.raises(ValueError, match="planetary radius"):
             alt._load_lola_csv(str(csv))
 
     def test_load_planetary_csv_earth_raises(self, alt, tmp_path):

@@ -25,6 +25,11 @@ logger = logging.getLogger(__name__)
 
 ICESAT2_MISSION_START = datetime(2018, 10, 14, tzinfo=timezone.utc)
 
+# IAU 2000 mean equatorial radii used by ASP DEMs and pc_align.
+# ASP DEM heights are stored as (planetary_radius - sphere_radius).
+MARS_IAU_SPHERE_RADIUS = 3_396_190.0  # meters
+MOON_IAU_SPHERE_RADIUS = 1_737_400.0  # meters
+
 WORLDCOVER_NAMES = {
     10: "Tree cover",
     20: "Shrubland",
@@ -1379,7 +1384,16 @@ class Altimetry:
     ]
     _LAT_CANDIDATES = ["pt_latitude", "lat_north", "latitude", "areocentric_latitude"]
     _TOPO_CANDIDATES = ["topography", "topo"]
-    _RADIUS_CANDIDATES = ["planet_rad", "radius", "planetary_radius"]
+    # PLANET_RAD column names from ODE GDS PEDR (Mars) and LOLA RDR
+    # "Point Per Row" CSV (Moon, has Pt_Radius). Order matters — names
+    # earlier in the list are preferred.
+    _RADIUS_CANDIDATES = [
+        "planet_rad",
+        "planet_rad (shot_planetary_radius)",
+        "pt_radius",
+        "planetary_radius",
+        "radius",
+    ]
 
     # Geographic CRS WKT strings for building GeoDataFrames
     _MOON_GEO_CRS = 'GEOGCRS["Moon",DATUM["D_MOON",ELLIPSOID["MOON",1737400,0]],PRIMEM["Reference_Meridian",0],CS[ellipsoidal,2],AXIS["latitude",north,ORDER[1],ANGLEUNIT["degree",0.0174532925199433]],AXIS["longitude",east,ORDER[2],ANGLEUNIT["degree",0.0174532925199433]]]'
@@ -1406,10 +1420,13 @@ class Altimetry:
                 return cols_lower[c]
         return None
 
-    def _load_planetary_csv_common(self, csv_path, instrument):
+    def _load_planetary_csv_common(self, csv_path, instrument, prefer="radius"):
         """Shared CSV loading logic for LOLA and MOLA.
 
         Reads the CSV, validates columns, converts longitude to -180/180.
+        Picks PLANET_RAD over TOPOGRAPHY by default (``prefer="radius"``)
+        because TOPOGRAPHY is referenced to the oblate areoid and produces
+        a latitude-dependent offset against ASP's spherical-IAU DEMs.
 
         Parameters
         ----------
@@ -1417,12 +1434,14 @@ class Altimetry:
             Path to the CSV file.
         instrument : str
             ``"LOLA"`` or ``"MOLA"`` (for error messages).
+        prefer : {"radius", "topo"}
+            Which column family to try first.
 
         Returns
         -------
-        tuple of (pandas.DataFrame, str or None, bool)
+        tuple of (pandas.DataFrame, bool)
             (df with ``lon``, ``lat``, ``height_raw`` columns,
-             height column name found, whether it was a radius column)
+             ``is_radius`` flag — True if the chosen column is a planetary radius)
         """
         df = pd.read_csv(csv_path)
 
@@ -1436,21 +1455,24 @@ class Altimetry:
 
         lon_col = self._find_csv_column(cols_lower, self._LON_CANDIDATES)
         lat_col = self._find_csv_column(cols_lower, self._LAT_CANDIDATES)
-        topo_col = self._find_csv_column(cols_lower, self._TOPO_CANDIDATES)
 
-        is_radius = False
-        height_col = topo_col
-        if height_col is None:
-            height_col = self._find_csv_column(cols_lower, self._RADIUS_CANDIDATES)
-            is_radius = height_col is not None
+        if prefer == "radius":
+            primary = self._find_csv_column(cols_lower, self._RADIUS_CANDIDATES)
+            fallback = self._find_csv_column(cols_lower, self._TOPO_CANDIDATES)
+            is_radius = primary is not None
+        else:
+            primary = self._find_csv_column(cols_lower, self._TOPO_CANDIDATES)
+            fallback = self._find_csv_column(cols_lower, self._RADIUS_CANDIDATES)
+            is_radius = primary is None and fallback is not None
+
+        height_col = primary if primary is not None else fallback
 
         if lon_col is None or lat_col is None or height_col is None:
             raise ValueError(
                 f"{instrument} CSV does not have expected columns.\n"
                 f"  Found: {list(df.columns)}\n"
-                f"  Expected longitude, latitude, and topography columns.\n\n"
-                f"Make sure you are using the '*_topo_csv.csv' file from the "
-                f"ODE GDS download, not the '*_pts_csv.csv' or label file."
+                f"  Expected longitude, latitude, and either a planetary "
+                f"radius (PLANET_RAD / Pt_Radius) or topography column."
             )
 
         df = df.rename(
@@ -1463,15 +1485,35 @@ class Altimetry:
         return df, is_radius
 
     def _load_lola_csv(self, csv_path):
-        """Parse a LOLA simple-topography CSV into a GeoDataFrame.
+        """Parse a LOLA topo CSV into a GeoDataFrame.
+
+        Stores height above the IAU 1737.4 km lunar sphere on
+        ``self.planetary_points["height"]`` and the planetary radius on
+        ``self.planetary_points["radius_m"]`` (used by pc_align).
+
+        The Moon is nearly spherical (1.4 km equatorial-vs-polar variation),
+        so LOLA TOPOGRAPHY ≈ Pt_Radius − 1737.4 km. Either column gives the
+        same dh against an ASP lunar DEM to <1 m.
 
         Parameters
         ----------
         csv_path : str
-            Path to the CSV file.
+            Path to a LOLA RDR CSV from the ODE GDS API.
         """
-        df, _ = self._load_planetary_csv_common(csv_path, "LOLA")
-        df["height"] = df["height_raw"]
+        df, is_radius = self._load_planetary_csv_common(
+            csv_path, "LOLA", prefer="radius"
+        )
+
+        if is_radius:
+            df["height"] = df["height_raw"] - MOON_IAU_SPHERE_RADIUS
+            df["radius_m"] = df["height_raw"]
+            source = "Pt_Radius"
+        else:
+            # Topography path: the Moon is essentially spherical so LOLA
+            # topography ≈ height above the IAU 1737.4 km sphere.
+            df["height"] = df["height_raw"]
+            df["radius_m"] = df["height_raw"] + MOON_IAU_SPHERE_RADIUS
+            source = "Topography"
 
         gdf = gpd.GeoDataFrame(
             df,
@@ -1479,46 +1521,45 @@ class Altimetry:
             crs=self._MOON_GEO_CRS,
         )
         self.planetary_points = gdf
-        print(f"Loaded {len(gdf)} LOLA points")
+        print(f"Loaded {len(gdf)} LOLA points (using {source} column)")
 
     def _load_mola_csv(self, csv_path):
         """Parse a MOLA PEDR CSV into a GeoDataFrame.
 
-        TOPOGRAPHY values are heights above the MOLA areoid (Mars
-        geoid).  ASP DEMs store heights above the IAU sphere
-        (3,396,190 m).  These are different vertical datums, so a
-        systematic offset equal to the local areoid height will be
-        present in the dh values.  If only PLANET_RAD (radius) is
-        available, a -190 m correction converts from the MOLA sphere
-        (3,396,000 m) to the IAU sphere.
+        Uses the PLANET_RAD column and converts to height above the IAU
+        Mars sphere (3,396,190 m): ``height = PLANET_RAD - 3,396,190``.
+        This is the same reference as ASP DEMs, so dh = MOLA − DEM is
+        directly meaningful at all latitudes.
+
+        TOPOGRAPHY (in ``*_topo_csv.csv``) is referenced to the MOLA
+        oblate areoid and produces a latitude-dependent offset of up to
+        ~10 km against an ASP DEM, so it is rejected here. Pass the
+        ``*_pts_csv.csv`` from the ODE GDS download instead.
 
         Parameters
         ----------
         csv_path : str
-            Path to the CSV file.
+            Path to a MOLA PEDR CSV from the ODE GDS API. Must include
+            a ``PLANET_RAD`` column (use the ``*_pts_csv.csv`` file).
         """
-        df, is_radius = self._load_planetary_csv_common(csv_path, "MOLA")
+        df, is_radius = self._load_planetary_csv_common(
+            csv_path, "MOLA", prefer="radius"
+        )
 
-        MOLA_SPHERE_OFFSET = 190.0  # meters
-        if is_radius:
-            df["height"] = df["height_raw"] - MOLA_SPHERE_OFFSET
-            print(
-                f"Applied -{MOLA_SPHERE_OFFSET} m correction "
-                "(MOLA sphere → IAU sphere)"
+        if not is_radius:
+            raise ValueError(
+                f"MOLA CSV is missing the PLANET_RAD column: {csv_path}\n"
+                "The ODE GDS '*_topo_csv.csv' only has TOPOGRAPHY, which is "
+                "height above the oblate MOLA areoid. ASP DEMs use the "
+                "spherical IAU 2000 datum (3,396,190 m), so dh from "
+                "TOPOGRAPHY carries a latitude-dependent offset of up to "
+                "~10 km that pc_align cannot remove.\n\n"
+                "Pass the '*_pts_csv.csv' file from the same ODE GDS "
+                "download instead — it contains PLANET_RAD."
             )
-        else:
-            # MOLA TOPOGRAPHY is height above the MOLA areoid (Mars geoid).
-            # ASP DEMs store height above the IAU sphere (3,396,190 m).
-            # These are different vertical datums, so a systematic offset
-            # (equal to the local areoid height) will be present in the
-            # dh values.  This is a known limitation — correcting it
-            # requires the MOLA areoid grid or ASP's `dem_geoid --geoid MOLA`.
-            df["height"] = df["height_raw"]
-            print(
-                "Note: MOLA topography is referenced to the MOLA areoid. "
-                "ASP DEMs use the IAU sphere. A systematic vertical offset "
-                "may be present in dh values."
-            )
+
+        df["height"] = df["height_raw"] - MARS_IAU_SPHERE_RADIUS
+        df["radius_m"] = df["height_raw"]
 
         gdf = gpd.GeoDataFrame(
             df,
@@ -1526,7 +1567,10 @@ class Altimetry:
             crs=self._MARS_GEO_CRS,
         )
         self.planetary_points = gdf
-        print(f"Loaded {len(gdf)} MOLA points")
+        print(
+            f"Loaded {len(gdf)} MOLA points "
+            f"(PLANET_RAD - {MARS_IAU_SPHERE_RADIUS:.0f} m → height above IAU sphere)"
+        )
 
     def planetary_to_dem_dh(self, n_sigma=3):
         """Compute height differences between planetary altimetry and DEM.
