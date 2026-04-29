@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.14.0] - 2026-04-28
+
+### Added
+- **Automatic `pc_align` step in the planetary altimetry block** ([#119](https://github.com/uw-cryo/asp_plot/pull/119)). The existing `--pc_align` CLI flag now also runs against MOLA (Mars) and LOLA (Moon) — previously Earth/ICESat-2 only. Mirrors the Earth pipeline: a single alignment-report page on `insufficient_points` / `no_improvement`, plus a pre/post mapview and pre/post histogram on `success`.
+- **`Altimetry.align_and_evaluate_planetary(...)`**: planetary sibling of `align_and_evaluate`. Returns the same `AlignmentResult` dataclass; defaults `max_displacement=500` m (per ASAP-Stereo's CTX cookbook) and `minimum_points=20` (planetary tracks are sparse).
+- **`Alignment.pc_align_dem_to_planetary_csv(...)`**: invokes ASP `pc_align` with `--csv-format '1:lon 2:lat 3:radius_m'` and `--datum D_MARS`/`D_MOON` (aligned with the [ASP `next_steps` documentation on MOLA alignment](https://stereopipeline.readthedocs.io/en/latest/next_steps.html)).
+- **`Altimetry.to_csv_for_pc_align_planetary()`**: writes `lon, lat, radius_m` from `self.planetary_points` to drive `pc_align`.
+- **`plot_aligned` kwarg** on `Altimetry.mapview_plot_planetary_to_dem` and `Altimetry.histogram_planetary_to_dem`: pre/post panels share color/bin scales when an aligned DEM is available.
+- **Module-level constants** `MARS_IAU_SPHERE_RADIUS = 3_396_190.0` and `MOON_IAU_SPHERE_RADIUS = 1_737_400.0` so callers can reconstruct ASP-style "height above sphere" without magic numbers.
+
+### Changed
+- **MOLA loader switched to `PLANET_RAD`**. `_load_mola_csv()` now reads the absolute planetary radius from the ODE GDS `*_pts_csv.csv` and computes `height = PLANET_RAD - 3,396,190` (IAU 2000 Mars sphere). The `*_topo_csv.csv` (TOPOGRAPHY only) is **rejected** with an explanatory error: TOPOGRAPHY is referenced to the **oblate** MOLA areoid while ASP DEMs use the **spherical** IAU 2000 datum, so dh from TOPOGRAPHY carries a latitude-dependent offset of up to ~10 km that `pc_align` cannot remove. Verified on the MOC NA tutorial scene at lat 34°N: signed median dh dropped from +6,000 m (TOPOGRAPHY path) → +99.74 m (PLANET_RAD path) → +3.13 m (after `pc_align`). Reference: [MOLA PEDR Software Interface Specification (PDS Geosciences)](https://pds-geosciences.wustl.edu/mgs/mgs-m-mola-3-pedr-l1a-v1/mgsl_21xx/document/pedrsis.pdf).
+- **LOLA loader prefers `Pt_Radius` (km) when available**. The Point per Row LOLA RDR CSV (`results=p`) carries `Pt_Radius` in **kilometers**; the simple Topography CSV (`results=u`) carries Topography in meters. `_load_lola_csv()` auto-detects km by magnitude (< 10 000) and converts to meters, then writes both `height` (m above the IAU 1737.4 km lunar sphere) and `radius_m` to `self.planetary_points`. The Moon is essentially spherical (~1.4 km equatorial-vs-polar variation), so either CSV gives the same dh to ~1 m. Reference: [ODE GDS REST V2.0 manual](https://oderest.rsl.wustl.edu/GDS_REST_V2.0.pdf).
+- **`Alignment.apply_dem_translation()` is body-aware**. Picks a body-centered geocentric "ECEF-equivalent" CRS from a new module-level `_GEOCENTRIC_PROJ` dict — Earth uses `EPSG:4978`; Mars/Moon use PROJ strings (`+proj=geocent +R=...`) because PROJ refuses to convert across celestial bodies. Without this fix, applying a `pc_align` translation to a Mars/Moon DEM raised `RuntimeError: Source and target ellipsoid do not belong to the same celestial body`.
+- **`planetary_to_dem_dh()` also samples the aligned DEM** when `self.aligned_dem_fn` is set, populating `aligned_dem_height` and `altimetry_minus_aligned_dem` so pre/post plots share a single sample. Refactored shared interpolation into `_sample_dem_at_planetary_points()`.
+
+### Documentation
+- **MOC NA notebook consolidated** into `notebooks/Mars_MGS/mars_mgs_orbital_camera.ipynb` covering both stereo variants of the M0100115 / E0201461 pair (the `mars_mgs_orbital_camera_narrow_angle.ipynb` notebook for a different scene pair was removed). Mirrors the ASTER mapproj/non-mapproj layout. Stereo commands match this repo's WorldView convention (`parallel_stereo --stereo-algorithm asp_mgm --subpixel-mode 9 --processes 2 --threads 4`, `--alignment-method affineepipolar` for non-mapprojected, `--alignment-method none` for mapprojected via `cam2map4stereo.py`). The notebook intro includes a callout explaining the spherical-vs-oblate elevation-range surprise. Reports: `MOC-asp-plot-report.pdf` and `MOC_mapproj-asp-plot-report.pdf`.
+- **LRO NAC notebook reprocessed on the full 5000×5000 cubes** in [`LRONAC_example.tar`](https://github.com/NeoGeographyToolkit/StereoPipelineSolvedExamples/releases/download/LRONAC/LRONAC_example.tar) instead of the 900×973 sub-window the ASP "lightning fast" tutorial uses. Resulting DEM is 4720×4510 at 1.04 m GSD (~4.7 km × 4.7 km, vs the old ~1 km × 1 km), 95.88% valid pixels. LOLA query expanded to match: 1539 of 2044 LOLA points overlap the DEM (vs 12 of 19 on the old crop), enough for a meaningful `pc_align` and to bring out spacecraft jitter in the disparity panels.
+
 ## [1.13.0] - 2026-04-20
 
 ### Added
