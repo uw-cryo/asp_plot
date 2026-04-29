@@ -1,3 +1,4 @@
+import os
 from datetime import datetime, timezone
 
 import geopandas as gpd
@@ -396,6 +397,55 @@ class TestPlanetaryDh:
         except Exception as e:
             pytest.fail(f"histogram_planetary_to_dem raised: {e}")
 
+    def test_to_csv_for_pc_align_planetary(self, alt_with_points, tmp_path):
+        """to_csv_for_pc_align_planetary writes lon/lat/radius_m only."""
+        # Add the radius_m column the loaders normally populate
+        alt_with_points.planetary_points["radius_m"] = (
+            alt_with_points.planetary_points["height"] + 6_378_137.0
+        )
+        alt_with_points.directory = str(tmp_path)
+        csv_fn = alt_with_points.to_csv_for_pc_align_planetary()
+        assert os.path.exists(csv_fn)
+        df = pd.read_csv(csv_fn)
+        assert list(df.columns) == ["lon", "lat", "radius_m"]
+        assert len(df) > 0
+        # No NaNs in the exported file
+        assert not df.isna().any().any()
+
+    def test_to_csv_for_pc_align_planetary_requires_radius(
+        self, alt_with_points, tmp_path
+    ):
+        """Missing radius_m column raises a clear error."""
+        alt_with_points.directory = str(tmp_path)
+        # Strip radius_m if present
+        if "radius_m" in alt_with_points.planetary_points.columns:
+            alt_with_points.planetary_points = alt_with_points.planetary_points.drop(
+                columns=["radius_m"]
+            )
+        with pytest.raises(ValueError, match="radius_m"):
+            alt_with_points.to_csv_for_pc_align_planetary()
+
+    def test_align_and_evaluate_planetary_no_points(self, alt_with_points):
+        """No planetary points loaded → insufficient_points status."""
+        alt_with_points.planetary_points = None
+        result = alt_with_points.align_and_evaluate_planetary()
+        assert result.status == "insufficient_points"
+        assert result.aligned_dem_fn is None
+
+    def test_align_and_evaluate_planetary_too_few_overlap(
+        self, alt_with_points, tmp_path
+    ):
+        """Few overlapping valid dh points → insufficient_points status."""
+        alt_with_points.directory = str(tmp_path)
+        # All points are nominally valid in the fixture; force minimum_points
+        # higher than the available count to take the early-exit branch.
+        alt_with_points.planetary_points["radius_m"] = (
+            alt_with_points.planetary_points["height"] + 6_378_137.0
+        )
+        result = alt_with_points.align_and_evaluate_planetary(minimum_points=10_000)
+        assert result.status == "insufficient_points"
+        assert result.aligned_dem_fn is None
+
 
 class TestLoadPlanetaryCsv:
     """Test LOLA and MOLA CSV loading and validation."""
@@ -408,7 +458,7 @@ class TestLoadPlanetaryCsv:
         )
 
     def test_load_lola_csv(self, alt, tmp_path):
-        """Test LOLA CSV parsing with valid data."""
+        """Test LOLA CSV parsing with topo CSV (no Pt_Radius)."""
         csv = tmp_path / "lola.csv"
         csv.write_text(
             "Pt_Longitude, Pt_Latitude, Topography\n"
@@ -420,31 +470,62 @@ class TestLoadPlanetaryCsv:
         assert alt.planetary_points is not None
         assert len(alt.planetary_points) == 3
         assert "height" in alt.planetary_points.columns
-        assert "lon" in alt.planetary_points.columns
+        assert "radius_m" in alt.planetary_points.columns
         # Height should equal topography directly for LOLA
         assert alt.planetary_points["height"].iloc[0] == pytest.approx(295.81)
+        # radius_m back-computed against the IAU 1737.4 km sphere
+        assert alt.planetary_points["radius_m"].iloc[0] == pytest.approx(1737695.81)
+
+    def test_load_lola_csv_pts_radius_km(self, alt, tmp_path):
+        """LOLA Point per Row CSV has Pt_Radius in km — auto-convert to m."""
+        csv = tmp_path / "lola_pts.csv"
+        csv.write_text(
+            "Pt_Longitude, Pt_Latitude, Pt_Radius\n"
+            " 15.3287,  -9.6003, 1737.668720\n"
+            " 15.3286,  -9.6021, 1737.666748\n"
+        )
+        alt._load_lola_csv(str(csv))
+        # Pt_Radius is preferred; km auto-detected and converted to m.
+        assert alt.planetary_points["radius_m"].iloc[0] == pytest.approx(
+            1737668.720, abs=1e-3
+        )
+        assert alt.planetary_points["height"].iloc[0] == pytest.approx(
+            268.720, abs=1e-3
+        )
 
     def test_load_mola_csv(self, alt, tmp_path):
-        """Test MOLA CSV parsing with valid topo data."""
+        """Test MOLA CSV parsing with PLANET_RAD column (the supported path)."""
         csv = tmp_path / "mola.csv"
         csv.write_text(
-            "LONG_EAST,LAT_NORTH, TOPOGRAPHY,            UTC\n"
-            "137.13264, -4.91750,   -4499.73,1999-08-31T19:13:24.847\n"
-            "137.13197, -4.91240,   -4505.07,1999-08-31T19:13:24.947\n"
+            "LONG_EAST,LAT_NORTH, TOPOGRAPHY, PLANET_RAD,            UTC\n"
+            "137.13264, -4.91750,   -4499.73, 3391690.27,1999-08-31T19:13:24.847\n"
+            "137.13197, -4.91240,   -4505.07, 3391684.93,1999-08-31T19:13:24.947\n"
         )
         alt._load_mola_csv(str(csv))
         assert alt.planetary_points is not None
         assert len(alt.planetary_points) == 2
         assert "height" in alt.planetary_points.columns
-        # Topography used directly (no -190 m correction)
+        assert "radius_m" in alt.planetary_points.columns
+        # height = PLANET_RAD - 3,396,190 (IAU sphere)
         assert alt.planetary_points["height"].iloc[0] == pytest.approx(-4499.73)
+        assert alt.planetary_points["radius_m"].iloc[0] == pytest.approx(3391690.27)
+
+    def test_load_mola_topo_only_raises(self, alt, tmp_path):
+        """Test that a *_topo_csv.csv (no PLANET_RAD) is rejected with help."""
+        csv = tmp_path / "mola_topo.csv"
+        csv.write_text(
+            "LONG_EAST,LAT_NORTH, TOPOGRAPHY,            UTC\n"
+            "137.13264, -4.91750,   -4499.73,1999-08-31T19:13:24.847\n"
+        )
+        with pytest.raises(ValueError, match="PLANET_RAD"):
+            alt._load_mola_csv(str(csv))
 
     def test_load_mola_csv_lon_conversion(self, alt, tmp_path):
         """Test that MOLA 0-360 longitude is converted to -180/180."""
         csv = tmp_path / "mola.csv"
         csv.write_text(
-            "LONG_EAST,LAT_NORTH, TOPOGRAPHY,            UTC\n"
-            "270.0, 10.0, -3000.0, 1999-01-01T00:00:00\n"
+            "LONG_EAST,LAT_NORTH, TOPOGRAPHY, PLANET_RAD,            UTC\n"
+            "270.0, 10.0, -3000.0, 3393190.0, 1999-01-01T00:00:00\n"
         )
         alt._load_mola_csv(str(csv))
         assert alt.planetary_points["lon"].iloc[0] == pytest.approx(-90.0)
@@ -460,7 +541,7 @@ class TestLoadPlanetaryCsv:
         """Test that wrong columns raise ValueError with helpful message."""
         csv = tmp_path / "wrong.csv"
         csv.write_text("col_a, col_b, col_c\n1,2,3\n")
-        with pytest.raises(ValueError, match="topo_csv.csv"):
+        with pytest.raises(ValueError, match="planetary radius"):
             alt._load_lola_csv(str(csv))
 
     def test_load_planetary_csv_earth_raises(self, alt, tmp_path):

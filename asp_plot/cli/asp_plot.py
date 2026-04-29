@@ -93,7 +93,7 @@ from asp_plot.utils import Raster, detect_planetary_body, get_acquisition_dates
     "--pc_align",
     prompt=False,
     default=True,
-    help="If True and --plot_altimetry is True, run pc_align against ICESat-2 (Earth only) and append the alignment-report pages. Disabled automatically when --plot_altimetry / --plot_icesat is False. Default: True.",
+    help="If True and --plot_altimetry is True, run pc_align against the reference altimetry (ICESat-2 for Earth, MOLA for Mars, LOLA for Moon) and append the alignment-report pages. Disabled automatically when --plot_altimetry / --plot_icesat is False. Default: True.",
 )
 @click.option(
     "--plot_geometry",
@@ -742,7 +742,7 @@ def main(
                     f"  1. Run: request_planetary_altimetry --dem {asp_dem} --email <your_email>\n"
                     f"  2. Wait for the email with a download link\n"
                     f"  3. Download and unzip the result\n"
-                    f"  4. Re-run asp_plot with: --altimetry_csv <path_to_topo_csv.csv>\n"
+                    f"  4. Re-run asp_plot with: --altimetry_csv <path_to_pts_csv.csv>\n"
                     f"\nSkipping {instrument} altimetry plots.\n"
                     f"{'='*60}\n"
                 )
@@ -776,6 +776,120 @@ def main(
                         caption=f"Distribution of elevation differences between {instrument} and ASP DEM.",
                     )
                 )
+
+                # ---- pc_align + planetary alignment report (Moon/Mars) ----
+                if pc_align:
+                    align_result = alt.align_and_evaluate_planetary()
+                    stats_row = {}
+                    if (
+                        align_result.alignment_report_df is not None
+                        and not align_result.alignment_report_df.empty
+                    ):
+                        row = align_result.alignment_report_df.iloc[0].to_dict()
+                        row.pop("key", None)
+                        stats_row = row
+
+                    align_title = f"DEM Alignment with {instrument}"
+                    alignment_description = (
+                        f"ASP's pc_align estimates a rigid 3D translation that "
+                        f"minimizes the height residuals between the ASP DEM "
+                        f"and the {instrument} planetary radii. The CSV is "
+                        f"passed as the reference cloud with --csv-format "
+                        f"'1:lon 2:lat 3:radius_m', and --datum is set to "
+                        f"D_MARS or D_MOON to match the ASP DEM. The "
+                        f"resulting translation is applied to the DEM "
+                        f"directly (geotransform + pixel-value shift, no "
+                        f"resampling) to produce the aligned DEM.\n\n"
+                        f"Alignment Parameters (above):\n"
+                        f"  - max_displacement: pc_align upper bound on the "
+                        f"translation magnitude (m).\n"
+                        f"  - minimum_points: minimum {instrument} points "
+                        f"that overlap the DEM; below this the alignment is "
+                        f"skipped.\n"
+                        f"  - min_translation_threshold: minimum translation "
+                        f"magnitude (as a fraction of the DEM GSD) required "
+                        f"to write out an aligned DEM.\n"
+                        f"  - improvement_threshold_pct: minimum percentage "
+                        f"reduction in p50 required to keep the aligned DEM "
+                        f"on disk; below this, the aligned DEM is removed.\n\n"
+                        f"Alignment Statistics (above, in meters):\n"
+                        f"  - p16_beg / p50_beg / p84_beg: 16th / 50th / 84th "
+                        f"percentile of the DEM-vs-{instrument} absolute "
+                        f"height residuals before alignment.\n"
+                        f"  - p16_end / p50_end / p84_end: same percentiles "
+                        f"after alignment.\n"
+                        f"  - N_shift / E_shift / D_shift: north / east / down "
+                        f"components of the applied translation vector.\n"
+                        f"  - |T|: magnitude of the translation vector."
+                    )
+
+                    if align_result.status == "insufficient_points":
+                        sections.append(
+                            AlignmentReportPage(
+                                title=align_title,
+                                parameters=align_result.parameters_used,
+                                description=alignment_description,
+                                status_message=align_result.message,
+                            )
+                        )
+                    elif align_result.status == "no_improvement":
+                        sections.append(
+                            AlignmentReportPage(
+                                title=align_title,
+                                parameters=align_result.parameters_used,
+                                stats_row=stats_row,
+                                description=alignment_description,
+                                status_message=align_result.message,
+                            )
+                        )
+                    elif align_result.status == "success":
+                        sections.append(
+                            AlignmentReportPage(
+                                title=align_title,
+                                parameters=align_result.parameters_used,
+                                stats_row=stats_row,
+                                description=alignment_description,
+                                status_message=align_result.message,
+                            )
+                        )
+
+                        fig_fn = f"{next(figure_counter):02}.png"
+                        alt.mapview_plot_planetary_to_dem(
+                            plot_aligned=True,
+                            save_dir=plots_directory,
+                            fig_fn=fig_fn,
+                        )
+                        sections.append(
+                            ReportSection(
+                                title=f"{instrument} Altimetry Map (Aligned DEM)",
+                                image_path=os.path.join(plots_directory, fig_fn),
+                                caption=(
+                                    f"Pre- (left) and post-alignment (right) "
+                                    f"map views of {instrument} elevation "
+                                    f"differences. The aligned-DEM hillshade "
+                                    f"is used as the backdrop for both panels."
+                                ),
+                            )
+                        )
+
+                        fig_fn = f"{next(figure_counter):02}.png"
+                        alt.histogram_planetary_to_dem(
+                            plot_aligned=True,
+                            save_dir=plots_directory,
+                            fig_fn=fig_fn,
+                        )
+                        sections.append(
+                            ReportSection(
+                                title=f"{instrument} Altimetry Histogram (Aligned DEM)",
+                                image_path=os.path.join(plots_directory, fig_fn),
+                                caption=(
+                                    f"Pre- (steelblue) and post-alignment "
+                                    f"(orange) distributions of {instrument} "
+                                    f"minus DEM height differences with shared "
+                                    f"bin edges."
+                                ),
+                            )
+                        )
 
     # Compile report
     processing_parameters = ProcessingParameters(

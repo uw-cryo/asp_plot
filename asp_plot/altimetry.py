@@ -25,6 +25,11 @@ logger = logging.getLogger(__name__)
 
 ICESAT2_MISSION_START = datetime(2018, 10, 14, tzinfo=timezone.utc)
 
+# IAU 2000 mean equatorial radii used by ASP DEMs and pc_align.
+# ASP DEM heights are stored as (planetary_radius - sphere_radius).
+MARS_IAU_SPHERE_RADIUS = 3_396_190.0  # meters
+MOON_IAU_SPHERE_RADIUS = 1_737_400.0  # meters
+
 WORLDCOVER_NAMES = {
     10: "Tree cover",
     20: "Shrubland",
@@ -1379,7 +1384,16 @@ class Altimetry:
     ]
     _LAT_CANDIDATES = ["pt_latitude", "lat_north", "latitude", "areocentric_latitude"]
     _TOPO_CANDIDATES = ["topography", "topo"]
-    _RADIUS_CANDIDATES = ["planet_rad", "radius", "planetary_radius"]
+    # PLANET_RAD column names from ODE GDS PEDR (Mars) and LOLA RDR
+    # "Point Per Row" CSV (Moon, has Pt_Radius). Order matters — names
+    # earlier in the list are preferred.
+    _RADIUS_CANDIDATES = [
+        "planet_rad",
+        "planet_rad (shot_planetary_radius)",
+        "pt_radius",
+        "planetary_radius",
+        "radius",
+    ]
 
     # Geographic CRS WKT strings for building GeoDataFrames
     _MOON_GEO_CRS = 'GEOGCRS["Moon",DATUM["D_MOON",ELLIPSOID["MOON",1737400,0]],PRIMEM["Reference_Meridian",0],CS[ellipsoidal,2],AXIS["latitude",north,ORDER[1],ANGLEUNIT["degree",0.0174532925199433]],AXIS["longitude",east,ORDER[2],ANGLEUNIT["degree",0.0174532925199433]]]'
@@ -1406,10 +1420,13 @@ class Altimetry:
                 return cols_lower[c]
         return None
 
-    def _load_planetary_csv_common(self, csv_path, instrument):
+    def _load_planetary_csv_common(self, csv_path, instrument, prefer="radius"):
         """Shared CSV loading logic for LOLA and MOLA.
 
         Reads the CSV, validates columns, converts longitude to -180/180.
+        Picks PLANET_RAD over TOPOGRAPHY by default (``prefer="radius"``)
+        because TOPOGRAPHY is referenced to the oblate areoid and produces
+        a latitude-dependent offset against ASP's spherical-IAU DEMs.
 
         Parameters
         ----------
@@ -1417,12 +1434,14 @@ class Altimetry:
             Path to the CSV file.
         instrument : str
             ``"LOLA"`` or ``"MOLA"`` (for error messages).
+        prefer : {"radius", "topo"}
+            Which column family to try first.
 
         Returns
         -------
-        tuple of (pandas.DataFrame, str or None, bool)
+        tuple of (pandas.DataFrame, bool)
             (df with ``lon``, ``lat``, ``height_raw`` columns,
-             height column name found, whether it was a radius column)
+             ``is_radius`` flag — True if the chosen column is a planetary radius)
         """
         df = pd.read_csv(csv_path)
 
@@ -1436,21 +1455,24 @@ class Altimetry:
 
         lon_col = self._find_csv_column(cols_lower, self._LON_CANDIDATES)
         lat_col = self._find_csv_column(cols_lower, self._LAT_CANDIDATES)
-        topo_col = self._find_csv_column(cols_lower, self._TOPO_CANDIDATES)
 
-        is_radius = False
-        height_col = topo_col
-        if height_col is None:
-            height_col = self._find_csv_column(cols_lower, self._RADIUS_CANDIDATES)
-            is_radius = height_col is not None
+        if prefer == "radius":
+            primary = self._find_csv_column(cols_lower, self._RADIUS_CANDIDATES)
+            fallback = self._find_csv_column(cols_lower, self._TOPO_CANDIDATES)
+            is_radius = primary is not None
+        else:
+            primary = self._find_csv_column(cols_lower, self._TOPO_CANDIDATES)
+            fallback = self._find_csv_column(cols_lower, self._RADIUS_CANDIDATES)
+            is_radius = primary is None and fallback is not None
+
+        height_col = primary if primary is not None else fallback
 
         if lon_col is None or lat_col is None or height_col is None:
             raise ValueError(
                 f"{instrument} CSV does not have expected columns.\n"
                 f"  Found: {list(df.columns)}\n"
-                f"  Expected longitude, latitude, and topography columns.\n\n"
-                f"Make sure you are using the '*_topo_csv.csv' file from the "
-                f"ODE GDS download, not the '*_pts_csv.csv' or label file."
+                f"  Expected longitude, latitude, and either a planetary "
+                f"radius (PLANET_RAD / Pt_Radius) or topography column."
             )
 
         df = df.rename(
@@ -1463,15 +1485,44 @@ class Altimetry:
         return df, is_radius
 
     def _load_lola_csv(self, csv_path):
-        """Parse a LOLA simple-topography CSV into a GeoDataFrame.
+        """Parse a LOLA topo CSV into a GeoDataFrame.
+
+        Stores height above the IAU 1737.4 km lunar sphere on
+        ``self.planetary_points["height"]`` and the planetary radius on
+        ``self.planetary_points["radius_m"]`` (used by pc_align).
+
+        The Moon is nearly spherical (1.4 km equatorial-vs-polar variation),
+        so LOLA TOPOGRAPHY ≈ Pt_Radius − 1737.4 km. Either column gives the
+        same dh against an ASP lunar DEM to <1 m.
 
         Parameters
         ----------
         csv_path : str
-            Path to the CSV file.
+            Path to a LOLA RDR CSV from the ODE GDS API.
         """
-        df, _ = self._load_planetary_csv_common(csv_path, "LOLA")
-        df["height"] = df["height_raw"]
+        df, is_radius = self._load_planetary_csv_common(
+            csv_path, "LOLA", prefer="radius"
+        )
+
+        if is_radius:
+            # LOLA RDR Pt_Radius is in KILOMETERS (per the ODE GDS Point
+            # per Row CSV header), unlike MOLA PEDR PLANET_RAD which is
+            # in meters. Detect units by magnitude (~1737 vs ~1737000)
+            # and normalize to meters.
+            if df["height_raw"].median() < 10000:
+                df["height_raw"] = df["height_raw"] * 1000.0
+                unit_note = " (km → m)"
+            else:
+                unit_note = ""
+            df["height"] = df["height_raw"] - MOON_IAU_SPHERE_RADIUS
+            df["radius_m"] = df["height_raw"]
+            source = f"Pt_Radius{unit_note}"
+        else:
+            # Topography path: the Moon is essentially spherical so LOLA
+            # topography ≈ height above the IAU 1737.4 km sphere.
+            df["height"] = df["height_raw"]
+            df["radius_m"] = df["height_raw"] + MOON_IAU_SPHERE_RADIUS
+            source = "Topography"
 
         gdf = gpd.GeoDataFrame(
             df,
@@ -1479,46 +1530,45 @@ class Altimetry:
             crs=self._MOON_GEO_CRS,
         )
         self.planetary_points = gdf
-        print(f"Loaded {len(gdf)} LOLA points")
+        print(f"Loaded {len(gdf)} LOLA points (using {source} column)")
 
     def _load_mola_csv(self, csv_path):
         """Parse a MOLA PEDR CSV into a GeoDataFrame.
 
-        TOPOGRAPHY values are heights above the MOLA areoid (Mars
-        geoid).  ASP DEMs store heights above the IAU sphere
-        (3,396,190 m).  These are different vertical datums, so a
-        systematic offset equal to the local areoid height will be
-        present in the dh values.  If only PLANET_RAD (radius) is
-        available, a -190 m correction converts from the MOLA sphere
-        (3,396,000 m) to the IAU sphere.
+        Uses the PLANET_RAD column and converts to height above the IAU
+        Mars sphere (3,396,190 m): ``height = PLANET_RAD - 3,396,190``.
+        This is the same reference as ASP DEMs, so dh = MOLA − DEM is
+        directly meaningful at all latitudes.
+
+        TOPOGRAPHY (in ``*_topo_csv.csv``) is referenced to the MOLA
+        oblate areoid and produces a latitude-dependent offset of up to
+        ~10 km against an ASP DEM, so it is rejected here. Pass the
+        ``*_pts_csv.csv`` from the ODE GDS download instead.
 
         Parameters
         ----------
         csv_path : str
-            Path to the CSV file.
+            Path to a MOLA PEDR CSV from the ODE GDS API. Must include
+            a ``PLANET_RAD`` column (use the ``*_pts_csv.csv`` file).
         """
-        df, is_radius = self._load_planetary_csv_common(csv_path, "MOLA")
+        df, is_radius = self._load_planetary_csv_common(
+            csv_path, "MOLA", prefer="radius"
+        )
 
-        MOLA_SPHERE_OFFSET = 190.0  # meters
-        if is_radius:
-            df["height"] = df["height_raw"] - MOLA_SPHERE_OFFSET
-            print(
-                f"Applied -{MOLA_SPHERE_OFFSET} m correction "
-                "(MOLA sphere → IAU sphere)"
+        if not is_radius:
+            raise ValueError(
+                f"MOLA CSV is missing the PLANET_RAD column: {csv_path}\n"
+                "The ODE GDS '*_topo_csv.csv' only has TOPOGRAPHY, which is "
+                "height above the oblate MOLA areoid. ASP DEMs use the "
+                "spherical IAU 2000 datum (3,396,190 m), so dh from "
+                "TOPOGRAPHY carries a latitude-dependent offset of up to "
+                "~10 km that pc_align cannot remove.\n\n"
+                "Pass the '*_pts_csv.csv' file from the same ODE GDS "
+                "download instead — it contains PLANET_RAD."
             )
-        else:
-            # MOLA TOPOGRAPHY is height above the MOLA areoid (Mars geoid).
-            # ASP DEMs store height above the IAU sphere (3,396,190 m).
-            # These are different vertical datums, so a systematic offset
-            # (equal to the local areoid height) will be present in the
-            # dh values.  This is a known limitation — correcting it
-            # requires the MOLA areoid grid or ASP's `dem_geoid --geoid MOLA`.
-            df["height"] = df["height_raw"]
-            print(
-                "Note: MOLA topography is referenced to the MOLA areoid. "
-                "ASP DEMs use the IAU sphere. A systematic vertical offset "
-                "may be present in dh values."
-            )
+
+        df["height"] = df["height_raw"] - MARS_IAU_SPHERE_RADIUS
+        df["radius_m"] = df["height_raw"]
 
         gdf = gpd.GeoDataFrame(
             df,
@@ -1526,15 +1576,43 @@ class Altimetry:
             crs=self._MARS_GEO_CRS,
         )
         self.planetary_points = gdf
-        print(f"Loaded {len(gdf)} MOLA points")
+        print(
+            f"Loaded {len(gdf)} MOLA points "
+            f"(PLANET_RAD - {MARS_IAU_SPHERE_RADIUS:.0f} m → height above IAU sphere)"
+        )
+
+    def _sample_dem_at_planetary_points(self, dem_fn, height_col, dh_col):
+        """Interpolate DEM heights at the loaded altimetry points.
+
+        Adds ``height_col`` and ``dh_col`` (= altimetry height − DEM height)
+        to ``self.planetary_points`` in-place. Used by
+        :meth:`planetary_to_dem_dh` for both the raw and aligned DEMs.
+        """
+        if self.planetary_points is None or self.planetary_points.empty:
+            return
+
+        dem = rioxarray.open_rasterio(dem_fn, masked=True).squeeze()
+        dem_crs = dem.rio.crs
+
+        pts = self.planetary_points.to_crs(dem_crs)
+        x = xr.DataArray(pts.geometry.x.values, dims="z")
+        y = xr.DataArray(pts.geometry.y.values, dims="z")
+        sample = dem.interp(x=x, y=y).values
+
+        self.planetary_points[height_col] = sample
+        self.planetary_points[dh_col] = self.planetary_points["height"] - sample
 
     def planetary_to_dem_dh(self, n_sigma=3):
         """Compute height differences between planetary altimetry and DEM.
 
         Reprojects ``self.planetary_points`` to the DEM CRS, interpolates
         DEM heights at altimetry locations, and computes the difference
-        ``altimetry_minus_dem = height - dem_height``. Outliers beyond
-        ``n_sigma`` × std from the mean are removed by default.
+        ``altimetry_minus_dem = height - dem_height``. When
+        ``self.aligned_dem_fn`` is set, also populates
+        ``aligned_dem_height`` and ``altimetry_minus_aligned_dem`` so
+        pre/post-alignment plots can share a single sample. Outliers
+        beyond ``n_sigma`` × std from the mean (computed on the
+        unaligned dh) are removed by default.
 
         Parameters
         ----------
@@ -1548,23 +1626,15 @@ class Altimetry:
             logger.warning("No planetary altimetry points loaded.")
             return
 
-        dem = rioxarray.open_rasterio(self.dem_fn, masked=True).squeeze()
-        dem_crs = dem.rio.crs
-
-        # Reproject points to the DEM CRS (use CRS object, not EPSG)
-        pts = self.planetary_points.to_crs(dem_crs)
-
-        x = xr.DataArray(pts.geometry.x.values, dims="z")
-        y = xr.DataArray(pts.geometry.y.values, dims="z")
-        sample = dem.interp(x=x, y=y)
-
-        pts["dem_height"] = sample.values
-        pts["altimetry_minus_dem"] = pts["height"] - pts["dem_height"]
-
-        # Update geometry back to geographic CRS for storage
-        self.planetary_points = pts.to_crs(self.planetary_points.crs)
-        self.planetary_points["dem_height"] = pts["dem_height"].values
-        self.planetary_points["altimetry_minus_dem"] = pts["altimetry_minus_dem"].values
+        self._sample_dem_at_planetary_points(
+            self.dem_fn, "dem_height", "altimetry_minus_dem"
+        )
+        if self.aligned_dem_fn:
+            self._sample_dem_at_planetary_points(
+                self.aligned_dem_fn,
+                "aligned_dem_height",
+                "altimetry_minus_aligned_dem",
+            )
 
         valid = self.planetary_points["altimetry_minus_dem"].dropna()
         print(f"Computed dh for {len(valid)} of {len(self.planetary_points)} points")
@@ -1587,28 +1657,272 @@ class Altimetry:
                         f"(removed {n_before - n_after})"
                     )
 
+    def to_csv_for_pc_align_planetary(self, filename_prefix="planetary_for_pc_align"):
+        """Export ``self.planetary_points`` to a CSV for pc_align.
+
+        Writes columns ``lon, lat, radius_m`` (planetary radius from the
+        body center, in meters). Used as the ``planetary_csv`` argument
+        to :meth:`asp_plot.alignment.Alignment.pc_align_dem_to_planetary_csv`.
+
+        Parameters
+        ----------
+        filename_prefix : str, optional
+            Prefix for the output CSV filename. Saved in
+            ``self.directory``.
+
+        Returns
+        -------
+        str
+            Absolute path to the created CSV file.
+        """
+        if self.planetary_points is None or self.planetary_points.empty:
+            raise ValueError("No planetary altimetry points loaded.")
+        if "radius_m" not in self.planetary_points.columns:
+            raise ValueError(
+                "planetary_points has no radius_m column. Call "
+                "load_planetary_csv() first to populate it."
+            )
+
+        # Drop dh-NaN rows so pc_align doesn't reject the file. We also
+        # restrict to points that fall on the DEM (have a finite
+        # dem_height) when available — pc_align can use them as the
+        # reference cloud only if they overlap the source.
+        df = self.planetary_points.copy()
+        df["lon"] = df.geometry.x
+        df["lat"] = df.geometry.y
+        df = df[["lon", "lat", "radius_m"]].dropna()
+        if df.empty:
+            raise ValueError("No valid planetary altimetry points after dropping NaNs.")
+
+        csv_fn = os.path.join(self.directory, f"{filename_prefix}.csv")
+        df.to_csv(csv_fn, header=True, index=False)
+        return csv_fn
+
+    def align_and_evaluate_planetary(
+        self,
+        max_displacement=500,
+        improvement_threshold_pct=5.0,
+        min_translation_threshold=0.1,
+        minimum_points=20,
+    ):
+        """Run pc_align against MOLA/LOLA and evaluate whether to keep it.
+
+        Mirrors :meth:`align_and_evaluate` (the ICESat-2 path) but for
+        planetary altimetry. Requires :meth:`load_planetary_csv` to have
+        been called so ``self.planetary_points`` is populated.
+
+        Decision logic:
+
+        1. If fewer than ``minimum_points`` valid planetary points are
+           available, return ``status="insufficient_points"``.
+        2. Otherwise compute
+           ``improvement_pct = (p50_beg - p50_end) / p50_beg * 100``. If
+           ``p50_end >= p50_beg`` or
+           ``improvement_pct <= improvement_threshold_pct`` or the
+           translation magnitude is below ``min_translation_threshold ×
+           DEM GSD``, delete the aligned DEM and return
+           ``status="no_improvement"``.
+        3. Otherwise re-run :meth:`planetary_to_dem_dh` to populate
+           ``altimetry_minus_aligned_dem`` and return ``status="success"``.
+
+        Parameters
+        ----------
+        max_displacement : float, optional
+            ``--max-displacement`` for pc_align, in meters. Default 500
+            (ASAP-Stereo's CTX cookbook recommendation).
+        improvement_threshold_pct : float, optional
+            Minimum p50 reduction (%) required to keep the aligned DEM.
+        min_translation_threshold : float, optional
+            Minimum translation magnitude as a fraction of the DEM GSD.
+        minimum_points : int, optional
+            Minimum number of valid altimetry points to attempt
+            alignment. Planetary tracks are sparser than ICESat-2, so
+            this defaults to a much smaller number than the Earth path.
+
+        Returns
+        -------
+        AlignmentResult
+        """
+        from asp_plot.utils import detect_planetary_body
+
+        body = detect_planetary_body(self.dem_fn)
+        instrument = {"moon": "LOLA", "mars": "MOLA"}.get(body, "Altimetry")
+
+        parameters_used = {
+            "max_displacement": max_displacement,
+            "minimum_points": minimum_points,
+            "min_translation_threshold": min_translation_threshold,
+            "improvement_threshold_pct": improvement_threshold_pct,
+        }
+
+        if self.planetary_points is None or self.planetary_points.empty:
+            return AlignmentResult(
+                status="insufficient_points",
+                alignment_report_df=pd.DataFrame(),
+                aligned_dem_fn=None,
+                improvement_pct=None,
+                message=(
+                    f"Alignment skipped: no {instrument} points loaded. "
+                    "Call load_planetary_csv() first."
+                ),
+                parameters_used=parameters_used,
+            )
+
+        # planetary_to_dem_dh both samples and 3σ-filters; require enough
+        # points whose dh is finite (i.e. fall inside the DEM extent).
+        if "altimetry_minus_dem" not in self.planetary_points.columns:
+            self.planetary_to_dem_dh()
+        n_valid = int(self.planetary_points["altimetry_minus_dem"].notna().sum())
+        if n_valid < minimum_points:
+            self._remove_aligned_dem_if_present()
+            return AlignmentResult(
+                status="insufficient_points",
+                alignment_report_df=pd.DataFrame(),
+                aligned_dem_fn=None,
+                improvement_pct=None,
+                message=(
+                    f"Alignment skipped: only {n_valid} {instrument} points "
+                    f"overlap the DEM (need >= {minimum_points})."
+                ),
+                parameters_used=parameters_used,
+            )
+
+        csv_fn = self.to_csv_for_pc_align_planetary(
+            filename_prefix=f"{instrument.lower()}_for_pc_align"
+        )
+
+        alignment = Alignment(self.directory, self.dem_fn)
+        output_prefix = f"pc_align/pc_align_{instrument.lower()}"
+        alignment.pc_align_dem_to_planetary_csv(
+            planetary_csv=csv_fn,
+            body=body,
+            max_displacement=max_displacement,
+            output_prefix=output_prefix,
+        )
+
+        report = alignment.pc_align_report(output_prefix=output_prefix)
+        if not report:
+            self._remove_aligned_dem_if_present()
+            return AlignmentResult(
+                status="insufficient_points",
+                alignment_report_df=pd.DataFrame(),
+                aligned_dem_fn=None,
+                improvement_pct=None,
+                message=(
+                    "pc_align ran but produced no parseable log. Check "
+                    f"{output_prefix}-log-pc_align*.txt."
+                ),
+                parameters_used=parameters_used,
+            )
+
+        df = pd.DataFrame([{"key": instrument.lower(), **report}])
+
+        gsd = Raster(self.dem_fn).get_gsd()
+        translation_too_small = (
+            df["translation_magnitude"].iloc[0] < min_translation_threshold * gsd
+        )
+
+        p50_beg = float(report.get("p50_beg", float("nan")))
+        p50_end = float(report.get("p50_end", float("nan")))
+        if not np.isfinite(p50_beg) or not np.isfinite(p50_end) or p50_beg == 0:
+            improvement_pct = None
+        else:
+            improvement_pct = (p50_beg - p50_end) / p50_beg * 100.0
+
+        if (
+            improvement_pct is None
+            or p50_end >= p50_beg
+            or improvement_pct <= improvement_threshold_pct
+            or translation_too_small
+        ):
+            self._remove_aligned_dem_if_present()
+            improvement_repr = (
+                f"{improvement_pct:.1f}%" if improvement_pct is not None else "n/a"
+            )
+            if translation_too_small:
+                reason = (
+                    f"Translation magnitude is below {min_translation_threshold*100:.0f}% "
+                    f"of the DEM GSD ({gsd:.2f} m), so no aligned DEM was "
+                    f"written despite a {improvement_repr} p50 reduction."
+                )
+            else:
+                reason = (
+                    f"p50 {p50_beg:.2f} m -> {p50_end:.2f} m, "
+                    f"{improvement_repr} <= {improvement_threshold_pct:.1f}% "
+                    "threshold."
+                )
+            return AlignmentResult(
+                status="no_improvement",
+                alignment_report_df=df,
+                aligned_dem_fn=None,
+                improvement_pct=improvement_pct,
+                message=f"No significant improvement: {reason}",
+                parameters_used=parameters_used,
+            )
+
+        # Apply the translation and persist the aligned DEM
+        aligned = alignment.apply_dem_translation(output_prefix=output_prefix)
+        if aligned is None:
+            self._remove_aligned_dem_if_present()
+            return AlignmentResult(
+                status="no_improvement",
+                alignment_report_df=df,
+                aligned_dem_fn=None,
+                improvement_pct=improvement_pct,
+                message=(
+                    "pc_align reported an improvement but the translation "
+                    "could not be applied. Aligned DEM not written."
+                ),
+                parameters_used=parameters_used,
+            )
+
+        self.aligned_dem_fn = aligned
+        # Re-run planetary_to_dem_dh with n_sigma=None so we don't filter
+        # the already-clean sample again.
+        self.planetary_to_dem_dh(n_sigma=None)
+
+        return AlignmentResult(
+            status="success",
+            alignment_report_df=df,
+            aligned_dem_fn=self.aligned_dem_fn,
+            improvement_pct=improvement_pct,
+            message=(
+                f"p50 improved from {p50_beg:.2f} m -> {p50_end:.2f} m "
+                f"({improvement_pct:.1f}% reduction). Aligned DEM written to "
+                f"{self.aligned_dem_fn}."
+            ),
+            parameters_used=parameters_used,
+        )
+
     def mapview_plot_planetary_to_dem(
         self,
         clim=None,
         save_dir=None,
         fig_fn=None,
         title=None,
+        plot_aligned=False,
     ):
         """Map view of planetary altimetry vs DEM height differences.
 
         Plots the DEM hillshade as background with altimetry dh points
-        overlaid using a divergent colourmap.
+        overlaid using a divergent colourmap. When ``plot_aligned=True``
+        and ``self.aligned_dem_fn`` is set, renders pre/post panels side
+        by side.
 
         Parameters
         ----------
         clim : tuple or None, optional
-            Colour limits ``(min, max)`` for dh. Default auto.
+            Colour limits ``(min, max)`` for dh. Default auto (symmetric
+            ±|max| around zero).
         save_dir : str or None, optional
             Directory to save figure.
         fig_fn : str or None, optional
             Filename for saved figure.
         title : str or None, optional
             Custom plot title. Auto-detected if None.
+        plot_aligned : bool, optional
+            Add a second panel showing dh against the aligned DEM.
+            Requires that pc_align has been run successfully.
         """
         from asp_plot.utils import Raster, detect_planetary_body
 
@@ -1619,68 +1933,86 @@ class Altimetry:
         if "altimetry_minus_dem" not in self.planetary_points.columns:
             self.planetary_to_dem_dh()
 
-        gdf = self.planetary_points.dropna(subset=["altimetry_minus_dem"])
-        if gdf.empty:
-            logger.warning("No valid dh values for map view.")
-            return
-
-        dh = gdf["altimetry_minus_dem"]
-        n = len(dh)
-        med = np.nanmedian(dh.values)
-        nmad = _nmad(dh.values)
-
         body = detect_planetary_body(self.dem_fn)
         instrument = {"moon": "LOLA", "mars": "MOLA"}.get(body, "Altimetry")
         if title is None:
             title = f"{instrument} vs DEM"
 
-        # Generate hillshade
-        dem_raster = Raster(self.dem_fn, downsample=4)
+        show_aligned = (
+            plot_aligned
+            and self.aligned_dem_fn
+            and "altimetry_minus_aligned_dem" in self.planetary_points.columns
+        )
+
+        # Generate hillshade — use the aligned DEM as the backdrop when
+        # available so the post-alignment panel matches the dh sample.
+        backdrop_dem = self.aligned_dem_fn if show_aligned else self.dem_fn
+        dem_raster = Raster(backdrop_dem, downsample=4)
         hs = dem_raster.hillshade()
         extent = rioplot.plotting_extent(dem_raster.ds, transform=dem_raster.transform)
-
-        # Reproject points to DEM CRS for plotting
         dem_crs = dem_raster.ds.crs
-        gdf_proj = gdf.to_crs(dem_crs)
 
-        fig, ax = plt.subplots(1, 1, figsize=(8, 6), dpi=220)
-        ax.imshow(hs, cmap="gray", extent=extent, alpha=0.7, interpolation="none")
+        # Build the symmetric ±|max| color limits across all visible
+        # panels so they are directly comparable.
+        gdf_unaligned = self.planetary_points.dropna(subset=["altimetry_minus_dem"])
+        if gdf_unaligned.empty:
+            logger.warning("No valid dh values for map view.")
+            return
+        dh_arrays = [gdf_unaligned["altimetry_minus_dem"].values]
+        if show_aligned:
+            dh_arrays.append(
+                self.planetary_points["altimetry_minus_aligned_dem"].dropna().values
+            )
 
-        # Symmetric ±3σ centered on 0 (data is already 3σ-filtered in
-        # planetary_to_dem_dh, so min/max ≈ ±3σ from the mean)
         if clim is None:
-            abs_max = max(abs(dh.min()), abs(dh.max()))
+            abs_max = max(np.nanmax(np.abs(a)) for a in dh_arrays if a.size)
             clim = (-abs_max, abs_max)
-            cbar_label = f"{instrument} - DEM (m)\n[±3σ]"
-        else:
-            cbar_label = f"{instrument} - DEM (m)"
 
-        gdf_proj.plot(
-            ax=ax,
-            column="altimetry_minus_dem",
-            cmap="RdBu",
-            vmin=clim[0],
-            vmax=clim[1],
-            markersize=2,
-            legend=True,
-            legend_kwds={"label": cbar_label},
+        ncols = 2 if show_aligned else 1
+        fig, axes = plt.subplots(
+            1, ncols, figsize=(8 * ncols, 6), dpi=220, squeeze=False
         )
+        axes = axes[0]
 
-        stats_text = f"n={n}\nMedian={med:+.2f} m\nNMAD={nmad:.2f} m"
-        ax.text(
-            0.02,
-            0.98,
-            stats_text,
-            transform=ax.transAxes,
-            verticalalignment="top",
-            fontsize=8,
-            fontfamily="monospace",
-            bbox=dict(boxstyle="round,pad=0.4", facecolor="white", alpha=0.9),
-        )
+        panels = [("altimetry_minus_dem", "ASP DEM")]
+        if show_aligned:
+            panels.append(("altimetry_minus_aligned_dem", "Aligned DEM"))
 
-        ax.set_xticks([])
-        ax.set_yticks([])
-        fig.suptitle(f"{title}\n(n={n})", size=10)
+        for ax, (column, label) in zip(axes, panels):
+            gdf = self.planetary_points.dropna(subset=[column])
+            dh = gdf[column]
+            n = len(dh)
+            med = np.nanmedian(dh.values)
+            nmad = _nmad(dh.values)
+
+            ax.imshow(hs, cmap="gray", extent=extent, alpha=0.7, interpolation="none")
+            cbar_label = f"{instrument} - {label} (m)\n[±|max|]"
+            gdf.to_crs(dem_crs).plot(
+                ax=ax,
+                column=column,
+                cmap="RdBu",
+                vmin=clim[0],
+                vmax=clim[1],
+                markersize=2,
+                legend=True,
+                legend_kwds={"label": cbar_label},
+            )
+            stats_text = f"n={n}\nMedian={med:+.2f} m\nNMAD={nmad:.2f} m"
+            ax.text(
+                0.02,
+                0.98,
+                stats_text,
+                transform=ax.transAxes,
+                verticalalignment="top",
+                fontsize=8,
+                fontfamily="monospace",
+                bbox=dict(boxstyle="round,pad=0.4", facecolor="white", alpha=0.9),
+            )
+            ax.set_title(label, size=9)
+            ax.set_xticks([])
+            ax.set_yticks([])
+
+        fig.suptitle(title, size=10)
         fig.tight_layout()
         if save_dir and fig_fn:
             save_figure(fig, save_dir, fig_fn)
@@ -1690,6 +2022,7 @@ class Altimetry:
         save_dir=None,
         fig_fn=None,
         title=None,
+        plot_aligned=False,
     ):
         """Histogram of planetary altimetry vs DEM height differences.
 
@@ -1701,6 +2034,9 @@ class Altimetry:
             Filename for saved figure.
         title : str or None, optional
             Custom plot title. Auto-detected if None.
+        plot_aligned : bool, optional
+            Overlay the post-alignment dh distribution on the same axes.
+            Requires that pc_align has been run successfully.
         """
         from asp_plot.utils import detect_planetary_body
 
@@ -1716,25 +2052,64 @@ class Altimetry:
             logger.warning("No valid dh values for histogram.")
             return
 
-        n = len(dh)
-        med = np.nanmedian(dh.values)
-        nmad = _nmad(dh.values)
-
         body = detect_planetary_body(self.dem_fn)
         instrument = {"moon": "LOLA", "mars": "MOLA"}.get(body, "Altimetry")
         if title is None:
             title = f"{instrument} vs ASP DEM"
 
+        show_aligned = (
+            plot_aligned
+            and self.aligned_dem_fn
+            and "altimetry_minus_aligned_dem" in self.planetary_points.columns
+        )
+        if show_aligned:
+            dh_aligned = self.planetary_points["altimetry_minus_aligned_dem"].dropna()
+
+        # Shared bin edges and xlim across both distributions
+        if show_aligned:
+            abs_max = max(
+                abs(dh.min()),
+                abs(dh.max()),
+                abs(dh_aligned.min()),
+                abs(dh_aligned.max()),
+            )
+        else:
+            abs_max = max(abs(dh.min()), abs(dh.max()))
+        bins = np.linspace(-abs_max, abs_max, 129)
+
         fig, ax = plt.subplots(1, 1, figsize=(8, 5), dpi=220)
+        ax.hist(
+            dh.values,
+            bins=bins,
+            alpha=0.6,
+            color="steelblue",
+            label=f"DEM (n={len(dh)})",
+        )
+        if show_aligned:
+            ax.hist(
+                dh_aligned.values,
+                bins=bins,
+                alpha=0.6,
+                color="orange",
+                label=f"Aligned DEM (n={len(dh_aligned)})",
+            )
 
-        ax.hist(dh.values, bins=128, alpha=0.7, color="steelblue")
-
-        # Symmetric ±3σ centered on 0 (data is already 3σ-filtered in
-        # planetary_to_dem_dh; stats above are on the filtered data)
-        abs_max = max(abs(dh.min()), abs(dh.max()))
         ax.set_xlim(-abs_max, abs_max)
 
-        stats_text = f"n={n}\nMedian={med:+.2f} m\nNMAD={nmad:.2f} m"
+        if show_aligned:
+            med0 = np.nanmedian(dh.values)
+            nmad0 = _nmad(dh.values)
+            med1 = np.nanmedian(dh_aligned.values)
+            nmad1 = _nmad(dh_aligned.values)
+            stats_text = (
+                f"DEM:         Med={med0:+.2f}  NMAD={nmad0:.2f} m\n"
+                f"Aligned DEM: Med={med1:+.2f}  NMAD={nmad1:.2f} m"
+            )
+        else:
+            n = len(dh)
+            med = np.nanmedian(dh.values)
+            nmad = _nmad(dh.values)
+            stats_text = f"n={n}\nMedian={med:+.2f} m\nNMAD={nmad:.2f} m"
         ax.text(
             0.02,
             0.98,
@@ -1746,9 +2121,10 @@ class Altimetry:
             bbox=dict(boxstyle="round,pad=0.4", facecolor="white", alpha=0.9),
         )
 
-        ax.set_xlabel(f"{instrument} - DEM (m) [±3σ]")
+        ax.set_xlabel(f"{instrument} - DEM (m) [±|max|]")
         ax.set_ylabel("Count")
-        fig.suptitle(f"{title}\n(n={n})", size=10)
+        ax.legend(loc="upper right", fontsize=8)
+        fig.suptitle(title, size=10)
         fig.tight_layout()
         if save_dir and fig_fn:
             save_figure(fig, save_dir, fig_fn)

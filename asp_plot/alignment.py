@@ -5,7 +5,23 @@ import re
 import numpy as np
 from osgeo import gdal, osr
 
-from asp_plot.utils import Raster, glob_file, run_subprocess_command
+from asp_plot.utils import (
+    Raster,
+    detect_planetary_body,
+    glob_file,
+    run_subprocess_command,
+)
+
+# Body-centered geocentric ("ECEF-equivalent") CRS for each supported
+# planet. Used by apply_dem_translation to convert pc_align's Cartesian
+# translation vector into the DEM's projected coordinate system. The
+# Earth case is keyed via EPSG; planets need a PROJ string because PROJ
+# refuses to operate across celestial bodies.
+_GEOCENTRIC_PROJ = {
+    "earth": None,  # use EPSG:4978
+    "moon": "+proj=geocent +R=1737400 +units=m +no_defs",
+    "mars": "+proj=geocent +R=3396190 +units=m +no_defs",
+}
 
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
@@ -130,6 +146,86 @@ class Alignment:
             pc_align_folder,
             self.dem_fn,
             atl06sr_csv,
+        ]
+
+        run_subprocess_command(command)
+
+    def pc_align_dem_to_planetary_csv(
+        self,
+        planetary_csv,
+        body,
+        max_displacement=500,
+        max_source_points=10000000,
+        alignment_method="point-to-point",
+        output_prefix="pc_align/pc_align",
+    ):
+        """
+        Align DEM to MOLA/LOLA point cloud using pc_align.
+
+        Parameters
+        ----------
+        planetary_csv : str
+            Path to a CSV with ``lon``, ``lat``, ``radius_m`` columns
+            (planetary radius in meters from the body center). Produced by
+            :meth:`asp_plot.altimetry.Altimetry.to_csv_for_pc_align_planetary`.
+        body : str
+            ``"moon"`` or ``"mars"`` — selects the ASP ``--datum`` flag.
+        max_displacement : float, optional
+            Maximum expected displacement in meters. ASAP-Stereo's CTX
+            cookbook recommends ~500 m as a generic default for planetary
+            stereo where absolute pointing is uncertain.
+        max_source_points : int, optional
+            Maximum number of source DEM points pc_align will sample.
+        alignment_method : str, optional
+            ASP alignment method. Default ``point-to-point``.
+        output_prefix : str, optional
+            Prefix for pc_align output files, relative to ``self.directory``.
+
+        Notes
+        -----
+        Uses ``--csv-format '1:lon 2:lat 3:radius_m'`` so pc_align reads
+        the absolute planetary radius and avoids any datum/areoid
+        ambiguity. ``--datum`` is set to ``D_MARS`` (3,396,190 m) or
+        ``D_MOON`` (1,737,400 m) to match ASP DEM heights, which are
+        stored as ``radius - sphere``.
+        """
+        if not os.path.exists(planetary_csv):
+            raise ValueError(
+                f"\nPlanetary altimetry CSV not found: {planetary_csv}\n"
+                "Use Altimetry.to_csv_for_pc_align_planetary() to create it.\n"
+            )
+
+        datum = {"moon": "D_MOON", "mars": "D_MARS"}.get(body)
+        if datum is None:
+            raise ValueError(
+                f"Unsupported body for pc_align_dem_to_planetary_csv: {body}"
+            )
+
+        pc_align_folder = os.path.join(self.directory, output_prefix)
+
+        print(
+            f"Running pc_align on {self.dem_fn} and {planetary_csv}\n"
+            f"  --datum {datum}, --max-displacement {max_displacement}\n"
+            f"Writing to {pc_align_folder}*"
+        )
+
+        command = [
+            "pc_align",
+            "--max-displacement",
+            str(max_displacement),
+            "--max-num-source-points",
+            str(max_source_points),
+            "--alignment-method",
+            alignment_method,
+            "--csv-format",
+            "1:lon 2:lat 3:radius_m",
+            "--datum",
+            datum,
+            "--compute-translation-only",
+            "--output-prefix",
+            pc_align_folder,
+            self.dem_fn,
+            planetary_csv,
         ]
 
         run_subprocess_command(command)
@@ -281,8 +377,18 @@ class Alignment:
         llz_c = llz_c[i]
         llz_shift = llz_shift[i]
 
+        # pc_align's Cartesian translation lives in the body-centered
+        # frame defined by --datum, so the source CRS must match the
+        # body of the DEM. PROJ refuses to convert between celestial
+        # bodies, so use a body-specific geocentric PROJ string for
+        # Mars/Moon and EPSG:4978 for Earth.
+        body = detect_planetary_body(self.dem_fn)
         ecef_srs = osr.SpatialReference()
-        ecef_srs.ImportFromEPSG(4978)
+        proj_string = _GEOCENTRIC_PROJ.get(body)
+        if proj_string is None:
+            ecef_srs.ImportFromEPSG(4978)
+        else:
+            ecef_srs.ImportFromProj4(proj_string)
 
         s_srs = ecef_srs
         src_c = ecef_c
