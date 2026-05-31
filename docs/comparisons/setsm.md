@@ -29,12 +29,14 @@ gdal_translate -q --config GDAL_CACHEMAX 2048 -ot UInt16 -co NBITS=16 \
     -co bigtiff=if_safer -co tiled=yes -co compress=lzw input.ntf output.tif
 ```
 
-The DigitalGlobe NTFs use JPEG2000 internal compression, so the GDAL build doing the conversion needs a JP2 driver — ASP's bundled `gdal_translate` (e.g. `~/asp/dev/bin/gdal_translate`) ships with `JP2OpenJPEG`. The output TIFFs end up larger than the source NTFs (~2.4 GB each here) because LZW does not compress 11-bit panchromatic content as efficiently as JPEG2000.
+The WorldView NTFs use JPEG2000 internal compression, so the GDAL build doing the conversion needs a JP2 driver — ASP's bundled `gdal_translate` (e.g. `~/asp/dev/bin/gdal_translate`) ships with `JP2OpenJPEG`. The output TIFFs end up larger than the source NTFs (~2.4 GB each here) because LZW does not compress 11-bit panchromatic content as efficiently as JPEG2000.
 
-SETSM then works on those TIFFs with RPC camera models read from the DigitalGlobe XML metadata files (the XMLs live alongside the TIFFs and share the basename). Memory is the limiting factor on a laptop:
+SETSM then works on those TIFFs with RPC camera models read from the WorldView XML metadata files (the XMLs live alongside the TIFFs and share the basename). Memory is the limiting factor on a laptop:
 
 - **Without sub-scene flags:** SETSM builds image pyramids for the entire scene by default. Two UInt16 images plus pyramids exceed 14 GB RAM and the container is OOM-killed (exit code 137) on a 16 GB machine.
 - **With `-boundary_*` flags:** SETSM only reads and pyramids the subset of each image needed for the requested output extent, so memory scales with the output area, not the input image size.
+
+Also, note that SETSM's user manual warns against `-seed <filepath> <sigma>`: *"We caution that it is better to not use a seed DEM if possible, as it can only negatively impact the quality of the SETSM DEM."*
 
 :::{dropdown} Docker build details
 :icon: terminal
@@ -108,14 +110,7 @@ The boundary defines a 3 km × 3 km UTM 11N area matching the ASP processing ext
 :::
 ::::
 
-SETSM resolves the same urban structure as ASP — buildings, streets, and the campus / Mount Soledad topography are all clearly visible. The SETSM hillshade is somewhat speckled compared to ASP's, but the underlying geometry is recovered. No tile-boundary artifacts.
-
-:::{dropdown} Additional notes
-:icon: note
-
-- SETSM's user manual warns against `-seed <filepath> <sigma>`: *"We caution that it is better to not use a seed DEM if possible, as it can only negatively impact the quality of the SETSM DEM."*
-- The run did not produce `results_hillshade.tif`; the hillshade above was generated from `results_dem.tif` with a matplotlib `LightSource` shader.
-:::
+SETSM resolves the same urban structure as ASP — buildings, streets, and the campus / valley and sea cliff topography are all clearly visible. The SETSM hillshade is somewhat speckled compared to ASP's, but the underlying geometry is recovered. Similar to CARS, SETSM does attempt to correlate more pixels, including over the ocean surface. Areas with more heavy vegetation are also correlated, whereas these are left as voids in the ASP DEM. Many of these correlated pixels appear to be blunders (pits and troughs) on close inspection.
 
 ## References
 

@@ -49,11 +49,11 @@ Modular usage examples by sensor type.
 Full Python API documentation.
 :::
 
-:::{grid-item-card} Pipeline Comparisons
+:::{grid-item-card} Open-Source Stereo Pipeline Alternatives
 :link: comparisons/index
 :link-type: doc
 
-ASP vs SETSM, CARS, and other stereo pipelines.
+SETSM and CARS quick comparison.
 :::
 
 :::{grid-item-card} Contributing
@@ -67,7 +67,7 @@ Development setup, testing, and releases.
 
 ## Supported Sensors
 
-- **Earth-based**: DigitalGlobe/Maxar WorldView, ASTER
+- **Earth-based**: WorldView, ASTER
 - **Lunar**: Lunar Reconnaissance Orbiter Narrow Angle Camera (LRO NAC)
 - **Mars**: Mars Reconnaissance Orbiter CTX and HiRISE, Mars Global Surveyor MOC
 

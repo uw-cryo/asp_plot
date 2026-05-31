@@ -9,10 +9,10 @@ Compare DEMs produced by ASP and CARS on the same WorldView-3 stereo pair:
 
 CARS is an open-source Python tool developed by CNES (French Space Agency) for producing DSMs from satellite stereo imagery. Key features:
 
-- **Dense matching**: Uses [Pandora](https://github.com/CNES/Pandora) (Census cost + SGM) with multiple presets for urban, mountain, vegetation
-- **Multi-resolution**: Coarse-to-fine processing (default 16x → 4x → 1x) progressively narrows disparity search range
-- **Geometry**: Uses [Shareloc](https://github.com/CNES/shareloc) for RPC handling — reads RPCs directly from GeoTIFF metadata
-- **Tiled architecture**: Processes data in tiles with configurable parallelism and per-worker memory limits — avoids the full-scene memory issues encountered with SETSM
+- **Dense matching**: Uses [Pandora](https://github.com/CNES/Pandora) (Census cost + SGM) with multiple presets for urban, mountain, vegetation.
+- **Multi-resolution**: Coarse-to-fine processing (default 16x → 4x → 1x) progressively narrows disparity search range.
+- **Geometry**: Uses [Shareloc](https://github.com/CNES/shareloc) for RPC handling — reads RPCs directly from GeoTIFF metadata.
+- **Tiled architecture**: Processes data in tiles with configurable parallelism and per-worker memory limits.
 - **No bundle adjustment** in the standard pipeline. Instead, CARS corrects epipolar grids using sparse SIFT tie points. Separate `cars-bundleadjustment` tool available as an optional extra.
 
 ## Source Data
@@ -30,8 +30,8 @@ This is the same pair (`21deg_12d`, convergence 21.2°) used in the [scene-selec
 
 CARS supports two approaches for sub-scene processing:
 
-1. **`cars-extractroi`** — pre-crops images and writes adjusted RPCs as `.RPB` sidecar files
-2. **`roi` config parameter** — uses full images for sparse matching / grid correction but only runs dense matching within the specified ROI
+1. **`cars-extractroi`** — pre-crops images and writes adjusted RPCs as `.RPB` sidecar files.
+2. **`roi` config parameter** — uses full images for sparse matching / grid correction but only runs dense matching within the specified ROI.
 
 We use approach 2 (`roi`) because full images give CARS more context for SIFT tie-point matching and epipolar grid correction, with no manual RPC adjustment needed.
 
@@ -121,7 +121,7 @@ Expected outputs in `results/`:
 | Output std dev (3 km comparison crop) | 48.7 m |
 | Convergence angle | 21.2° |
 
-CARS is much slower than SETSM on this laptop (17 h vs 20 min), primarily because Pandora's per-tile Census + SGM matching is done in pure Python multiprocessing with two workers at 1.5 GB each. The run reports `RAM available < 500 Mb` warnings during the final `texture / dsm / dsm_weights` passes but completes successfully. The raw DSM carries some edge blunders (min −321 m, max 1273 m) outside the canonical 3 km comparison area; inside the comparison crop the range collapses to approximately −200 m to +200 m with outliers concentrated at the seaward edge.
+CARS is slower than SETSM, primarily because Pandora's per-tile Census + SGM matching is done in pure Python multiprocessing with two workers at 1.5 GB each. The run reports `RAM available < 500 Mb` warnings during the final `texture / dsm / dsm_weights` passes but completes successfully. The raw DSM carries some edge blunders (min −321 m, max 1273 m) outside the canonical 3 km comparison area; inside the comparison crop the range collapses to approximately −200 m to +200 m with outliers concentrated at the seaward edge.
 
 ## Hillshade Comparison
 
@@ -140,7 +140,7 @@ CARS is much slower than SETSM on this laptop (17 h vs 20 min), primarily becaus
 :::
 ::::
 
-CARS resolves the urban structure cleanly — buildings, streets, the I-5 freeway on the east, Mount Soledad terrain on the west — comparable to ASP in detail. Some speckle remains along the seaward edge where CARS' ROI extends beyond the stereo overlap. No tile-boundary artifacts.
+CARS resolves the urban structure cleanly — buildings, streets, the I-5 freeway on the east. Natural valleys and sea cliffs are also resolved — comparable to ASP in detail. CARS does attempt to correlate more pixels, including over the ocean surface. Areas with more heavy vegetation are also correlated, whereas these are left as voids in the ASP DEM. Many of these correlated pixels appear to be blunders (pits and troughs) on close inspection.
 
 ## References
 
