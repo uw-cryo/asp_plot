@@ -1,4 +1,4 @@
-# CARS vs ASP — SpaceNet UCSD WorldView-3
+# CARS — SpaceNet UCSD WorldView-3
 
 Compare DEMs produced by ASP and CARS on the same WorldView-3 stereo pair:
 

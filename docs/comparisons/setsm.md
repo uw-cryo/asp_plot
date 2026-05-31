@@ -1,4 +1,4 @@
-# SETSM vs ASP — SpaceNet UCSD WorldView-3
+# SETSM — SpaceNet UCSD WorldView-3
 
 Compare DEMs produced by two open-source stereo photogrammetry pipelines on the same WorldView-3 stereo pair:
 
@@ -110,7 +110,7 @@ The boundary defines a 3 km × 3 km UTM 11N area matching the ASP processing ext
 :::
 ::::
 
-SETSM resolves the same urban structure as ASP — buildings, streets, and the campus / valley and sea cliff topography are all clearly visible. The SETSM hillshade is somewhat speckled compared to ASP's, but the underlying geometry is recovered. Similar to CARS, SETSM does attempt to correlate more pixels, including over the ocean surface. Areas with more heavy vegetation are also correlated, whereas these are left as voids in the ASP DEM. Many of these correlated pixels appear to be blunders (pits and troughs) on close inspection.
+SETSM resolves the same urban structure as ASP — buildings, streets, and the campus / valley and sea cliff topography are all clearly visible. Similar to CARS, SETSM does attempt to correlate more pixels, including over the ocean surface. Areas with more heavy vegetation are also correlated, whereas these are left as voids in the ASP DEM. Many of these correlated pixels appear to be blunders (pits and troughs) on close inspection.
 
 ## References
 
