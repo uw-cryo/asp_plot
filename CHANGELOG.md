@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.14.1] - 2026-06-05
+
+### Fixed
+- **`Raster.get_epsg_code()` returned `None` for compound / 3D-promoted CRSs** (e.g. `"EPSG:32610+EPSG:4979"`, as written by [stereopipeline-quickstart's `fetch_cop_dem.py`](https://github.com/uw-cryo/stereopipeline-quickstart/blob/main/scripts/fetch_cop_dem.py) to assert ellipsoid heights on the COP30 DEM). PROJ represents such a CRS as a UTM CRS "promoted to 3D" with no exact EPSG match, so `rasterio`'s `to_epsg()` yields `None` and downstream `f"EPSG:{epsg}"` strings crash (e.g. passing the DEM as `dem_fn` to `Altimetry`, or `Raster.get_bounds(latlon=True)`). Now falls back to the EPSG code of the horizontal (2D) component via `pyproj`'s `CRS.to_2d()`.
+
 ## [1.14.0] - 2026-04-28
 
 ### Added

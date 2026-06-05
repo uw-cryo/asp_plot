@@ -102,6 +102,35 @@ class TestRaster:
         epsg = raster.get_epsg_code()
         assert isinstance(epsg, int)
 
+    def test_get_epsg_code_compound_crs(self, tmp_path):
+        """Test EPSG code fallback for compound/3D-promoted CRS.
+
+        DEMs tagged with a compound CRS (e.g. "EPSG:32610+EPSG:4979",
+        as written by COP30 fetch scripts) have no exact EPSG match, so
+        get_epsg_code should fall back to the horizontal (2D) EPSG code.
+        """
+        import rasterio as rio
+        from rasterio.crs import CRS
+        from rasterio.transform import from_origin
+
+        dem_file = tmp_path / "compound_crs_dem.tif"
+        with rio.open(
+            dem_file,
+            "w",
+            driver="GTiff",
+            height=4,
+            width=4,
+            count=1,
+            dtype="float32",
+            crs=CRS.from_user_input("EPSG:32610+EPSG:4979"),
+            transform=from_origin(500000, 4000000, 30, 30),
+        ) as dst:
+            dst.write(np.ones((1, 4, 4), dtype="float32"))
+
+        raster = Raster(str(dem_file))
+        assert raster.ds.crs.to_epsg() is None  # no exact match
+        assert raster.get_epsg_code() == 32610  # falls back to 2D CRS
+
     def test_get_utm_epsg_code(self, test_dem):
         """Test estimating UTM EPSG code."""
         raster = Raster(test_dem)
