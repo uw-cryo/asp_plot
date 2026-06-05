@@ -774,8 +774,18 @@ class Raster:
         -------
         int
             EPSG code
+
+        Notes
+        -----
+        If the CRS has no exact EPSG match (e.g. a compound or 3D-promoted
+        CRS such as "EPSG:32610+EPSG:4979"), falls back to the EPSG code
+        of the horizontal (2D) component.
         """
         epsg = self.ds.crs.to_epsg()
+        if epsg is None:
+            from pyproj import CRS
+
+            epsg = CRS(self.ds.crs).to_2d().to_epsg()
         return epsg
 
     def get_utm_epsg_code(self):
