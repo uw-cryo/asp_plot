@@ -16,7 +16,7 @@ from asp_plot.gallery import GalleryPlotter
     "--pattern",
     prompt=False,
     default="*-DEM.tif",
-    help="Glob pattern for rasters within the directory. Default: '*-DEM.tif'.",
+    help="Glob pattern for rasters within the directory; recursive '**' matches subdirectories (e.g. '**/*-DEM.tif'). Default: '*-DEM.tif'.",
 )
 @click.argument("files", nargs=-1, type=click.Path(exists=True))
 @click.option(

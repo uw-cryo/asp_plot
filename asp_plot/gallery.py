@@ -1,3 +1,4 @@
+import glob
 import logging
 import os
 
@@ -5,7 +6,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from osgeo import gdal
 
-from asp_plot.utils import Plotter, Raster, glob_file, save_figure
+from asp_plot.utils import Plotter, Raster, save_figure
 
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
@@ -87,12 +88,21 @@ class GalleryPlotter(Plotter):
         """
         Build a GalleryPlotter by globbing a directory for rasters.
 
+        Globbing is recursive, so ``**`` in the pattern descends into
+        subdirectories. This is handy for typical ASP layouts where each pair
+        lives in its own subdirectory:
+
+        - ``"*-DEM.tif"``      — top-level only
+        - ``"*/*-DEM.tif"``    — exactly one subdirectory deep
+        - ``"**/*-DEM.tif"``   — any depth (recursive)
+
         Parameters
         ----------
         directory : str
             Directory to search for rasters.
         pattern : str, optional
-            Glob pattern for the rasters, default is "*-DEM.tif".
+            Glob pattern for the rasters, default is "*-DEM.tif". Supports
+            recursive ``**`` to match nested subdirectories.
         **kwargs : dict, optional
             Additional keyword arguments passed to ``__init__`` (e.g.
             ``downsample``, ``title``).
@@ -108,12 +118,12 @@ class GalleryPlotter(Plotter):
             If no files in ``directory`` match ``pattern``.
         """
         directory = os.path.expanduser(directory)
-        matches = glob_file(directory, pattern, all_files=True)
+        matches = sorted(glob.glob(os.path.join(directory, pattern), recursive=True))
         if not matches:
             raise ValueError(
                 f"\n\nNo files matching '{pattern}' found in {directory}.\n\n"
             )
-        return cls(sorted(matches), **kwargs)
+        return cls(matches, **kwargs)
 
     @staticmethod
     def _grid_shape(n, aspect=1.0):

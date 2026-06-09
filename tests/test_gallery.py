@@ -34,6 +34,17 @@ class TestGalleryPlotter:
             "tests/test_data/stereo/date_time_left_right_1m-DEM.tif"
         ]
 
+    def test_from_directory_recursive(self):
+        # "**" should descend into subdirectories at any depth. The test data
+        # has DEMs nested one and two levels down.
+        gallery = GalleryPlotter.from_directory(
+            "tests/test_data", pattern="**/*-DEM.tif"
+        )
+        assert gallery.raster_list == [
+            "tests/test_data/no_mapproj/stereo/run-DEM.tif",
+            "tests/test_data/stereo/date_time_left_right_1m-DEM.tif",
+        ]
+
     def test_from_directory_no_match_raises(self):
         with pytest.raises(ValueError):
             GalleryPlotter.from_directory(

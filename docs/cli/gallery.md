@@ -14,6 +14,18 @@ gallery --directory /path/to/dems --pattern "*-DEM.tif"
 
 By default, the tool saves the output as `<directory_name>_gallery.png` in the input directory.
 
+## DEMs in subdirectories
+
+Globbing is recursive, so `**` descends into subdirectories — handy for the common ASP layout where each pair lives in its own subdirectory:
+
+```bash
+# any depth
+gallery --directory /path/to/runs --pattern "**/*-DEM.tif"
+
+# exactly one subdirectory deep
+gallery --directory /path/to/runs --pattern "*/*-DEM.tif"
+```
+
 ## Explicit file list
 
 Pass files directly instead of a directory + pattern (explicit files take precedence):
@@ -56,8 +68,9 @@ Usage: gallery [OPTIONS] [FILES]...
 Options:
   --directory TEXT              Directory to search for rasters. Default:
                                 current directory.
-  --pattern TEXT                Glob pattern for rasters within the directory.
-                                Default: '*-DEM.tif'.
+  --pattern TEXT                Glob pattern for rasters within the directory;
+                                recursive '**' matches subdirectories (e.g.
+                                '**/*-DEM.tif'). Default: '*-DEM.tif'.
   --hillshade / --no-hillshade  Draw a gray hillshade underlay beneath each
                                 DEM. Default: True.
   --cmap TEXT                   Colormap for the DEMs. Default: viridis.
