@@ -175,6 +175,47 @@ class GalleryPlotter(Plotter):
         fs = panel_w_pts / (0.58 * max(len(text), 1))
         return float(np.clip(fs, min_fs, max_fs))
 
+    def _fit_titles(self, fig, title_artists, panel_w_in, min_fs=3.5, pad=0.92):
+        """
+        Shrink each title's font so its *rendered* width fits the panel.
+
+        Measures the real text extent with an Agg renderer (accurate for any
+        font, unlike a character-count estimate), then scales the font size by
+        the width ratio. Falls back to the heuristic ``_fit_title_fontsize`` if
+        measurement fails for any reason (e.g. an unusual backend).
+
+        Parameters
+        ----------
+        fig : matplotlib.figure.Figure
+            The figure (used for its dpi).
+        title_artists : list of matplotlib.text.Text
+            The per-panel title artists to resize in place.
+        panel_w_in : float
+            Panel width in inches.
+        min_fs : float, optional
+            Lower clamp on the font size, default 3.5.
+        pad : float, optional
+            Fraction of the panel width to fill (leaves a small margin).
+        """
+        panel_w_px = panel_w_in * fig.dpi
+        try:
+            from matplotlib.backends.backend_agg import RendererAgg
+
+            renderer = RendererAgg(
+                int(fig.get_figwidth() * fig.dpi),
+                int(fig.get_figheight() * fig.dpi),
+                fig.dpi,
+            )
+            for t in title_artists:
+                w = t.get_window_extent(renderer=renderer).width
+                if w <= 0:
+                    continue
+                scaled = t.get_fontsize() * (panel_w_px / w) * pad
+                t.set_fontsize(float(np.clip(scaled, min_fs, t.get_fontsize())))
+        except Exception:
+            for t in title_artists:
+                t.set_fontsize(self._fit_title_fontsize(t.get_text(), panel_w_in))
+
     def _resolve_downsample(self, ds):
         """
         Resolve the downsample factor for a single dataset.
@@ -297,13 +338,10 @@ class GalleryPlotter(Plotter):
         nrows, ncols = self._grid_shape(n, panel_w / panel_h)
 
         # Absolute (inches) layout so trailing empty cells leave no gap.
-        title_h = (
-            self._fit_title_fontsize(
-                max(os.path.basename(fn) for fn in self.raster_list), panel_w
-            )
-            / 72.0
-            + 0.06
-        )
+        # Reserve vertical room for the largest possible title (titles are
+        # shrunk, never grown, beyond this in _fit_titles).
+        max_title_fs = 8.0
+        title_h = max_title_fs / 72.0 + 0.06
         left, right, bottom = 0.12, 0.12, 0.12
         top = 0.12 + (0.3 if self.title else 0.0)
         wgap, hgap = 0.14, title_h + 0.06
@@ -331,6 +369,7 @@ class GalleryPlotter(Plotter):
             fig.suptitle(self.title, size=10)
 
         im = None
+        title_artists = []
         for i, (fn, array) in enumerate(zip(self.raster_list, arrays)):
             row, col = divmod(i, ncols)
             x_in = left + col * (panel_w + wgap)
@@ -353,8 +392,10 @@ class GalleryPlotter(Plotter):
                 im = self.plot_array(
                     ax=ax, array=array, clim=clim, cmap=cmap, add_cbar=False
                 )
-            fontsize = self._fit_title_fontsize(os.path.basename(fn), panel_w)
-            ax.set_title(os.path.basename(fn), size=fontsize)
+            title_artists.append(ax.set_title(os.path.basename(fn), size=max_title_fs))
+
+        # Shrink each title so the full filename fits within its panel width.
+        self._fit_titles(fig, title_artists, panel_w)
 
         # Single shared colorbar spanning the panel grid on the right.
         if im is not None:
