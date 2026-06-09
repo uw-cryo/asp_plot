@@ -4,6 +4,13 @@ The `gallery` command-line tool creates a single figure laying out many DEMs as 
 
 Each DEM is rendered with the same convention used elsewhere in the package (a gray hillshade underlay with a semi-transparent `viridis` DEM on top). Panels are sized to the rasters' aspect ratio and packed tightly, and each panel is titled with its filename auto-shrunk to fit the panel width.
 
+```{figure} ../figures/example_gallery.png
+:alt: Gallery of seven WorldView DEMs sharing one elevation color scale
+:width: 100%
+
+A gallery of seven repeat WorldView DEMs over the same area, sharing a single elevation color scale and colorbar — produced with `gallery --pattern "*-DEM_1m.tif"`.
+```
+
 ## Basic usage
 
 Search a directory for DEMs with a glob pattern:
