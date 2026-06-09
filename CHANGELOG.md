@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.15.0] - 2026-06-09
+
+### Added
+- **Gallery plotting for many DEM outputs** ([#11](https://github.com/uw-cryo/asp_plot/issues/11)). New `GalleryPlotter` class (`asp_plot/gallery.py`) and `gallery` CLI tool that lay out a *stack* of DEMs as a grid of thumbnails sharing a single global percentile color stretch and one shared colorbar — useful for QA'ing multi-date / multi-pair ASP output at a glance. Brings the legacy `original_code/gallery.py` into the modular package, dropping its `pygeotools` / `imview` dependencies in favor of the existing `Raster`, `Plotter`, and `ColorBar` utilities.
+  - DEMs are rendered with the package's standard convention (gray hillshade underlay + semi-transparent `viridis` DEM); the hillshade underlay is on by default and can be disabled with `--no-hillshade`.
+  - The layout sizes each panel to the rasters' aspect ratio and places panels with absolute positioning, so galleries of 1 to N rasters (including non-square ones) pack tightly without stray whitespace. Per-panel titles use the full filename, auto-shrunk (by measuring rendered text width) to fit the panel.
+  - Output resolution is matched to the rendered detail for crisp zooming, with an automatic dpi cap that keeps the PNG under `--max_filesize_mb` (default 10) regardless of the number of rasters.
+  - `GalleryPlotter.from_directory(directory, pattern="*-DEM.tif")` resolves a directory + glob into the raster list; the CLI also accepts an explicit list of files.
+
 ## [1.14.1] - 2026-06-05
 
 ### Fixed

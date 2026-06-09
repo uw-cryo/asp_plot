@@ -15,12 +15,14 @@ class TestImports:
         import asp_plot.altimetry
         import asp_plot.bundle_adjust
         import asp_plot.csm_camera
+        import asp_plot.gallery
         import asp_plot.processing_parameters
         import asp_plot.scenes
         import asp_plot.stereo_geometry
         import asp_plot.stereopair_metadata_parser
         import asp_plot.utils
 
+        assert asp_plot.gallery is not None
         assert asp_plot.stereo_geometry is not None
         assert asp_plot.utils is not None
         assert asp_plot.stereopair_metadata_parser is not None
@@ -35,6 +37,7 @@ class TestImports:
         from asp_plot.alignment import Alignment
         from asp_plot.altimetry import Altimetry
         from asp_plot.bundle_adjust import PlotBundleAdjustFiles, ReadBundleAdjustFiles
+        from asp_plot.gallery import GalleryPlotter
         from asp_plot.processing_parameters import ProcessingParameters
         from asp_plot.scenes import ScenePlotter
         from asp_plot.stereo import StereoPlotter
@@ -43,6 +46,7 @@ class TestImports:
         from asp_plot.utils import ColorBar, Plotter, Raster
 
         assert StereoGeometryPlotter is not None
+        assert GalleryPlotter is not None
         assert ColorBar is not None
         assert Raster is not None
         assert Plotter is not None
