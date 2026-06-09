@@ -44,9 +44,16 @@ class TestGalleryPlotter:
         "n,expected",
         [(1, (1, 1)), (4, (2, 2)), (7, (3, 3))],
     )
-    def test_grid_shape(self, n, expected):
-        # Default figsize is (7.5, 10.0).
-        assert GalleryPlotter._grid_shape(n, 7.5, 10.0) == expected
+    def test_grid_shape_square(self, n, expected):
+        # Square panels (aspect=1.0) should give a balanced square-ish grid.
+        assert GalleryPlotter._grid_shape(n, 1.0) == expected
+
+    def test_fit_title_fontsize(self):
+        long_name = "20220411_2315_10300100D102A400_10300100D1B7D600-DEM_1m.tif"
+        # A long filename in a narrow panel shrinks; a short one stays at max.
+        narrow = GalleryPlotter._fit_title_fontsize(long_name, panel_w_in=2.0)
+        wide = GalleryPlotter._fit_title_fontsize("short.tif", panel_w_in=4.0)
+        assert 4.0 <= narrow < wide <= 8.0
 
     def test_shared_clim(self, gallery):
         from asp_plot.utils import ColorBar, Raster

@@ -37,6 +37,13 @@ from asp_plot.gallery import GalleryPlotter
     help="Downsample factor for reads, or 'auto' to size thumbnails automatically. Default: auto.",
 )
 @click.option(
+    "--max_filesize_mb",
+    prompt=False,
+    default=10.0,
+    type=float,
+    help="Soft cap on the output PNG size in MB; auto dpi is reduced to respect it. Default: 10.",
+)
+@click.option(
     "--title",
     prompt=False,
     default=None,
@@ -61,6 +68,7 @@ def main(
     hillshade,
     cmap,
     downsample,
+    max_filesize_mb,
     title,
     output_directory,
     output_filename,
@@ -104,6 +112,7 @@ def main(
     plotter.plot_gallery(
         hillshade=hillshade,
         cmap=cmap,
+        max_filesize_mb=max_filesize_mb,
         save_dir=output_directory,
         fig_fn=output_filename,
     )
