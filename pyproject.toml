@@ -44,6 +44,7 @@ asp_plot = "asp_plot.cli.asp_plot:main"
 csm_camera_plot = "asp_plot.cli.csm_camera_plot:main"
 stereo_geom = "asp_plot.cli.stereo_geom:main"
 request_planetary_altimetry = "asp_plot.cli.request_planetary_altimetry:main"
+gallery = "asp_plot.cli.gallery:main"
 
 [project.optional-dependencies]
 dev = [
