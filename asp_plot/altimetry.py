@@ -1012,7 +1012,7 @@ class Altimetry:
         CSV format with columns for longitude, latitude, and height.
         """
         atl06sr = self.atl06sr_processing_levels_filtered[key].to_crs("EPSG:4326")
-        csv_fn = f"{filename_prefix}_{key}.csv"
+        csv_fn = os.path.join(self.directory, f"{filename_prefix}_{key}.csv")
         df = atl06sr[["geometry", "h_mean"]].copy()
         df["lon"] = df["geometry"].x
         df["lat"] = df["geometry"].y

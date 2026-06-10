@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.15.1] - 2026-06-10
+
+### Fixed
+- **`Altimetry.to_csv_for_pc_align()` wrote its CSV to the current working directory instead of the run directory.** Running the `asp_plot` CLI (or `Altimetry.align_and_evaluate()`) from a directory other than the dataset directory left a stray `atl06sr_for_pc_align_<key>.csv` in the cwd. The output path is now rooted at `self.directory` via `os.path.join()`, matching every other output in the class (`_save_to_parquet`, the `pc_align` outputs, and the planetary twin `to_csv_for_pc_align_planetary()`). No consumer changes were needed — the single internal caller (`align_and_evaluate()`) uses the return value directly, and `Alignment.pc_align_dem_to_atl06sr()` handles the directory-prefixed path unchanged.
+
 ## [1.15.0] - 2026-06-09
 
 ### Added
