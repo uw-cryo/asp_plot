@@ -142,6 +142,17 @@ class TestAltimetry:
         except Exception as e:
             pytest.fail(f"alignment_report() method raised an exception: {str(e)}")
 
+    def test_to_csv_for_pc_align_writes_to_directory(self, icesat, tmp_path):
+        """The exported CSV lands under self.directory, not the cwd."""
+        icesat.directory = str(tmp_path)
+        csv_fn = icesat.to_csv_for_pc_align(key="all")
+        # Returned path is rooted at self.directory and the file exists there.
+        assert os.path.dirname(os.path.abspath(csv_fn)) == os.path.abspath(tmp_path)
+        assert os.path.exists(csv_fn)
+        df = pd.read_csv(csv_fn)
+        assert list(df.columns) == ["lon", "lat", "height_above_datum"]
+        assert len(df) > 0
+
     def test_histogram_by_landcover_plot_aligned_no_aligned_dem(self, icesat):
         """plot_aligned=True without an aligned DEM should warn but not raise."""
         icesat.atl06sr_to_dem_dh()
