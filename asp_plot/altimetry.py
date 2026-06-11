@@ -749,10 +749,19 @@ class Altimetry:
         """
         import rasterio
         from rasterio.errors import RasterioIOError
+        from rasterio.session import AWSSession
 
         wc_col = "esa_worldcover.value"
         if wc_col in atl06sr.columns:
             return atl06sr
+
+        # The ESA WorldCover bucket is public, so read it anonymously
+        # (aws_unsigned=True). Without this, rasterio creates a default
+        # AWSSession that eagerly resolves credentials; on machines configured
+        # with AWS SSO/login this raises botocore MissingDependencyException
+        # ("requires botocore[crt]") and the whole report crashes — even though
+        # no credentials are needed for a public bucket.
+        unsigned_session = AWSSession(aws_unsigned=True)
 
         gdf_4326 = atl06sr.to_crs("EPSG:4326")
         lons = gdf_4326.geometry.x.values
@@ -771,6 +780,7 @@ class Altimetry:
         for url in tile_keys:
             try:
                 with rasterio.Env(
+                    unsigned_session,
                     GDAL_DISABLE_READDIR_ON_OPEN="YES",
                     CPL_VSIL_CURL_USE_HEAD="NO",
                 ):

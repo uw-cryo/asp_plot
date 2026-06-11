@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.15.2] - 2026-06-11
+
+### Fixed
+- **ESA WorldCover sampling crashed on machines configured with AWS SSO/login.** `_sample_worldcover_into_gdf()` opened the public ESA WorldCover S3 COGs with rasterio's default AWS session, which eagerly resolves credentials. On a machine whose `~/.aws/config` uses an SSO/login provider, botocore raised `MissingDependencyException: Using the login credential provider requires an additional dependency ... botocore[crt]`, aborting the entire `asp_plot` report even though the bucket is public and needs no credentials. The reads now use an explicit unsigned session (`rasterio.session.AWSSession(aws_unsigned=True)`), so anonymous access is used regardless of the user's AWS configuration.
+
 ## [1.15.1] - 2026-06-10
 
 ### Fixed
