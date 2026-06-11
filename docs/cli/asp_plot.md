@@ -84,6 +84,27 @@ The `--atl06sr_time_range` option controls which ICESat-2 data is requested from
 
 For areas with known temporal surface change (e.g. ice sheets, glaciers), consider using `"auto"` or an explicit date range to restrict the ICESat-2 data to a time window that matches the DEM acquisition. Seasonal or multi-temporal filtering is also available via the Python API (`predefined_temporal_filter_atl06sr`, `generic_temporal_filter_atl06sr`).
 
+## Comparing re-processing runs (`--reuse_selections`)
+
+When you re-process the same scene with different ASP parameters, several diagnostic figures normally change *what they show* between runs: a fresh ICESat-2 request returns a slightly different point set, the "best" profile track flips, the best/worst agreement segments move, and the detailed-hillshade clip boxes are re-selected from the re-processed intersection-error raster. That makes a true before/after comparison impossible.
+
+Every `asp_plot` run now writes a small YAML sidecar next to the report — `<report_stem>_figure_selections.yml` — recording each of these selections: the ICESat-2 request settings and parquet cache locations, the chosen profile track (`rgt`/`cycle`/`spot`), the best/worst segment extents, and the detailed-hillshade clip boxes (as DEM-CRS bounding boxes).
+
+To make a second run reproduce the first run's figures exactly, pass that file back in:
+
+```bash
+# Run A (e.g. mapprojected stereo) — writes report + *_figure_selections.yml
+asp_plot --directory my_scene/ --stereo_directory stereo_mapproj/ \
+    --report_filename report_mapproj.pdf
+
+# Run B (e.g. no-mapprojection variant) — reuses A's track, segments, points, and clips
+asp_plot --directory my_scene/ --stereo_directory stereo_no_mapproj/ \
+    --reuse_selections my_scene/stereo_mapproj/report_mapproj_figure_selections.yml \
+    --report_filename report_no_mapproj.pdf
+```
+
+`--reuse_selections` replays the exact ICESat-2 points (from the prior run's parquet cache), pins the same profile track and best/worst segments, and clips the same ground areas for the detailed hillshade. Selections that can't be applied to the new run (e.g. a clip box that falls outside a re-gridded DEM, or a track absent from freshly-loaded points) fall back to automatic selection with a warning rather than failing. The sidecar is human-readable, so you can also hand-edit it to force a particular track or clip.
+
 ## Full options
 
 ```
@@ -158,6 +179,12 @@ Options:
                                   for a custom range (e.g.
                                   "2020-01-01,2024-12-31"), or "auto" for
                                   scene metadata +/- 1 year. Default: all.
+  --reuse_selections PATH         Path to a *_figure_selections.yml written by
+                                  a previous run. Replays that run's ICESat-2
+                                  points, profile track, best/worst segments,
+                                  and detailed-hillshade clip boxes so figures
+                                  are comparable across re-processing runs.
+                                  Default: None.
   --report_filename TEXT          PDF report filename or path. A bare
                                   filename (e.g. 'report.pdf') is saved in
                                   the stereo directory. A path (e.g.
