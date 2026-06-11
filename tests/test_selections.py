@@ -164,8 +164,11 @@ class TestHillshadeClipReplay:
 # ---------------------------------------------------------------------------
 
 
-def _synthetic_track():
-    x_atc = np.arange(0, 2000, 20, dtype=float)  # 100 points spanning 1980 m
+def _synthetic_track(x0=0.0):
+    # Absolute along-track positions start at x0 (default 0). Passing a nonzero
+    # x0 (or fewer leading points) simulates outlier filtering shifting the
+    # track start, which is exactly the case the absolute-x_atc pin must survive.
+    x_atc = np.arange(x0, x0 + 2000, 20, dtype=float)  # 100 points spanning 1980 m
     n = len(x_atc)
     rng = np.linspace(0, 1, n)
     data = {
@@ -188,21 +191,53 @@ class TestSegmentOverride:
             dem_fn="tests/test_data/stereo/date_time_left_right_1m-DEM.tif",
         )
 
-    def test_segment_override_applied(self, icesat):
+    def test_segment_override_applied_absolute_xatc(self, icesat):
+        track = _synthetic_track()
+        override = {
+            "best": {"start_xatc": 0.0, "end_xatc": 1000.0},
+            "worst": {"start_xatc": 1000.0, "end_xatc": 1900.0},
+        }
+        seg = icesat._find_best_worst_segments(track, segment_override=override)
+        assert seg is not None
+        assert seg["seg_best_start_xatc"] == pytest.approx(0.0)
+        assert seg["seg_best_end_xatc"] == pytest.approx(1000.0)
+        assert seg["seg_worst_start_xatc"] == pytest.approx(1000.0)
+        assert seg["seg_worst_end_xatc"] == pytest.approx(1900.0)
+        assert seg["seg_best_mask"].sum() > 0
+        assert seg["seg_worst_mask"].sum() > 0
+
+    def test_segment_override_legacy_km_fallback(self, icesat):
+        # A manifest written before the absolute-x_atc change has only km.
         track = _synthetic_track()
         override = {
             "best": {"start_km": 0.0, "end_km": 1.0},
             "worst": {"start_km": 1.0, "end_km": 1.9},
         }
         seg = icesat._find_best_worst_segments(track, segment_override=override)
-        assert seg is not None
         assert seg["seg_best_start_km"] == pytest.approx(0.0, abs=1e-6)
         assert seg["seg_best_end_km"] == pytest.approx(1.0, abs=1e-6)
-        assert seg["seg_worst_start_km"] == pytest.approx(1.0, abs=1e-6)
-        assert seg["seg_worst_end_km"] == pytest.approx(1.9, abs=1e-6)
-        # Masks select the expected along-track ranges
-        assert seg["seg_best_mask"].sum() > 0
-        assert seg["seg_worst_mask"].sum() > 0
+
+    def test_segment_override_robust_to_shifted_track_start(self, icesat):
+        # Absolute x_atc must select the SAME ground window even when the track
+        # start shifts (e.g. outlier filtering drops the first 10 points). A
+        # km-from-start pin would slide by the shift; absolute x_atc must not.
+        override = {
+            "best": {"start_xatc": 600.0, "end_xatc": 1000.0},
+            "worst": {"start_xatc": 1400.0, "end_xatc": 1800.0},
+        }
+        full = icesat._find_best_worst_segments(
+            _synthetic_track(x0=0.0), segment_override=override
+        )
+        shifted = icesat._find_best_worst_segments(
+            _synthetic_track(x0=200.0), segment_override=override
+        )
+        # Same absolute x_atc window on both
+        assert full["seg_best_start_xatc"] == shifted["seg_best_start_xatc"] == 600.0
+        assert full["seg_best_end_xatc"] == shifted["seg_best_end_xatc"] == 1000.0
+        # The relative km differs by the start shift (200 m = 0.2 km), proving a
+        # km-only pin would have selected different ground.
+        assert full["seg_best_start_km"] == pytest.approx(0.6)
+        assert shifted["seg_best_start_km"] == pytest.approx(0.4)
 
     def test_segment_override_bad_falls_back(self, icesat):
         track = _synthetic_track()
@@ -238,6 +273,28 @@ class TestParquetReuseAndSelections:
     def test_load_from_parquet_missing(self, icesat):
         loaded = icesat.load_atl06sr_from_parquet({"all": "does/not/exist.parquet"})
         assert loaded is False
+
+    def test_restore_time_range_from_parquet(self, icesat):
+        # A reuse run must recover the request date range so plot titles keep
+        # their "<t0> to <t1>" line (otherwise the map/segment titles lose it).
+        import json
+
+        gdf = gpd.GeoDataFrame(
+            {
+                "x_atc": [0.0, 20.0],
+                "sliderule_parameters": [
+                    json.dumps(
+                        {"t0": "2018-10-14T00:00:00Z", "t1": "2024-06-01T00:00:00Z"}
+                    )
+                ]
+                * 2,
+                "geometry": [Point(0, 0), Point(1, 1)],
+            },
+            geometry="geometry",
+        )
+        assert icesat._time_range_label == ""
+        icesat._restore_request_metadata_from_parquet(gdf)
+        assert icesat._time_range_label == "2018-10-14 to 2024-06-01"
 
     def test_get_altimetry_selections_bundles_request(self, icesat, monkeypatch):
         # Set request + parquet metadata, stub track resolution so we test the

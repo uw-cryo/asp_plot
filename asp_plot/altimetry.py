@@ -705,9 +705,35 @@ class Altimetry:
             print(f"Reusing ICESat-2 ATL06-SR points for '{key}' from: {path}")
             atl06sr = gpd.read_parquet(path)
             self.atl06sr_parquet_paths[key] = path
+            self._restore_request_metadata_from_parquet(atl06sr)
             self._ingest_atl06sr(key, atl06sr, h_sigma_quantile)
             loaded_any = True
         return loaded_any
+
+    def _restore_request_metadata_from_parquet(self, atl06sr):
+        """
+        Recover the SlideRule request time range from a cached parquet.
+
+        The reuse path bypasses ``request_atl06sr_multi_processing`` (which sets
+        ``self._t0`` / ``self._t1`` via ``_resolve_time_range``), so plot titles
+        would otherwise lose their "<t0> to <t1>" date-range line. The request
+        parameters are persisted in the parquet's ``sliderule_parameters``
+        column, so read ``t0`` / ``t1`` back from there.
+        """
+        if hasattr(self, "_t0") and hasattr(self, "_t1"):
+            return
+        if "sliderule_parameters" not in atl06sr.columns or atl06sr.empty:
+            return
+        try:
+            params = json.loads(atl06sr["sliderule_parameters"].iloc[0])
+            t0, t1 = params.get("t0"), params.get("t1")
+            if t0 and t1:
+                self._t0 = pd.Timestamp(t0).to_pydatetime()
+                self._t1 = pd.Timestamp(t1).to_pydatetime()
+        except Exception as e:
+            logger.warning(
+                f"\nCould not restore time range from parquet metadata: {e}\n"
+            )
 
     def _save_to_parquet(self, fn, df, parms):
         """
@@ -2827,13 +2853,18 @@ class Altimetry:
         Build a serializable record for a best/worst segment, used by
         ``get_altimetry_selections``.
 
-        ``start_km`` / ``end_km`` are the along-track extents (km from the track
-        start) and are what reuse actually replays. ``endpoints_xy`` stores the
-        segment's first/last point coordinates **in the track geometry's CRS**
-        (the DEM/working CRS after dh computation, typically UTM — not lon/lat),
-        for human inspection only.
+        ``start_xatc`` / ``end_xatc`` are the **absolute** along-track extents
+        (meters) and are what reuse actually replays — absolute ``x_atc`` is
+        stable even when outlier filtering drops a different first point, whereas
+        a track-start-relative offset would shift. ``start_km`` / ``end_km``
+        (km from the track start) are kept for human readability. ``endpoints_xy``
+        stores the segment's first/last point coordinates **in the track
+        geometry's CRS** (the DEM/working CRS after dh computation, typically UTM
+        — not lon/lat), for human inspection only.
         """
         record = {
+            "start_xatc": float(seg_info[f"seg_{which}_start_xatc"]),
+            "end_xatc": float(seg_info[f"seg_{which}_end_xatc"]),
             "start_km": float(seg_info[f"seg_{which}_start_km"]),
             "end_km": float(seg_info[f"seg_{which}_end_km"]),
         }
@@ -3109,16 +3140,20 @@ class Altimetry:
             Column of height differences to score, default "icesat_minus_dem".
         segment_override : dict or None, optional
             When provided, pins the segment extents instead of scoring them
-            (issue #121). Expects ``{"best": {"start_km": .., "end_km": ..},
-            "worst": {"start_km": .., "end_km": ..}}`` with along-track
-            distances in km from the track start.
+            (issue #121). Expects ``{"best": {...}, "worst": {...}}`` where each
+            entry carries **absolute** along-track extents ``start_xatc`` /
+            ``end_xatc`` (meters). ``start_km`` / ``end_km`` (km from the track
+            start) are accepted as a legacy fallback, but absolute ``x_atc`` is
+            preferred because it is stable even when outlier filtering drops a
+            different first point and shifts the track start.
 
         Returns
         -------
         dict or None
             Dictionary with keys: seg_best_mask, seg_worst_mask,
-            seg_best_start_km, seg_best_end_km, seg_worst_start_km,
-            seg_worst_end_km. None if segments cannot be identified.
+            seg_{best,worst}_{start,end}_km (relative to this track's start, for
+            plotting) and seg_{best,worst}_{start,end}_xatc (absolute, for
+            stable reuse). None if segments cannot be identified.
         """
         x_atc = track["x_atc"].values
         track_length_m = x_atc[-1] - x_atc[0] if len(x_atc) > 1 else 0
@@ -3127,28 +3162,28 @@ class Altimetry:
         if not (median_spacing > 0 and track_length_m >= 1000):
             return None
 
-        # Pinned segments: rebuild the masks/extents from the supplied km
-        # ranges (relative to the track start) so a re-run highlights the same
-        # ground segments as the run that wrote the figure-selections file.
+        # Pinned segments: rebuild the masks/extents from absolute along-track
+        # (x_atc) positions so a re-run highlights the same ground segments even
+        # if outlier filtering removed a different first point (which would shift
+        # any track-start-relative km offset).
         if segment_override is not None:
             try:
                 x_atc_lo = x_atc[0]
-                best = segment_override["best"]
-                worst = segment_override["worst"]
-                seg_best_start = x_atc_lo + float(best["start_km"]) * 1000.0
-                seg_best_end = x_atc_lo + float(best["end_km"]) * 1000.0
-                seg_worst_start = x_atc_lo + float(worst["start_km"]) * 1000.0
-                seg_worst_end = x_atc_lo + float(worst["end_km"]) * 1000.0
-                return {
-                    "seg_best_mask": (track["x_atc"] >= seg_best_start)
-                    & (track["x_atc"] <= seg_best_end),
-                    "seg_worst_mask": (track["x_atc"] >= seg_worst_start)
-                    & (track["x_atc"] <= seg_worst_end),
-                    "seg_best_start_km": (seg_best_start - x_atc_lo) / 1000.0,
-                    "seg_best_end_km": (seg_best_end - x_atc_lo) / 1000.0,
-                    "seg_worst_start_km": (seg_worst_start - x_atc_lo) / 1000.0,
-                    "seg_worst_end_km": (seg_worst_end - x_atc_lo) / 1000.0,
-                }
+
+                def _resolve_extent(seg):
+                    if seg.get("start_xatc") is not None and (
+                        seg.get("end_xatc") is not None
+                    ):
+                        return float(seg["start_xatc"]), float(seg["end_xatc"])
+                    # Legacy fallback: km relative to track start.
+                    return (
+                        x_atc_lo + float(seg["start_km"]) * 1000.0,
+                        x_atc_lo + float(seg["end_km"]) * 1000.0,
+                    )
+
+                bs, be = _resolve_extent(segment_override["best"])
+                ws, we = _resolve_extent(segment_override["worst"])
+                return self._segment_dict(track, bs, be, ws, we)
             except (KeyError, TypeError, ValueError) as e:
                 logger.warning(
                     f"\nCould not apply pinned segments ({e}); "
@@ -3190,15 +3225,40 @@ class Altimetry:
         seg_worst_start = max(x_atc[idx_worst] - half_win, x_atc_lo)
         seg_worst_end = min(x_atc[idx_worst] + half_win, x_atc_hi)
 
+        return self._segment_dict(
+            track, seg_best_start, seg_best_end, seg_worst_start, seg_worst_end
+        )
+
+    @staticmethod
+    def _segment_dict(track, bs, be, ws, we):
+        """
+        Build the best/worst segment dict from absolute along-track extents.
+
+        Parameters
+        ----------
+        track : geopandas.GeoDataFrame
+            Resolved track (sorted by ``x_atc``).
+        bs, be, ws, we : float
+            Absolute ``x_atc`` (meters) start/end of the best and worst segments.
+
+        Returns
+        -------
+        dict
+            Masks, km extents (relative to this track's start, for plotting),
+            and absolute ``x_atc`` extents (for stable reuse).
+        """
+        x_atc_lo = track["x_atc"].values[0]
         return {
-            "seg_best_mask": (track["x_atc"] >= seg_best_start)
-            & (track["x_atc"] <= seg_best_end),
-            "seg_worst_mask": (track["x_atc"] >= seg_worst_start)
-            & (track["x_atc"] <= seg_worst_end),
-            "seg_best_start_km": (seg_best_start - x_atc[0]) / 1000.0,
-            "seg_best_end_km": (seg_best_end - x_atc[0]) / 1000.0,
-            "seg_worst_start_km": (seg_worst_start - x_atc[0]) / 1000.0,
-            "seg_worst_end_km": (seg_worst_end - x_atc[0]) / 1000.0,
+            "seg_best_mask": (track["x_atc"] >= bs) & (track["x_atc"] <= be),
+            "seg_worst_mask": (track["x_atc"] >= ws) & (track["x_atc"] <= we),
+            "seg_best_start_km": (bs - x_atc_lo) / 1000.0,
+            "seg_best_end_km": (be - x_atc_lo) / 1000.0,
+            "seg_worst_start_km": (ws - x_atc_lo) / 1000.0,
+            "seg_worst_end_km": (we - x_atc_lo) / 1000.0,
+            "seg_best_start_xatc": float(bs),
+            "seg_best_end_xatc": float(be),
+            "seg_worst_start_xatc": float(ws),
+            "seg_worst_end_xatc": float(we),
         }
 
     def _plot_hillshade_map(self, ax, track, seg_info=None):
