@@ -60,12 +60,14 @@ class FigureSelections:
         "worst": {..}}}``. Omitted (None) for planetary DEMs.
     """
 
+    # schema_version is declared first so it serializes at the TOP of the YAML
+    # (we dump with sort_keys=False, which preserves field order).
+    schema_version: int = field(default=SELECTIONS_SCHEMA_VERSION)
     asp_plot_version: Optional[str] = None
     dem_filename: Optional[str] = None
     map_crs: Optional[str] = None
     detailed_hillshade: Optional[dict] = None
     icesat2: Optional[dict] = None
-    schema_version: int = field(default=SELECTIONS_SCHEMA_VERSION)
 
     def to_dict(self):
         """Return a plain dict suitable for YAML serialization."""
