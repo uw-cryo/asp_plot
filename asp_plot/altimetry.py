@@ -549,6 +549,19 @@ class Altimetry:
             if key in processing_levels
         }
 
+        # Record the request settings + cache locations so a report run can
+        # write them to a figure-selections file for reproducibility (#121).
+        self.atl06sr_request_parms = {
+            "processing_levels": list(processing_levels),
+            "res": res,
+            "len": len,
+            "ats": ats,
+            "time_range": time_range,
+            "t0": t0_str,
+            "t1": t1_str,
+        }
+        self.atl06sr_parquet_paths = {}
+
         for key, custom_parm in custom_parms.items():
             parms = {**shared_parms, **custom_parm}
 
@@ -556,6 +569,7 @@ class Altimetry:
 
             print(f"\nICESat-2 ATL06 request processing for: {key}")
             fn = os.path.join(self.directory, f"{fn_base}.parquet")
+            self.atl06sr_parquet_paths[key] = fn
 
             print(parms)
 
@@ -597,45 +611,129 @@ class Altimetry:
                 if save_to_parquet:
                     self._save_to_parquet(fn, atl06sr, parms)
 
-            # Normalize index: x-series returns time_ns (Unix nanoseconds),
-            # legacy returns time (GPS seconds). Ensure a DatetimeIndex named "time".
-            if atl06sr.index.name == "time_ns" or not isinstance(
-                atl06sr.index, pd.DatetimeIndex
-            ):
-                if "time_ns" in atl06sr.columns:
-                    atl06sr.index = pd.to_datetime(atl06sr["time_ns"], unit="ns")
-                elif atl06sr.index.name == "time_ns":
-                    atl06sr.index = pd.to_datetime(atl06sr.index, unit="ns")
-                atl06sr.index.name = "time"
+            self._ingest_atl06sr(key, atl06sr, h_sigma_quantile)
 
-            # Normalize sample columns: x-series may return array values
-            # instead of scalars for raster samples (e.g., esa_worldcover.value).
-            # Extract the first element from any array-valued cells.
-            # After parquet round-trip, arrays may deserialize as lists.
-            for col in atl06sr.columns:
-                if atl06sr[col].dtype == object and atl06sr.shape[0] > 0:
-                    first_val = atl06sr[col].iloc[0]
-                    if isinstance(first_val, (np.ndarray, list)):
-                        atl06sr[col] = atl06sr[col].apply(self._extract_scalar)
+    def _ingest_atl06sr(self, key, atl06sr, h_sigma_quantile=1.0):
+        """
+        Normalize and quality-filter a raw ATL06-SR dataframe and store it.
 
-            self.atl06sr_processing_levels[key] = atl06sr
+        Shared by ``request_atl06sr_multi_processing`` (fresh request or cache
+        hit) and ``load_atl06sr_from_parquet`` (replaying a prior run's points)
+        so both paths produce identical ``atl06sr_processing_levels`` and
+        ``atl06sr_processing_levels_filtered`` entries.
 
-            print(f"Filtering ATL06-SR {key}")
+        Parameters
+        ----------
+        key : str
+            Processing-level key (e.g. "all").
+        atl06sr : geopandas.GeoDataFrame
+            Raw ATL06-SR points (from SlideRule or a parquet cache).
+        h_sigma_quantile : float, optional
+            Quantile of ``h_sigma`` above which fits are discarded, default 1.0.
+        """
+        # Normalize index: x-series returns time_ns (Unix nanoseconds),
+        # legacy returns time (GPS seconds). Ensure a DatetimeIndex named "time".
+        if atl06sr.index.name == "time_ns" or not isinstance(
+            atl06sr.index, pd.DatetimeIndex
+        ):
+            if "time_ns" in atl06sr.columns:
+                atl06sr.index = pd.to_datetime(atl06sr["time_ns"], unit="ns")
+            elif atl06sr.index.name == "time_ns":
+                atl06sr.index = pd.to_datetime(atl06sr.index, unit="ns")
+            atl06sr.index.name = "time"
 
-            # From Aimee Gibbons:
-            # I'd recommend anything cycle 03 and later, due to pointing issues before cycle 03.
-            atl06sr_filtered = atl06sr[atl06sr["cycle"] >= 3]
+        # Normalize sample columns: x-series may return array values
+        # instead of scalars for raster samples (e.g., esa_worldcover.value).
+        # Extract the first element from any array-valued cells.
+        # After parquet round-trip, arrays may deserialize as lists.
+        for col in atl06sr.columns:
+            if atl06sr[col].dtype == object and atl06sr.shape[0] > 0:
+                first_val = atl06sr[col].iloc[0]
+                if isinstance(first_val, (np.ndarray, list)):
+                    atl06sr[col] = atl06sr[col].apply(self._extract_scalar)
 
-            # Remove bad fits using high percentile of `h_sigma`, the error estimate for the least squares fit model.
-            # TODO: not sure about h_sigma quantile...might throw out too much. Maybe just remove 0 values?
-            atl06sr_filtered = atl06sr_filtered[
-                atl06sr_filtered["h_sigma"]
-                < atl06sr_filtered["h_sigma"].quantile(h_sigma_quantile)
-            ]
-            # Also need to filter out 0 values, not sure what these are caused by, but also very bad points.
-            atl06sr_filtered = atl06sr_filtered[atl06sr_filtered["h_sigma"] != 0]
+        self.atl06sr_processing_levels[key] = atl06sr
 
-            self.atl06sr_processing_levels_filtered[key] = atl06sr_filtered
+        print(f"Filtering ATL06-SR {key}")
+
+        # From Aimee Gibbons:
+        # I'd recommend anything cycle 03 and later, due to pointing issues before cycle 03.
+        atl06sr_filtered = atl06sr[atl06sr["cycle"] >= 3]
+
+        # Remove bad fits using high percentile of `h_sigma`, the error estimate for the least squares fit model.
+        # TODO: not sure about h_sigma quantile...might throw out too much. Maybe just remove 0 values?
+        atl06sr_filtered = atl06sr_filtered[
+            atl06sr_filtered["h_sigma"]
+            < atl06sr_filtered["h_sigma"].quantile(h_sigma_quantile)
+        ]
+        # Also need to filter out 0 values, not sure what these are caused by, but also very bad points.
+        atl06sr_filtered = atl06sr_filtered[atl06sr_filtered["h_sigma"] != 0]
+
+        self.atl06sr_processing_levels_filtered[key] = atl06sr_filtered
+
+    def load_atl06sr_from_parquet(self, parquet_paths, h_sigma_quantile=1.0):
+        """
+        Load ATL06-SR points directly from saved parquet caches.
+
+        Replays the *exact* points a prior run used (issue #121), bypassing the
+        SlideRule request entirely so a re-processed scene compares against an
+        identical ICESat-2 sample. Runs the same normalization + quality filter
+        as a fresh request via ``_ingest_atl06sr``.
+
+        Parameters
+        ----------
+        parquet_paths : dict
+            Mapping of processing-level key -> parquet path
+            (e.g. ``{"all": ".../atl06sr_all.parquet"}``).
+        h_sigma_quantile : float, optional
+            Quantile of ``h_sigma`` above which fits are discarded, default 1.0.
+
+        Returns
+        -------
+        bool
+            True if at least one parquet was loaded, False otherwise.
+        """
+        self.atl06sr_parquet_paths = {}
+        loaded_any = False
+        for key, path in parquet_paths.items():
+            if not path or not os.path.exists(path):
+                logger.warning(
+                    f"\nParquet for '{key}' not found at {path}; "
+                    "cannot reuse those ICESat-2 points.\n"
+                )
+                continue
+            print(f"Reusing ICESat-2 ATL06-SR points for '{key}' from: {path}")
+            atl06sr = gpd.read_parquet(path)
+            self.atl06sr_parquet_paths[key] = path
+            self._restore_request_metadata_from_parquet(atl06sr)
+            self._ingest_atl06sr(key, atl06sr, h_sigma_quantile)
+            loaded_any = True
+        return loaded_any
+
+    def _restore_request_metadata_from_parquet(self, atl06sr):
+        """
+        Recover the SlideRule request time range from a cached parquet.
+
+        The reuse path bypasses ``request_atl06sr_multi_processing`` (which sets
+        ``self._t0`` / ``self._t1`` via ``_resolve_time_range``), so plot titles
+        would otherwise lose their "<t0> to <t1>" date-range line. The request
+        parameters are persisted in the parquet's ``sliderule_parameters``
+        column, so read ``t0`` / ``t1`` back from there.
+        """
+        if hasattr(self, "_t0") and hasattr(self, "_t1"):
+            return
+        if "sliderule_parameters" not in atl06sr.columns or atl06sr.empty:
+            return
+        try:
+            params = json.loads(atl06sr["sliderule_parameters"].iloc[0])
+            t0, t1 = params.get("t0"), params.get("t1")
+            if t0 and t1:
+                self._t0 = pd.Timestamp(t0).to_pydatetime()
+                self._t1 = pd.Timestamp(t1).to_pydatetime()
+        except Exception as e:
+            logger.warning(
+                f"\nCould not restore time range from parquet metadata: {e}\n"
+            )
 
     def _save_to_parquet(self, fn, df, parms):
         """
@@ -2702,6 +2800,83 @@ class Altimetry:
             "date": date_str,
         }
 
+    def get_altimetry_selections(self, key="all"):
+        """
+        Report the ICESat-2 selections a run made, for reproducibility (#121).
+
+        Bundles the request settings, the parquet cache locations (the exact
+        points used), the auto-selected profile track, and the best/worst
+        segment extents so they can be written to a figure-selections file and
+        replayed on a later run.
+
+        Parameters
+        ----------
+        key : str, optional
+            Processing level key, default is "all".
+
+        Returns
+        -------
+        dict
+            ``{"request": {..}, "parquet_cache": {key: path},
+            "profile_track": {"rgt", "cycle", "spot"},
+            "segments": {"best": {..}, "worst": {..}}}``. Keys are omitted when
+            the corresponding selection is unavailable.
+        """
+        selections = {}
+
+        if getattr(self, "atl06sr_request_parms", None):
+            selections["request"] = dict(self.atl06sr_request_parms)
+        if getattr(self, "atl06sr_parquet_paths", None):
+            selections["parquet_cache"] = dict(self.atl06sr_parquet_paths)
+
+        resolved = self._resolve_best_track(key)
+        if resolved is None:
+            return selections
+        track, rgt, cycle, spot = resolved[0], resolved[1], resolved[2], resolved[3]
+        selections["profile_track"] = {
+            "rgt": int(rgt),
+            "cycle": int(cycle),
+            "spot": int(spot),
+        }
+
+        seg_info = self._find_best_worst_segments(track)
+        if seg_info is not None:
+            selections["segments"] = {
+                "best": self._segment_record(track, seg_info, "best"),
+                "worst": self._segment_record(track, seg_info, "worst"),
+            }
+        return selections
+
+    @staticmethod
+    def _segment_record(track, seg_info, which):
+        """
+        Build a serializable record for a best/worst segment, used by
+        ``get_altimetry_selections``.
+
+        ``start_xatc`` / ``end_xatc`` are the **absolute** along-track extents
+        (meters) and are what reuse actually replays — absolute ``x_atc`` is
+        stable even when outlier filtering drops a different first point, whereas
+        a track-start-relative offset would shift. ``start_km`` / ``end_km``
+        (km from the track start) are kept for human readability. ``endpoints_xy``
+        stores the segment's first/last point coordinates **in the track
+        geometry's CRS** (the DEM/working CRS after dh computation, typically UTM
+        — not lon/lat), for human inspection only.
+        """
+        record = {
+            "start_xatc": float(seg_info[f"seg_{which}_start_xatc"]),
+            "end_xatc": float(seg_info[f"seg_{which}_end_xatc"]),
+            "start_km": float(seg_info[f"seg_{which}_start_km"]),
+            "end_km": float(seg_info[f"seg_{which}_end_km"]),
+        }
+        seg_pts = track[seg_info[f"seg_{which}_mask"]]
+        if not seg_pts.empty and seg_pts.geometry.notna().any():
+            geom = seg_pts.geometry
+            record["endpoints_xy"] = [
+                [float(geom.iloc[0].x), float(geom.iloc[0].y)],
+                [float(geom.iloc[-1].x), float(geom.iloc[-1].y)],
+            ]
+        return record
+
     def histogram_by_landcover(
         self,
         key="all",
@@ -2946,7 +3121,9 @@ class Altimetry:
 
         return (track, rgt, cycle, spot, track_count, track_date, dist, dh_vals)
 
-    def _find_best_worst_segments(self, track, dh_col="icesat_minus_dem"):
+    def _find_best_worst_segments(
+        self, track, dh_col="icesat_minus_dem", segment_override=None
+    ):
         """
         Identify 1 km segments with better and worse agreement along a track.
 
@@ -2955,12 +3132,28 @@ class Altimetry:
         with a large bias cannot be selected as "better agreement" just
         because its NMAD is small.
 
+        Parameters
+        ----------
+        track : geopandas.GeoDataFrame
+            The resolved track (sorted by ``x_atc``).
+        dh_col : str, optional
+            Column of height differences to score, default "icesat_minus_dem".
+        segment_override : dict or None, optional
+            When provided, pins the segment extents instead of scoring them
+            (issue #121). Expects ``{"best": {...}, "worst": {...}}`` where each
+            entry carries **absolute** along-track extents ``start_xatc`` /
+            ``end_xatc`` (meters). ``start_km`` / ``end_km`` (km from the track
+            start) are accepted as a legacy fallback, but absolute ``x_atc`` is
+            preferred because it is stable even when outlier filtering drops a
+            different first point and shifts the track start.
+
         Returns
         -------
         dict or None
             Dictionary with keys: seg_best_mask, seg_worst_mask,
-            seg_best_start_km, seg_best_end_km, seg_worst_start_km,
-            seg_worst_end_km. None if segments cannot be identified.
+            seg_{best,worst}_{start,end}_km (relative to this track's start, for
+            plotting) and seg_{best,worst}_{start,end}_xatc (absolute, for
+            stable reuse). None if segments cannot be identified.
         """
         x_atc = track["x_atc"].values
         track_length_m = x_atc[-1] - x_atc[0] if len(x_atc) > 1 else 0
@@ -2968,6 +3161,34 @@ class Altimetry:
         median_spacing = np.median(diffs) if len(diffs) > 0 else 0
         if not (median_spacing > 0 and track_length_m >= 1000):
             return None
+
+        # Pinned segments: rebuild the masks/extents from absolute along-track
+        # (x_atc) positions so a re-run highlights the same ground segments even
+        # if outlier filtering removed a different first point (which would shift
+        # any track-start-relative km offset).
+        if segment_override is not None:
+            try:
+                x_atc_lo = x_atc[0]
+
+                def _resolve_extent(seg):
+                    if seg.get("start_xatc") is not None and (
+                        seg.get("end_xatc") is not None
+                    ):
+                        return float(seg["start_xatc"]), float(seg["end_xatc"])
+                    # Legacy fallback: km relative to track start.
+                    return (
+                        x_atc_lo + float(seg["start_km"]) * 1000.0,
+                        x_atc_lo + float(seg["end_km"]) * 1000.0,
+                    )
+
+                bs, be = _resolve_extent(segment_override["best"])
+                ws, we = _resolve_extent(segment_override["worst"])
+                return self._segment_dict(track, bs, be, ws, we)
+            except (KeyError, TypeError, ValueError) as e:
+                logger.warning(
+                    f"\nCould not apply pinned segments ({e}); "
+                    "falling back to automatic segment selection.\n"
+                )
 
         half_win = 500  # meters
         median_weight = 3.0  # weight |median(dh)| more heavily than NMAD
@@ -3004,15 +3225,40 @@ class Altimetry:
         seg_worst_start = max(x_atc[idx_worst] - half_win, x_atc_lo)
         seg_worst_end = min(x_atc[idx_worst] + half_win, x_atc_hi)
 
+        return self._segment_dict(
+            track, seg_best_start, seg_best_end, seg_worst_start, seg_worst_end
+        )
+
+    @staticmethod
+    def _segment_dict(track, bs, be, ws, we):
+        """
+        Build the best/worst segment dict from absolute along-track extents.
+
+        Parameters
+        ----------
+        track : geopandas.GeoDataFrame
+            Resolved track (sorted by ``x_atc``).
+        bs, be, ws, we : float
+            Absolute ``x_atc`` (meters) start/end of the best and worst segments.
+
+        Returns
+        -------
+        dict
+            Masks, km extents (relative to this track's start, for plotting),
+            and absolute ``x_atc`` extents (for stable reuse).
+        """
+        x_atc_lo = track["x_atc"].values[0]
         return {
-            "seg_best_mask": (track["x_atc"] >= seg_best_start)
-            & (track["x_atc"] <= seg_best_end),
-            "seg_worst_mask": (track["x_atc"] >= seg_worst_start)
-            & (track["x_atc"] <= seg_worst_end),
-            "seg_best_start_km": (seg_best_start - x_atc[0]) / 1000.0,
-            "seg_best_end_km": (seg_best_end - x_atc[0]) / 1000.0,
-            "seg_worst_start_km": (seg_worst_start - x_atc[0]) / 1000.0,
-            "seg_worst_end_km": (seg_worst_end - x_atc[0]) / 1000.0,
+            "seg_best_mask": (track["x_atc"] >= bs) & (track["x_atc"] <= be),
+            "seg_worst_mask": (track["x_atc"] >= ws) & (track["x_atc"] <= we),
+            "seg_best_start_km": (bs - x_atc_lo) / 1000.0,
+            "seg_best_end_km": (be - x_atc_lo) / 1000.0,
+            "seg_worst_start_km": (ws - x_atc_lo) / 1000.0,
+            "seg_worst_end_km": (we - x_atc_lo) / 1000.0,
+            "seg_best_start_xatc": float(bs),
+            "seg_best_end_xatc": float(be),
+            "seg_worst_start_xatc": float(ws),
+            "seg_worst_end_xatc": float(we),
         }
 
     def _plot_hillshade_map(self, ax, track, seg_info=None):
@@ -3108,6 +3354,7 @@ class Altimetry:
         rgt=None,
         cycle=None,
         spot=None,
+        segments=None,
         plot_aligned=False,
         save_dir=None,
         fig_fn=None,
@@ -3133,6 +3380,10 @@ class Altimetry:
             Cycle number (auto-selected if None)
         spot : int or None, optional
             Spot number (auto-selected if None)
+        segments : dict or None, optional
+            Pinned best/worst segment extents to replay a prior run's
+            selection (issue #121). See ``_find_best_worst_segments``.
+            Default None (automatic selection).
         plot_aligned : bool, optional
             Whether to also plot the aligned DEM profile, default is False
         save_dir : str or None, optional
@@ -3145,8 +3396,8 @@ class Altimetry:
             return
         track, rgt, cycle, spot, track_count, track_date, dist, dh_vals = resolved
 
-        # Segment selection
-        seg_info = self._find_best_worst_segments(track)
+        # Segment selection (pinned via `segments` for run-to-run comparison)
+        seg_info = self._find_best_worst_segments(track, segment_override=segments)
 
         # --- Figure layout: left column = stacked elevation/dh (no gap),
         # right column = map spanning both rows ---
@@ -3310,6 +3561,7 @@ class Altimetry:
         rgt=None,
         cycle=None,
         spot=None,
+        segments=None,
         plot_aligned=False,
         save_dir=None,
         fig_fn=None,
@@ -3336,6 +3588,10 @@ class Altimetry:
             Cycle number (auto-selected if None)
         spot : int or None, optional
             Spot number (auto-selected if None)
+        segments : dict or None, optional
+            Pinned best/worst segment extents to replay a prior run's
+            selection (issue #121). See ``_find_best_worst_segments``.
+            Default None (automatic selection).
         plot_aligned : bool, optional
             Whether to overlay the aligned DEM heights and include aligned
             Median/NMAD in each segment title. Requires
@@ -3351,7 +3607,7 @@ class Altimetry:
             return
         track, rgt, cycle, spot, track_count, track_date, _, _ = resolved
 
-        seg_info = self._find_best_worst_segments(track)
+        seg_info = self._find_best_worst_segments(track, segment_override=segments)
         if seg_info is None:
             logger.warning(
                 "\nTrack too short or insufficient data for segment selection.\n"

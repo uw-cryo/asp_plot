@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.16.0] - 2026-06-11
+
+### Added
+- **Reusable "figure selections" for run-to-run comparison** ([#121](https://github.com/uw-cryo/asp_plot/issues/121)). When re-processing the same scene with different ASP parameters, the diagnostic figures previously changed *what they showed* between runs — a fresh ICESat-2 request returned a slightly different point set, the "best" profile track flipped, the best/worst agreement segments moved, and the detailed-hillshade clip boxes were re-selected from the re-processed intersection-error raster — making before/after comparison impossible. The `asp_plot` CLI now writes a `<report_stem>_figure_selections.yml` sidecar next to the report recording every non-deterministic selection, and a new `--reuse_selections PATH` flag replays a prior run's choices so figures are directly comparable.
+  - New `asp_plot/selections.py` module (`FigureSelections` dataclass + YAML read/write + clip-box ↔ pixel-window + CRS-reprojection helpers), deliberately free of `report.py` / `fpdf` imports so it is safe to use from notebooks.
+  - `StereoPlotter.plot_detailed_hillshade()` gains a `clip_windows` (+ `clip_windows_crs`) kwarg and records the boxes it drew on `self.detailed_hillshade_clips`. Clip boxes are stored in map coordinates and reprojected to the current DEM's CRS on reuse, so the same ground area is clipped even across stereo variants in different projections (e.g. mapprojected vs. non-mapprojected, which can land in different CRSs); boxes that fall outside the current DEM warn and fall back to automatic selection.
+  - `Altimetry` reuses the *exact* prior ICESat-2 points via `load_atl06sr_from_parquet()`, pins the profile track (`rgt`/`cycle`/`spot`) and best/worst segments (`segments=`) through `plot_atl06sr_dem_profile()` / `plot_best_worst_segments()`, and reports its choices via `get_altimetry_selections()`. A single run now also resolves the best track once and shares it across the profile and segment figures for self-consistency.
+  - Best/worst segments are pinned by **absolute along-track distance (`x_atc`)** rather than km-from-track-start, so a reused segment lands on the same ground even when outlier (3σ) filtering against a different DEM drops a different first point and shifts the track start. (Manifests keep the km extents for readability and still accept the legacy km-only form.)
+  - The reuse path restores the request's date range (`t0`/`t1`) from the parquet's stored SlideRule parameters, so plot titles keep their "&lt;t0&gt; to &lt;t1&gt;" line when points are loaded from cache instead of re-requested.
+
 ## [1.15.2] - 2026-06-11
 
 ### Fixed
