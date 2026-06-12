@@ -9,6 +9,11 @@ import rasterio as rio
 from matplotlib_scalebar.scalebar import ScaleBar
 
 from asp_plot.processing_parameters import ProcessingParameters
+from asp_plot.selections import (
+    bbox_to_pixel_offset,
+    pixel_window_to_bbox,
+    reproject_bbox,
+)
 from asp_plot.utils import (
     ColorBar,
     Plotter,
@@ -520,10 +525,76 @@ class StereoPlotter(Plotter):
         if save_dir and fig_fn:
             save_figure(fig, save_dir, fig_fn)
 
+    def _auto_hillshade_clip_offsets(
+        self, ie, subset_size, intersection_error_percentiles
+    ):
+        """
+        Select detailed-hillshade clip windows from intersection-error variance.
+
+        Tiles the intersection-error raster into ``subset_size`` blocks,
+        computes per-block variance (only for blocks that are >= 90% valid),
+        and picks the blocks whose variance is closest to the requested
+        percentiles (low/medium/high uncertainty).
+
+        Parameters
+        ----------
+        ie : numpy.ma.MaskedArray
+            Intersection-error array.
+        subset_size : int
+            Block size in pixels.
+        intersection_error_percentiles : list
+            Three percentiles for low/medium/high uncertainty blocks.
+
+        Returns
+        -------
+        list of tuple
+            Three ``(row_px, col_px)`` top-left pixel offsets.
+        """
+        rows, cols = ie.shape
+        n_rows = rows // subset_size
+        n_cols = cols // subset_size
+
+        # Trim the array to fit an integer number of windows
+        ie_trimmed = ie[: n_rows * subset_size, : n_cols * subset_size]
+
+        # Reshape the array into non-overlapping blocks
+        blocks = ie_trimmed.reshape(n_rows, subset_size, n_cols, subset_size).swapaxes(
+            1, 2
+        )
+
+        # Calculate the percentage of valid pixels in each block
+        valid_percentage = np.ma.count(blocks, axis=(2, 3)) / (
+            subset_size * subset_size
+        )
+
+        # Calculate variance for each block, only for blocks with >= 90% valid pixels
+        block_variances = np.ma.masked_array(
+            np.zeros((n_rows, n_cols)), mask=valid_percentage < 0.9
+        )
+
+        for i in range(n_rows):
+            for j in range(n_cols):
+                if valid_percentage[i, j] >= 0.9:
+                    block_variances[i, j] = np.ma.var(blocks[i, j])
+
+        # Use the compressed array to calculate percentiles
+        compressed_variances = block_variances.compressed()
+
+        offsets = []
+        for pct in intersection_error_percentiles:
+            target = np.percentile(compressed_variances, pct)
+            idx = np.unravel_index(
+                np.argmin(np.abs(block_variances - target)), block_variances.shape
+            )
+            offsets.append((idx[0] * subset_size, idx[1] * subset_size))
+        return offsets
+
     def plot_detailed_hillshade(
         self,
         intersection_error_percentiles=[16, 50, 84],
         subset_km=1,
+        clip_windows=None,
+        clip_windows_crs=None,
         save_dir=None,
         fig_fn=None,
     ):
@@ -538,6 +609,12 @@ class StereoPlotter(Plotter):
         If the intersection error file is missing, it falls back to a plain
         hillshade plot without the detailed subsets.
 
+        The clip boxes that were drawn are recorded on
+        ``self.detailed_hillshade_clips`` (a list of
+        ``{"label", "bbox", "pixel_offset"}`` dicts, ``bbox`` in DEM-CRS map
+        coordinates) so a later run can replay the same clips via
+        ``clip_windows`` for run-to-run comparison (issue #121).
+
         Parameters
         ----------
         intersection_error_percentiles : list, optional
@@ -545,6 +622,19 @@ class StereoPlotter(Plotter):
             default is [16, 50, 84]
         subset_km : float, optional
             Size of the subset areas in kilometers, default is 1
+        clip_windows : list or None, optional
+            When provided, pins the subset clip boxes instead of selecting
+            them from intersection-error variance. A list of up to three
+            map-coordinate bounding boxes ``[xmin, ymin, xmax, ymax]`` (as
+            written to a figure-selections file). Boxes that fall outside the
+            current DEM fall back to the automatic selection with a warning.
+            Default is None (automatic selection).
+        clip_windows_crs : str or None, optional
+            CRS the ``clip_windows`` bboxes are expressed in. When it differs
+            from the current DEM's CRS, the boxes are reprojected first so the
+            same ground area is clipped across stereo variants in different
+            projections (e.g. mapprojected vs. non-mapprojected). Default is
+            None (assume the boxes are already in the DEM's CRS).
         save_dir : str or None, optional
             Directory to save the figure, default is None (don't save)
         fig_fn : str or None, optional
@@ -563,6 +653,8 @@ class StereoPlotter(Plotter):
         of intersection error, representing areas with different quality
         levels in the DEM.
         """
+        self.detailed_hillshade_clips = []
+
         if not self.intersection_error_fn:
             logger.warning(
                 "\n\nIntersection error file not found. Plotting hillshade without details.\n\n"
@@ -615,62 +707,77 @@ class StereoPlotter(Plotter):
 
         # Calculate subset size in pixels
         subset_size = int(subset_km * 1000 / gsd)
-
-        # Calculate the number of full windows in each dimension
         rows, cols = ie.shape
-        n_rows = rows // subset_size
-        n_cols = cols // subset_size
 
-        # Trim the array to fit an integer number of windows
-        ie_trimmed = ie[: n_rows * subset_size, : n_cols * subset_size]
+        # Resolve the three clip windows as top-left pixel offsets. By default
+        # they are selected from intersection-error variance (low/medium/high
+        # uncertainty). When clip_windows is provided (e.g. replaying a prior
+        # run's figure selections), pin those instead so reports are comparable.
+        auto_offsets = None  # computed lazily; reused as fallback for bad boxes
+        if clip_windows is None:
+            auto_offsets = self._auto_hillshade_clip_offsets(
+                ie, subset_size, intersection_error_percentiles
+            )
+            clip_offsets = list(auto_offsets)
+        else:
+            clip_offsets = []
+            for i in range(3):
+                if i < len(clip_windows) and clip_windows[i] is not None:
+                    # Reproject the stored bbox to the current DEM's CRS if it
+                    # was written in a different projection (e.g. mapprojected
+                    # vs. non-mapprojected variant), so the same ground area is
+                    # clipped. No-op when CRSs match or clip_windows_crs is None.
+                    bbox = reproject_bbox(
+                        clip_windows[i], clip_windows_crs, raster.ds.crs
+                    )
+                    row_px, col_px = bbox_to_pixel_offset(raster.ds.transform, bbox)
+                    # Clamp small overflows; fall back to auto if a box lands
+                    # entirely outside the (re-processed) DEM extent.
+                    out_of_bounds = (
+                        row_px >= rows or col_px >= cols or row_px < 0 or col_px < 0
+                    )
+                    if out_of_bounds:
+                        logger.warning(
+                            "\n\nPinned hillshade clip %d falls outside the DEM; "
+                            "falling back to automatic selection.\n\n" % i
+                        )
+                        if auto_offsets is None:
+                            auto_offsets = self._auto_hillshade_clip_offsets(
+                                ie, subset_size, intersection_error_percentiles
+                            )
+                        clip_offsets.append(auto_offsets[i])
+                    else:
+                        row_px = min(row_px, max(rows - subset_size, 0))
+                        col_px = min(col_px, max(cols - subset_size, 0))
+                        clip_offsets.append((row_px, col_px))
+                else:
+                    if auto_offsets is None:
+                        auto_offsets = self._auto_hillshade_clip_offsets(
+                            ie, subset_size, intersection_error_percentiles
+                        )
+                    clip_offsets.append(auto_offsets[i])
 
-        # Reshape the array into non-overlapping blocks
-        blocks = ie_trimmed.reshape(n_rows, subset_size, n_cols, subset_size).swapaxes(
-            1, 2
-        )
-
-        # Calculate the percentage of valid pixels in each block
-        valid_percentage = np.ma.count(blocks, axis=(2, 3)) / (
-            subset_size * subset_size
-        )
-
-        # Calculate variance for each block, only for blocks with >= 90% valid pixels
-        block_variances = np.ma.masked_array(
-            np.zeros((n_rows, n_cols)), mask=valid_percentage < 0.9
-        )
-
-        for i in range(n_rows):
-            for j in range(n_cols):
-                if valid_percentage[i, j] >= 0.9:
-                    block_variances[i, j] = np.ma.var(blocks[i, j])
-
-        # Use the compressed array to calculate percentiles
-        compressed_variances = block_variances.compressed()
-
-        # Calculate the percentiles
-        lower = np.percentile(compressed_variances, intersection_error_percentiles[0])
-        middle = np.percentile(compressed_variances, intersection_error_percentiles[1])
-        upper = np.percentile(compressed_variances, intersection_error_percentiles[2])
-
-        # Find the indices of the blocks closest to these percentiles
-        lower_idx = np.unravel_index(
-            np.argmin(np.abs(block_variances - lower)), block_variances.shape
-        )
-        middle_idx = np.unravel_index(
-            np.argmin(np.abs(block_variances - middle)), block_variances.shape
-        )
-        upper_idx = np.unravel_index(
-            np.argmin(np.abs(block_variances - upper)), block_variances.shape
-        )
-
-        # Define distinct colors for the rectangles and subplot axes
+        # Define distinct colors and labels for the rectangles and subplot axes
         rect_colors = ["magenta", "cyan", "orange"]
+        clip_labels = ["low", "medium", "high"]
+
+        # Record the clips (DEM-CRS bbox + pixel offset) so a later run can
+        # replay them for run-to-run comparison (issue #121).
+        self.detailed_hillshade_clips = [
+            {
+                "label": label,
+                "bbox": pixel_window_to_bbox(
+                    raster.ds.transform, row_px, col_px, subset_size, subset_size
+                ),
+                "pixel_offset": [int(row_px), int(col_px)],
+            }
+            for (row_px, col_px), label in zip(clip_offsets, clip_labels)
+        ]
 
         # Add colored boxes outlining the three areas
-        percentiles_idx = [lower_idx, middle_idx, upper_idx]
-        for idx, color in zip(percentiles_idx, rect_colors):
+        for (row_px, col_px), color in zip(clip_offsets, rect_colors):
             rect = plt.Rectangle(
-                (idx[1] * subset_size, idx[0] * subset_size),
+                (col_px, row_px),
                 subset_size,
                 subset_size,
                 fill=False,
@@ -682,26 +789,24 @@ class StereoPlotter(Plotter):
         # Plot subsets
         axes_hillshade = [ax_hs_left, ax_hs_middle, ax_hs_right]
         axes_image = [ax_image_left, ax_image_middle, ax_image_right]
-        for ax_hs, ax_img, idx, color in zip(
-            axes_hillshade, axes_image, percentiles_idx, rect_colors
+        for ax_hs, ax_img, (row_px, col_px), color in zip(
+            axes_hillshade, axes_image, clip_offsets, rect_colors
         ):
             hs_subset = hs[
-                idx[0] * subset_size : (idx[0] + 1) * subset_size,
-                idx[1] * subset_size : (idx[1] + 1) * subset_size,
+                row_px : row_px + subset_size,
+                col_px : col_px + subset_size,
             ]
             dem_subset = dem[
-                idx[0] * subset_size : (idx[0] + 1) * subset_size,
-                idx[1] * subset_size : (idx[1] + 1) * subset_size,
+                row_px : row_px + subset_size,
+                col_px : col_px + subset_size,
             ]
             self._plot_hillshade_with_overlay(ax_hs, dem_subset, hs_subset, gsd)
 
-            ul_x, ul_y = rio.transform.xy(
-                raster.ds.transform, idx[0] * subset_size, idx[1] * subset_size
-            )
+            ul_x, ul_y = rio.transform.xy(raster.ds.transform, row_px, col_px)
             lr_x, lr_y = rio.transform.xy(
                 raster.ds.transform,
-                (idx[0] + 1) * subset_size,
-                (idx[1] + 1) * subset_size,
+                row_px + subset_size,
+                col_px + subset_size,
             )
 
             # We only show the corresponding image if it is mapprojected

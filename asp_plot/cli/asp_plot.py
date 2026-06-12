@@ -16,6 +16,11 @@ from asp_plot.report import (
     compile_report,
 )
 from asp_plot.scenes import ScenePlotter
+from asp_plot.selections import (
+    FigureSelections,
+    read_selections_yaml,
+    write_selections_yaml,
+)
 from asp_plot.stereo import StereoPlotter
 from asp_plot.stereo_geometry import StereoGeometryPlotter
 from asp_plot.utils import Raster, detect_planetary_body, get_acquisition_dates
@@ -114,6 +119,13 @@ from asp_plot.utils import Raster, detect_planetary_body, get_acquisition_dates
     help='Time range for ICESat-2 ATL06-SR data requests. "all" for all available data (mission start to present), or "START,END" for a custom range (e.g. "2020-01-01,2024-12-31"), or "auto" for scene metadata +/- 1 year. Default: all.',
 )
 @click.option(
+    "--reuse_selections",
+    prompt=False,
+    default=None,
+    type=click.Path(exists=True),
+    help="Path to a *_figure_selections.yml written by a previous run. When supplied, replays that run's ICESat-2 points (parquet), profile track, best/worst segments, and detailed-hillshade clip boxes so figures are directly comparable across re-processing runs. Default: None.",
+)
+@click.option(
     "--report_filename",
     prompt=False,
     default=None,
@@ -141,6 +153,7 @@ def main(
     plot_geometry,
     subset_km,
     atl06sr_time_range,
+    reuse_selections,
     report_filename,
     report_title,
 ):
@@ -172,6 +185,25 @@ def main(
 
     plots_directory = os.path.join(directory, "tmp_asp_report_plots/")
     os.makedirs(plots_directory, exist_ok=True)
+
+    # ---- Load reusable figure selections (issue #121) ----
+    # Replays a prior run's ICESat-2 points, profile track, best/worst segments,
+    # and detailed-hillshade clip boxes so re-processing runs are comparable.
+    reuse_clip_windows = None
+    reuse_clip_windows_crs = None
+    reuse_icesat = {}
+    if reuse_selections:
+        reuse_selections = os.path.expanduser(reuse_selections)
+        print(f"\nReusing figure selections from: {reuse_selections}\n")
+        prior = read_selections_yaml(reuse_selections)
+        if prior.detailed_hillshade:
+            clips = prior.detailed_hillshade.get("clips") or []
+            reuse_clip_windows = [c.get("bbox") for c in clips] or None
+            reuse_clip_windows_crs = prior.detailed_hillshade.get("dem_crs")
+        reuse_icesat = prior.icesat2 or {}
+    reuse_track = reuse_icesat.get("profile_track") or {}
+    reuse_segments = reuse_icesat.get("segments")
+    reuse_parquet = reuse_icesat.get("parquet_cache")
 
     if report_title is None:
         report_title = os.path.split(directory.rstrip("/\\"))[-1]
@@ -446,7 +478,11 @@ def main(
     fig_fn = f"{next(figure_counter):02}.png"
     stereo_plotter.title = "Hillshade with details"
     stereo_plotter.plot_detailed_hillshade(
-        subset_km=subset_km, save_dir=plots_directory, fig_fn=fig_fn
+        subset_km=subset_km,
+        clip_windows=reuse_clip_windows,
+        clip_windows_crs=reuse_clip_windows_crs,
+        save_dir=plots_directory,
+        fig_fn=fig_fn,
     )
     sections.append(
         ReportSection(
@@ -470,6 +506,9 @@ def main(
         if isinstance(plot_icesat, str):
             plot_icesat = plot_icesat.lower() not in ("false", "0", "no")
         plot_altimetry = plot_icesat
+
+    # ICESat-2 selections actually used, captured for the figure-selections file
+    icesat2_selections = None
 
     if plot_altimetry:
         # Auto-detect planetary body from DEM CRS
@@ -502,16 +541,41 @@ def main(
             # Existing ICESat-2 workflow (3 plots: map, histogram, profile)
             icesat = Altimetry(directory=directory, dem_fn=asp_dem)
 
-            icesat.request_atl06sr_multi_processing(
-                processing_levels=["all"],
-                save_to_parquet=True,
-                **atl06sr_time_kwargs,
-            )
+            # Reuse the exact prior points from parquet when replaying a prior
+            # run's selections; otherwise request fresh from SlideRule (#121).
+            loaded_from_reuse = False
+            if reuse_parquet:
+                loaded_from_reuse = icesat.load_atl06sr_from_parquet(reuse_parquet)
+                if not loaded_from_reuse:
+                    print(
+                        "\nCould not reuse cached ICESat-2 parquet(s); "
+                        "requesting fresh ATL06-SR data.\n"
+                    )
+            if not loaded_from_reuse:
+                icesat.request_atl06sr_multi_processing(
+                    processing_levels=["all"],
+                    save_to_parquet=True,
+                    **atl06sr_time_kwargs,
+                )
 
             icesat.filter_esa_worldcover(filter_out="water")
 
             # Compute dh (includes 3-sigma outlier filtering by default)
             icesat.atl06sr_to_dem_dh()
+
+            # Resolve the profile track + best/worst segments ONCE so the
+            # profile and segment figures (and their aligned variants) all show
+            # the same track/segments. When replaying, pin the prior run's
+            # choices; otherwise pin this run's auto-selection for self-
+            # consistency (#121).
+            auto_sel = icesat.get_altimetry_selections("all")
+            track_kw = reuse_track or auto_sel.get("profile_track") or {}
+            seg_kw = reuse_segments or auto_sel.get("segments")
+            icesat2_selections = dict(auto_sel)
+            if track_kw:
+                icesat2_selections["profile_track"] = track_kw
+            if seg_kw:
+                icesat2_selections["segments"] = seg_kw
 
             fig_fn = f"{next(figure_counter):02}.png"
             icesat.mapview_plot_atl06sr_to_dem(
@@ -546,8 +610,10 @@ def main(
             fig_fn = f"{next(figure_counter):02}.png"
             icesat.plot_atl06sr_dem_profile(
                 key="all",
+                segments=seg_kw,
                 save_dir=plots_directory,
                 fig_fn=fig_fn,
+                **track_kw,
             )
             sections.append(
                 ReportSection(
@@ -567,8 +633,10 @@ def main(
             fig_fn = f"{next(figure_counter):02}.png"
             icesat.plot_best_worst_segments(
                 key="all",
+                segments=seg_kw,
                 save_dir=plots_directory,
                 fig_fn=fig_fn,
+                **track_kw,
             )
             sections.append(
                 ReportSection(
@@ -693,9 +761,11 @@ def main(
                     fig_fn = f"{next(figure_counter):02}.png"
                     icesat.plot_atl06sr_dem_profile(
                         key="all",
+                        segments=seg_kw,
                         plot_aligned=True,
                         save_dir=plots_directory,
                         fig_fn=fig_fn,
+                        **track_kw,
                     )
                     sections.append(
                         ReportSection(
@@ -714,9 +784,11 @@ def main(
                     fig_fn = f"{next(figure_counter):02}.png"
                     icesat.plot_best_worst_segments(
                         key="all",
+                        segments=seg_kw,
                         plot_aligned=True,
                         save_dir=plots_directory,
                         fig_fn=fig_fn,
+                        **track_kw,
                     )
                     sections.append(
                         ReportSection(
@@ -907,6 +979,43 @@ def main(
         report_metadata=report_metadata,
         report_command=report_command,
     )
+
+    # ---- Write the figure-selections sidecar (issue #121) ----
+    # Records the non-deterministic selections this run made so a later
+    # re-processing run can replay them via --reuse_selections.
+    try:
+        from asp_plot import __version__ as asp_plot_version
+    except Exception:
+        asp_plot_version = None
+
+    hillshade_block = None
+    hillshade_clips = getattr(stereo_plotter, "detailed_hillshade_clips", None)
+    if hillshade_clips:
+        dem_crs_str = None
+        try:
+            dem_crs_str = str(Raster(asp_dem).ds.crs)
+        except Exception:
+            pass
+        hillshade_block = {
+            "subset_km": float(subset_km),
+            "intersection_error_percentiles": [16, 50, 84],
+            "dem_crs": dem_crs_str,
+            "clips": hillshade_clips,
+        }
+
+    selections = FigureSelections(
+        asp_plot_version=asp_plot_version,
+        dem_filename=asp_dem,
+        map_crs=map_crs,
+        detailed_hillshade=hillshade_block,
+        icesat2=icesat2_selections,
+    )
+    selections_path = os.path.splitext(report_pdf_path)[0] + "_figure_selections.yml"
+    try:
+        write_selections_yaml(selections_path, selections)
+        print(f"\nFigure selections saved to {selections_path}\n")
+    except Exception as e:
+        print(f"\nCould not write figure selections: {e}\n")
 
     shutil.rmtree(plots_directory)
 

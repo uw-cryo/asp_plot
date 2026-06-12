@@ -143,4 +143,9 @@ CLAUDE*
 scripts/
 /*.parquet
 reports/regenerate_reports.sh
+# Figure-selections sidecars written next to each report by `asp_plot`. These are
+# regeneration byproducts that hardcode absolute local paths (dem_filename,
+# parquet_cache), so they are not committed; a sanitized example is documented in
+# docs/cli/asp_plot.md instead.
+reports/*_figure_selections.yml
 *.csv

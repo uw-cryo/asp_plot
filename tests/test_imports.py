@@ -18,10 +18,12 @@ class TestImports:
         import asp_plot.gallery
         import asp_plot.processing_parameters
         import asp_plot.scenes
+        import asp_plot.selections
         import asp_plot.stereo_geometry
         import asp_plot.stereopair_metadata_parser
         import asp_plot.utils
 
+        assert asp_plot.selections is not None
         assert asp_plot.gallery is not None
         assert asp_plot.stereo_geometry is not None
         assert asp_plot.utils is not None
@@ -40,12 +42,14 @@ class TestImports:
         from asp_plot.gallery import GalleryPlotter
         from asp_plot.processing_parameters import ProcessingParameters
         from asp_plot.scenes import ScenePlotter
+        from asp_plot.selections import FigureSelections
         from asp_plot.stereo import StereoPlotter
         from asp_plot.stereo_geometry import StereoGeometryPlotter
         from asp_plot.stereopair_metadata_parser import StereopairMetadataParser
         from asp_plot.utils import ColorBar, Plotter, Raster
 
         assert StereoGeometryPlotter is not None
+        assert FigureSelections is not None
         assert GalleryPlotter is not None
         assert ColorBar is not None
         assert Raster is not None
