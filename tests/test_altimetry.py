@@ -9,8 +9,41 @@ import pytest
 from shapely.geometry import Point
 
 from asp_plot.altimetry import ICESAT2_MISSION_START, AlignmentResult, Altimetry
+from asp_plot.altimetry_plots import AltimetryPlotter
+from asp_plot.icesat2_source import Icesat2Source
+from asp_plot.planetary_source import PlanetarySource
 
 matplotlib.use("Agg")
+
+
+class TestAltimetryComposition:
+    """Altimetry coordinates single-concern source/plotter objects."""
+
+    @pytest.fixture
+    def alt(self):
+        return Altimetry(
+            directory="tests/test_data",
+            dem_fn="tests/test_data/stereo/date_time_left_right_1m-DEM.tif",
+        )
+
+    def test_composes_source_and_plotter_objects(self, alt):
+        assert isinstance(alt.icesat2, Icesat2Source)
+        assert isinstance(alt.planetary, PlanetarySource)
+        assert isinstance(alt.plotter, AltimetryPlotter)
+
+    def test_sources_share_one_coordinator(self, alt):
+        # Cross-cutting state lives in exactly one place: the coordinator.
+        assert alt.icesat2.alt is alt
+        assert alt.planetary.alt is alt
+        assert alt.plotter.alt is alt
+
+    def test_state_delegates_to_sources(self, alt):
+        assert alt.atl06sr_processing_levels is alt.icesat2.atl06sr_processing_levels
+        assert (
+            alt.atl06sr_processing_levels_filtered
+            is alt.icesat2.atl06sr_processing_levels_filtered
+        )
+        assert alt.planetary_points is alt.planetary.planetary_points
 
 
 class TestAltimetry:
@@ -90,13 +123,13 @@ class TestAltimetry:
 
     def test_histogram(self, icesat):
         try:
-            icesat.histogram(key="ground_45_day_pad")
+            icesat.histogram(key="ground")
         except Exception as e:
             pytest.fail(f"histogram() method raised an exception: {str(e)}")
 
     def test_select_best_track(self, icesat):
         icesat.atl06sr_to_dem_dh()
-        result = icesat._select_best_track(key="all")
+        result = icesat.icesat2._select_best_track(key="all")
         assert result is not None
         assert "rgt" in result
         assert "cycle" in result
@@ -378,7 +411,7 @@ class TestLazySlideruleInit:
             directory="tests/test_data",
             dem_fn="tests/test_data/stereo/date_time_left_right_1m-DEM.tif",
         )
-        assert alt._sliderule_initialized is False
+        assert alt.icesat2._sliderule_initialized is False
 
     def test_planetary_points_initialized(self):
         alt = Altimetry(
@@ -397,7 +430,7 @@ class TestResolveTimeRange:
         )
 
     def test_default_is_all(self, alt):
-        t0, t1, resolved = alt._resolve_time_range()
+        t0, t1, resolved = alt.icesat2._resolve_time_range()
         assert resolved is None
         assert t0 == ICESAT2_MISSION_START.strftime("%Y-%m-%dT%H:%M:%SZ")
         today = datetime.now(tz=timezone.utc).replace(
@@ -406,7 +439,7 @@ class TestResolveTimeRange:
         assert t1 == today.strftime("%Y-%m-%dT%H:%M:%SZ")
 
     def test_explicit_date(self, alt):
-        t0, t1, resolved = alt._resolve_time_range(
+        t0, t1, resolved = alt.icesat2._resolve_time_range(
             time_range="buffered", scene_date="2022-06-15"
         )
         assert resolved == datetime(2022, 6, 15, tzinfo=timezone.utc)
@@ -414,7 +447,7 @@ class TestResolveTimeRange:
         assert t1 == "2023-06-15T00:00:00Z"
 
     def test_t0_clamped_to_mission_start(self, alt):
-        t0, t1, resolved = alt._resolve_time_range(
+        t0, t1, resolved = alt.icesat2._resolve_time_range(
             time_range="buffered", scene_date="2019-03-01"
         )
         assert resolved == datetime(2019, 3, 1, tzinfo=timezone.utc)
@@ -422,7 +455,7 @@ class TestResolveTimeRange:
         assert t1 == "2020-02-29T00:00:00Z"
 
     def test_pre_mission_date_triggers_fallback(self, alt):
-        t0, t1, resolved = alt._resolve_time_range(
+        t0, t1, resolved = alt.icesat2._resolve_time_range(
             time_range="buffered", scene_date="2015-01-01"
         )
         # Falls back to "all"
@@ -434,21 +467,21 @@ class TestResolveTimeRange:
         assert t1 == today.strftime("%Y-%m-%dT%H:%M:%SZ")
 
     def test_auto_detect_from_xml(self, alt):
-        t0, t1, resolved = alt._resolve_time_range(time_range="buffered")
+        t0, t1, resolved = alt.icesat2._resolve_time_range(time_range="buffered")
         # Test data XMLs have dates around 2022-04-19
         assert resolved is not None
         assert resolved.year == 2022
         assert resolved.month == 4
 
     def test_custom_buffer(self, alt):
-        t0, t1, resolved = alt._resolve_time_range(
+        t0, t1, resolved = alt.icesat2._resolve_time_range(
             time_range="buffered", scene_date="2022-06-15", time_buffer_days=30
         )
         assert t0 == "2022-05-16T00:00:00Z"
         assert t1 == "2022-07-15T00:00:00Z"
 
     def test_explicit_t0_t1(self, alt):
-        t0, t1, resolved = alt._resolve_time_range(
+        t0, t1, resolved = alt.icesat2._resolve_time_range(
             time_range="buffered", t0="2021-01-01", t1="2023-01-01"
         )
         assert resolved is None
@@ -456,10 +489,10 @@ class TestResolveTimeRange:
         assert t1 == "2023-01-01T00:00:00Z"
 
     def test_cached_attributes(self, alt):
-        alt._resolve_time_range(time_range="buffered", scene_date="2022-06-15")
-        assert alt._scene_date == datetime(2022, 6, 15, tzinfo=timezone.utc)
-        assert alt._t0 == datetime(2021, 6, 15, tzinfo=timezone.utc)
-        assert alt._t1 == datetime(2023, 6, 15, tzinfo=timezone.utc)
+        alt.icesat2._resolve_time_range(time_range="buffered", scene_date="2022-06-15")
+        assert alt.icesat2._scene_date == datetime(2022, 6, 15, tzinfo=timezone.utc)
+        assert alt.icesat2._t0 == datetime(2021, 6, 15, tzinfo=timezone.utc)
+        assert alt.icesat2._t1 == datetime(2023, 6, 15, tzinfo=timezone.utc)
 
 
 class TestPlanetaryDh:
@@ -681,7 +714,7 @@ class TestLoadPlanetaryCsv:
             " 15.3286,  -9.6021,     297.16\n"
             " 15.3286,  -9.6039,     300.09\n"
         )
-        alt._load_lola_csv(str(csv))
+        alt.planetary._load_lola_csv(str(csv))
         assert alt.planetary_points is not None
         assert len(alt.planetary_points) == 3
         assert "height" in alt.planetary_points.columns
@@ -699,7 +732,7 @@ class TestLoadPlanetaryCsv:
             " 15.3287,  -9.6003, 1737.668720\n"
             " 15.3286,  -9.6021, 1737.666748\n"
         )
-        alt._load_lola_csv(str(csv))
+        alt.planetary._load_lola_csv(str(csv))
         # Pt_Radius is preferred; km auto-detected and converted to m.
         assert alt.planetary_points["radius_m"].iloc[0] == pytest.approx(
             1737668.720, abs=1e-3
@@ -716,7 +749,7 @@ class TestLoadPlanetaryCsv:
             "137.13264, -4.91750,   -4499.73, 3391690.27,1999-08-31T19:13:24.847\n"
             "137.13197, -4.91240,   -4505.07, 3391684.93,1999-08-31T19:13:24.947\n"
         )
-        alt._load_mola_csv(str(csv))
+        alt.planetary._load_mola_csv(str(csv))
         assert alt.planetary_points is not None
         assert len(alt.planetary_points) == 2
         assert "height" in alt.planetary_points.columns
@@ -733,7 +766,7 @@ class TestLoadPlanetaryCsv:
             "137.13264, -4.91750,   -4499.73,1999-08-31T19:13:24.847\n"
         )
         with pytest.raises(ValueError, match="PLANET_RAD"):
-            alt._load_mola_csv(str(csv))
+            alt.planetary._load_mola_csv(str(csv))
 
     def test_load_mola_csv_lon_conversion(self, alt, tmp_path):
         """Test that MOLA 0-360 longitude is converted to -180/180."""
@@ -742,7 +775,7 @@ class TestLoadPlanetaryCsv:
             "LONG_EAST,LAT_NORTH, TOPOGRAPHY, PLANET_RAD,            UTC\n"
             "270.0, 10.0, -3000.0, 3393190.0, 1999-01-01T00:00:00\n"
         )
-        alt._load_mola_csv(str(csv))
+        alt.planetary._load_mola_csv(str(csv))
         assert alt.planetary_points["lon"].iloc[0] == pytest.approx(-90.0)
 
     def test_load_csv_empty_raises(self, alt, tmp_path):
@@ -750,14 +783,14 @@ class TestLoadPlanetaryCsv:
         csv = tmp_path / "empty.csv"
         csv.write_text("Pt_Longitude, Pt_Latitude, Topography\n")
         with pytest.raises(ValueError, match="empty"):
-            alt._load_lola_csv(str(csv))
+            alt.planetary._load_lola_csv(str(csv))
 
     def test_load_csv_wrong_columns_raises(self, alt, tmp_path):
         """Test that wrong columns raise ValueError with helpful message."""
         csv = tmp_path / "wrong.csv"
         csv.write_text("col_a, col_b, col_c\n1,2,3\n")
         with pytest.raises(ValueError, match="planetary radius"):
-            alt._load_lola_csv(str(csv))
+            alt.planetary._load_lola_csv(str(csv))
 
     def test_load_planetary_csv_earth_raises(self, alt, tmp_path):
         """Test that load_planetary_csv rejects Earth DEMs."""

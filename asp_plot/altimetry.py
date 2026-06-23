@@ -1,55 +1,45 @@
-import json
+"""Altimetry analysis coordinator.
+
+:class:`Altimetry` is a thin coordinator that composes three single-concern
+objects and exposes their behaviour under one notebook-friendly API:
+
+- :class:`asp_plot.icesat2_source.Icesat2Source` — ICESat-2 ATL06-SR fetch,
+  caching, WorldCover sampling, temporal/outlier filtering, DEM differencing,
+  and track/segment selection.
+- :class:`asp_plot.planetary_source.PlanetarySource` — LOLA/MOLA loading and
+  DEM differencing.
+- :class:`asp_plot.altimetry_plots.AltimetryPlotter` — all figure rendering,
+  operating on prepared dataframes.
+
+The coordinator owns the cross-cutting state that describes the DEM under
+analysis (``directory``, ``dem_fn``, ``aligned_dem_fn``) and the pc_align
+orchestration + keep/discard decision shared by the Earth and planetary
+paths (#127). The source/plotter objects read that state through a back
+reference. ``Alignment`` and ``Raster`` are imported at module scope because
+the alignment methods reference them directly.
+"""
+
 import logging
 import os
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-import contextily as ctx
-import geopandas as gpd
-import matplotlib.patches as mpatches
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import rioxarray
-import xarray as xr
-from rasterio import plot as rioplot
-from sliderule import sliderule as sliderule_api
 
 from asp_plot.alignment import Alignment
+from asp_plot.altimetry_plots import AltimetryPlotter
 from asp_plot.bodies import BODIES
-from asp_plot.stereopair_metadata_parser import StereopairMetadataParser
-from asp_plot.utils import ColorBar, Raster, glob_file, save_figure
+from asp_plot.icesat2_source import ICESAT2_MISSION_START, Icesat2Source  # noqa: F401
+from asp_plot.planetary_source import (  # noqa: F401
+    GDS_BASE_URL,
+    PlanetarySource,
+    gds_query_async,
+)
+from asp_plot.utils import Raster, glob_file
 
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
-
-ICESAT2_MISSION_START = datetime(2018, 10, 14, tzinfo=timezone.utc)
-
-# IAU 2000 mean equatorial radii used by ASP DEMs and pc_align (stored as
-# (planetary_radius - sphere_radius)). Sourced from the body registry so the
-# values live in exactly one place.
-MARS_IAU_SPHERE_RADIUS = BODIES["mars"].iau_sphere_radius_m  # meters
-MOON_IAU_SPHERE_RADIUS = BODIES["moon"].iau_sphere_radius_m  # meters
-
-WORLDCOVER_NAMES = {
-    10: "Tree cover",
-    20: "Shrubland",
-    30: "Grassland",
-    40: "Cropland",
-    50: "Built-up",
-    60: "Bare/sparse",
-    70: "Snow/ice",
-    80: "Water",
-    90: "Wetland",
-    95: "Mangroves",
-    100: "Moss/lichen",
-}
-
-
-def _nmad(a, c=1.4826):
-    """Normalized Median Absolute Deviation."""
-    return np.nanmedian(np.fabs(a - np.nanmedian(a))) * c
 
 
 @dataclass
@@ -95,83 +85,15 @@ class AlignmentResult:
     parameters_used: dict = field(default_factory=dict)
 
 
-# --- ODE GDS REST API (for LOLA/MOLA planetary altimetry) ---
-
-GDS_BASE_URL = "https://oderest.rsl.wustl.edu/livegds"
-
-
-def gds_query_async(query_type, bounds, results_code, email=None, **extra_params):
-    """Submit an async query to the ODE GDS REST API.
-
-    Parameters
-    ----------
-    query_type : str
-        GDS query type, e.g. ``"lolardr"`` or ``"molapedr"``.
-    bounds : dict
-        Dictionary with ``westernlon``, ``easternlon``, ``minlat``,
-        ``maxlat`` keys.
-    results_code : str
-        GDS results format code (e.g. ``"u"`` for LOLA, ``"v"`` for MOLA).
-    email : str or None, optional
-        Email for notification when query finishes.
-    **extra_params
-        Additional GDS query parameters (e.g. ``channel="ttttt"``).
-
-    Returns
-    -------
-    str
-        Job ID for polling.
-    """
-    import urllib.parse
-    import urllib.request
-    import xml.etree.ElementTree as ET
-
-    params = {
-        "query": query_type,
-        "results": results_code,
-        "westernlon": bounds["westernlon"],
-        "easternlon": bounds["easternlon"],
-        "minlat": bounds["minlat"],
-        "maxlat": bounds["maxlat"],
-        "async": "t",
-    }
-    if email:
-        params["email"] = email
-    params.update(extra_params)
-
-    url = f"{GDS_BASE_URL}?{urllib.parse.urlencode(params)}"
-    logger.info(f"GDS async query: {url}")
-    print(f"Submitting GDS query: {query_type} ...")
-
-    req = urllib.request.Request(url)
-    with urllib.request.urlopen(req, timeout=60) as resp:
-        body = resp.read().decode("utf-8")
-
-    root = ET.fromstring(body)
-
-    # Look for job ID in the response (GDS uses <JobId>)
-    jobid_elem = root.find(".//JobId")
-    if jobid_elem is None:
-        jobid_elem = root.find(".//Jobid")
-    if jobid_elem is None:
-        jobid_elem = root.find(".//jobid")
-    if jobid_elem is None:
-        raise RuntimeError(
-            f"GDS async submission failed — no JobId in response:\n{body}"
-        )
-
-    return jobid_elem.text.strip()
-
-
 class Altimetry:
     """
-    Process and analyze ICESat-2 ATL06-SR altimetry data with ASP DEMs.
+    Process and analyze ICESat-2 / planetary altimetry against ASP DEMs.
 
-    This class provides functionality to request, filter, and analyze
-    ICESat-2 ATL06-SR altimetry data in conjunction with ASP-generated
-    DEMs. It includes methods to request data from the SlideRule API,
-    filter based on various criteria, align DEMs to altimetry data,
-    and visualize the results.
+    Coordinates the ICESat-2 (:class:`Icesat2Source`) and planetary
+    (:class:`PlanetarySource`) data sources and the plotting layer
+    (:class:`AltimetryPlotter`), exposing them under a single API. It can
+    request and filter altimetry data, align a DEM to it, and visualize the
+    results.
 
     Attributes
     ----------
@@ -185,6 +107,8 @@ class Altimetry:
         Dictionary of ATL06-SR data for different processing levels
     atl06sr_processing_levels_filtered : dict
         Dictionary of filtered ATL06-SR data for different processing levels
+    planetary_points : geopandas.GeoDataFrame or None
+        Loaded LOLA/MOLA altimetry points (planetary DEMs)
     alignment_report_df : pandas.DataFrame or None
         DataFrame containing alignment reports when available
 
@@ -202,9 +126,8 @@ class Altimetry:
         directory,
         dem_fn,
         aligned_dem_fn=None,
-        atl06sr_processing_levels={},
-        atl06sr_processing_levels_filtered={},
-        # atl03sr=None,
+        atl06sr_processing_levels=None,
+        atl06sr_processing_levels_filtered=None,
         **kwargs,
     ):
         """
@@ -219,9 +142,9 @@ class Altimetry:
         aligned_dem_fn : str, optional
             Path to an already aligned DEM file, default is None
         atl06sr_processing_levels : dict, optional
-            Pre-loaded ATL06-SR data for different processing levels, default is empty dict
+            Pre-loaded ATL06-SR data for different processing levels
         atl06sr_processing_levels_filtered : dict, optional
-            Pre-loaded filtered ATL06-SR data, default is empty dict
+            Pre-loaded filtered ATL06-SR data
         **kwargs : dict, optional
             Additional keyword arguments for future extensions
 
@@ -229,11 +152,6 @@ class Altimetry:
         ------
         ValueError
             If the DEM file or aligned DEM file (if provided) does not exist
-
-        Notes
-        -----
-        Initializes a SlideRule session, which requires an active internet connection.
-        This can be modified to work offline with pre-downloaded datasets.
         """
         self.directory = os.path.expanduser(directory)
 
@@ -248,888 +166,298 @@ class Altimetry:
                 raise ValueError(f"Aligned DEM file not found: {aligned_dem_fn}")
         self.aligned_dem_fn = aligned_dem_fn
 
-        self.atl06sr_processing_levels = atl06sr_processing_levels
-        self.atl06sr_processing_levels_filtered = atl06sr_processing_levels_filtered
-
-        # Lazy SlideRule initialization — only needed for ICESat-2 methods
-        self._sliderule_initialized = False
-
-        # Planetary altimetry data (LOLA/MOLA)
-        self.planetary_points = None
-
-        # TODO: Implement alongside request_atl03sr below
-        # if atl03sr is not None and not isinstance(atl03sr, gpd.GeoDataFrame):
-        #     raise ValueError("ATL03 must be a GeoDataFrame if provided.")
-        # self.atl03sr = atl03sr
-
-    # TODO: Implement ATL03 pull via x-series API: sliderule_api.run("atl03x", parms)
-    # without the "fit" key to get photon-level data. Warning: this returns a very
-    # large GeoDataFrame and should only be used for targeted profile visualizations.
-
-    def _ensure_sliderule(self):
-        """Initialize the SlideRule session on first use."""
-        if not self._sliderule_initialized:
-            sliderule_api.init(
-                "slideruleearth.io", verbose=False, loglevel=logging.WARNING
-            )
-            # Also silence the chatty sliderule.session logger
-            logging.getLogger("sliderule.session").setLevel(logging.WARNING)
-            self._sliderule_initialized = True
-
-    def _resolve_time_range(
-        self,
-        time_range="all",
-        scene_date=None,
-        time_buffer_days=365,
-        t0=None,
-        t1=None,
-    ):
-        """
-        Resolve the t0/t1 time range for SlideRule API requests.
-
-        Parameters
-        ----------
-        time_range : str, optional
-            ``"all"`` (default) returns full ICESat-2 mission range.
-            ``"buffered"`` activates the cascade: explicit ``t0``/``t1``
-            > ``scene_date`` ± ``time_buffer_days`` > XML metadata
-            ± ``time_buffer_days`` > fall back to ``"all"``.
-        scene_date : str or datetime-like, optional
-            Explicit scene date. Only used when ``time_range="buffered"``.
-        time_buffer_days : int, optional
-            Days before/after the resolved date, default 365.
-        t0 : str or datetime-like, optional
-            Explicit start date. Only used when ``time_range="buffered"``.
-        t1 : str or datetime-like, optional
-            Explicit end date. Defaults to present if only ``t0`` given.
-
-        Returns
-        -------
-        tuple of (str, str, datetime or None)
-            (t0_str, t1_str, resolved_date) formatted as
-            ``"%Y-%m-%dT%H:%M:%SZ"``. resolved_date is the scene date
-            when buffered from a date, otherwise None.
-        """
-        fmt = "%Y-%m-%dT%H:%M:%SZ"
-        # Truncate to midnight UTC so cached parquet params stay stable within a day
-        today = datetime.now(tz=timezone.utc).replace(
-            hour=0, minute=0, second=0, microsecond=0
+        # Single-concern components. Each holds a back reference to this
+        # coordinator so the DEM/directory/aligned-DEM live in exactly one
+        # place. The plotter receives prepared dataframes per call.
+        self.icesat2 = Icesat2Source(
+            self,
+            atl06sr_processing_levels=atl06sr_processing_levels,
+            atl06sr_processing_levels_filtered=atl06sr_processing_levels_filtered,
         )
+        self.planetary = PlanetarySource(self)
+        self.plotter = AltimetryPlotter(self)
 
-        def _set_all():
-            self._scene_date = None
-            self._t0 = ICESAT2_MISSION_START
-            self._t1 = today
-            return (
-                ICESAT2_MISSION_START.strftime(fmt),
-                today.strftime(fmt),
-                None,
-            )
-
-        if time_range == "all":
-            return _set_all()
-
-        # time_range == "buffered": cascade t0/t1 > scene_date > XML > all
-
-        # 1. Explicit t0/t1
-        if t0 is not None:
-            t0_dt = pd.Timestamp(t0, tz="UTC").to_pydatetime()
-            t1_dt = (
-                pd.Timestamp(t1, tz="UTC").to_pydatetime() if t1 is not None else today
-            )
-            self._scene_date = None
-            self._t0 = t0_dt
-            self._t1 = t1_dt
-            return (t0_dt.strftime(fmt), t1_dt.strftime(fmt), None)
-
-        # 2. Explicit scene_date
-        resolved_date = None
-        if scene_date is not None:
-            resolved_date = pd.Timestamp(scene_date, tz="UTC").to_pydatetime()
-
-        # 3. Auto-detect from XML metadata
-        if resolved_date is None:
-            try:
-                cdate = StereopairMetadataParser(self.directory).get_pair_dict()[
-                    "cdate"
-                ]
-                resolved_date = pd.Timestamp(cdate, tz="UTC").to_pydatetime()
-            except Exception:
-                pass
-
-        # Compute buffered range if we have a date
-        if resolved_date is not None:
-            t0_dt = resolved_date - timedelta(days=time_buffer_days)
-            t1_dt = resolved_date + timedelta(days=time_buffer_days)
-            t0_dt = max(t0_dt, ICESAT2_MISSION_START)
-            if t1_dt >= ICESAT2_MISSION_START:
-                self._scene_date = resolved_date
-                self._t0 = t0_dt
-                self._t1 = t1_dt
-                return (t0_dt.strftime(fmt), t1_dt.strftime(fmt), resolved_date)
-
-        # Fallback: all
-        return _set_all()
+    # ------------------------------------------------------------------ #
+    #  Back-compat state access (delegates to the composed sources)       #
+    # ------------------------------------------------------------------ #
 
     @property
-    def _time_range_label(self):
-        """Return formatted t0–t1 label for plot titles, or empty string if unset."""
-        if hasattr(self, "_t0") and hasattr(self, "_t1"):
-            return f"{self._t0.strftime('%Y-%m-%d')} to {self._t1.strftime('%Y-%m-%d')}"
-        return ""
+    def atl06sr_processing_levels(self):
+        return self.icesat2.atl06sr_processing_levels
 
-    @staticmethod
-    def _extract_scalar(x):
-        """Extract a scalar from an array-valued cell (ndarray or list)."""
-        if isinstance(x, np.ndarray):
-            return x.item() if x.size == 1 else (x[0] if x.size > 0 else x)
-        if isinstance(x, list):
-            return x[0] if x else x
-        return x
+    @atl06sr_processing_levels.setter
+    def atl06sr_processing_levels(self, value):
+        self.icesat2.atl06sr_processing_levels = value
 
-    def request_atl06sr_multi_processing(
+    @property
+    def atl06sr_processing_levels_filtered(self):
+        return self.icesat2.atl06sr_processing_levels_filtered
+
+    @atl06sr_processing_levels_filtered.setter
+    def atl06sr_processing_levels_filtered(self, value):
+        self.icesat2.atl06sr_processing_levels_filtered = value
+
+    @property
+    def planetary_points(self):
+        return self.planetary.planetary_points
+
+    @planetary_points.setter
+    def planetary_points(self, value):
+        self.planetary.planetary_points = value
+
+    # ------------------------------------------------------------------ #
+    #  ICESat-2 source delegation                                         #
+    # ------------------------------------------------------------------ #
+
+    def request_atl06sr_multi_processing(self, *args, **kwargs):
+        return self.icesat2.request_atl06sr_multi_processing(*args, **kwargs)
+
+    def load_atl06sr_from_parquet(self, *args, **kwargs):
+        return self.icesat2.load_atl06sr_from_parquet(*args, **kwargs)
+
+    def sample_esa_worldcover(self, *args, **kwargs):
+        return self.icesat2.sample_esa_worldcover(*args, **kwargs)
+
+    def filter_esa_worldcover(self, *args, **kwargs):
+        return self.icesat2.filter_esa_worldcover(*args, **kwargs)
+
+    def filter_outliers(self, *args, **kwargs):
+        return self.icesat2.filter_outliers(*args, **kwargs)
+
+    def predefined_temporal_filter_atl06sr(self, *args, **kwargs):
+        return self.icesat2.predefined_temporal_filter_atl06sr(*args, **kwargs)
+
+    def generic_temporal_filter_atl06sr(self, *args, **kwargs):
+        return self.icesat2.generic_temporal_filter_atl06sr(*args, **kwargs)
+
+    def to_csv_for_pc_align(self, *args, **kwargs):
+        return self.icesat2.to_csv_for_pc_align(*args, **kwargs)
+
+    def atl06sr_to_dem_dh(self, n_sigma=3):
+        return self.icesat2.atl06sr_to_dem_dh(n_sigma=n_sigma)
+
+    def get_altimetry_selections(self, *args, **kwargs):
+        return self.icesat2.get_altimetry_selections(*args, **kwargs)
+
+    # ------------------------------------------------------------------ #
+    #  Planetary source delegation                                        #
+    # ------------------------------------------------------------------ #
+
+    def load_planetary_csv(self, *args, **kwargs):
+        return self.planetary.load_planetary_csv(*args, **kwargs)
+
+    def planetary_to_dem_dh(self, *args, **kwargs):
+        return self.planetary.planetary_to_dem_dh(*args, **kwargs)
+
+    def to_csv_for_pc_align_planetary(self, filename_prefix="planetary_for_pc_align"):
+        return self.planetary.to_csv_for_pc_align_planetary(
+            filename_prefix=filename_prefix
+        )
+
+    # ------------------------------------------------------------------ #
+    #  ICESat-2 plotting (prepare dataframes, then delegate to plotter)   #
+    # ------------------------------------------------------------------ #
+
+    def plot_atl06sr_time_stamps(self, key="all", **kwargs):
+        return self.plotter.plot_atl06sr_time_stamps(
+            self.icesat2.atl06sr_processing_levels_filtered, key=key, **kwargs
+        )
+
+    def plot_atl06sr(self, key="all", **kwargs):
+        atl06sr = self.icesat2.atl06sr_processing_levels_filtered[key]
+        return self.plotter.plot_atl06sr(atl06sr, key=key, **kwargs)
+
+    def mapview_plot_atl06sr_to_dem(
         self,
-        processing_levels=["all", "ground", "canopy", "top_of_canopy"],
-        res=20,
-        len=40,
-        ats=20,
-        cnt=10,
-        maxi=6,
-        h_sigma_quantile=1.0,
-        save_to_parquet=False,
-        filename="atl06sr",
-        region=None,
-        time_range="all",
-        scene_date=None,
-        time_buffer_days=365,
-        t0=None,
-        t1=None,
+        key="all",
+        clim=None,
+        plot_aligned=False,
+        save_dir=None,
+        fig_fn=None,
+        map_crs=None,
+        **ctx_kwargs,
     ):
-        """
-        Request ICESat-2 ATL06-SR data for multiple processing levels.
-
-        Downloads ATL06-SR data from the SlideRule API for specified
-        processing levels (surface types), with options to filter and
-        save the results. Each processing level targets different surface
-        types like ground, canopy, etc.
-
-        Parameters
-        ----------
-        processing_levels : list, optional
-            List of processing levels to request, default is
-            ["all", "ground", "canopy", "top_of_canopy"]
-        res : int, optional
-            ATL06-SR segment resolution in meters, default is 20
-        len : int, optional
-            ATL06-SR segment length in meters, default is 40
-        ats : int, optional
-            Along-track sigma, default is 20
-        cnt : int, optional
-            Minimum number of photons for segment, default is 10
-        maxi : int, optional
-            Maximum iterations for surface fit, default is 6
-        h_sigma_quantile : float, optional
-            Quantile for filtering by h_sigma, default is 1.0
-        save_to_parquet : bool, optional
-            Whether to save results to parquet files, default is False
-        filename : str, optional
-            Base filename for saved data, default is "atl06sr"
-        region : list or None, optional
-            Region bounds as [minx, miny, maxx, maxy] in lat/lon,
-            default is None (derived from DEM)
-        time_range : str, optional
-            ``"all"`` (default) requests all ICESat-2 data from mission
-            start to present. ``"buffered"`` activates time filtering
-            via the cascade: ``t0``/``t1`` > ``scene_date`` ±
-            ``time_buffer_days`` > XML metadata ±
-            ``time_buffer_days`` > fall back to all.
-        scene_date : str or datetime-like, optional
-            Scene acquisition date, used when ``time_range="buffered"``.
-            If None, auto-detected from stereopair XML metadata.
-        time_buffer_days : int, optional
-            Days before/after scene_date defining the time window,
-            default is 365
-        t0 : str or datetime-like, optional
-            Explicit start date (e.g. "2020-01-01"), used when
-            ``time_range="buffered"``. Overrides ``scene_date``.
-        t1 : str or datetime-like, optional
-            Explicit end date (e.g. "2024-12-31").
-            Defaults to present if only ``t0`` is provided.
-
-        Returns
-        -------
-        None
-            Results are stored in the class attributes
-
-        Notes
-        -----
-        This method makes SlideRule API calls which require internet connectivity.
-        It also samples ESA WorldCover data for land cover classification of the
-        ICESat-2 data points. The method includes filtering to improve data quality
-        by removing points with high uncertainty and from early mission cycles.
-        """
-        self._ensure_sliderule()
-
-        if not region:
-            region = Raster(self.dem_fn).get_bounds(latlon=True)
-
-        # Resolve server-side time range to limit granules processed
-        t0_str, t1_str, resolved_date = self._resolve_time_range(
-            time_range=time_range,
-            scene_date=scene_date,
-            time_buffer_days=time_buffer_days,
-            t0=t0,
-            t1=t1,
-        )
-        if time_range == "all" and resolved_date is None and t0 is None:
-            print(f"Time filter: {t0_str} to {t1_str} (all available)")
-        elif resolved_date is not None:
+        if plot_aligned and not self.aligned_dem_fn:
+            print("\nAligned DEM not found.\n")
+            return
+        column_name = "icesat_minus_aligned_dem" if plot_aligned else "icesat_minus_dem"
+        atl06sr = self.icesat2.atl06sr_processing_levels_filtered[key]
+        if column_name not in atl06sr.columns:
             print(
-                f"Time filter: {t0_str} to {t1_str} "
-                f"(+/- {time_buffer_days} days from {resolved_date.date()})"
+                f"\n{column_name} not found in ATL06 dataframe: {key}. "
+                "Running differencing first.\n"
             )
-        elif t0 is not None:
-            print(f"Time filter: {t0_str} to {t1_str} (custom range)")
-        else:
-            print(f"Time filter: {t0_str} to {t1_str} (all available, fallback)")
+            self.atl06sr_to_dem_dh()
+            atl06sr = self.icesat2.atl06sr_processing_levels_filtered[key]
+        return self.plotter.mapview_plot_atl06sr_to_dem(
+            atl06sr,
+            key=key,
+            clim=clim,
+            plot_aligned=plot_aligned,
+            save_dir=save_dir,
+            fig_fn=fig_fn,
+            map_crs=map_crs,
+            **ctx_kwargs,
+        )
 
-        # See parameter discussion on: https://github.com/SlideRuleEarth/sliderule/issues/448
-        # "srt": -1 tells the server side code to look at the ATL03 confidence array for each photon
-        # and choose the confidence level that is highest across all five surface type entries.
-        # cnf options: {"atl03_tep", "atl03_not_considered", "atl03_background", "atl03_within_10m", \
-        # "atl03_low", "atl03_medium", "atl03_high"}
-        # Note reduced count for limited number of ground photons
+    def histogram(
+        self,
+        key="all",
+        title="Histogram",
+        plot_aligned=False,
+        save_dir=None,
+        fig_fn=None,
+    ):
+        atl06sr = self.icesat2.atl06sr_processing_levels_filtered[key]
+        if "icesat_minus_dem" not in atl06sr.columns:
+            print(
+                f"\n'icesat_minus_dem' not found in ATL06 dataframe: {key}. "
+                "Running differencing first.\n"
+            )
+            self.atl06sr_to_dem_dh()
+            atl06sr = self.icesat2.atl06sr_processing_levels_filtered[key]
+        return self.plotter.histogram(
+            atl06sr,
+            key=key,
+            title=title,
+            plot_aligned=plot_aligned,
+            save_dir=save_dir,
+            fig_fn=fig_fn,
+        )
 
-        # TODO: use the WorldCover values to determine if we should report canopy or top of canopy
-        #   This is tricky, and not clear yet how to go about this. For now, just request all processing levels.
+    def histogram_by_landcover(
+        self,
+        key="all",
+        top_n=4,
+        title="ICESat-2 ATL06-SR vs DEM",
+        xlim=None,
+        plot_aligned=False,
+        save_dir=None,
+        fig_fn=None,
+    ):
+        atl06sr = self.icesat2.atl06sr_processing_levels_filtered[key]
+        if "icesat_minus_dem" not in atl06sr.columns:
+            self.atl06sr_to_dem_dh()
+            atl06sr = self.icesat2.atl06sr_processing_levels_filtered[key]
+        return self.plotter.histogram_by_landcover(
+            atl06sr,
+            key=key,
+            top_n=top_n,
+            title=title,
+            xlim=xlim,
+            plot_aligned=plot_aligned,
+            save_dir=save_dir,
+            fig_fn=fig_fn,
+        )
 
-        # TODO: Use more generic variable names and strings for functions that are not just limited to atl06
-        #   This can be done when we implement additional requests for other data types
-
-        # Shared parameters for all processing levels
-        shared_parms = {
-            "poly": region,
-            "t0": t0_str,
-            "t1": t1_str,
-            "res": res,
-            "len": len,
-            "ats": ats,
-            "fit": {"maxi": maxi},
-        }
-
-        # Custom parameters for each processing level
-        custom_parms = {
-            "all": {
-                "cnf": "atl03_high",
-                "srt": -1,
-                "cnt": cnt,
-            },
-            "ground": {
-                "cnf": "atl03_low",
-                "srt": -1,
-                "cnt": 5,
-                "atl08_class": "atl08_ground",
-            },
-            "canopy": {
-                "cnf": "atl03_medium",
-                "srt": -1,
-                "cnt": 5,
-                "atl08_class": "atl08_canopy",
-            },
-            "top_of_canopy": {
-                "cnf": "atl03_medium",
-                "srt": -1,
-                "cnt": 5,
-                "atl08_class": "atl08_top_of_canopy",
-            },
-        }
-
-        # Filter custom_parms to only include requested processing levels
-        custom_parms = {
-            key: parms
-            for key, parms in custom_parms.items()
-            if key in processing_levels
-        }
-
-        # Record the request settings + cache locations so a report run can
-        # write them to a figure-selections file for reproducibility (#121).
-        self.atl06sr_request_parms = {
-            "processing_levels": list(processing_levels),
-            "res": res,
-            "len": len,
-            "ats": ats,
-            "time_range": time_range,
-            "t0": t0_str,
-            "t1": t1_str,
-        }
-        self.atl06sr_parquet_paths = {}
-
-        for key, custom_parm in custom_parms.items():
-            parms = {**shared_parms, **custom_parm}
-
-            fn_base = f"{filename}_{key}"
-
-            print(f"\nICESat-2 ATL06 request processing for: {key}")
-            fn = os.path.join(self.directory, f"{fn_base}.parquet")
-            self.atl06sr_parquet_paths[key] = fn
-
-            print(parms)
-
-            # Check for cached file with matching parameters
-            need_request = True
-            if os.path.exists(fn):
-                print(f"Existing file found, reading in: {fn}")
-                atl06sr = gpd.read_parquet(fn)
-
-                if "sliderule_parameters" in atl06sr.columns:
-                    try:
-                        file_parms = json.loads(atl06sr["sliderule_parameters"].iloc[0])
-                        parms_copy = parms.copy()
-                        parms_copy["poly"] = str(parms_copy["poly"])
-                        # Strip "output" (contains a random temp path
-                        # injected by SlideRule during run()) from both
-                        # sides before comparison.
-                        parms_copy.pop("output", None)
-                        file_parms.pop("output", None)
-
-                        if str(parms_copy) == str(file_parms):
-                            need_request = False
-                        else:
-                            print("Parameters don't match request. Regenerating...")
-                    except Exception as e:
-                        print(
-                            f"Could not parse cached parameters: {e}. "
-                            "Regenerating..."
-                        )
-                else:
-                    print("No parameters column found, regenerating...")
-
-            if need_request:
-                atl06sr = sliderule_api.run("atl03x", parms)
-                # Sample ESA WorldCover before caching so the column
-                # is persisted in the parquet and doesn't have to be
-                # re-sampled on subsequent runs.
-                atl06sr = self._sample_worldcover_into_gdf(atl06sr)
-                if save_to_parquet:
-                    self._save_to_parquet(fn, atl06sr, parms)
-
-            self._ingest_atl06sr(key, atl06sr, h_sigma_quantile)
-
-    def _ingest_atl06sr(self, key, atl06sr, h_sigma_quantile=1.0):
-        """
-        Normalize and quality-filter a raw ATL06-SR dataframe and store it.
-
-        Shared by ``request_atl06sr_multi_processing`` (fresh request or cache
-        hit) and ``load_atl06sr_from_parquet`` (replaying a prior run's points)
-        so both paths produce identical ``atl06sr_processing_levels`` and
-        ``atl06sr_processing_levels_filtered`` entries.
-
-        Parameters
-        ----------
-        key : str
-            Processing-level key (e.g. "all").
-        atl06sr : geopandas.GeoDataFrame
-            Raw ATL06-SR points (from SlideRule or a parquet cache).
-        h_sigma_quantile : float, optional
-            Quantile of ``h_sigma`` above which fits are discarded, default 1.0.
-        """
-        # Normalize index: x-series returns time_ns (Unix nanoseconds),
-        # legacy returns time (GPS seconds). Ensure a DatetimeIndex named "time".
-        if atl06sr.index.name == "time_ns" or not isinstance(
-            atl06sr.index, pd.DatetimeIndex
-        ):
-            if "time_ns" in atl06sr.columns:
-                atl06sr.index = pd.to_datetime(atl06sr["time_ns"], unit="ns")
-            elif atl06sr.index.name == "time_ns":
-                atl06sr.index = pd.to_datetime(atl06sr.index, unit="ns")
-            atl06sr.index.name = "time"
-
-        # Normalize sample columns: x-series may return array values
-        # instead of scalars for raster samples (e.g., esa_worldcover.value).
-        # Extract the first element from any array-valued cells.
-        # After parquet round-trip, arrays may deserialize as lists.
-        for col in atl06sr.columns:
-            if atl06sr[col].dtype == object and atl06sr.shape[0] > 0:
-                first_val = atl06sr[col].iloc[0]
-                if isinstance(first_val, (np.ndarray, list)):
-                    atl06sr[col] = atl06sr[col].apply(self._extract_scalar)
-
-        self.atl06sr_processing_levels[key] = atl06sr
-
-        print(f"Filtering ATL06-SR {key}")
-
-        # From Aimee Gibbons:
-        # I'd recommend anything cycle 03 and later, due to pointing issues before cycle 03.
-        atl06sr_filtered = atl06sr[atl06sr["cycle"] >= 3]
-
-        # Remove bad fits using high percentile of `h_sigma`, the error estimate for the least squares fit model.
-        # TODO: not sure about h_sigma quantile...might throw out too much. Maybe just remove 0 values?
-        atl06sr_filtered = atl06sr_filtered[
-            atl06sr_filtered["h_sigma"]
-            < atl06sr_filtered["h_sigma"].quantile(h_sigma_quantile)
-        ]
-        # Also need to filter out 0 values, not sure what these are caused by, but also very bad points.
-        atl06sr_filtered = atl06sr_filtered[atl06sr_filtered["h_sigma"] != 0]
-
-        self.atl06sr_processing_levels_filtered[key] = atl06sr_filtered
-
-    def load_atl06sr_from_parquet(self, parquet_paths, h_sigma_quantile=1.0):
-        """
-        Load ATL06-SR points directly from saved parquet caches.
-
-        Replays the *exact* points a prior run used (issue #121), bypassing the
-        SlideRule request entirely so a re-processed scene compares against an
-        identical ICESat-2 sample. Runs the same normalization + quality filter
-        as a fresh request via ``_ingest_atl06sr``.
-
-        Parameters
-        ----------
-        parquet_paths : dict
-            Mapping of processing-level key -> parquet path
-            (e.g. ``{"all": ".../atl06sr_all.parquet"}``).
-        h_sigma_quantile : float, optional
-            Quantile of ``h_sigma`` above which fits are discarded, default 1.0.
-
-        Returns
-        -------
-        bool
-            True if at least one parquet was loaded, False otherwise.
-        """
-        self.atl06sr_parquet_paths = {}
-        loaded_any = False
-        for key, path in parquet_paths.items():
-            if not path or not os.path.exists(path):
-                logger.warning(
-                    f"\nParquet for '{key}' not found at {path}; "
-                    "cannot reuse those ICESat-2 points.\n"
-                )
-                continue
-            print(f"Reusing ICESat-2 ATL06-SR points for '{key}' from: {path}")
-            atl06sr = gpd.read_parquet(path)
-            self.atl06sr_parquet_paths[key] = path
-            self._restore_request_metadata_from_parquet(atl06sr)
-            self._ingest_atl06sr(key, atl06sr, h_sigma_quantile)
-            loaded_any = True
-        return loaded_any
-
-    def _restore_request_metadata_from_parquet(self, atl06sr):
-        """
-        Recover the SlideRule request time range from a cached parquet.
-
-        The reuse path bypasses ``request_atl06sr_multi_processing`` (which sets
-        ``self._t0`` / ``self._t1`` via ``_resolve_time_range``), so plot titles
-        would otherwise lose their "<t0> to <t1>" date-range line. The request
-        parameters are persisted in the parquet's ``sliderule_parameters``
-        column, so read ``t0`` / ``t1`` back from there.
-        """
-        if hasattr(self, "_t0") and hasattr(self, "_t1"):
+    def plot_atl06sr_dem_profile(
+        self,
+        key="all",
+        rgt=None,
+        cycle=None,
+        spot=None,
+        segments=None,
+        plot_aligned=False,
+        save_dir=None,
+        fig_fn=None,
+    ):
+        resolved = self.icesat2._resolve_best_track(key, rgt, cycle, spot)
+        if resolved is None:
             return
-        if "sliderule_parameters" not in atl06sr.columns or atl06sr.empty:
+        track = resolved[0]
+        seg_info = self.icesat2._find_best_worst_segments(
+            track, segment_override=segments
+        )
+        return self.plotter.plot_atl06sr_dem_profile(
+            resolved,
+            seg_info,
+            plot_aligned=plot_aligned,
+            save_dir=save_dir,
+            fig_fn=fig_fn,
+        )
+
+    def plot_best_worst_segments(
+        self,
+        key="all",
+        rgt=None,
+        cycle=None,
+        spot=None,
+        segments=None,
+        plot_aligned=False,
+        save_dir=None,
+        fig_fn=None,
+    ):
+        resolved = self.icesat2._resolve_best_track(key, rgt, cycle, spot)
+        if resolved is None:
             return
-        try:
-            params = json.loads(atl06sr["sliderule_parameters"].iloc[0])
-            t0, t1 = params.get("t0"), params.get("t1")
-            if t0 and t1:
-                self._t0 = pd.Timestamp(t0).to_pydatetime()
-                self._t1 = pd.Timestamp(t1).to_pydatetime()
-        except Exception as e:
+        track = resolved[0]
+        seg_info = self.icesat2._find_best_worst_segments(
+            track, segment_override=segments
+        )
+        if seg_info is None:
             logger.warning(
-                f"\nCould not restore time range from parquet metadata: {e}\n"
+                "\nTrack too short or insufficient data for segment selection.\n"
             )
-
-    def _save_to_parquet(self, fn, df, parms):
-        """
-        Save SlideRule dataframe to parquet including SlideRule parameters.
-
-        Parameters
-        ----------
-        fn : str
-            Filename to save to
-        df : pandas.DataFrame
-            DataFrame to save
-        parms : dict
-            SlideRule parameters used to generate the data
-
-        Notes
-        -----
-        Creates a copy of parameters with polygon coordinates converted to string
-        for JSON serialization, and stores these in a column of the DataFrame.
-        """
-        # We could save the parameters to the parquet metadata, but this
-        # was proving rather difficult.
-        parms_copy = parms.copy()
-        parms_copy["poly"] = str(parms_copy["poly"])
-        # SlideRule injects a random temp file path into parms["output"]
-        # during run(); strip it so cached params are stable across runs.
-        parms_copy.pop("output", None)
-        df["sliderule_parameters"] = json.dumps(parms_copy)
-        df.to_parquet(fn)
-
-    def filter_esa_worldcover(self, filter_out="water", retain_only=None):
-        """
-        Filter ATL06-SR data based on ESA WorldCover land cover classes.
-
-        Filters the data points based on ESA WorldCover classification,
-        either by removing specific land cover types or retaining only
-        specific types.
-
-        Parameters
-        ----------
-        filter_out : str, optional
-            Land cover group to filter out, default is "water".
-            Options: "water", "snow_ice", "trees", "low_vegetation", "built_up"
-        retain_only : str or None, optional
-            If specified, retain only points matching this land cover group,
-            default is None. Same options as ``filter_out``.
-
-        Returns
-        -------
-        None
-            Results are stored in the class attributes
-
-        Notes
-        -----
-        This method uses the ESA WorldCover land cover classification
-        (see ``WORLDCOVER_NAMES``), which was sampled when requesting the
-        ATL06-SR data.
-        """
-        # Groups of WORLDCOVER_NAMES codes for convenient filtering
-        value_dict = {
-            "water": [80],
-            "snow_ice": [70],
-            "trees": [10],
-            "low_vegetation": [20, 30, 40, 90, 95, 100],
-            "built_up": [50],
-        }
-
-        if retain_only is not None:
-            if retain_only in value_dict:
-                values_to_keep = value_dict[retain_only]
-                for key, atl06sr in self.atl06sr_processing_levels_filtered.items():
-                    if "esa_worldcover.value" in atl06sr.columns:
-                        mask = atl06sr["esa_worldcover.value"].isin(values_to_keep)
-                        self.atl06sr_processing_levels_filtered[key] = atl06sr[mask]
-            else:
-                logger.warning(
-                    f"\nESA WorldCover retain value not found: {retain_only}\n"
-                )
-                return
-
-        elif filter_out in value_dict:
-            values_to_filter = value_dict[filter_out]
-            for key, atl06sr in self.atl06sr_processing_levels_filtered.items():
-                if "esa_worldcover.value" in atl06sr.columns:
-                    mask = ~atl06sr["esa_worldcover.value"].isin(values_to_filter)
-                    self.atl06sr_processing_levels_filtered[key] = atl06sr[mask]
-        else:
-            logger.warning(f"\nESA WorldCover filter value not found: {filter_out}\n")
             return
-
-    @staticmethod
-    def _worldcover_tile_url(lat, lon):
-        """Return the AWS S3 URL for the ESA WorldCover tile covering (lat, lon)."""
-        # Tiles are 3×3 degree; tile name = lower-left corner snapped to 3-degree grid
-        tile_lat = int(np.floor(lat / 3.0) * 3)
-        tile_lon = int(np.floor(lon / 3.0) * 3)
-        ns = "N" if tile_lat >= 0 else "S"
-        ew = "E" if tile_lon >= 0 else "W"
-        name = f"{ns}{abs(tile_lat):02d}{ew}{abs(tile_lon):03d}"
-        return (
-            f"https://esa-worldcover.s3.amazonaws.com/v200/2021/map/"
-            f"ESA_WorldCover_10m_2021_v200_{name}_Map.tif"
+        return self.plotter.plot_best_worst_segments(
+            resolved,
+            seg_info,
+            plot_aligned=plot_aligned,
+            save_dir=save_dir,
+            fig_fn=fig_fn,
         )
 
-    def _sample_worldcover_into_gdf(self, atl06sr):
-        """
-        Sample ESA WorldCover 10m at each point in ``atl06sr`` and return
-        a copy with an ``esa_worldcover.value`` column added.
+    # ------------------------------------------------------------------ #
+    #  Planetary plotting (prepare dataframes, then delegate to plotter)  #
+    # ------------------------------------------------------------------ #
 
-        Reads Cloud Optimized GeoTIFFs directly from AWS S3. If the
-        column already exists on the input, returns it unchanged.
-        """
-        import rasterio
-        from rasterio.errors import RasterioIOError
-        from rasterio.session import AWSSession
-
-        wc_col = "esa_worldcover.value"
-        if wc_col in atl06sr.columns:
-            return atl06sr
-
-        # The ESA WorldCover bucket is public, so read it anonymously
-        # (aws_unsigned=True). Without this, rasterio creates a default
-        # AWSSession that eagerly resolves credentials; on machines configured
-        # with AWS SSO/login this raises botocore MissingDependencyException
-        # ("requires botocore[crt]") and the whole report crashes — even though
-        # no credentials are needed for a public bucket.
-        unsigned_session = AWSSession(aws_unsigned=True)
-
-        gdf_4326 = atl06sr.to_crs("EPSG:4326")
-        lons = gdf_4326.geometry.x.values
-        lats = gdf_4326.geometry.y.values
-
-        tile_keys = set()
-        for lat, lon in zip(lats, lons):
-            tile_keys.add(self._worldcover_tile_url(lat, lon))
-
-        print(
-            f"  Sampling ESA WorldCover for {len(atl06sr)} points "
-            f"({len(tile_keys)} tile(s))..."
-        )
-
-        values = np.full(len(atl06sr), np.nan)
-        for url in tile_keys:
-            try:
-                with rasterio.Env(
-                    unsigned_session,
-                    GDAL_DISABLE_READDIR_ON_OPEN="YES",
-                    CPL_VSIL_CURL_USE_HEAD="NO",
-                ):
-                    with rasterio.open(url) as src:
-                        bounds = src.bounds
-                        mask = (
-                            (lons >= bounds.left)
-                            & (lons < bounds.right)
-                            & (lats >= bounds.bottom)
-                            & (lats < bounds.top)
-                        )
-                        if not mask.any():
-                            continue
-                        coords = list(zip(lons[mask], lats[mask]))
-                        sampled = np.array([v[0] for v in src.sample(coords)])
-                        values[mask] = sampled
-            except RasterioIOError as e:
-                logger.warning(f"Could not read WorldCover tile {url}: {e}")
-
-        atl06sr = atl06sr.copy()
-        atl06sr[wc_col] = values
-
-        n_valid = np.isfinite(values).sum()
-        print(f"  WorldCover: {n_valid}/{len(atl06sr)} points sampled")
-        return atl06sr
-
-    def sample_esa_worldcover(self):
-        """
-        Sample ESA WorldCover 10m values into every filtered processing
-        level that doesn't already have them.
-
-        Normally not needed when data is requested via
-        ``request_atl06sr_multi_processing``, which samples WorldCover
-        automatically before caching. Use this when working with
-        manually-loaded data.
-        """
-        for key, atl06sr in self.atl06sr_processing_levels_filtered.items():
-            self.atl06sr_processing_levels_filtered[key] = (
-                self._sample_worldcover_into_gdf(atl06sr)
-            )
-
-    def filter_outliers(self, column="icesat_minus_dem", n_sigma=3):
-        """
-        Remove dh outliers beyond *n_sigma* × standard deviation from the mean.
-
-        Parameters
-        ----------
-        column : str, optional
-            Column to filter on, default ``"icesat_minus_dem"``.
-        n_sigma : float, optional
-            Number of standard deviations to allow, default 3.
-        """
-        for key, atl06sr in self.atl06sr_processing_levels_filtered.items():
-            if column not in atl06sr.columns:
-                continue
-            dh = atl06sr[column]
-            mean_val = np.nanmean(dh)
-            std_val = np.nanstd(dh.dropna().values)
-            if std_val == 0 or np.isnan(std_val):
-                continue
-            mask = (dh - mean_val).abs() <= n_sigma * std_val
-            # Keep rows where column is NaN (no dh yet) so they aren't dropped
-            mask = mask | dh.isna()
-            n_before = len(atl06sr)
-            self.atl06sr_processing_levels_filtered[key] = atl06sr[mask]
-            n_after = len(self.atl06sr_processing_levels_filtered[key])
-            if n_before != n_after:
-                print(
-                    f"  Outlier filter ({n_sigma}σ): {key} {n_before} → {n_after} "
-                    f"(removed {n_before - n_after})"
-                )
-
-    def predefined_temporal_filter_atl06sr(self, date=None):
-        """
-        Apply predefined temporal filters to ATL06-SR data.
-
-        Creates multiple temporally filtered versions of the ATL06-SR data
-        based on a reference date, including:
-        - 15-day window around the date
-        - 45-day window around the date
-        - 91-day window around the date
-        - Seasonal filter (same season as the reference date)
-
-        Parameters
-        ----------
-        date : datetime or None, optional
-            Reference date for filtering. If None, extracts date from
-            stereopair metadata, default is None
-
-        Returns
-        -------
-        None
-            Results are stored in the class attributes with new keys
-            indicating the temporal filter applied
-
-        Notes
-        -----
-        This method is particularly useful for DEM validation and alignment,
-        as it provides multiple temporal windows to analyze the stability
-        of the terrain and to identify optimal temporal windows for alignment.
-        """
-        if (
-            date is None
-            and hasattr(self, "_scene_date")
-            and self._scene_date is not None
-        ):
-            date = pd.Timestamp(self._scene_date)
-        elif date is None:
-            date = StereopairMetadataParser(self.directory).get_pair_dict()["cdate"]
-        else:
-            # Convert to pandas Timestamp to ensure compatibility with DatetimeIndex operations
-            date = pd.Timestamp(date)
-
-        # Ensure tz-naive to match the GeoDataFrame DatetimeIndex
-        if hasattr(date, "tzinfo") and date.tzinfo is not None:
-            date = date.tz_localize(None)
-
-        original_keys = list(self.atl06sr_processing_levels_filtered.keys())
-
-        for key in original_keys:
-            print(
-                f"\nFiltering ATL06 with 15 day pad, 45 day, 91 day pad, and seasonal pad around {date} for: {key}"
-            )
-            atl06sr = self.atl06sr_processing_levels_filtered[key]
-
-            fifteen_day = atl06sr[abs(atl06sr.index - date) <= pd.Timedelta(days=15)]
-            fortyfive_day = atl06sr[abs(atl06sr.index - date) <= pd.Timedelta(days=45)]
-            ninetyone_day = atl06sr[abs(atl06sr.index - date) <= pd.Timedelta(days=91)]
-
-            image_season = date.strftime("%b")
-            if image_season in ["Dec", "Jan", "Feb"]:
-                season_filter = atl06sr[
-                    atl06sr.index.strftime("%b").isin(["Dec", "Jan", "Feb"])
-                ]
-            elif image_season in ["Mar", "Apr", "May"]:
-                season_filter = atl06sr[
-                    atl06sr.index.strftime("%b").isin(["Mar", "Apr", "May"])
-                ]
-            elif image_season in ["Jun", "Jul", "Aug"]:
-                season_filter = atl06sr[
-                    atl06sr.index.strftime("%b").isin(["Jun", "Jul", "Aug"])
-                ]
-            else:
-                season_filter = atl06sr[
-                    atl06sr.index.strftime("%b").isin(["Sep", "Oct", "Nov"])
-                ]
-
-            if not fifteen_day.empty:
-                self.atl06sr_processing_levels_filtered[f"{key}_15_day_pad"] = (
-                    fifteen_day
-                )
-            if not fortyfive_day.empty:
-                self.atl06sr_processing_levels_filtered[f"{key}_45_day_pad"] = (
-                    fortyfive_day
-                )
-            if not ninetyone_day.empty:
-                self.atl06sr_processing_levels_filtered[f"{key}_91_day_pad"] = (
-                    ninetyone_day
-                )
-            if not season_filter.empty:
-                self.atl06sr_processing_levels_filtered[f"{key}_seasonal"] = (
-                    season_filter
-                )
-
-    def generic_temporal_filter_atl06sr(
-        self, select_years=None, select_months=None, select_days=None
+    def mapview_plot_planetary_to_dem(
+        self,
+        clim=None,
+        save_dir=None,
+        fig_fn=None,
+        title=None,
+        plot_aligned=False,
     ):
-        """
-        Apply custom temporal filters to ATL06-SR data.
+        points = self.planetary.planetary_points
+        if points is None or points.empty:
+            logger.warning("No planetary altimetry points loaded.")
+            return
+        if "altimetry_minus_dem" not in points.columns:
+            self.planetary_to_dem_dh()
+        return self.plotter.mapview_plot_planetary_to_dem(
+            self.planetary.planetary_points,
+            clim=clim,
+            save_dir=save_dir,
+            fig_fn=fig_fn,
+            title=title,
+            plot_aligned=plot_aligned,
+        )
 
-        Filters the data based on specific years, months, or days,
-        allowing for custom temporal filtering not covered by the
-        predefined filters.
+    def histogram_planetary_to_dem(
+        self,
+        save_dir=None,
+        fig_fn=None,
+        title=None,
+        plot_aligned=False,
+    ):
+        points = self.planetary.planetary_points
+        if points is None or points.empty:
+            logger.warning("No planetary altimetry points loaded.")
+            return
+        if "altimetry_minus_dem" not in points.columns:
+            self.planetary_to_dem_dh()
+        return self.plotter.histogram_planetary_to_dem(
+            self.planetary.planetary_points,
+            save_dir=save_dir,
+            fig_fn=fig_fn,
+            title=title,
+            plot_aligned=plot_aligned,
+        )
 
-        Parameters
-        ----------
-        select_years : list or None, optional
-            Years to keep (e.g., [2019, 2020]), default is None
-        select_months : list or None, optional
-            Months to keep (1-12), default is None
-        select_days : list or None, optional
-            Days of month to keep (1-31), default is None
-
-        Returns
-        -------
-        None
-            Results are filtered in-place in the class attributes
-
-        Notes
-        -----
-        This method modifies the existing filtered data rather than
-        creating new entries with different keys. At least one of
-        the filter parameters should be provided for the method
-        to have any effect.
-        """
-        for key, atl06sr in self.atl06sr_processing_levels_filtered.items():
-            print(f"\nFiltering ATL06 for: {key}")
-            atl06_filtered = atl06sr
-
-            if select_years:
-                atl06_filtered = atl06_filtered[
-                    atl06_filtered.index.year.isin(select_years)
-                ]
-            if select_months:
-                atl06_filtered = atl06_filtered[
-                    atl06_filtered.index.month.isin(select_months)
-                ]
-            if select_days:
-                atl06_filtered = atl06_filtered[
-                    atl06_filtered.index.day.isin(select_days)
-                ]
-
-            self.atl06sr_processing_levels_filtered[key] = atl06_filtered
-
-    def to_csv_for_pc_align(self, key="ground", filename_prefix="atl06sr_for_pc_align"):
-        """
-        Export ATL06-SR data to CSV format for use with pc_align.
-
-        Creates a CSV file from the filtered ATL06-SR data that is formatted
-        for use with the ASP pc_align tool, containing longitude, latitude,
-        and height above datum.
-
-        Parameters
-        ----------
-        key : str, optional
-            Processing level to export, default is "ground"
-        filename_prefix : str, optional
-            Prefix for the output CSV file, default is "atl06sr_for_pc_align"
-
-        Returns
-        -------
-        str
-            Path to the created CSV file
-
-        Notes
-        -----
-        The ASP pc_align tool requires input data in a specific format.
-        This method converts the ATL06-SR GeoDataFrame to the required
-        CSV format with columns for longitude, latitude, and height.
-        """
-        atl06sr = self.atl06sr_processing_levels_filtered[key].to_crs("EPSG:4326")
-        csv_fn = os.path.join(self.directory, f"{filename_prefix}_{key}.csv")
-        df = atl06sr[["geometry", "h_mean"]].copy()
-        df["lon"] = df["geometry"].x
-        df["lat"] = df["geometry"].y
-        df["height_above_datum"] = df["h_mean"]
-        df = df[["lon", "lat", "height_above_datum"]]
-        df.to_csv(csv_fn, header=True, index=False)
-        return csv_fn
+    # ------------------------------------------------------------------ #
+    #  pc_align orchestration + shared keep/discard decision (#127)       #
+    # ------------------------------------------------------------------ #
 
     def alignment_report(
         self,
@@ -1423,461 +751,6 @@ class Altimetry:
             df, p50_beg, p50_end, improvement_pct, parameters_used
         )
 
-    def _remove_aligned_dem_if_present(self):
-        """Delete the aligned DEM file if pc_align created one.
-
-        Safe to call when no aligned DEM exists. Clears
-        ``self.aligned_dem_fn`` on success.
-        """
-        aligned = getattr(self, "aligned_dem_fn", None)
-        if aligned and os.path.exists(aligned):
-            try:
-                os.remove(aligned)
-            except OSError as e:
-                logger.warning(f"\nCould not remove aligned DEM {aligned}: {e}\n")
-        self.aligned_dem_fn = None
-
-    @staticmethod
-    def _improvement_pct(p50_beg, p50_end):
-        """Percent p50 reduction from alignment, or None if not computable.
-
-        ``(p50_beg - p50_end) / p50_beg * 100``. Returns None when either
-        value is non-finite or ``p50_beg`` is zero. Shared by the ICESat-2
-        and planetary align-and-evaluate paths.
-        """
-        if not np.isfinite(p50_beg) or not np.isfinite(p50_end) or p50_beg == 0:
-            return None
-        return (p50_beg - p50_end) / p50_beg * 100.0
-
-    def _evaluate_improvement(
-        self,
-        *,
-        df,
-        p50_beg,
-        p50_end,
-        improvement_pct,
-        improvement_threshold_pct,
-        translation_too_small,
-        no_improvement_reason,
-        parameters_used,
-    ):
-        """Shared keep/discard decision for ICESat-2 and planetary alignment.
-
-        Applies the common rejection predicate used by both
-        :meth:`align_and_evaluate` and :meth:`align_and_evaluate_planetary`:
-        the aligned DEM is discarded when the p50 improvement is missing,
-        non-positive, at or below ``improvement_threshold_pct``, or the
-        translation was too small to write a DEM.
-
-        Returns
-        -------
-        AlignmentResult or None
-            A terminal ``no_improvement`` result (with the aligned DEM
-            already cleaned up) when the alignment is rejected, or ``None``
-            when it should be kept. In the keep case the caller performs its
-            body-specific success finalization and builds the success result
-            via :meth:`_success_result`.
-
-        Notes
-        -----
-        ``no_improvement_reason`` is supplied by the caller because the
-        Earth and planetary paths word the rejection differently (GSD value,
-        translation wording). It is only consumed on the reject path.
-        """
-        if (
-            improvement_pct is None
-            or p50_end >= p50_beg
-            or improvement_pct <= improvement_threshold_pct
-            or translation_too_small
-        ):
-            self._remove_aligned_dem_if_present()
-            return AlignmentResult(
-                status="no_improvement",
-                alignment_report_df=df,
-                aligned_dem_fn=None,
-                improvement_pct=improvement_pct,
-                message=f"No significant improvement: {no_improvement_reason}",
-                parameters_used=parameters_used,
-            )
-        return None
-
-    def _success_result(self, df, p50_beg, p50_end, improvement_pct, parameters_used):
-        """Build the shared ``success`` AlignmentResult.
-
-        Identical for both bodies once the aligned DEM is retained on
-        ``self.aligned_dem_fn``.
-        """
-        return AlignmentResult(
-            status="success",
-            alignment_report_df=df,
-            aligned_dem_fn=self.aligned_dem_fn,
-            improvement_pct=improvement_pct,
-            message=(
-                f"p50 improved from {p50_beg:.2f} m -> {p50_end:.2f} m "
-                f"({improvement_pct:.1f}% reduction). Aligned DEM written to "
-                f"{self.aligned_dem_fn}."
-            ),
-            parameters_used=parameters_used,
-        )
-
-    # ------------------------------------------------------------------ #
-    #  Planetary altimetry: LOLA (Moon) and MOLA (Mars) via ODE GDS API  #
-    # ------------------------------------------------------------------ #
-
-    def load_planetary_csv(self, csv_path):
-        """Load LOLA or MOLA altimetry data from a GDS topo CSV file.
-
-        The CSV is obtained via the ``request_planetary_altimetry`` CLI
-        tool, which submits an async query to the ODE GDS API and emails
-        the user a download link.  The user downloads and unzips the
-        result, then passes the ``*_topo_csv.csv`` file here.
-
-        Automatically selects the LOLA or MOLA parser based on the DEM's
-        planetary body.
-
-        Parameters
-        ----------
-        csv_path : str
-            Path to a ``*_topo_csv.csv`` file from the ODE GDS.
-        """
-        from asp_plot.utils import detect_planetary_body
-
-        body = detect_planetary_body(self.dem_fn)
-
-        if body == "moon":
-            self._load_lola_csv(csv_path)
-        elif body == "mars":
-            self._load_mola_csv(csv_path)
-        else:
-            raise ValueError(
-                f"Planetary altimetry CSV loading is not supported for "
-                f"body={body}. Use ICESat-2 for Earth DEMs."
-            )
-
-    # Column name candidates for LOLA and MOLA CSVs
-    _LON_CANDIDATES = [
-        "pt_longitude",
-        "long_east",
-        "longitude",
-        "areocentric_longitude",
-    ]
-    _LAT_CANDIDATES = ["pt_latitude", "lat_north", "latitude", "areocentric_latitude"]
-    _TOPO_CANDIDATES = ["topography", "topo"]
-    # PLANET_RAD column names from ODE GDS PEDR (Mars) and LOLA RDR
-    # "Point Per Row" CSV (Moon, has Pt_Radius). Order matters — names
-    # earlier in the list are preferred.
-    _RADIUS_CANDIDATES = [
-        "planet_rad",
-        "planet_rad (shot_planetary_radius)",
-        "pt_radius",
-        "planetary_radius",
-        "radius",
-    ]
-
-    # Geographic CRS WKT strings for building GeoDataFrames (sourced from the
-    # body registry).
-    _MOON_GEO_CRS = BODIES["moon"].geographic_crs_wkt
-    _MARS_GEO_CRS = BODIES["mars"].geographic_crs_wkt
-
-    @staticmethod
-    def _find_csv_column(cols_lower, candidates):
-        """Find a CSV column by matching against candidate names.
-
-        Parameters
-        ----------
-        cols_lower : dict
-            Mapping of ``{stripped_lowercase_name: original_name}``.
-        candidates : list of str
-            Candidate column names to search for (lowercase).
-
-        Returns
-        -------
-        str or None
-            Original column name if found, else None.
-        """
-        for c in candidates:
-            if c in cols_lower:
-                return cols_lower[c]
-        return None
-
-    def _load_planetary_csv_common(self, csv_path, instrument, prefer="radius"):
-        """Shared CSV loading logic for LOLA and MOLA.
-
-        Reads the CSV, validates columns, converts longitude to -180/180.
-        Picks PLANET_RAD over TOPOGRAPHY by default (``prefer="radius"``)
-        because TOPOGRAPHY is referenced to the oblate areoid and produces
-        a latitude-dependent offset against ASP's spherical-IAU DEMs.
-
-        Parameters
-        ----------
-        csv_path : str
-            Path to the CSV file.
-        instrument : str
-            ``"LOLA"`` or ``"MOLA"`` (for error messages).
-        prefer : {"radius", "topo"}
-            Which column family to try first.
-
-        Returns
-        -------
-        tuple of (pandas.DataFrame, bool)
-            (df with ``lon``, ``lat``, ``height_raw`` columns,
-             ``is_radius`` flag — True if the chosen column is a planetary radius)
-        """
-        df = pd.read_csv(csv_path)
-
-        if df.empty:
-            raise ValueError(
-                f"{instrument} CSV is empty: {csv_path}\n"
-                "The query area may have no coverage."
-            )
-
-        cols_lower = {c.strip().lower(): c for c in df.columns}
-
-        lon_col = self._find_csv_column(cols_lower, self._LON_CANDIDATES)
-        lat_col = self._find_csv_column(cols_lower, self._LAT_CANDIDATES)
-
-        if prefer == "radius":
-            primary = self._find_csv_column(cols_lower, self._RADIUS_CANDIDATES)
-            fallback = self._find_csv_column(cols_lower, self._TOPO_CANDIDATES)
-            is_radius = primary is not None
-        else:
-            primary = self._find_csv_column(cols_lower, self._TOPO_CANDIDATES)
-            fallback = self._find_csv_column(cols_lower, self._RADIUS_CANDIDATES)
-            is_radius = primary is None and fallback is not None
-
-        height_col = primary if primary is not None else fallback
-
-        if lon_col is None or lat_col is None or height_col is None:
-            raise ValueError(
-                f"{instrument} CSV does not have expected columns.\n"
-                f"  Found: {list(df.columns)}\n"
-                f"  Expected longitude, latitude, and either a planetary "
-                f"radius (PLANET_RAD / Pt_Radius) or topography column."
-            )
-
-        df = df.rename(
-            columns={lon_col: "lon", lat_col: "lat", height_col: "height_raw"}
-        )
-
-        # Convert 0-360 → -180/180
-        df["lon"] = ((df["lon"] + 180) % 360) - 180
-
-        return df, is_radius
-
-    def _load_lola_csv(self, csv_path):
-        """Parse a LOLA topo CSV into a GeoDataFrame.
-
-        Stores height above the IAU 1737.4 km lunar sphere on
-        ``self.planetary_points["height"]`` and the planetary radius on
-        ``self.planetary_points["radius_m"]`` (used by pc_align).
-
-        The Moon is nearly spherical (1.4 km equatorial-vs-polar variation),
-        so LOLA TOPOGRAPHY ≈ Pt_Radius − 1737.4 km. Either column gives the
-        same dh against an ASP lunar DEM to <1 m.
-
-        Parameters
-        ----------
-        csv_path : str
-            Path to a LOLA RDR CSV from the ODE GDS API.
-        """
-        df, is_radius = self._load_planetary_csv_common(
-            csv_path, "LOLA", prefer="radius"
-        )
-
-        if is_radius:
-            # LOLA RDR Pt_Radius is in KILOMETERS (per the ODE GDS Point
-            # per Row CSV header), unlike MOLA PEDR PLANET_RAD which is
-            # in meters. Detect units by magnitude (~1737 vs ~1737000)
-            # and normalize to meters.
-            if df["height_raw"].median() < 10000:
-                df["height_raw"] = df["height_raw"] * 1000.0
-                unit_note = " (km → m)"
-            else:
-                unit_note = ""
-            df["height"] = df["height_raw"] - MOON_IAU_SPHERE_RADIUS
-            df["radius_m"] = df["height_raw"]
-            source = f"Pt_Radius{unit_note}"
-        else:
-            # Topography path: the Moon is essentially spherical so LOLA
-            # topography ≈ height above the IAU 1737.4 km sphere.
-            df["height"] = df["height_raw"]
-            df["radius_m"] = df["height_raw"] + MOON_IAU_SPHERE_RADIUS
-            source = "Topography"
-
-        gdf = gpd.GeoDataFrame(
-            df,
-            geometry=gpd.points_from_xy(df["lon"], df["lat"]),
-            crs=self._MOON_GEO_CRS,
-        )
-        self.planetary_points = gdf
-        print(f"Loaded {len(gdf)} LOLA points (using {source} column)")
-
-    def _load_mola_csv(self, csv_path):
-        """Parse a MOLA PEDR CSV into a GeoDataFrame.
-
-        Uses the PLANET_RAD column and converts to height above the IAU
-        Mars sphere (3,396,190 m): ``height = PLANET_RAD - 3,396,190``.
-        This is the same reference as ASP DEMs, so dh = MOLA − DEM is
-        directly meaningful at all latitudes.
-
-        TOPOGRAPHY (in ``*_topo_csv.csv``) is referenced to the MOLA
-        oblate areoid and produces a latitude-dependent offset of up to
-        ~10 km against an ASP DEM, so it is rejected here. Pass the
-        ``*_pts_csv.csv`` from the ODE GDS download instead.
-
-        Parameters
-        ----------
-        csv_path : str
-            Path to a MOLA PEDR CSV from the ODE GDS API. Must include
-            a ``PLANET_RAD`` column (use the ``*_pts_csv.csv`` file).
-        """
-        df, is_radius = self._load_planetary_csv_common(
-            csv_path, "MOLA", prefer="radius"
-        )
-
-        if not is_radius:
-            raise ValueError(
-                f"MOLA CSV is missing the PLANET_RAD column: {csv_path}\n"
-                "The ODE GDS '*_topo_csv.csv' only has TOPOGRAPHY, which is "
-                "height above the oblate MOLA areoid. ASP DEMs use the "
-                "spherical IAU 2000 datum (3,396,190 m), so dh from "
-                "TOPOGRAPHY carries a latitude-dependent offset of up to "
-                "~10 km that pc_align cannot remove.\n\n"
-                "Pass the '*_pts_csv.csv' file from the same ODE GDS "
-                "download instead — it contains PLANET_RAD."
-            )
-
-        df["height"] = df["height_raw"] - MARS_IAU_SPHERE_RADIUS
-        df["radius_m"] = df["height_raw"]
-
-        gdf = gpd.GeoDataFrame(
-            df,
-            geometry=gpd.points_from_xy(df["lon"], df["lat"]),
-            crs=self._MARS_GEO_CRS,
-        )
-        self.planetary_points = gdf
-        print(
-            f"Loaded {len(gdf)} MOLA points "
-            f"(PLANET_RAD - {MARS_IAU_SPHERE_RADIUS:.0f} m → height above IAU sphere)"
-        )
-
-    def _sample_dem_at_planetary_points(self, dem_fn, height_col, dh_col):
-        """Interpolate DEM heights at the loaded altimetry points.
-
-        Adds ``height_col`` and ``dh_col`` (= altimetry height − DEM height)
-        to ``self.planetary_points`` in-place. Used by
-        :meth:`planetary_to_dem_dh` for both the raw and aligned DEMs.
-        """
-        if self.planetary_points is None or self.planetary_points.empty:
-            return
-
-        dem = rioxarray.open_rasterio(dem_fn, masked=True).squeeze()
-        dem_crs = dem.rio.crs
-
-        pts = self.planetary_points.to_crs(dem_crs)
-        x = xr.DataArray(pts.geometry.x.values, dims="z")
-        y = xr.DataArray(pts.geometry.y.values, dims="z")
-        sample = dem.interp(x=x, y=y).values
-
-        self.planetary_points[height_col] = sample
-        self.planetary_points[dh_col] = self.planetary_points["height"] - sample
-
-    def planetary_to_dem_dh(self, n_sigma=3):
-        """Compute height differences between planetary altimetry and DEM.
-
-        Reprojects ``self.planetary_points`` to the DEM CRS, interpolates
-        DEM heights at altimetry locations, and computes the difference
-        ``altimetry_minus_dem = height - dem_height``. When
-        ``self.aligned_dem_fn`` is set, also populates
-        ``aligned_dem_height`` and ``altimetry_minus_aligned_dem`` so
-        pre/post-alignment plots can share a single sample. Outliers
-        beyond ``n_sigma`` × std from the mean (computed on the
-        unaligned dh) are removed by default.
-
-        Parameters
-        ----------
-        n_sigma : float or None, optional
-            Remove dh outliers beyond this many standard deviations from
-            the mean. Default 3. Pass None to skip outlier filtering.
-
-        The results are stored as new columns on ``self.planetary_points``.
-        """
-        if self.planetary_points is None or self.planetary_points.empty:
-            logger.warning("No planetary altimetry points loaded.")
-            return
-
-        self._sample_dem_at_planetary_points(
-            self.dem_fn, "dem_height", "altimetry_minus_dem"
-        )
-        if self.aligned_dem_fn:
-            self._sample_dem_at_planetary_points(
-                self.aligned_dem_fn,
-                "aligned_dem_height",
-                "altimetry_minus_aligned_dem",
-            )
-
-        valid = self.planetary_points["altimetry_minus_dem"].dropna()
-        print(f"Computed dh for {len(valid)} of {len(self.planetary_points)} points")
-
-        if n_sigma is not None and not valid.empty:
-            mean_val = np.nanmean(valid.values)
-            std_val = np.nanstd(valid.values)
-            if std_val > 0 and not np.isnan(std_val):
-                dh = self.planetary_points["altimetry_minus_dem"]
-                mask = (dh - mean_val).abs() <= n_sigma * std_val
-                # Keep rows where dh is NaN
-                mask = mask | dh.isna()
-                n_before = len(self.planetary_points)
-                self.planetary_points = self.planetary_points[mask]
-                n_after = len(self.planetary_points)
-                if n_before != n_after:
-                    print(
-                        f"  Outlier filter ({n_sigma}σ): "
-                        f"{n_before} → {n_after} "
-                        f"(removed {n_before - n_after})"
-                    )
-
-    def to_csv_for_pc_align_planetary(self, filename_prefix="planetary_for_pc_align"):
-        """Export ``self.planetary_points`` to a CSV for pc_align.
-
-        Writes columns ``lon, lat, radius_m`` (planetary radius from the
-        body center, in meters). Used as the ``planetary_csv`` argument
-        to :meth:`asp_plot.alignment.Alignment.pc_align_dem_to_planetary_csv`.
-
-        Parameters
-        ----------
-        filename_prefix : str, optional
-            Prefix for the output CSV filename. Saved in
-            ``self.directory``.
-
-        Returns
-        -------
-        str
-            Absolute path to the created CSV file.
-        """
-        if self.planetary_points is None or self.planetary_points.empty:
-            raise ValueError("No planetary altimetry points loaded.")
-        if "radius_m" not in self.planetary_points.columns:
-            raise ValueError(
-                "planetary_points has no radius_m column. Call "
-                "load_planetary_csv() first to populate it."
-            )
-
-        # Drop dh-NaN rows so pc_align doesn't reject the file. We also
-        # restrict to points that fall on the DEM (have a finite
-        # dem_height) when available — pc_align can use them as the
-        # reference cloud only if they overlap the source.
-        df = self.planetary_points.copy()
-        df["lon"] = df.geometry.x
-        df["lat"] = df.geometry.y
-        df = df[["lon", "lat", "radius_m"]].dropna()
-        if df.empty:
-            raise ValueError("No valid planetary altimetry points after dropping NaNs.")
-
-        csv_fn = os.path.join(self.directory, f"{filename_prefix}.csv")
-        df.to_csv(csv_fn, header=True, index=False)
-        return csv_fn
-
     def align_and_evaluate_planetary(
         self,
         max_displacement=500,
@@ -2060,1748 +933,99 @@ class Altimetry:
             df, p50_beg, p50_end, improvement_pct, parameters_used
         )
 
-    def mapview_plot_planetary_to_dem(
-        self,
-        clim=None,
-        save_dir=None,
-        fig_fn=None,
-        title=None,
-        plot_aligned=False,
-    ):
-        """Map view of planetary altimetry vs DEM height differences.
+    def _remove_aligned_dem_if_present(self):
+        """Delete the aligned DEM file if pc_align created one.
 
-        Plots the DEM hillshade as background with altimetry dh points
-        overlaid using a divergent colourmap. When ``plot_aligned=True``
-        and ``self.aligned_dem_fn`` is set, renders pre/post panels side
-        by side.
-
-        Parameters
-        ----------
-        clim : tuple or None, optional
-            Colour limits ``(min, max)`` for dh. Default auto (symmetric
-            ±|max| around zero).
-        save_dir : str or None, optional
-            Directory to save figure.
-        fig_fn : str or None, optional
-            Filename for saved figure.
-        title : str or None, optional
-            Custom plot title. Auto-detected if None.
-        plot_aligned : bool, optional
-            Add a second panel showing dh against the aligned DEM.
-            Requires that pc_align has been run successfully.
+        Safe to call when no aligned DEM exists. Clears
+        ``self.aligned_dem_fn`` on success.
         """
-        from asp_plot.utils import Raster, detect_planetary_body
-
-        if self.planetary_points is None or self.planetary_points.empty:
-            logger.warning("No planetary altimetry points loaded.")
-            return
-
-        if "altimetry_minus_dem" not in self.planetary_points.columns:
-            self.planetary_to_dem_dh()
-
-        body = detect_planetary_body(self.dem_fn)
-        instrument = BODIES[body].altimetry_instrument
-        if title is None:
-            title = f"{instrument} vs DEM"
-
-        show_aligned = (
-            plot_aligned
-            and self.aligned_dem_fn
-            and "altimetry_minus_aligned_dem" in self.planetary_points.columns
-        )
-
-        # Generate hillshade — use the aligned DEM as the backdrop when
-        # available so the post-alignment panel matches the dh sample.
-        backdrop_dem = self.aligned_dem_fn if show_aligned else self.dem_fn
-        dem_raster = Raster(backdrop_dem, downsample=4)
-        hs = dem_raster.hillshade()
-        extent = rioplot.plotting_extent(dem_raster.ds, transform=dem_raster.transform)
-        dem_crs = dem_raster.ds.crs
-
-        # Build the symmetric ±|max| color limits across all visible
-        # panels so they are directly comparable.
-        gdf_unaligned = self.planetary_points.dropna(subset=["altimetry_minus_dem"])
-        if gdf_unaligned.empty:
-            logger.warning("No valid dh values for map view.")
-            return
-        dh_arrays = [gdf_unaligned["altimetry_minus_dem"].values]
-        if show_aligned:
-            dh_arrays.append(
-                self.planetary_points["altimetry_minus_aligned_dem"].dropna().values
-            )
-
-        if clim is None:
-            abs_max = max(np.nanmax(np.abs(a)) for a in dh_arrays if a.size)
-            clim = (-abs_max, abs_max)
-
-        ncols = 2 if show_aligned else 1
-        fig, axes = plt.subplots(
-            1, ncols, figsize=(8 * ncols, 6), dpi=220, squeeze=False
-        )
-        axes = axes[0]
-
-        panels = [("altimetry_minus_dem", "ASP DEM")]
-        if show_aligned:
-            panels.append(("altimetry_minus_aligned_dem", "Aligned DEM"))
-
-        for ax, (column, label) in zip(axes, panels):
-            gdf = self.planetary_points.dropna(subset=[column])
-            dh = gdf[column]
-            n = len(dh)
-            med = np.nanmedian(dh.values)
-            nmad = _nmad(dh.values)
-
-            ax.imshow(hs, cmap="gray", extent=extent, alpha=0.7, interpolation="none")
-            cbar_label = f"{instrument} - {label} (m)\n[±|max|]"
-            gdf.to_crs(dem_crs).plot(
-                ax=ax,
-                column=column,
-                cmap="RdBu",
-                vmin=clim[0],
-                vmax=clim[1],
-                markersize=2,
-                legend=True,
-                legend_kwds={"label": cbar_label},
-            )
-            stats_text = f"n={n}\nMedian={med:+.2f} m\nNMAD={nmad:.2f} m"
-            ax.text(
-                0.02,
-                0.98,
-                stats_text,
-                transform=ax.transAxes,
-                verticalalignment="top",
-                fontsize=8,
-                fontfamily="monospace",
-                bbox=dict(boxstyle="round,pad=0.4", facecolor="white", alpha=0.9),
-            )
-            ax.set_title(label, size=9)
-            ax.set_xticks([])
-            ax.set_yticks([])
-
-        fig.suptitle(title, size=10)
-        fig.tight_layout()
-        if save_dir and fig_fn:
-            save_figure(fig, save_dir, fig_fn)
-
-    def histogram_planetary_to_dem(
-        self,
-        save_dir=None,
-        fig_fn=None,
-        title=None,
-        plot_aligned=False,
-    ):
-        """Histogram of planetary altimetry vs DEM height differences.
-
-        Parameters
-        ----------
-        save_dir : str or None, optional
-            Directory to save figure.
-        fig_fn : str or None, optional
-            Filename for saved figure.
-        title : str or None, optional
-            Custom plot title. Auto-detected if None.
-        plot_aligned : bool, optional
-            Overlay the post-alignment dh distribution on the same axes.
-            Requires that pc_align has been run successfully.
-        """
-        from asp_plot.utils import detect_planetary_body
-
-        if self.planetary_points is None or self.planetary_points.empty:
-            logger.warning("No planetary altimetry points loaded.")
-            return
-
-        if "altimetry_minus_dem" not in self.planetary_points.columns:
-            self.planetary_to_dem_dh()
-
-        dh = self.planetary_points["altimetry_minus_dem"].dropna()
-        if dh.empty:
-            logger.warning("No valid dh values for histogram.")
-            return
-
-        body = detect_planetary_body(self.dem_fn)
-        instrument = BODIES[body].altimetry_instrument
-        if title is None:
-            title = f"{instrument} vs ASP DEM"
-
-        show_aligned = (
-            plot_aligned
-            and self.aligned_dem_fn
-            and "altimetry_minus_aligned_dem" in self.planetary_points.columns
-        )
-        if show_aligned:
-            dh_aligned = self.planetary_points["altimetry_minus_aligned_dem"].dropna()
-
-        # Shared bin edges and xlim across both distributions
-        if show_aligned:
-            abs_max = max(
-                abs(dh.min()),
-                abs(dh.max()),
-                abs(dh_aligned.min()),
-                abs(dh_aligned.max()),
-            )
-        else:
-            abs_max = max(abs(dh.min()), abs(dh.max()))
-        bins = np.linspace(-abs_max, abs_max, 129)
-
-        fig, ax = plt.subplots(1, 1, figsize=(8, 5), dpi=220)
-        ax.hist(
-            dh.values,
-            bins=bins,
-            alpha=0.6,
-            color="steelblue",
-            label=f"DEM (n={len(dh)})",
-        )
-        if show_aligned:
-            ax.hist(
-                dh_aligned.values,
-                bins=bins,
-                alpha=0.6,
-                color="orange",
-                label=f"Aligned DEM (n={len(dh_aligned)})",
-            )
-
-        ax.set_xlim(-abs_max, abs_max)
-
-        if show_aligned:
-            med0 = np.nanmedian(dh.values)
-            nmad0 = _nmad(dh.values)
-            med1 = np.nanmedian(dh_aligned.values)
-            nmad1 = _nmad(dh_aligned.values)
-            stats_text = (
-                f"DEM:         Med={med0:+.2f}  NMAD={nmad0:.2f} m\n"
-                f"Aligned DEM: Med={med1:+.2f}  NMAD={nmad1:.2f} m"
-            )
-        else:
-            n = len(dh)
-            med = np.nanmedian(dh.values)
-            nmad = _nmad(dh.values)
-            stats_text = f"n={n}\nMedian={med:+.2f} m\nNMAD={nmad:.2f} m"
-        ax.text(
-            0.02,
-            0.98,
-            stats_text,
-            transform=ax.transAxes,
-            verticalalignment="top",
-            fontsize=8,
-            fontfamily="monospace",
-            bbox=dict(boxstyle="round,pad=0.4", facecolor="white", alpha=0.9),
-        )
-
-        ax.set_xlabel(f"{instrument} - DEM (m) [±|max|]")
-        ax.set_ylabel("Count")
-        ax.legend(loc="upper right", fontsize=8)
-        fig.suptitle(title, size=10)
-        fig.tight_layout()
-        if save_dir and fig_fn:
-            save_figure(fig, save_dir, fig_fn)
-
-    def plot_atl06sr_time_stamps(
-        self,
-        key="all",
-        title="ICESat-2 ATL06-SR Time Stamps",
-        cmap="inferno",
-        map_crs="EPSG:4326",
-        figsize=(15, 10),
-        save_dir=None,
-        fig_fn=None,
-        **ctx_kwargs,
-    ):
-        """
-        Plot ATL06-SR data for different temporal filters.
-
-        Creates a 2x2 grid of plots showing ATL06-SR data for different
-        temporal filters (unfiltered, 15-day, 45-day, and seasonal)
-        colored by height.
-
-        Parameters
-        ----------
-        key : str, optional
-            Base processing level to plot, default is "all"
-        title : str, optional
-            Plot title, default is "ICESat-2 ATL06-SR Time Stamps"
-        cmap : str, optional
-            Matplotlib colormap for elevation, default is "inferno"
-        map_crs : str, optional
-            Coordinate reference system for mapping, default is "EPSG:4326"
-        figsize : tuple, optional
-            Figure size as (width, height), default is (15, 10)
-        save_dir : str or None, optional
-            Directory to save figure, default is None (don't save)
-        fig_fn : str or None, optional
-            Filename for saved figure, default is None
-        **ctx_kwargs : dict, optional
-            Additional arguments for contextily basemap
-
-        Returns
-        -------
-        None
-            Displays the plot and optionally saves it
-
-        Notes
-        -----
-        This method requires the filtered data to have been created using
-        the predefined_temporal_filter_atl06sr method for the temporal
-        variations to be available.
-        """
-        time_stamps = ["", "_15_day_pad", "_45_day_pad", "_seasonal"]
-
-        fig, axes = plt.subplots(2, 2, figsize=figsize)
-        axes = axes.flatten()
-
-        x_bounds = []
-        y_bounds = []
-        for ax, time_stamp in zip(axes, time_stamps):
-            key_to_plot = f"{key}{time_stamp}"
-
-            if key_to_plot not in self.atl06sr_processing_levels_filtered.keys():
-                ax.text(
-                    0.5,
-                    0.5,
-                    f"No points found for {key_to_plot}",
-                    horizontalalignment="center",
-                    verticalalignment="center",
-                    transform=ax.transAxes,
-                )
-                ax.axis("off")
-                continue
-
-            atl06sr = self.atl06sr_processing_levels_filtered[key_to_plot]
-            if map_crs:
-                crs = map_crs
-                ctx_kwargs["crs"] = map_crs
-            elif ctx_kwargs:
-                crs = ctx_kwargs["crs"]
-            else:
-                crs = "EPSG:4326"
-            atl06sr_sorted = atl06sr.sort_values(by="h_mean").to_crs(crs)
-            bounds = atl06sr_sorted.total_bounds
-            x_bounds.extend([bounds[0], bounds[2]])
-            y_bounds.extend([bounds[1], bounds[3]])
-
-            cb = ColorBar(perc_range=(2, 98))
-            cb.get_clim(atl06sr_sorted["h_mean"])
-            norm = cb.get_norm(lognorm=False)
-
-            atl06sr_sorted.plot(
-                ax=ax,
-                column="h_mean",
-                cmap=cmap,
-                norm=norm,
-                s=1,
-                legend=True,
-                legend_kwds={"label": "Height above datum (m)"},
-            )
-
-            ax.set_title(f"{key_to_plot} (n={atl06sr.shape[0]})", size=12)
-
-        # 5% padding
-        padding = 0.05
-        x_range = max(x_bounds) - min(x_bounds)
-        y_range = max(y_bounds) - min(y_bounds)
-        for ax, time_stamp in zip(axes, time_stamps):
-            key_to_plot = f"{key}{time_stamp}"
-
-            if key_to_plot not in self.atl06sr_processing_levels_filtered.keys():
-                continue
-
-            ax.set_xlim(
-                min(x_bounds) - padding * x_range, max(x_bounds) + padding * x_range
-            )
-            ax.set_ylim(
-                min(y_bounds) - padding * y_range, max(y_bounds) + padding * y_range
-            )
-            if ctx_kwargs:
-                ctx.add_basemap(ax=ax, **ctx_kwargs)
-
-        suptitle = f"{title}"
-        if self._time_range_label:
-            suptitle += f"\n{self._time_range_label}"
-        fig.suptitle(suptitle, size=14)
-        fig.tight_layout()
-        if save_dir and fig_fn:
-            save_figure(fig, save_dir, fig_fn)
-
-    def plot_atl06sr(
-        self,
-        key="all",
-        plot_beams=False,
-        plot_dem=False,
-        column_name="h_mean",
-        cbar_label="Height above datum (m)",
-        title="ICESat-2 ATL06-SR",
-        clim=None,
-        symm_clim=False,
-        cmap="inferno",
-        map_crs="EPSG:4326",
-        figsize=(6, 4),
-        save_dir=None,
-        fig_fn=None,
-        **ctx_kwargs,
-    ):
-        """
-        Plot ATL06-SR data on a map with customizable options.
-
-        Creates a map view of ATL06-SR data with options to color by various
-        attributes, highlight different laser beams, overlay on the DEM,
-        and add contextual basemaps.
-
-        Parameters
-        ----------
-        key : str, optional
-            Processing level to plot, default is "all"
-        plot_beams : bool, optional
-            Whether to color points by ICESat-2 beam, default is False
-        plot_dem : bool, optional
-            Whether to plot the DEM as a background, default is False
-        column_name : str, optional
-            Column to use for point coloring, default is "h_mean"
-        cbar_label : str, optional
-            Colorbar label, default is "Height above datum (m)"
-        title : str, optional
-            Plot title, default is "ICESat-2 ATL06-SR"
-        clim : tuple or None, optional
-            Color limits as (min, max), default is None (auto)
-        symm_clim : bool, optional
-            Whether to use symmetric color limits, default is False
-        cmap : str, optional
-            Matplotlib colormap, default is "inferno"
-        map_crs : str, optional
-            Coordinate reference system for mapping, default is "EPSG:4326"
-        figsize : tuple, optional
-            Figure size as (width, height), default is (6, 4)
-        save_dir : str or None, optional
-            Directory to save figure, default is None (don't save)
-        fig_fn : str or None, optional
-            Filename for saved figure, default is None
-        **ctx_kwargs : dict, optional
-            Additional arguments for contextily basemap
-
-        Returns
-        -------
-        None
-            Displays the plot and optionally saves it
-
-        Notes
-        -----
-        When plot_beams is True, points are colored by ICESat-2 laser spot
-        number, with strong beams (1, 3, 5) in darker colors and
-        weak beams (2, 4, 6) in lighter colors.
-        """
-        atl06sr = self.atl06sr_processing_levels_filtered[key]
-        atl06sr_sorted = atl06sr.sort_values(by=column_name).to_crs(map_crs)
-
-        fig, ax = plt.subplots(1, 1, figsize=figsize, dpi=220)
-
-        if plot_dem:
-            ctx_kwargs = {}
-            # We downsample to speed plotting. This is not carried over into any analysis.
-            dem_downsampled = Raster(self.dem_fn, downsample=10)
-            cb = ColorBar(perc_range=(2, 98))
-            cb.get_clim(dem_downsampled.data)
-            # Plot using rasterio's show function
-            rioplot.show(
-                dem_downsampled.data,
-                transform=dem_downsampled.transform,
-                ax=ax,
-                cmap="inferno",
-                vmin=cb.clim[0],
-                vmax=cb.clim[1],
-                alpha=1,
-            )
-            ax.set_title(None)
-
-        # TODO: Implement optional hillshade plotting
-
-        if plot_beams:
-            color_dict = {
-                1: "red",
-                2: "lightpink",
-                3: "blue",
-                4: "lightblue",
-                5: "green",
-                6: "lightgreen",
-            }
-            patches = [mpatches.Patch(color=v, label=k) for k, v in color_dict.items()]
-            atl06sr_sorted.plot(
-                ax=ax,
-                markersize=1,
-                color=atl06sr_sorted["spot"].map(color_dict).values,
-            )
-            ax.legend(
-                handles=patches, title="laser spot\n(strong=1,3,5)", loc="upper left"
-            )
-        else:
-            if plot_dem:
-                cb.symm = symm_clim
-            else:
-                cb = ColorBar(perc_range=(2, 98), symm=symm_clim)
-                if clim is None:
-                    cb.get_clim(atl06sr_sorted[column_name])
-                else:
-                    cb.clim = clim
-
-            norm = cb.get_norm(lognorm=False)
-
-            atl06sr_sorted.plot(
-                ax=ax,
-                column=column_name,
-                cmap=cmap,
-                norm=norm,
-                s=1,
-                legend=True,
-                legend_kwds={"label": cbar_label},
-            )
-
-        if ctx_kwargs:
-            ctx.add_basemap(ax=ax, **ctx_kwargs)
-
-        ax.set_xticks([])
-        ax.set_yticks([])
-
-        suptitle = f"{title}\n{key} (n={atl06sr.shape[0]})"
-        if self._time_range_label:
-            suptitle += f"\n{self._time_range_label}"
-        fig.suptitle(suptitle, size=10)
-        fig.tight_layout()
-        if save_dir and fig_fn:
-            save_figure(fig, save_dir, fig_fn)
-
-    def atl06sr_to_dem_dh(self, n_sigma=3):
-        """
-        Calculate height differences between ATL06-SR data and DEMs.
-
-        Interpolates DEM heights at ATL06-SR point locations and calculates
-        the difference between ICESat-2 heights and DEM heights. If an aligned
-        DEM is available, also calculates differences against it. Outliers
-        beyond ``n_sigma`` × NMAD from the median are removed by default.
-
-        Parameters
-        ----------
-        n_sigma : float or None, optional
-            Remove dh outliers beyond this many NMAD from the median.
-            Default 3. Pass None to skip outlier filtering.
-
-        Returns
-        -------
-        None
-            Adds columns to the filtered ATL06-SR data:
-            - dem_height: Interpolated height from the original DEM
-            - icesat_minus_dem: Height difference (ICESat-2 - DEM)
-            - aligned_dem_height: Interpolated height from aligned DEM (if available)
-            - icesat_minus_aligned_dem: Height difference with aligned DEM (if available)
-
-        Notes
-        -----
-        This method performs bilinear interpolation of DEM values at
-        ATL06-SR point locations using xarray and rioxarray. It handles
-        coordinate system conversions automatically.
-        """
-        dem = rioxarray.open_rasterio(self.dem_fn, masked=True).squeeze()
-        epsg = dem.rio.crs.to_epsg()
-        for key, atl06sr in self.atl06sr_processing_levels_filtered.items():
-            atl06sr = atl06sr.to_crs(f"EPSG:{epsg}")
-
-            x = xr.DataArray(atl06sr.geometry.x.values, dims="z")
-            y = xr.DataArray(atl06sr.geometry.y.values, dims="z")
-            sample = dem.interp(x=x, y=y)
-
-            atl06sr["dem_height"] = sample.values
-            atl06sr["icesat_minus_dem"] = atl06sr["h_mean"] - atl06sr["dem_height"]
-            self.atl06sr_processing_levels_filtered[key] = atl06sr
-
-        if self.aligned_dem_fn:
-            aligned_dem = rioxarray.open_rasterio(
-                self.aligned_dem_fn, masked=True
-            ).squeeze()
-            epsg = aligned_dem.rio.crs.to_epsg()
-            for key, atl06sr in self.atl06sr_processing_levels_filtered.items():
-                atl06sr = atl06sr.to_crs(f"EPSG:{epsg}")
-
-                x = xr.DataArray(atl06sr.geometry.x.values, dims="z")
-                y = xr.DataArray(atl06sr.geometry.y.values, dims="z")
-                sample = aligned_dem.interp(x=x, y=y)
-
-                atl06sr["aligned_dem_height"] = sample.values
-                atl06sr["icesat_minus_aligned_dem"] = (
-                    atl06sr["h_mean"] - atl06sr["aligned_dem_height"]
-                )
-                self.atl06sr_processing_levels_filtered[key] = atl06sr
-
-        if n_sigma is not None:
-            self.filter_outliers(n_sigma=n_sigma)
-
-    def mapview_plot_atl06sr_to_dem(
-        self,
-        key="all",
-        clim=None,
-        plot_aligned=False,
-        save_dir=None,
-        fig_fn=None,
-        map_crs=None,
-        **ctx_kwargs,
-    ):
-        """
-        Plot height differences between ATL06-SR data and DEMs.
-
-        Creates a map visualization of the height differences between
-        ICESat-2 ATL06-SR data and either the original or aligned DEM.
-
-        Parameters
-        ----------
-        key : str, optional
-            Processing level to plot, default is "all"
-        clim : tuple or None, optional
-            Color limits as (min, max), default is None (auto)
-        plot_aligned : bool, optional
-            Whether to plot differences with aligned DEM, default is False
-        save_dir : str or None, optional
-            Directory to save figure, default is None (don't save)
-        fig_fn : str or None, optional
-            Filename for saved figure, default is None
-        map_crs : str or None, optional
-            Coordinate reference system for mapping, default is None
-            (use DEM's CRS)
-        **ctx_kwargs : dict, optional
-            Additional arguments for contextily basemap
-
-        Returns
-        -------
-        None
-            Displays the plot and optionally saves it
-
-        Notes
-        -----
-        If the height differences haven't been calculated yet,
-        this method calls atl06sr_to_dem_dh() to calculate them.
-        The plot uses a divergent colormap (RdBu) to highlight
-        positive and negative differences.
-        """
-        if plot_aligned:
-            column_name = "icesat_minus_aligned_dem"
-            if not self.aligned_dem_fn:
-                print("\nAligned DEM not found.\n")
-                return
-        else:
-            column_name = "icesat_minus_dem"
-
-        atl06sr = self.atl06sr_processing_levels_filtered[key]
-
-        if column_name not in atl06sr.columns:
-            print(
-                f"\n{column_name} not found in ATL06 dataframe: {key}. Running differencing first.\n"
-            )
-            self.atl06sr_to_dem_dh()
-
-        if clim is None:
-            # Symmetric ±3σ centered on 0 (data has already been filtered
-            # to within 3σ by atl06sr_to_dem_dh, so min/max of the filtered
-            # values ≈ ±3σ from the mean)
-            atl06sr = self.atl06sr_processing_levels_filtered[key]
-            dh = atl06sr[column_name].dropna()
-            if not dh.empty:
-                abs_max = max(abs(dh.min()), abs(dh.max()))
-                clim = (-abs_max, abs_max)
-            cbar_label = "ICESat-2 minus DEM (m)\n[±3σ]"
-        else:
-            cbar_label = "ICESat-2 minus DEM (m)"
-
-        if not map_crs:
-            dem = rioxarray.open_rasterio(self.dem_fn, masked=True).squeeze()
-            epsg = dem.rio.crs.to_epsg()
-            map_crs = f"EPSG:{epsg}"
-
-        self.plot_atl06sr(
-            key=key,
-            column_name=column_name,
-            cbar_label=cbar_label,
-            clim=clim,
-            symm_clim=False,
-            cmap="RdBu",
-            map_crs=map_crs,
-            save_dir=save_dir,
-            fig_fn=fig_fn,
-            **ctx_kwargs,
-        )
-
-    def histogram(
-        self,
-        key="all",
-        title="Histogram",
-        plot_aligned=False,
-        save_dir=None,
-        fig_fn=None,
-    ):
-        """
-        Plot histograms of height differences between ATL06-SR data and DEMs.
-
-        Creates histograms of the height differences between ICESat-2 ATL06-SR
-        data and DEMs, with statistics including median and normalized median
-        absolute deviation (NMAD).
-
-        Parameters
-        ----------
-        key : str, optional
-            Processing level to plot, default is "all"
-        title : str, optional
-            Plot title, default is "Histogram"
-        plot_aligned : bool, optional
-            Whether to include differences with aligned DEM, default is False
-        save_dir : str or None, optional
-            Directory to save figure, default is None (don't save)
-        fig_fn : str or None, optional
-            Filename for saved figure, default is None
-
-        Returns
-        -------
-        None
-            Displays the plot and optionally saves it
-
-        Notes
-        -----
-        If the height differences haven't been calculated yet,
-        this method calls atl06sr_to_dem_dh() to calculate them.
-        NMAD is a robust measure of dispersion that is less sensitive
-        to outliers than standard deviation, calculated as
-        1.4826 * median(abs(x - median(x))).
-        """
-
-        atl06sr = self.atl06sr_processing_levels_filtered[key]
-
-        if "icesat_minus_dem" not in atl06sr.columns:
-            print(
-                f"\n'icesat_minus_dem' not found in ATL06 dataframe: {key}. Running differencing first.\n"
-            )
-            self.atl06sr_to_dem_dh()
-            atl06sr = self.atl06sr_processing_levels_filtered[key]
-
-        column_names = ["icesat_minus_dem"]
-        if plot_aligned:
-            column_names.append("icesat_minus_aligned_dem")
-            if not self.aligned_dem_fn:
-                print("\nAligned DEM not found.\n")
-                return
-
-        fig, ax = plt.subplots(1, 1, figsize=(6, 4), dpi=220)
-
-        abs_max = 0.0
-        for column_name in column_names:
-            col = atl06sr[column_name].dropna()
-            med = col.quantile(0.50)
-            nmad = _nmad(col.values)
-
-            abs_max = max(abs_max, abs(col.min()), abs(col.max()))
-            plot_kwargs = {"bins": 128, "alpha": 0.5}
-            atl06sr.hist(
-                ax=ax,
-                column=column_name,
-                label=f"{column_name}, Median={med:0.2f}, NMAD={nmad:0.2f}",
-                **plot_kwargs,
-            )
-
-        # Symmetric ±3σ centered on 0 (data has already been 3σ-filtered
-        # in atl06sr_to_dem_dh; stats displayed are median/NMAD over the
-        # filtered data)
-        ax.set_xlim(-abs_max, abs_max)
-        ax.legend()
-        ax.set_title(None)
-        ax.set_xlabel("ICESat-2 - DEM (m) [±3σ]")
-
-        suptitle = f"{title}\n{key} (n={atl06sr.shape[0]})"
-        if self._time_range_label:
-            suptitle += f"\n{self._time_range_label}"
-        fig.suptitle(suptitle, size=10)
-
-        fig.tight_layout()
-        if save_dir and fig_fn:
-            save_figure(fig, save_dir, fig_fn)
-
-    def _select_best_track(self, key="all"):
-        """
-        Select the RGT/cycle/spot combination with the most valid ATL06-SR points.
-
-        Parameters
-        ----------
-        key : str, optional
-            Processing level key, default is "all"
-
-        Returns
-        -------
-        dict or None
-            Dictionary with keys: rgt, cycle, spot, count, date.
-            Returns None if no valid tracks found.
-        """
-        atl06sr = self.atl06sr_processing_levels_filtered[key]
-
-        if "icesat_minus_dem" not in atl06sr.columns:
-            self.atl06sr_to_dem_dh()
-            atl06sr = self.atl06sr_processing_levels_filtered[key]
-
-        valid = atl06sr.dropna(subset=["icesat_minus_dem"])
-        if valid.empty:
-            return None
-
-        pass_counts = valid.groupby(["rgt", "cycle", "spot"]).size()
-        best = pass_counts.idxmax()
-        best_data = valid[
-            (valid["rgt"] == best[0])
-            & (valid["cycle"] == best[1])
-            & (valid["spot"] == best[2])
-        ]
-
-        date_str = best_data.index[0].strftime("%Y-%m-%d")
-
-        return {
-            "rgt": best[0],
-            "cycle": best[1],
-            "spot": best[2],
-            "count": int(pass_counts.loc[best]),
-            "date": date_str,
-        }
-
-    def get_altimetry_selections(self, key="all"):
-        """
-        Report the ICESat-2 selections a run made, for reproducibility (#121).
-
-        Bundles the request settings, the parquet cache locations (the exact
-        points used), the auto-selected profile track, and the best/worst
-        segment extents so they can be written to a figure-selections file and
-        replayed on a later run.
-
-        Parameters
-        ----------
-        key : str, optional
-            Processing level key, default is "all".
-
-        Returns
-        -------
-        dict
-            ``{"request": {..}, "parquet_cache": {key: path},
-            "profile_track": {"rgt", "cycle", "spot"},
-            "segments": {"best": {..}, "worst": {..}}}``. Keys are omitted when
-            the corresponding selection is unavailable.
-        """
-        selections = {}
-
-        if getattr(self, "atl06sr_request_parms", None):
-            selections["request"] = dict(self.atl06sr_request_parms)
-        if getattr(self, "atl06sr_parquet_paths", None):
-            selections["parquet_cache"] = dict(self.atl06sr_parquet_paths)
-
-        resolved = self._resolve_best_track(key)
-        if resolved is None:
-            return selections
-        track, rgt, cycle, spot = resolved[0], resolved[1], resolved[2], resolved[3]
-        selections["profile_track"] = {
-            "rgt": int(rgt),
-            "cycle": int(cycle),
-            "spot": int(spot),
-        }
-
-        seg_info = self._find_best_worst_segments(track)
-        if seg_info is not None:
-            selections["segments"] = {
-                "best": self._segment_record(track, seg_info, "best"),
-                "worst": self._segment_record(track, seg_info, "worst"),
-            }
-        return selections
-
-    @staticmethod
-    def _segment_record(track, seg_info, which):
-        """
-        Build a serializable record for a best/worst segment, used by
-        ``get_altimetry_selections``.
-
-        ``start_xatc`` / ``end_xatc`` are the **absolute** along-track extents
-        (meters) and are what reuse actually replays — absolute ``x_atc`` is
-        stable even when outlier filtering drops a different first point, whereas
-        a track-start-relative offset would shift. ``start_km`` / ``end_km``
-        (km from the track start) are kept for human readability. ``endpoints_xy``
-        stores the segment's first/last point coordinates **in the track
-        geometry's CRS** (the DEM/working CRS after dh computation, typically UTM
-        — not lon/lat), for human inspection only.
-        """
-        record = {
-            "start_xatc": float(seg_info[f"seg_{which}_start_xatc"]),
-            "end_xatc": float(seg_info[f"seg_{which}_end_xatc"]),
-            "start_km": float(seg_info[f"seg_{which}_start_km"]),
-            "end_km": float(seg_info[f"seg_{which}_end_km"]),
-        }
-        seg_pts = track[seg_info[f"seg_{which}_mask"]]
-        if not seg_pts.empty and seg_pts.geometry.notna().any():
-            geom = seg_pts.geometry
-            record["endpoints_xy"] = [
-                [float(geom.iloc[0].x), float(geom.iloc[0].y)],
-                [float(geom.iloc[-1].x), float(geom.iloc[-1].y)],
-            ]
-        return record
-
-    def histogram_by_landcover(
-        self,
-        key="all",
-        top_n=4,
-        title="ICESat-2 ATL06-SR vs DEM",
-        xlim=None,
-        plot_aligned=False,
-        save_dir=None,
-        fig_fn=None,
-    ):
-        """
-        Plot histogram of dh with per-landcover-class statistics.
-
-        Creates a histogram of the height differences between ICESat-2
-        ATL06-SR data and the DEM, with a text annotation showing overall
-        and per-landcover-class statistics (count, median, NMAD).
-
-        When ``plot_aligned=True`` and an aligned DEM is available,
-        overlays the pre- and post-alignment distributions and renders two
-        vertically stacked stats text boxes whose outline colors match the
-        bar colors (color serves as the legend).
-
-        Parameters
-        ----------
-        key : str, optional
-            Processing level key, default is "all"
-        top_n : int, optional
-            Number of top landcover classes to report, default is 4
-        title : str, optional
-            Plot title, default is "ICESat-2 ATL06-SR vs DEM"
-        xlim : tuple or None, optional
-            Symmetric x-axis limits as (min, max). If None, uses ±3σ
-            range (data is already 3σ-filtered in atl06sr_to_dem_dh).
-        plot_aligned : bool, optional
-            Whether to overlay the aligned-DEM distribution alongside the
-            unaligned one. Requires ``self.aligned_dem_fn`` and the
-            ``icesat_minus_aligned_dem`` column. Default is False.
-        save_dir : str or None, optional
-            Directory to save figure, default is None
-        fig_fn : str or None, optional
-            Filename for saved figure, default is None
-        """
-        atl06sr = self.atl06sr_processing_levels_filtered[key]
-
-        if "icesat_minus_dem" not in atl06sr.columns:
-            self.atl06sr_to_dem_dh()
-            atl06sr = self.atl06sr_processing_levels_filtered[key]
-
-        distributions = [("icesat_minus_dem", "steelblue", "DEM")]
-        if plot_aligned:
-            if not self.aligned_dem_fn:
-                logger.warning(
-                    "\nplot_aligned=True but no aligned DEM is available; "
-                    "plotting unaligned distribution only.\n"
-                )
-            elif "icesat_minus_aligned_dem" not in atl06sr.columns:
-                logger.warning(
-                    "\n'icesat_minus_aligned_dem' column missing; call "
-                    "atl06sr_to_dem_dh() after setting aligned_dem_fn.\n"
-                )
-            else:
-                distributions.append(
-                    ("icesat_minus_aligned_dem", "darkorange", "Aligned DEM")
-                )
-
-        # Preserve the pre-existing "All" header label when there is only
-        # one distribution (no plot_aligned overlay). This keeps reports
-        # generated with plot_aligned=False textually identical to prior
-        # versions.
-        if len(distributions) == 1:
-            col, color, _ = distributions[0]
-            distributions = [(col, color, "All")]
-
-        dh_series = [
-            (col, color, label, atl06sr[col].dropna())
-            for col, color, label in distributions
-        ]
-        dh_series = [t for t in dh_series if not t[3].empty]
-        if not dh_series:
-            logger.warning(f"\nNo valid dh values for key: {key}\n")
-            return
-
-        if xlim is not None:
-            xmin, xmax = xlim
-            xlabel_note = ""
-        else:
-            abs_max = max(
-                max(abs(dv.min()), abs(dv.max())) for _, _, _, dv in dh_series
-            )
-            xmin, xmax = -abs_max, abs_max
-            xlabel_note = " [±3σ]"
-
-        fig, ax = plt.subplots(1, 1, figsize=(8, 5), dpi=220)
-
-        # Shared bin edges so pre- and post-alignment bars line up exactly
-        # (default bins=128 recomputes edges per call, which leaves the
-        # two distributions with incompatible binning).
-        shared_bins = np.linspace(xmin, xmax, 129)
-        for _, color, _, dv in dh_series:
-            ax.hist(dv.values, bins=shared_bins, alpha=0.55, color=color)
-        ax.set_xlim(xmin, xmax)
-
-        stats_blocks = [
-            (
-                self._build_landcover_stats_text(atl06sr, col, label, top_n=top_n),
-                color,
-            )
-            for col, color, label, _ in dh_series
-        ]
-
-        # Stack text boxes vertically at top-left. Approximate each box's
-        # height from its line count so the second box doesn't overlap the
-        # first. Empirical constants tuned for fontsize=8 monospace in an
-        # 8x5 inch axes.
-        line_h_axes = 0.030
-        pad_axes = 0.04
-        gap_axes = 0.02
-        box_y = 0.98
-        for text, color in stats_blocks:
-            ax.text(
-                0.02,
-                box_y,
-                text,
-                transform=ax.transAxes,
-                verticalalignment="top",
-                fontsize=8,
-                fontfamily="monospace",
-                bbox=dict(
-                    boxstyle="round,pad=0.4",
-                    facecolor="white",
-                    edgecolor=color,
-                    linewidth=1.5,
-                    alpha=0.9,
-                ),
-            )
-            nlines = text.count("\n") + 1
-            box_y -= nlines * line_h_axes + pad_axes + gap_axes
-
-        ax.set_xlabel(f"ICESat-2 - DEM (m){xlabel_note}")
-        ax.set_ylabel("Count")
-        overall_n = len(dh_series[0][3])
-        suptitle = f"{title}\n{key} (n={overall_n})"
-        if self._time_range_label:
-            suptitle += f"\n{self._time_range_label}"
-        fig.suptitle(suptitle, size=10)
-        fig.tight_layout()
-        if save_dir and fig_fn:
-            save_figure(fig, save_dir, fig_fn)
-
-    def _build_landcover_stats_text(self, atl06sr, dh_col, label, top_n=4):
-        """Build the multi-line stats text for one dh column.
-
-        Includes an "all" header line (n, Med, NMAD) and up to ``top_n``
-        per-landcover-class rows, each requiring at least 10 points.
-        """
-        dv = atl06sr[dh_col].dropna()
-        overall_n = len(dv)
-        overall_med = np.nanmedian(dv.values)
-        overall_nmad = _nmad(dv.values)
-        lines = [
-            f"{label}: n={overall_n}, Med={overall_med:+.2f} m, NMAD={overall_nmad:.2f} m"
-        ]
-
-        wc_col = "esa_worldcover.value"
-        if wc_col in atl06sr.columns:
-            valid_wc = atl06sr.dropna(subset=[dh_col, wc_col])
-            if not valid_wc.empty:
-                valid_wc = valid_wc.copy()
-                valid_wc["lc_name"] = (
-                    valid_wc[wc_col].map(WORLDCOVER_NAMES).fillna("Unknown")
-                )
-                class_stats = []
-                for name, group in valid_wc.groupby("lc_name")[dh_col]:
-                    if len(group) >= 10:
-                        class_stats.append(
-                            {
-                                "name": name,
-                                "n": len(group),
-                                "med": np.nanmedian(group.values),
-                                "nmad": _nmad(group.values),
-                            }
-                        )
-                class_stats.sort(key=lambda x: x["n"], reverse=True)
-                class_stats = class_stats[:top_n]
-                if class_stats:
-                    lines.append("─" * 35)
-                    for cs in class_stats:
-                        lines.append(
-                            f"{cs['name']}: n={cs['n']}, Med={cs['med']:+.2f}, "
-                            f"NMAD={cs['nmad']:.2f}"
-                        )
-        return "\n".join(lines)
-
-    def _resolve_best_track(self, key="all", rgt=None, cycle=None, spot=None):
-        """
-        Resolve track selection and return the filtered, sorted track DataFrame.
-
-        Returns
-        -------
-        tuple of (track, rgt, cycle, spot, track_count, track_date, dist, dh_vals)
-            or None if no valid track found.
-        """
-        if not all([rgt, cycle, spot]):
-            best = self._select_best_track(key)
-            if best is None:
-                logger.warning("\nNo valid tracks found for profile plot. Skipping.\n")
-                return None
-            rgt, cycle, spot = best["rgt"], best["cycle"], best["spot"]
-            track_count = best["count"]
-            track_date = best["date"]
-        else:
-            track_count = None
-            track_date = None
-
-        atl06sr = self.atl06sr_processing_levels_filtered[key]
-
-        if "icesat_minus_dem" not in atl06sr.columns:
-            self.atl06sr_to_dem_dh()
-            atl06sr = self.atl06sr_processing_levels_filtered[key]
-
-        track = atl06sr[
-            (atl06sr["rgt"] == rgt)
-            & (atl06sr["cycle"] == cycle)
-            & (atl06sr["spot"] == spot)
-        ].copy()
-
-        if track.empty:
-            logger.warning(
-                f"\nNo data for RGT={rgt}, Cycle={cycle}, Spot={spot}. Skipping.\n"
-            )
-            return None
-
-        track = track.sort_values("x_atc")
-        dist = (track["x_atc"] - track["x_atc"].min()) / 1000.0
-
-        if track_date is None:
-            track_date = track.index[0].strftime("%Y-%m-%d")
-        if track_count is None:
-            track_count = len(track)
-
-        dh_vals = track["icesat_minus_dem"].dropna()
-
-        return (track, rgt, cycle, spot, track_count, track_date, dist, dh_vals)
-
-    def _find_best_worst_segments(
-        self, track, dh_col="icesat_minus_dem", segment_override=None
-    ):
-        """
-        Identify 1 km segments with better and worse agreement along a track.
-
-        Agreement is scored as ``3·|median(dh)| + NMAD(dh)``, weighting the
-        median bias three times more than the dispersion so that a segment
-        with a large bias cannot be selected as "better agreement" just
-        because its NMAD is small.
-
-        Parameters
-        ----------
-        track : geopandas.GeoDataFrame
-            The resolved track (sorted by ``x_atc``).
-        dh_col : str, optional
-            Column of height differences to score, default "icesat_minus_dem".
-        segment_override : dict or None, optional
-            When provided, pins the segment extents instead of scoring them
-            (issue #121). Expects ``{"best": {...}, "worst": {...}}`` where each
-            entry carries **absolute** along-track extents ``start_xatc`` /
-            ``end_xatc`` (meters). ``start_km`` / ``end_km`` (km from the track
-            start) are accepted as a legacy fallback, but absolute ``x_atc`` is
-            preferred because it is stable even when outlier filtering drops a
-            different first point and shifts the track start.
-
-        Returns
-        -------
-        dict or None
-            Dictionary with keys: seg_best_mask, seg_worst_mask,
-            seg_{best,worst}_{start,end}_km (relative to this track's start, for
-            plotting) and seg_{best,worst}_{start,end}_xatc (absolute, for
-            stable reuse). None if segments cannot be identified.
-        """
-        x_atc = track["x_atc"].values
-        track_length_m = x_atc[-1] - x_atc[0] if len(x_atc) > 1 else 0
-        diffs = np.diff(x_atc)
-        median_spacing = np.median(diffs) if len(diffs) > 0 else 0
-        if not (median_spacing > 0 and track_length_m >= 1000):
-            return None
-
-        # Pinned segments: rebuild the masks/extents from absolute along-track
-        # (x_atc) positions so a re-run highlights the same ground segments even
-        # if outlier filtering removed a different first point (which would shift
-        # any track-start-relative km offset).
-        if segment_override is not None:
+        aligned = getattr(self, "aligned_dem_fn", None)
+        if aligned and os.path.exists(aligned):
             try:
-                x_atc_lo = x_atc[0]
-
-                def _resolve_extent(seg):
-                    if seg.get("start_xatc") is not None and (
-                        seg.get("end_xatc") is not None
-                    ):
-                        return float(seg["start_xatc"]), float(seg["end_xatc"])
-                    # Legacy fallback: km relative to track start.
-                    return (
-                        x_atc_lo + float(seg["start_km"]) * 1000.0,
-                        x_atc_lo + float(seg["end_km"]) * 1000.0,
-                    )
-
-                bs, be = _resolve_extent(segment_override["best"])
-                ws, we = _resolve_extent(segment_override["worst"])
-                return self._segment_dict(track, bs, be, ws, we)
-            except (KeyError, TypeError, ValueError) as e:
-                logger.warning(
-                    f"\nCould not apply pinned segments ({e}); "
-                    "falling back to automatic segment selection.\n"
-                )
-
-        half_win = 500  # meters
-        median_weight = 3.0  # weight |median(dh)| more heavily than NMAD
-        scores = []
-        for xc in x_atc:
-            mask_i = (track["x_atc"] >= xc - half_win) & (
-                track["x_atc"] <= xc + half_win
-            )
-            seg_i = track.loc[mask_i]
-            n_total = len(seg_i)
-            if n_total < 3:
-                scores.append(np.nan)
-                continue
-            dem_valid = seg_i["dem_height"].notna().sum()
-            if dem_valid / n_total < 0.75:
-                scores.append(np.nan)
-                continue
-            seg_dh = seg_i[dh_col].dropna().values
-            if len(seg_dh) < 3:
-                scores.append(np.nan)
-                continue
-            scores.append(median_weight * abs(np.nanmedian(seg_dh)) + _nmad(seg_dh))
-
-        scores = np.array(scores)
-        if (~np.isnan(scores)).sum() < 2:
-            return None
-
-        idx_best = np.nanargmin(scores)
-        idx_worst = np.nanargmax(scores)
-        x_atc_lo, x_atc_hi = x_atc[0], x_atc[-1]
-
-        seg_best_start = max(x_atc[idx_best] - half_win, x_atc_lo)
-        seg_best_end = min(x_atc[idx_best] + half_win, x_atc_hi)
-        seg_worst_start = max(x_atc[idx_worst] - half_win, x_atc_lo)
-        seg_worst_end = min(x_atc[idx_worst] + half_win, x_atc_hi)
-
-        return self._segment_dict(
-            track, seg_best_start, seg_best_end, seg_worst_start, seg_worst_end
-        )
+                os.remove(aligned)
+            except OSError as e:
+                logger.warning(f"\nCould not remove aligned DEM {aligned}: {e}\n")
+        self.aligned_dem_fn = None
 
     @staticmethod
-    def _segment_dict(track, bs, be, ws, we):
-        """
-        Build the best/worst segment dict from absolute along-track extents.
+    def _improvement_pct(p50_beg, p50_end):
+        """Percent p50 reduction from alignment, or None if not computable.
 
-        Parameters
-        ----------
-        track : geopandas.GeoDataFrame
-            Resolved track (sorted by ``x_atc``).
-        bs, be, ws, we : float
-            Absolute ``x_atc`` (meters) start/end of the best and worst segments.
+        ``(p50_beg - p50_end) / p50_beg * 100``. Returns None when either
+        value is non-finite or ``p50_beg`` is zero. Shared by the ICESat-2
+        and planetary align-and-evaluate paths.
+        """
+        if not np.isfinite(p50_beg) or not np.isfinite(p50_end) or p50_beg == 0:
+            return None
+        return (p50_beg - p50_end) / p50_beg * 100.0
+
+    def _evaluate_improvement(
+        self,
+        *,
+        df,
+        p50_beg,
+        p50_end,
+        improvement_pct,
+        improvement_threshold_pct,
+        translation_too_small,
+        no_improvement_reason,
+        parameters_used,
+    ):
+        """Shared keep/discard decision for ICESat-2 and planetary alignment.
+
+        Applies the common rejection predicate used by both
+        :meth:`align_and_evaluate` and :meth:`align_and_evaluate_planetary`:
+        the aligned DEM is discarded when the p50 improvement is missing,
+        non-positive, at or below ``improvement_threshold_pct``, or the
+        translation was too small to write a DEM.
 
         Returns
         -------
-        dict
-            Masks, km extents (relative to this track's start, for plotting),
-            and absolute ``x_atc`` extents (for stable reuse).
+        AlignmentResult or None
+            A terminal ``no_improvement`` result (with the aligned DEM
+            already cleaned up) when the alignment is rejected, or ``None``
+            when it should be kept. In the keep case the caller performs its
+            body-specific success finalization and builds the success result
+            via :meth:`_success_result`.
+
+        Notes
+        -----
+        ``no_improvement_reason`` is supplied by the caller because the
+        Earth and planetary paths word the rejection differently (GSD value,
+        translation wording). It is only consumed on the reject path.
         """
-        x_atc_lo = track["x_atc"].values[0]
-        return {
-            "seg_best_mask": (track["x_atc"] >= bs) & (track["x_atc"] <= be),
-            "seg_worst_mask": (track["x_atc"] >= ws) & (track["x_atc"] <= we),
-            "seg_best_start_km": (bs - x_atc_lo) / 1000.0,
-            "seg_best_end_km": (be - x_atc_lo) / 1000.0,
-            "seg_worst_start_km": (ws - x_atc_lo) / 1000.0,
-            "seg_worst_end_km": (we - x_atc_lo) / 1000.0,
-            "seg_best_start_xatc": float(bs),
-            "seg_best_end_xatc": float(be),
-            "seg_worst_start_xatc": float(ws),
-            "seg_worst_end_xatc": float(we),
-        }
-
-    def _plot_hillshade_map(self, ax, track, seg_info=None):
-        """
-        Plot DEM hillshade with track overlay on the given axes.
-
-        Parameters
-        ----------
-        ax : matplotlib.axes.Axes
-        track : GeoDataFrame
-        seg_info : dict or None
-            Output from ``_find_best_worst_segments``.
-        """
-        # Use brighter colors on the map view for visibility against
-        # the hillshade+terrain background
-        seg_best_color = "#00e5ff"  # bright cyan-blue
-        seg_worst_color = "#ff1744"  # bright red
-        try:
-            raster = Raster(self.dem_fn, downsample=5)
-            dem_data, dem_extent = raster.read_array(extent=True)
-            epsg = raster.get_epsg_code()
-
-            from matplotlib.colors import LightSource
-
-            ls = LightSource(azdeg=315, altdeg=45)
-            fill_val = np.nanmedian(np.asarray(dem_data))
-            dem_filled = np.asarray(np.ma.filled(dem_data, fill_val))
-            hs = ls.hillshade(dem_filled)
-
-            ax.imshow(
-                hs, extent=dem_extent, cmap="gray", origin="upper", aspect="equal"
+        if (
+            improvement_pct is None
+            or p50_end >= p50_beg
+            or improvement_pct <= improvement_threshold_pct
+            or translation_too_small
+        ):
+            self._remove_aligned_dem_if_present()
+            return AlignmentResult(
+                status="no_improvement",
+                alignment_report_df=df,
+                aligned_dem_fn=None,
+                improvement_pct=improvement_pct,
+                message=f"No significant improvement: {no_improvement_reason}",
+                parameters_used=parameters_used,
             )
-            ax.imshow(
-                dem_data,
-                extent=dem_extent,
-                cmap="terrain",
-                alpha=0.4,
-                origin="upper",
-                aspect="equal",
-            )
+        return None
 
-            track_proj = track.to_crs(f"EPSG:{epsg}")
-            ax.plot(
-                track_proj.geometry.x,
-                track_proj.geometry.y,
-                color="black",
-                linewidth=2,
-                label="Track",
-                zorder=5,
-            )
+    def _success_result(self, df, p50_beg, p50_end, improvement_pct, parameters_used):
+        """Build the shared ``success`` AlignmentResult.
 
-            if seg_info is not None:
-                for mask_key, color, label in [
-                    ("seg_best_mask", seg_best_color, "Better agreement"),
-                    ("seg_worst_mask", seg_worst_color, "Worse agreement"),
-                ]:
-                    seg_proj = track_proj.loc[seg_info[mask_key]]
-                    if not seg_proj.empty:
-                        ax.plot(
-                            seg_proj.geometry.x,
-                            seg_proj.geometry.y,
-                            color=color,
-                            linewidth=4,
-                            label=label,
-                            zorder=6,
-                        )
-
-            track_bounds = track_proj.total_bounds
-            dx = track_bounds[2] - track_bounds[0]
-            dy = track_bounds[3] - track_bounds[1]
-            pad = max(dx, dy) * 0.2
-            ax.set_xlim(track_bounds[0] - pad, track_bounds[2] + pad)
-            ax.set_ylim(track_bounds[1] - pad, track_bounds[3] + pad)
-            ax.set_xticks([])
-            ax.set_yticks([])
-            ax.legend(fontsize=8, loc="upper left")
-        except Exception:
-            logger.warning("Could not generate map view for profile plot.")
-            ax.text(
-                0.5,
-                0.5,
-                "Map view unavailable",
-                transform=ax.transAxes,
-                ha="center",
-                va="center",
-            )
-            ax.set_xticks([])
-            ax.set_yticks([])
-
-    def plot_atl06sr_dem_profile(
-        self,
-        key="all",
-        rgt=None,
-        cycle=None,
-        spot=None,
-        segments=None,
-        plot_aligned=False,
-        save_dir=None,
-        fig_fn=None,
-    ):
+        Identical for both bodies once the aligned DEM is retained on
+        ``self.aligned_dem_fn``.
         """
-        Plot elevation profile comparing ICESat-2 and DEM along the best track.
-
-        Creates a 2×2 figure with the profile stack on the left and a map
-        view spanning the full height on the right:
-        - Top-left: Absolute elevation profile (DEM, COP30, ICESat-2)
-        - Bottom-left: Height difference profile (ICESat-2 minus DEM)
-          (shares x-axis with top-left, no vertical space between them)
-        - Right column: DEM hillshade map with the full track and segment
-          extents, spanning the full vertical height
-
-        Parameters
-        ----------
-        key : str, optional
-            Processing level key, default is "all"
-        rgt : int or None, optional
-            Reference ground track (auto-selected if None)
-        cycle : int or None, optional
-            Cycle number (auto-selected if None)
-        spot : int or None, optional
-            Spot number (auto-selected if None)
-        segments : dict or None, optional
-            Pinned best/worst segment extents to replay a prior run's
-            selection (issue #121). See ``_find_best_worst_segments``.
-            Default None (automatic selection).
-        plot_aligned : bool, optional
-            Whether to also plot the aligned DEM profile, default is False
-        save_dir : str or None, optional
-            Directory to save figure, default is None
-        fig_fn : str or None, optional
-            Filename for saved figure, default is None
-        """
-        resolved = self._resolve_best_track(key, rgt, cycle, spot)
-        if resolved is None:
-            return
-        track, rgt, cycle, spot, track_count, track_date, dist, dh_vals = resolved
-
-        # Segment selection (pinned via `segments` for run-to-run comparison)
-        seg_info = self._find_best_worst_segments(track, segment_override=segments)
-
-        # --- Figure layout: left column = stacked elevation/dh (no gap),
-        # right column = map spanning both rows ---
-        fig = plt.figure(figsize=(16, 8))
-        gs = fig.add_gridspec(
-            2,
-            2,
-            height_ratios=[2, 1.2],
-            width_ratios=[2, 1],
-            hspace=0.0,
-            wspace=0.1,
+        return AlignmentResult(
+            status="success",
+            alignment_report_df=df,
+            aligned_dem_fn=self.aligned_dem_fn,
+            improvement_pct=improvement_pct,
+            message=(
+                f"p50 improved from {p50_beg:.2f} m -> {p50_end:.2f} m "
+                f"({improvement_pct:.1f}% reduction). Aligned DEM written to "
+                f"{self.aligned_dem_fn}."
+            ),
+            parameters_used=parameters_used,
         )
-        ax_elev = fig.add_subplot(gs[0, 0])
-        ax_dh = fig.add_subplot(gs[1, 0], sharex=ax_elev)
-        ax_map = fig.add_subplot(gs[:, 1])
-
-        # ===================== Row 1: Absolute elevation =====================
-        valid_dem = track["dem_height"].dropna()
-        if not valid_dem.empty:
-            ax_elev.plot(
-                dist.loc[valid_dem.index],
-                valid_dem,
-                color="gray",
-                linewidth=1,
-                label="ASP DEM",
-                zorder=1,
-            )
-
-        # COP30 sampled height (if available from SlideRule)
-        cop30_col = "cop30.value"
-        if cop30_col in track.columns:
-            valid_cop30 = track[cop30_col].dropna()
-            if not valid_cop30.empty:
-                ax_elev.scatter(
-                    dist.loc[valid_cop30.index],
-                    valid_cop30,
-                    color="darkgoldenrod",
-                    s=4,
-                    alpha=0.6,
-                    label="COP30",
-                    zorder=2,
-                )
-
-        if plot_aligned and self.aligned_dem_fn:
-            if "aligned_dem_height" in track.columns:
-                valid_aligned = track["aligned_dem_height"].dropna()
-                if not valid_aligned.empty:
-                    ax_elev.plot(
-                        dist.loc[valid_aligned.index],
-                        valid_aligned,
-                        color="orange",
-                        linewidth=1,
-                        label="Aligned DEM",
-                        zorder=3,
-                    )
-
-        ax_elev.scatter(
-            dist,
-            track["h_mean"],
-            color="steelblue",
-            s=8,
-            label="ICESat-2 ATL06-SR",
-            zorder=4,
-        )
-
-        # Segment highlight spans
-        seg_best_color = "tab:blue"
-        seg_worst_color = "tab:red"
-        if seg_info is not None:
-            ax_elev.axvspan(
-                seg_info["seg_best_start_km"],
-                seg_info["seg_best_end_km"],
-                alpha=0.15,
-                color=seg_best_color,
-                zorder=0,
-            )
-            ax_elev.axvspan(
-                seg_info["seg_worst_start_km"],
-                seg_info["seg_worst_end_km"],
-                alpha=0.15,
-                color=seg_worst_color,
-                zorder=0,
-            )
-
-        ax_elev.set_ylabel("Elevation (m HAE)")
-        ax_elev.legend(fontsize=8, loc="upper left")
-        ax_elev.grid(True, color="lightgray", linewidth=0.5, alpha=0.7)
-        ax_elev.set_axisbelow(True)
-        plt.setp(ax_elev.get_xticklabels(), visible=False)
-
-        # ===================== Row 2: dh profile =====================
-        # When plot_aligned is active, show the *post*-alignment dh and
-        # recompute Med/NMAD against the aligned DEM so the bottom panel
-        # reflects what the aligned-DEM page is actually evaluating.
-        use_aligned_dh = (
-            plot_aligned
-            and self.aligned_dem_fn
-            and "icesat_minus_aligned_dem" in track.columns
-        )
-        if use_aligned_dh:
-            dh_plot = track["icesat_minus_aligned_dem"].dropna()
-            dh_label_suffix = " (Aligned DEM)"
-        else:
-            dh_plot = dh_vals
-            dh_label_suffix = ""
-
-        if not dh_plot.empty:
-            med = np.nanmedian(dh_plot.values)
-            nmad_val = _nmad(dh_plot.values)
-            ax_dh.scatter(
-                dist.loc[dh_plot.index],
-                dh_plot,
-                color="gray",
-                s=4,
-                alpha=0.6,
-                zorder=2,
-                label=f"Med={med:+.2f} m, NMAD={nmad_val:.2f} m{dh_label_suffix}",
-            )
-            ax_dh.axhline(0, color="black", linewidth=0.5, linestyle="--", zorder=1)
-
-        if seg_info is not None:
-            ax_dh.axvspan(
-                seg_info["seg_best_start_km"],
-                seg_info["seg_best_end_km"],
-                alpha=0.15,
-                color=seg_best_color,
-                zorder=0,
-            )
-            ax_dh.axvspan(
-                seg_info["seg_worst_start_km"],
-                seg_info["seg_worst_end_km"],
-                alpha=0.15,
-                color=seg_worst_color,
-                zorder=0,
-            )
-
-        ax_dh.set_ylabel("ICESat-2 − DEM (m)")
-        ax_dh.set_xlabel("Along-track distance (km)")
-        ax_dh.legend(fontsize=8, loc="upper left")
-        ax_dh.grid(True, color="lightgray", linewidth=0.5, alpha=0.7)
-        ax_dh.set_axisbelow(True)
-
-        # =================== Row 3: Map view ====================
-        self._plot_hillshade_map(ax_map, track, seg_info)
-
-        # Title
-        title_str = f"RGT {rgt}, Cycle {cycle}, Spot {spot} ({track_date})"
-        if track_count:
-            title_str += f" — n={track_count}"
-        if self._time_range_label:
-            title_str += f"\n{self._time_range_label}"
-        fig.suptitle(title_str, size=10)
-
-        fig.subplots_adjust(top=0.92, bottom=0.08, left=0.07, right=0.97)
-        if save_dir and fig_fn:
-            save_figure(fig, save_dir, fig_fn)
-
-    def plot_best_worst_segments(
-        self,
-        key="all",
-        rgt=None,
-        cycle=None,
-        spot=None,
-        segments=None,
-        plot_aligned=False,
-        save_dir=None,
-        fig_fn=None,
-    ):
-        """
-        Plot 1 km segments with better and worse agreement as a 1×2 figure.
-
-        Creates a single-row, 2-column figure:
-        - Column 1: Better agreement segment (lowest score)
-        - Column 2: Worse agreement segment (highest score)
-
-        Segment score is ``3·|median(dh)| + NMAD(dh)`` (see
-        ``_find_best_worst_segments``). Segment selection is based on the
-        unaligned dh so best/worst segments remain comparable across the
-        pre- and post-alignment variants of this plot.
-
-        Parameters
-        ----------
-        key : str, optional
-            Processing level key, default is "all"
-        rgt : int or None, optional
-            Reference ground track (auto-selected if None)
-        cycle : int or None, optional
-            Cycle number (auto-selected if None)
-        spot : int or None, optional
-            Spot number (auto-selected if None)
-        segments : dict or None, optional
-            Pinned best/worst segment extents to replay a prior run's
-            selection (issue #121). See ``_find_best_worst_segments``.
-            Default None (automatic selection).
-        plot_aligned : bool, optional
-            Whether to overlay the aligned DEM heights and include aligned
-            Median/NMAD in each segment title. Requires
-            ``self.aligned_dem_fn`` and the ``aligned_dem_height`` /
-            ``icesat_minus_aligned_dem`` columns. Default False.
-        save_dir : str or None, optional
-            Directory to save figure, default is None
-        fig_fn : str or None, optional
-            Filename for saved figure, default is None
-        """
-        resolved = self._resolve_best_track(key, rgt, cycle, spot)
-        if resolved is None:
-            return
-        track, rgt, cycle, spot, track_count, track_date, _, _ = resolved
-
-        seg_info = self._find_best_worst_segments(track, segment_override=segments)
-        if seg_info is None:
-            logger.warning(
-                "\nTrack too short or insufficient data for segment selection.\n"
-            )
-            return
-
-        dh_col = "icesat_minus_dem"
-        seg_best_color = "tab:blue"
-        seg_worst_color = "tab:red"
-
-        show_aligned = False
-        if plot_aligned:
-            if not self.aligned_dem_fn:
-                logger.warning(
-                    "\nplot_aligned=True but no aligned DEM is available; "
-                    "showing unaligned segments only.\n"
-                )
-            elif (
-                "aligned_dem_height" not in track.columns
-                or "icesat_minus_aligned_dem" not in track.columns
-            ):
-                logger.warning(
-                    "\nAligned DEM columns missing from track; call "
-                    "atl06sr_to_dem_dh() after setting aligned_dem_fn.\n"
-                )
-            else:
-                show_aligned = True
-
-        # --- 1×2 layout: better agreement | worse agreement ---
-        fig, axes = plt.subplots(
-            1,
-            2,
-            figsize=(12, 5),
-            dpi=220,
-            gridspec_kw={"wspace": 0.25},
-        )
-        ax_best, ax_worst = axes
-
-        for ax_seg, mask, color, label_prefix in [
-            (ax_best, seg_info["seg_best_mask"], seg_best_color, "Better agreement"),
-            (ax_worst, seg_info["seg_worst_mask"], seg_worst_color, "Worse agreement"),
-        ]:
-            seg = track.loc[mask]
-
-            seg_dem = seg["dem_height"].dropna()
-            seg_h = seg["h_mean"].dropna()
-            if not seg_dem.empty:
-                seg_dem_dist = (
-                    seg.loc[seg_dem.index, "x_atc"].values - seg["x_atc"].values[0]
-                )
-                ax_seg.plot(
-                    seg_dem_dist,
-                    seg_dem.values,
-                    color="gray",
-                    linewidth=1,
-                    label="DEM",
-                )
-
-            if show_aligned:
-                seg_ald = seg["aligned_dem_height"].dropna()
-                if not seg_ald.empty:
-                    seg_ald_dist = (
-                        seg.loc[seg_ald.index, "x_atc"].values - seg["x_atc"].values[0]
-                    )
-                    ax_seg.plot(
-                        seg_ald_dist,
-                        seg_ald.values,
-                        color="darkorange",
-                        linewidth=1,
-                        label="Aligned DEM",
-                    )
-
-            # COP30 in segment
-            cop30_col = "cop30.value"
-            if cop30_col in seg.columns:
-                seg_cop30 = seg[cop30_col].dropna()
-                if not seg_cop30.empty:
-                    seg_cop30_dist = (
-                        seg.loc[seg_cop30.index, "x_atc"].values
-                        - seg["x_atc"].values[0]
-                    )
-                    ax_seg.scatter(
-                        seg_cop30_dist,
-                        seg_cop30.values,
-                        color="darkgoldenrod",
-                        s=6,
-                        alpha=0.6,
-                        label="COP30",
-                    )
-
-            if not seg_h.empty:
-                seg_h_dist = (
-                    seg.loc[seg_h.index, "x_atc"].values - seg["x_atc"].values[0]
-                )
-                ax_seg.scatter(
-                    seg_h_dist,
-                    seg_h.values,
-                    color="steelblue",
-                    s=8,
-                    label="ICESat-2",
-                )
-
-            seg_dh = seg[dh_col].dropna()
-            seg_med = np.nanmedian(seg_dh.values) if not seg_dh.empty else 0
-            seg_nmad = _nmad(seg_dh.values) if len(seg_dh) >= 3 else 0
-            title_parts = [
-                f"{label_prefix} (Med={seg_med:+.1f} m, NMAD={seg_nmad:.1f} m)"
-            ]
-            if show_aligned:
-                seg_dh_ald = seg["icesat_minus_aligned_dem"].dropna()
-                if not seg_dh_ald.empty:
-                    med_ald = np.nanmedian(seg_dh_ald.values)
-                    nmad_ald = _nmad(seg_dh_ald.values) if len(seg_dh_ald) >= 3 else 0
-                    title_parts.append(
-                        f"Aligned (Med={med_ald:+.1f} m, NMAD={nmad_ald:.1f} m)"
-                    )
-            ax_seg.set_title(
-                "\n".join(title_parts),
-                fontsize=9,
-                color=color,
-            )
-            ax_seg.set_xlabel("Along-track distance (m)")
-            ax_seg.set_ylabel("Elevation (m HAE)")
-            ax_seg.grid(True, color="lightgray", linewidth=0.5, alpha=0.7)
-            ax_seg.set_axisbelow(True)
-            ax_seg.set_facecolor((*plt.matplotlib.colors.to_rgb(color), 0.05))
-
-        ax_best.legend(fontsize=7, loc="best")
-
-        # Title
-        title_str = f"RGT {rgt}, Cycle {cycle}, Spot {spot} ({track_date})"
-        if track_count:
-            title_str += f" — n={track_count}"
-        if self._time_range_label:
-            title_str += f"\n{self._time_range_label}"
-        fig.suptitle(title_str, size=10)
-        fig.subplots_adjust(top=0.88, bottom=0.12, left=0.07, right=0.97, wspace=0.25)
-        if save_dir and fig_fn:
-            save_figure(fig, save_dir, fig_fn)

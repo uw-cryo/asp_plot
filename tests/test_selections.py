@@ -197,7 +197,7 @@ class TestSegmentOverride:
             "best": {"start_xatc": 0.0, "end_xatc": 1000.0},
             "worst": {"start_xatc": 1000.0, "end_xatc": 1900.0},
         }
-        seg = icesat._find_best_worst_segments(track, segment_override=override)
+        seg = icesat.icesat2._find_best_worst_segments(track, segment_override=override)
         assert seg is not None
         assert seg["seg_best_start_xatc"] == pytest.approx(0.0)
         assert seg["seg_best_end_xatc"] == pytest.approx(1000.0)
@@ -213,7 +213,7 @@ class TestSegmentOverride:
             "best": {"start_km": 0.0, "end_km": 1.0},
             "worst": {"start_km": 1.0, "end_km": 1.9},
         }
-        seg = icesat._find_best_worst_segments(track, segment_override=override)
+        seg = icesat.icesat2._find_best_worst_segments(track, segment_override=override)
         assert seg["seg_best_start_km"] == pytest.approx(0.0, abs=1e-6)
         assert seg["seg_best_end_km"] == pytest.approx(1.0, abs=1e-6)
 
@@ -225,10 +225,10 @@ class TestSegmentOverride:
             "best": {"start_xatc": 600.0, "end_xatc": 1000.0},
             "worst": {"start_xatc": 1400.0, "end_xatc": 1800.0},
         }
-        full = icesat._find_best_worst_segments(
+        full = icesat.icesat2._find_best_worst_segments(
             _synthetic_track(x0=0.0), segment_override=override
         )
-        shifted = icesat._find_best_worst_segments(
+        shifted = icesat.icesat2._find_best_worst_segments(
             _synthetic_track(x0=200.0), segment_override=override
         )
         # Same absolute x_atc window on both
@@ -242,7 +242,7 @@ class TestSegmentOverride:
     def test_segment_override_bad_falls_back(self, icesat):
         track = _synthetic_track()
         # Missing "worst" -> should fall back to automatic scoring, not raise
-        seg = icesat._find_best_worst_segments(
+        seg = icesat.icesat2._find_best_worst_segments(
             track, segment_override={"best": {"start_km": 0.0, "end_km": 1.0}}
         )
         assert seg is not None
@@ -268,7 +268,9 @@ class TestParquetReuseAndSelections:
         assert loaded is True
         assert "all" in icesat.atl06sr_processing_levels
         assert len(icesat.atl06sr_processing_levels["all"]) > 0
-        assert icesat.atl06sr_parquet_paths["all"].endswith("atl06sr_all.parquet")
+        assert icesat.icesat2.atl06sr_parquet_paths["all"].endswith(
+            "atl06sr_all.parquet"
+        )
 
     def test_load_from_parquet_missing(self, icesat):
         loaded = icesat.load_atl06sr_from_parquet({"all": "does/not/exist.parquet"})
@@ -292,16 +294,22 @@ class TestParquetReuseAndSelections:
             },
             geometry="geometry",
         )
-        assert icesat._time_range_label == ""
-        icesat._restore_request_metadata_from_parquet(gdf)
-        assert icesat._time_range_label == "2018-10-14 to 2024-06-01"
+        assert icesat.icesat2._time_range_label == ""
+        icesat.icesat2._restore_request_metadata_from_parquet(gdf)
+        assert icesat.icesat2._time_range_label == "2018-10-14 to 2024-06-01"
 
     def test_get_altimetry_selections_bundles_request(self, icesat, monkeypatch):
         # Set request + parquet metadata, stub track resolution so we test the
         # bundling without the pyproj-dependent dh pipeline.
-        icesat.atl06sr_request_parms = {"res": 20, "len": 40, "time_range": "all"}
-        icesat.atl06sr_parquet_paths = {"all": "stereo/atl06sr_all.parquet"}
-        monkeypatch.setattr(icesat, "_resolve_best_track", lambda key="all": None)
+        icesat.icesat2.atl06sr_request_parms = {
+            "res": 20,
+            "len": 40,
+            "time_range": "all",
+        }
+        icesat.icesat2.atl06sr_parquet_paths = {"all": "stereo/atl06sr_all.parquet"}
+        monkeypatch.setattr(
+            icesat.icesat2, "_resolve_best_track", lambda key="all": None
+        )
 
         sel = icesat.get_altimetry_selections("all")
         assert sel["request"]["res"] == 20
