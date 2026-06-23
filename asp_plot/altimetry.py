@@ -1370,10 +1370,7 @@ class Altimetry:
         row = df.iloc[0]
         p50_beg = float(row.get("p50_beg", float("nan")))
         p50_end = float(row.get("p50_end", float("nan")))
-        if not np.isfinite(p50_beg) or not np.isfinite(p50_end) or p50_beg == 0:
-            improvement_pct = None
-        else:
-            improvement_pct = (p50_beg - p50_end) / p50_beg * 100.0
+        improvement_pct = self._improvement_pct(p50_beg, p50_end)
 
         # alignment_report may decline to write the aligned DEM if the
         # translation magnitude is under min_translation_threshold × GSD
@@ -1382,40 +1379,38 @@ class Altimetry:
         # that as no_improvement even if p50 happened to drop > threshold.
         translation_too_small = self.aligned_dem_fn is None
 
+        improvement_repr = (
+            f"{improvement_pct:.1f}%" if improvement_pct is not None else "n/a"
+        )
         if (
-            improvement_pct is None
-            or p50_end >= p50_beg
-            or improvement_pct <= improvement_threshold_pct
-            or translation_too_small
+            translation_too_small
+            and improvement_pct is not None
+            and (p50_end < p50_beg and improvement_pct > improvement_threshold_pct)
         ):
-            self._remove_aligned_dem_if_present()
-            improvement_repr = (
-                f"{improvement_pct:.1f}%" if improvement_pct is not None else "n/a"
+            reason = (
+                f"Translation magnitude is below {min_translation_threshold*100:.0f}% "
+                "of the DEM GSD, so no aligned DEM was written despite a "
+                f"{improvement_repr} p50 reduction."
             )
-            if (
-                translation_too_small
-                and improvement_pct is not None
-                and (p50_end < p50_beg and improvement_pct > improvement_threshold_pct)
-            ):
-                reason = (
-                    f"Translation magnitude is below {min_translation_threshold*100:.0f}% "
-                    "of the DEM GSD, so no aligned DEM was written despite a "
-                    f"{improvement_repr} p50 reduction."
-                )
-            else:
-                reason = (
-                    f"p50 {p50_beg:.2f} m -> {p50_end:.2f} m, "
-                    f"{improvement_repr} <= {improvement_threshold_pct:.1f}% "
-                    "threshold. Aligned DEM removed."
-                )
-            return AlignmentResult(
-                status="no_improvement",
-                alignment_report_df=df,
-                aligned_dem_fn=None,
-                improvement_pct=improvement_pct,
-                message=f"No significant improvement: {reason}",
-                parameters_used=parameters_used,
+        else:
+            reason = (
+                f"p50 {p50_beg:.2f} m -> {p50_end:.2f} m, "
+                f"{improvement_repr} <= {improvement_threshold_pct:.1f}% "
+                "threshold. Aligned DEM removed."
             )
+
+        result = self._evaluate_improvement(
+            df=df,
+            p50_beg=p50_beg,
+            p50_end=p50_end,
+            improvement_pct=improvement_pct,
+            improvement_threshold_pct=improvement_threshold_pct,
+            translation_too_small=translation_too_small,
+            no_improvement_reason=reason,
+            parameters_used=parameters_used,
+        )
+        if result is not None:
+            return result
 
         # Populate icesat_minus_aligned_dem without re-running the 3σ
         # outlier filter (the unaligned column is already 3σ-clean from the
@@ -1424,17 +1419,8 @@ class Altimetry:
         # This does not re-request ICESat-2 data; it only interpolates DEM
         # heights at the existing ATL06-SR point locations.
         self.atl06sr_to_dem_dh(n_sigma=None)
-        return AlignmentResult(
-            status="success",
-            alignment_report_df=df,
-            aligned_dem_fn=self.aligned_dem_fn,
-            improvement_pct=improvement_pct,
-            message=(
-                f"p50 improved from {p50_beg:.2f} m -> {p50_end:.2f} m "
-                f"({improvement_pct:.1f}% reduction). Aligned DEM written to "
-                f"{self.aligned_dem_fn}."
-            ),
-            parameters_used=parameters_used,
+        return self._success_result(
+            df, p50_beg, p50_end, improvement_pct, parameters_used
         )
 
     def _remove_aligned_dem_if_present(self):
@@ -1450,6 +1436,89 @@ class Altimetry:
             except OSError as e:
                 logger.warning(f"\nCould not remove aligned DEM {aligned}: {e}\n")
         self.aligned_dem_fn = None
+
+    @staticmethod
+    def _improvement_pct(p50_beg, p50_end):
+        """Percent p50 reduction from alignment, or None if not computable.
+
+        ``(p50_beg - p50_end) / p50_beg * 100``. Returns None when either
+        value is non-finite or ``p50_beg`` is zero. Shared by the ICESat-2
+        and planetary align-and-evaluate paths.
+        """
+        if not np.isfinite(p50_beg) or not np.isfinite(p50_end) or p50_beg == 0:
+            return None
+        return (p50_beg - p50_end) / p50_beg * 100.0
+
+    def _evaluate_improvement(
+        self,
+        *,
+        df,
+        p50_beg,
+        p50_end,
+        improvement_pct,
+        improvement_threshold_pct,
+        translation_too_small,
+        no_improvement_reason,
+        parameters_used,
+    ):
+        """Shared keep/discard decision for ICESat-2 and planetary alignment.
+
+        Applies the common rejection predicate used by both
+        :meth:`align_and_evaluate` and :meth:`align_and_evaluate_planetary`:
+        the aligned DEM is discarded when the p50 improvement is missing,
+        non-positive, at or below ``improvement_threshold_pct``, or the
+        translation was too small to write a DEM.
+
+        Returns
+        -------
+        AlignmentResult or None
+            A terminal ``no_improvement`` result (with the aligned DEM
+            already cleaned up) when the alignment is rejected, or ``None``
+            when it should be kept. In the keep case the caller performs its
+            body-specific success finalization and builds the success result
+            via :meth:`_success_result`.
+
+        Notes
+        -----
+        ``no_improvement_reason`` is supplied by the caller because the
+        Earth and planetary paths word the rejection differently (GSD value,
+        translation wording). It is only consumed on the reject path.
+        """
+        if (
+            improvement_pct is None
+            or p50_end >= p50_beg
+            or improvement_pct <= improvement_threshold_pct
+            or translation_too_small
+        ):
+            self._remove_aligned_dem_if_present()
+            return AlignmentResult(
+                status="no_improvement",
+                alignment_report_df=df,
+                aligned_dem_fn=None,
+                improvement_pct=improvement_pct,
+                message=f"No significant improvement: {no_improvement_reason}",
+                parameters_used=parameters_used,
+            )
+        return None
+
+    def _success_result(self, df, p50_beg, p50_end, improvement_pct, parameters_used):
+        """Build the shared ``success`` AlignmentResult.
+
+        Identical for both bodies once the aligned DEM is retained on
+        ``self.aligned_dem_fn``.
+        """
+        return AlignmentResult(
+            status="success",
+            alignment_report_df=df,
+            aligned_dem_fn=self.aligned_dem_fn,
+            improvement_pct=improvement_pct,
+            message=(
+                f"p50 improved from {p50_beg:.2f} m -> {p50_end:.2f} m "
+                f"({improvement_pct:.1f}% reduction). Aligned DEM written to "
+                f"{self.aligned_dem_fn}."
+            ),
+            parameters_used=parameters_used,
+        )
 
     # ------------------------------------------------------------------ #
     #  Planetary altimetry: LOLA (Moon) and MOLA (Mars) via ODE GDS API  #
@@ -1935,41 +2004,36 @@ class Altimetry:
 
         p50_beg = float(report.get("p50_beg", float("nan")))
         p50_end = float(report.get("p50_end", float("nan")))
-        if not np.isfinite(p50_beg) or not np.isfinite(p50_end) or p50_beg == 0:
-            improvement_pct = None
-        else:
-            improvement_pct = (p50_beg - p50_end) / p50_beg * 100.0
+        improvement_pct = self._improvement_pct(p50_beg, p50_end)
 
-        if (
-            improvement_pct is None
-            or p50_end >= p50_beg
-            or improvement_pct <= improvement_threshold_pct
-            or translation_too_small
-        ):
-            self._remove_aligned_dem_if_present()
-            improvement_repr = (
-                f"{improvement_pct:.1f}%" if improvement_pct is not None else "n/a"
+        improvement_repr = (
+            f"{improvement_pct:.1f}%" if improvement_pct is not None else "n/a"
+        )
+        if translation_too_small:
+            reason = (
+                f"Translation magnitude is below {min_translation_threshold*100:.0f}% "
+                f"of the DEM GSD ({gsd:.2f} m), so no aligned DEM was "
+                f"written despite a {improvement_repr} p50 reduction."
             )
-            if translation_too_small:
-                reason = (
-                    f"Translation magnitude is below {min_translation_threshold*100:.0f}% "
-                    f"of the DEM GSD ({gsd:.2f} m), so no aligned DEM was "
-                    f"written despite a {improvement_repr} p50 reduction."
-                )
-            else:
-                reason = (
-                    f"p50 {p50_beg:.2f} m -> {p50_end:.2f} m, "
-                    f"{improvement_repr} <= {improvement_threshold_pct:.1f}% "
-                    "threshold."
-                )
-            return AlignmentResult(
-                status="no_improvement",
-                alignment_report_df=df,
-                aligned_dem_fn=None,
-                improvement_pct=improvement_pct,
-                message=f"No significant improvement: {reason}",
-                parameters_used=parameters_used,
+        else:
+            reason = (
+                f"p50 {p50_beg:.2f} m -> {p50_end:.2f} m, "
+                f"{improvement_repr} <= {improvement_threshold_pct:.1f}% "
+                "threshold."
             )
+
+        result = self._evaluate_improvement(
+            df=df,
+            p50_beg=p50_beg,
+            p50_end=p50_end,
+            improvement_pct=improvement_pct,
+            improvement_threshold_pct=improvement_threshold_pct,
+            translation_too_small=translation_too_small,
+            no_improvement_reason=reason,
+            parameters_used=parameters_used,
+        )
+        if result is not None:
+            return result
 
         # Apply the translation and persist the aligned DEM
         aligned = alignment.apply_dem_translation(output_prefix=output_prefix)
@@ -1992,17 +2056,8 @@ class Altimetry:
         # the already-clean sample again.
         self.planetary_to_dem_dh(n_sigma=None)
 
-        return AlignmentResult(
-            status="success",
-            alignment_report_df=df,
-            aligned_dem_fn=self.aligned_dem_fn,
-            improvement_pct=improvement_pct,
-            message=(
-                f"p50 improved from {p50_beg:.2f} m -> {p50_end:.2f} m "
-                f"({improvement_pct:.1f}% reduction). Aligned DEM written to "
-                f"{self.aligned_dem_fn}."
-            ),
-            parameters_used=parameters_used,
+        return self._success_result(
+            df, p50_beg, p50_end, improvement_pct, parameters_used
         )
 
     def mapview_plot_planetary_to_dem(
