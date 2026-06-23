@@ -51,3 +51,20 @@ class TestBodyForDem:
         assert body_for_dem("unused.tif", body="mars") is BODIES["mars"]
         assert body_for_dem("unused.tif", body="moon") is BODIES["moon"]
         assert body_for_dem("unused.tif", body="earth") is BODIES["earth"]
+
+    def test_autodetects_from_dem_crs(self):
+        # With body=None, body_for_dem must route through
+        # detect_planetary_body, which reads the DEM CRS. The Earth test DEM
+        # is the only real DEM in the fixtures, so it exercises the
+        # auto-detection branch end to end.
+        dem = "tests/test_data/stereo/date_time_left_right_1m-DEM.tif"
+        assert body_for_dem(dem) is BODIES["earth"]
+
+    def test_autodetection_uses_detect_planetary_body(self, monkeypatch):
+        # Pin the wiring: a stubbed detector return is what selects the Body.
+        import asp_plot.utils
+
+        monkeypatch.setattr(
+            asp_plot.utils, "detect_planetary_body", lambda dem_fn: "mars"
+        )
+        assert body_for_dem("anything.tif") is BODIES["mars"]
