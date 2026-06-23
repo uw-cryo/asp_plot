@@ -3,17 +3,55 @@ import os
 
 import matplotlib.pyplot as plt
 
-from asp_plot.utils import (
-    Plotter,
-    Raster,
-    add_copyright_overlay,
-    detect_vantor_satellite,
-    glob_file,
-    save_figure,
-)
+from asp_plot.utils import Plotter, Raster, detect_vantor_satellite, glob_file
 
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
+
+
+class SceneFiles:
+    """
+    Discover the left/right sub-sampled scene files for a stereo directory.
+
+    Isolates file discovery from the plotting in ``ScenePlotter``, mirroring the
+    ``StereoFiles`` / ``StereoPlotter`` split. Resolved paths and flags are
+    exposed as plain attributes for ``ScenePlotter`` to consume.
+
+    Attributes
+    ----------
+    directory : str
+        Root directory of ASP processing.
+    stereo_directory : str
+        Subdirectory containing stereo outputs.
+    full_stereo_directory : str
+        Full path to the stereo directory.
+    is_vantor : bool
+        Whether the source imagery is from a Vantor (WorldView) satellite.
+    left_scene_sub_fn, right_scene_sub_fn : str or None
+        Paths to the left/right sub-sampled scene files.
+    """
+
+    def __init__(self, directory, stereo_directory):
+        """
+        Discover the sub-sampled scene files.
+
+        Parameters
+        ----------
+        directory : str
+            Root directory of ASP processing.
+        stereo_directory : str
+            Subdirectory containing stereo outputs. The left and right
+            sub-sampled images are located here (``*-L_sub.tif`` /
+            ``*-R_sub.tif``).
+        """
+        self.directory = os.path.expanduser(directory)
+        self.stereo_directory = stereo_directory
+        self.full_stereo_directory = os.path.join(self.directory, stereo_directory)
+
+        self.is_vantor = detect_vantor_satellite(self.directory)
+
+        self.left_scene_sub_fn = glob_file(self.full_stereo_directory, "*-L_sub.tif")
+        self.right_scene_sub_fn = glob_file(self.full_stereo_directory, "*-R_sub.tif")
 
 
 class ScenePlotter(Plotter):
@@ -64,17 +102,32 @@ class ScenePlotter(Plotter):
         This constructor attempts to locate the left and right
         subsampled image files in the stereo directory. These files are
         generated during ASP stereo processing with names ending in
-        "-L_sub.tif" and "-R_sub.tif" respectively.
+        "-L_sub.tif" and "-R_sub.tif" respectively. File discovery is delegated
+        to :class:`SceneFiles`; the resolved paths are exposed as read-only
+        properties on this plotter.
         """
-        super().__init__(**kwargs)
-        self.directory = os.path.expanduser(directory)
-        self.stereo_directory = stereo_directory
-        self.full_stereo_directory = os.path.join(self.directory, stereo_directory)
+        self.files = SceneFiles(directory, stereo_directory)
+        super().__init__(is_vantor=self.files.is_vantor, **kwargs)
 
-        self.is_vantor = detect_vantor_satellite(self.directory)
+    @property
+    def directory(self):
+        return self.files.directory
 
-        self.left_scene_sub_fn = glob_file(self.full_stereo_directory, "*-L_sub.tif")
-        self.right_scene_sub_fn = glob_file(self.full_stereo_directory, "*-R_sub.tif")
+    @property
+    def stereo_directory(self):
+        return self.files.stereo_directory
+
+    @property
+    def full_stereo_directory(self):
+        return self.files.full_stereo_directory
+
+    @property
+    def left_scene_sub_fn(self):
+        return self.files.left_scene_sub_fn
+
+    @property
+    def right_scene_sub_fn(self):
+        return self.files.right_scene_sub_fn
 
     def plot_scenes(self, save_dir=None, fig_fn=None):
         """
@@ -117,17 +170,23 @@ class ScenePlotter(Plotter):
         axa = axa.ravel()
 
         left_scene_ma = left_scene.read_array()
-        self.plot_array(ax=axa[0], array=left_scene_ma, cmap="gray", add_cbar=False)
+        self.plot_array(
+            ax=axa[0],
+            array=left_scene_ma,
+            cmap="gray",
+            add_cbar=False,
+            copyright=True,
+        )
         axa[0].set_title(f"Left\n{os.path.basename(self.left_scene_sub_fn)}", size=8)
-        if self.is_vantor:
-            add_copyright_overlay(axa[0])
 
         right_scene_ma = Raster(self.right_scene_sub_fn).read_array()
-        self.plot_array(ax=axa[1], array=right_scene_ma, cmap="gray", add_cbar=False)
+        self.plot_array(
+            ax=axa[1],
+            array=right_scene_ma,
+            cmap="gray",
+            add_cbar=False,
+            copyright=True,
+        )
         axa[1].set_title(f"Right\n{os.path.basename(self.right_scene_sub_fn)}", size=8)
-        if self.is_vantor:
-            add_copyright_overlay(axa[1])
 
-        fig.tight_layout()
-        if save_dir and fig_fn:
-            save_figure(fig, save_dir, fig_fn)
+        self.save(fig, save_dir, fig_fn)

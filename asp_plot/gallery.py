@@ -4,9 +4,8 @@ import os
 
 import matplotlib.pyplot as plt
 import numpy as np
-from osgeo import gdal
 
-from asp_plot.utils import Plotter, Raster, save_figure
+from asp_plot.utils import Plotter, Raster
 
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
@@ -238,34 +237,6 @@ class GalleryPlotter(Plotter):
             return max(1, int(np.ceil(longest / GALLERY_TARGET_PX)))
         return self.downsample
 
-    def _hillshade_at(self, fn, shape):
-        """
-        Compute a GDAL hillshade for ``fn`` matching a downsampled DEM shape.
-
-        Mirrors ``Raster.hillshade()`` (GDAL ``hillshade``, computeEdges) but
-        runs on a downsampled in-memory copy so the underlay array matches the
-        downsampled DEM array in shape.
-
-        Parameters
-        ----------
-        fn : str
-            Path to the DEM.
-        shape : tuple of int
-            Target (height, width) of the downsampled DEM.
-
-        Returns
-        -------
-        numpy.ma.MaskedArray
-            Hillshade array (nodata masked at 0).
-        """
-        out_h, out_w = shape
-        gdal_ds = gdal.Open(fn)
-        mem = gdal.Translate("", gdal_ds, format="MEM", width=out_w, height=out_h)
-        hs_ds = gdal.DEMProcessing(
-            "", mem, "hillshade", format="MEM", computeEdges=True
-        )
-        return np.ma.masked_equal(hs_ds.ReadAsArray(), 0)
-
     def plot_gallery(
         self,
         hillshade=True,
@@ -388,7 +359,7 @@ class GalleryPlotter(Plotter):
                 [x_in / fig_w, y_in / fig_h, panel_w / fig_w, panel_h / fig_h]
             )
             if hillshade:
-                hs = self._hillshade_at(fn, array.shape)
+                hs = Raster(fn).hillshade(shape=array.shape)
                 self.plot_array(ax=ax, array=hs, cmap="gray", add_cbar=False)
                 im = self.plot_array(
                     ax=ax,
@@ -420,7 +391,6 @@ class GalleryPlotter(Plotter):
             )
             cbar.set_label(cbar_label)
 
-        if save_dir and fig_fn:
-            save_figure(fig, save_dir, fig_fn, dpi=dpi)
+        self.save(fig, save_dir, fig_fn, tight_layout=False, dpi=dpi)
 
         return fig
