@@ -22,6 +22,7 @@ class TestImports:
         import asp_plot.report_pipeline
         import asp_plot.scenes
         import asp_plot.selections
+        import asp_plot.sensors
         import asp_plot.stereo_geometry
         import asp_plot.stereopair_metadata_parser
         import asp_plot.utils
@@ -40,6 +41,7 @@ class TestImports:
         assert asp_plot.altimetry is not None
         assert asp_plot.alignment is not None
         assert asp_plot.bodies is not None
+        assert asp_plot.sensors is not None
 
     def test_import_asp_plot_classes(self):
         from asp_plot.alignment import Alignment
@@ -51,6 +53,12 @@ class TestImports:
         from asp_plot.report_pipeline import ReportConfig, run_report
         from asp_plot.scenes import ScenePlotter
         from asp_plot.selections import FigureSelections
+        from asp_plot.sensors import (
+            SENSORS,
+            SensorMetadata,
+            WorldViewMetadata,
+            sensor_for_directory,
+        )
         from asp_plot.stereo import StereoPlotter
         from asp_plot.stereo_geometry import StereoGeometryPlotter
         from asp_plot.stereopair_metadata_parser import StereopairMetadataParser
@@ -75,3 +83,7 @@ class TestImports:
         assert Body is not None
         assert BODIES is not None
         assert body_for_dem is not None
+        assert SensorMetadata is not None
+        assert WorldViewMetadata is not None
+        assert SENSORS is not None
+        assert sensor_for_directory is not None

@@ -13,22 +13,25 @@ logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
 
-class StereoGeometryPlotter(StereopairMetadataParser):
+class StereoGeometryPlotter:
     """
     Create visualizations of stereo geometry for satellite imagery.
 
-    This class extends StereopairMetadataParser to provide plotting capabilities
-    for stereo geometry visualization, including skyplots showing satellite viewing
-    angles and map views showing footprints and satellite positions.
+    This class *composes* a :class:`StereopairMetadataParser` to provide plotting
+    capabilities for stereo geometry visualization, including skyplots showing
+    satellite viewing angles and map views showing footprints and satellite
+    positions. Metadata access goes through the ``parser`` attribute rather than
+    inheritance, keeping the (sensor-agnostic) plotting concerns separate from
+    the (sensor-specific) metadata parsing.
 
     Attributes
     ----------
     directory : str
         Path to directory containing XML files
+    parser : StereopairMetadataParser
+        The composed metadata parser used to extract stereo-pair geometry
     add_basemap : bool
         Whether to add a basemap to map plots, default is True
-    image_list : list
-        List of XML files found in the directory (inherited from StereopairMetadataParser)
 
     Examples
     --------
@@ -49,7 +52,8 @@ class StereoGeometryPlotter(StereopairMetadataParser):
         **kwargs
             Additional keyword arguments passed to StereopairMetadataParser
         """
-        super().__init__(directory=directory, **kwargs)
+        self.directory = directory
+        self.parser = StereopairMetadataParser(directory=directory, **kwargs)
         self.add_basemap = add_basemap
 
     def get_scene_string(self, p, key="catid1_dict"):
@@ -301,7 +305,7 @@ class StereoGeometryPlotter(StereopairMetadataParser):
         intersection of the two image footprints to minimize distortion.
         """
         # load pair information as dict
-        p = self.get_pair_dict()
+        p = self.parser.get_pair_dict()
 
         fig = plt.figure(figsize=(10, 7.5))
         G = gridspec.GridSpec(nrows=1, ncols=2)
@@ -312,7 +316,9 @@ class StereoGeometryPlotter(StereopairMetadataParser):
 
         # Use local projection to minimize distortion
         # Should be OK to use transverse mercator here, usually within ~2-3 deg
-        map_crs = self.get_centroid_projection(p["intersection"], proj_type="tmerc")
+        map_crs = self.parser.get_centroid_projection(
+            p["intersection"], proj_type="tmerc"
+        )
 
         self.map_plot(
             ax1,
@@ -385,9 +391,11 @@ class StereoGeometryPlotter(StereopairMetadataParser):
         matplotlib.figure.Figure
             The created figure object (not shown automatically)
         """
-        p = self.get_pair_dict()
+        p = self.parser.get_pair_dict()
 
-        map_crs = self.get_centroid_projection(p["intersection"], proj_type="tmerc")
+        map_crs = self.parser.get_centroid_projection(
+            p["intersection"], proj_type="tmerc"
+        )
 
         fig = plt.figure(figsize=(14, 12))
         G = gridspec.GridSpec(nrows=3, ncols=2, hspace=0.35, wspace=0.3)

@@ -1,15 +1,14 @@
 import logging
 import os
-import re
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 import geopandas as gpd
 import numpy as np
-import pandas as pd
 from osgeo import osr
-from shapely import union_all, wkt
+from shapely import union_all
 
-from asp_plot.utils import get_utm_epsg, get_xml_tag, glob_file, run_subprocess_command
+from asp_plot.sensors import sensor_for_directory
+from asp_plot.utils import get_utm_epsg
 
 osr.UseExceptions()
 logging.basicConfig(level=logging.WARNING)
@@ -167,18 +166,27 @@ def get_asymmetry_angle(sat1_pos, sat2_pos, ground_point):
 # TODO: When this supports N scenes, should rename to StereoMetadataParser
 class StereopairMetadataParser:
     """
-    Parse metadata from satellite sensor XML files for stereo pairs.
+    Parse metadata for a stereo pair and compute stereo-geometry parameters.
 
-    This class parses Digital Globe/Maxar or similar satellite XML files to extract
-    metadata and compute stereo geometry parameters. It handles single XML files
-    as well as multiple XML files per scene, where mosaicking is required.
+    This class is sensor-agnostic: the work of discovering scene files and
+    extracting per-scene metadata is delegated to a sensor-specific reader (see
+    :mod:`asp_plot.sensors`), chosen automatically by inspecting the directory
+    contents. The parser then computes pair-level geometry (convergence angle,
+    base-to-height ratio, bisector elevation angle, asymmetry angle, footprint
+    intersection, bounds) from the resulting scene dictionaries.
+
+    Adding support for a new sensor (ASTER, HiRISE, etc.) is a matter of writing
+    a new :class:`asp_plot.sensors.SensorMetadata` subclass; no changes to this
+    class are required.
 
     Attributes
     ----------
     directory : str
-        Path to directory containing XML files
+        Path to directory containing the scene metadata files
+    reader : asp_plot.sensors.SensorMetadata
+        The detected sensor-specific metadata reader
     image_list : list
-        List of XML files found in the directory
+        List of scene metadata files found in the directory (delegated to the reader)
 
     Examples
     --------
@@ -192,29 +200,26 @@ class StereopairMetadataParser:
         """
         Initialize the StereopairMetadataParser.
 
+        Detects the sensor from the directory contents and builds the matching
+        metadata reader.
+
         Parameters
         ----------
         directory : str
-            Path to directory containing XML camera model files
+            Path to directory containing camera model / metadata files
 
         Raises
         ------
         ValueError
-            If no XML files are found in the directory
+            If no supported sensor metadata files are found in the directory
         """
         self.directory = os.path.expanduser(directory)
+        self.reader = sensor_for_directory(self.directory)
 
-        self.image_list = glob_file(self.directory, "*.[Xx][Mm][Ll]", all_files=True)
-
-        # Drop potential *ortho*.xml files from image_list
-        self.image_list = [
-            file for file in self.image_list if not re.search(r".*ortho.*\.xml", file)
-        ]
-
-        if not self.image_list:
-            raise ValueError(
-                "\n\nMissing XML camera files in directory. Cannot extract metadata without these.\n\n"
-            )
+    @property
+    def image_list(self):
+        """List of scene metadata files (delegated to the sensor reader)."""
+        return self.reader.image_list
 
     # TODO: This method assumes that only two scenes are captured with get_catid_dicts
     # Should be updated to support more than two scenes, or need a separate method for N scenes
@@ -244,378 +249,15 @@ class StereopairMetadataParser:
         """
         Get dictionaries of metadata for each catalog ID.
 
-        Builds dictionaries of metadata for each catalog ID found in the XML files.
+        Delegates to the detected sensor reader to build a list of per-scene
+        metadata dictionaries.
 
         Returns
         -------
         list
             List of dictionaries, one for each catalog ID, containing metadata
         """
-        catid_xmls = self.get_catid_xmls()
-        catid_dicts = []
-        for catid, xml in catid_xmls.items():
-            catid_dicts.append(self.get_id_dict(catid, xml))
-        return catid_dicts
-
-    def get_catid_xmls(self):
-        """
-        Get XML files associated with each catalog ID.
-
-        Checks for multiple XML files for each catalog ID and handles mosaicking
-        if needed.
-
-        Returns
-        -------
-        dict
-            Dictionary mapping catalog IDs to XML file paths
-
-        Notes
-        -----
-        If more than two XML files are found, they will be mosaicked using
-        dg_mosaic before proceeding.
-        """
-        # First check for multiple XML files and dg_mosaic if needed
-        if len(self.image_list) > 2:
-            print(
-                "\nMore than two XML files found in directory. Mosaicking before proceeding.\n"
-            )
-            self.mosaic_multiple_xmls()
-
-        # Get CATIDs
-        catid_xmls = {}
-        for xml_file in self.image_list:
-            catid = get_xml_tag(xml_file, "CATID")
-            catid_xmls[catid] = xml_file
-
-        # TODO: need to improve logic and looping here and in get_id_dict for dictionary creation when
-        # there are multiple XML files for a given scene
-        # use ~/Desktop/asp-plot-examples/antarctica/tiled_xmls_example for testing this
-
-        return catid_xmls
-
-    def mosaic_multiple_xmls(self):
-        """
-        Mosaic multiple XML files for each catalog ID.
-
-        Uses dg_mosaic to merge multiple XML files for the same catalog ID
-        into a single XML file. This is needed when a scene is composed of
-        multiple image tiles.
-
-        Returns
-        -------
-        None
-            Updates the image_list attribute with mosaicked XML files
-
-        Notes
-        -----
-        Requires dg_mosaic from the NASA Ames Stereo Pipeline to be installed
-        and available in the system path.
-        """
-        # Drop existing *.r100.* and *.r50.* files from image_list if they are present
-        self.image_list = [
-            file
-            for file in self.image_list
-            if not re.search(r"\.r100\..*|\.r50\..*", file)
-        ]
-
-        # Group XML files by CATID
-        catid_xml_dict = {}
-        for xml_file in self.image_list:
-            catid = get_xml_tag(xml_file, "CATID")
-            if catid not in catid_xml_dict:
-                catid_xml_dict[catid] = []
-            catid_xml_dict[catid].append(xml_file)
-
-        # Convert lists to space-separated strings
-        catid_xml_dict = {
-            catid: " ".join(xml_files) for catid, xml_files in catid_xml_dict.items()
-        }
-
-        # Run dg_mosaic with: dg_mosaic --skip-tif-gen --output-prefix <NAME> <SPACE SEPARATED XML FILES>
-        output_xmls = []
-        for catid, xml_files in catid_xml_dict.items():
-            output_xml = os.path.join(self.directory, f"{catid}_asp_plot_dg_mosaic")
-            output_xml_r100 = f"{output_xml}.r100.xml"
-
-            if not os.path.exists(output_xml_r100):
-                # Build the command string instead of a list, needed for subprocess call, .split() below
-                command = (
-                    f"dg_mosaic --skip-tif-gen --output-prefix {output_xml} {xml_files}"
-                )
-
-                print(f"\nRunning dg_mosaic with command: {command}\n")
-
-                # Run the command
-                run_subprocess_command(command.split())
-            else:
-                print(f"\nUsing existing mosaicked XML file: {output_xml_r100}\n")
-
-            output_xmls.append(output_xml_r100)
-
-        # Then create the new image list with just the mosaicked XML files
-        self.image_list = []
-        for output_xml in output_xmls:
-            self.image_list.append(output_xml)
-
-    def get_id_dict(self, catid, xml, geteph=True):
-        """
-        Get a dictionary of metadata for a specific catalog ID.
-
-        Extracts metadata from XML file for a given catalog ID, including
-        satellite parameters, acquisition angles, and geometry.
-
-        Parameters
-        ----------
-        catid : str
-            Catalog ID for the satellite image
-        xml : str
-            Path to the XML file
-        geteph : bool, optional
-            Whether to extract ephemeris data, default is True
-
-        Returns
-        -------
-        dict
-            Dictionary containing metadata for the catalog ID
-
-        Notes
-        -----
-        The dictionary includes satellite ID, acquisition date, scan direction,
-        TDI level, geometry information, and various mean angles and parameters.
-        If geteph is True, also includes ephemeris and footprint GeoDataFrames.
-        """
-
-        def list_average(list):
-            """Calculate average of values in a list, handling NaN values."""
-            return np.round(pd.Series(list, dtype=float).dropna().mean(), 2)
-
-        attributes = {
-            "MEANSATAZ": [],
-            "MEANSATEL": [],
-            "MEANOFFNADIRVIEWANGLE": [],
-            "MEANINTRACKVIEWANGLE": [],
-            "MEANCROSSTRACKVIEWANGLE": [],
-            "MEANPRODUCTGSD": [],
-            "MEANSUNAZ": [],
-            "MEANSUNEL": [],
-            "CLOUDCOVER": [],
-            "geom": [],
-        }
-
-        for tag, lst in attributes.items():
-            if tag != "geom":
-                lst.append(get_xml_tag(xml, tag))
-            else:
-                # This returns a Shapely Polygon geometry
-                lst.append(self.xml2poly(xml))
-
-        d = {
-            "xml_fn": xml,
-            "catid": catid,
-            "sensor": get_xml_tag(xml, "SATID"),
-            "date": datetime.strptime(
-                get_xml_tag(xml, "FIRSTLINETIME"), "%Y-%m-%dT%H:%M:%S.%fZ"
-            ),
-            "scandir": get_xml_tag(xml, "SCANDIRECTION"),
-            "tdi": int(get_xml_tag(xml, "TDILEVEL")),
-            "geom": union_all(attributes["geom"]),
-        }
-
-        # Add Ephemeris GeoDataFrame, Attitude DataFrame, and Footprint GeoDataFrame
-        if geteph:
-            d["eph_gdf"] = self.getEphem_gdf(xml)
-            d["att_df"] = self.getAtt_df(xml)
-            d["fp_gdf"] = gpd.GeoDataFrame(
-                {"idx": [0], "geometry": d["geom"]},
-                geometry="geometry",
-                crs="EPSG:4326",
-            )
-
-        # Compute mean values when multiple xml make up a single image ID
-        for tag, lst in attributes.items():
-            if tag != "geom":
-                d[tag.lower()] = list_average(lst)
-
-        return d
-
-    def getEphem(self, xml):
-        """
-        Extract ephemeris data from XML file.
-
-        Retrieves satellite ephemeris (position and velocity) data from the XML file.
-
-        Parameters
-        ----------
-        xml : str
-            Path to the XML file
-
-        Returns
-        -------
-        numpy.ndarray
-            Array containing ephemeris data with columns:
-            point_num, Xpos, Ypos, Zpos, Xvel, Yvel, Zvel, and covariance matrix elements
-
-        Notes
-        -----
-        All coordinates are in Earth-Centered Fixed (ECF) reference frame.
-        Units are meters for positions, meters/sec for velocities, and m^2 for covariance.
-        """
-        e = get_xml_tag(xml, "EPHEMLIST", all=True)
-        # Could get fancy with structured array here
-        # point_num, Xpos, Ypos, Zpos, Xvel, Yvel, Zvel, covariance matrix (6 elements)
-        # dtype=[('point', 'i4'), ('Xpos', 'f8'), ('Ypos', 'f8'), ('Zpos', 'f8'), ('Xvel', 'f8') ...]
-        # All coordinates are ECF, meters, meters/sec, m^2
-        return np.array([i.split() for i in e], dtype=np.float64)
-
-    def getAtt(self, xml):
-        """
-        Extract attitude data from XML file.
-
-        Retrieves satellite attitude (orientation quaternion and covariance) data
-        from the XML file.
-
-        Parameters
-        ----------
-        xml : str
-            Path to the XML file
-
-        Returns
-        -------
-        numpy.ndarray
-            Array of shape (N, 15) containing attitude data with columns:
-            point_num, q1, q2, q3, q4, and 10 covariance matrix elements
-            (upper triangle of 4x4 matrix)
-        """
-        a = get_xml_tag(xml, "ATTLIST", all=True)
-        return np.array([i.split() for i in a], dtype=np.float64)
-
-    def getEphem_gdf(self, xml):
-        """
-        Create a GeoDataFrame from ephemeris data.
-
-        Converts ephemeris data to a GeoDataFrame with time index and Point geometry.
-
-        Parameters
-        ----------
-        xml : str
-            Path to the XML file
-
-        Returns
-        -------
-        geopandas.GeoDataFrame
-            GeoDataFrame with ephemeris data and Point geometries in EPSG:4978
-
-        Notes
-        -----
-        The GeoDataFrame uses EPSG:4978 (Earth-Centered Earth-Fixed) CRS and
-        has a time index corresponding to the acquisition times.
-        """
-        names = [
-            "index",
-        ]
-        names.extend(["x", "y", "z"])
-        names.extend(["dx", "dy", "dz"])
-        names.extend(["cov_{}".format(n) for n in ["11", "12", "13", "22", "23", "33"]])
-        e = self.getEphem(xml)
-        t0 = pd.to_datetime(get_xml_tag(xml, "STARTTIME"))
-        dt = pd.Timedelta(float(get_xml_tag(xml, "TIMEINTERVAL")), unit="s")
-        eph_df = pd.DataFrame(e, columns=names)
-        eph_df["time"] = t0 + eph_df.index * dt
-        eph_df.set_index("time", inplace=True)
-        eph_gdf = gpd.GeoDataFrame(
-            eph_df,
-            geometry=gpd.points_from_xy(eph_df["x"], eph_df["y"], eph_df["z"]),
-            crs="EPSG:4978",
-        )
-        return eph_gdf
-
-    def getAtt_df(self, xml):
-        """
-        Create a DataFrame from attitude data.
-
-        Converts attitude data to a DataFrame with time index.
-
-        Parameters
-        ----------
-        xml : str
-            Path to the XML file
-
-        Returns
-        -------
-        pandas.DataFrame
-            DataFrame with attitude quaternions and covariance, time-indexed
-        """
-        names = ["index", "q1", "q2", "q3", "q4"]
-        names.extend(
-            [
-                "cov_{}".format(n)
-                for n in ["11", "12", "13", "14", "22", "23", "24", "33", "34", "44"]
-            ]
-        )
-        a = self.getAtt(xml)
-        t0 = pd.to_datetime(get_xml_tag(xml, "STARTTIME"))
-        dt = pd.Timedelta(float(get_xml_tag(xml, "TIMEINTERVAL")), unit="s")
-        att_df = pd.DataFrame(a, columns=names)
-        att_df["time"] = t0 + att_df.index * dt
-        att_df.set_index("time", inplace=True)
-        return att_df
-
-    def xml2wkt(self, xml):
-        """
-        Convert XML corner coordinates to WKT polygon string.
-
-        Extracts corner coordinates from XML file and converts them to a
-        Well-Known Text (WKT) polygon string.
-
-        Parameters
-        ----------
-        xml : str
-            Path to the XML file
-
-        Returns
-        -------
-        str
-            WKT polygon string representation of image footprint
-
-        Notes
-        -----
-        Uses ULLON/ULLAT, URLON/URLAT, LRLON/LRLAT, LLLON/LLLAT tags
-        (Upper-Left, Upper-Right, Lower-Right, Lower-Left corners).
-        """
-        tags = [
-            ("ULLON", "ULLAT"),
-            ("URLON", "URLAT"),
-            ("LRLON", "LRLAT"),
-            ("LLLON", "LLLAT"),
-            ("ULLON", "ULLAT"),
-        ]
-        coords = []
-        for lon_tag, lat_tag in tags:
-            lon = get_xml_tag(xml, lon_tag)
-            lat = get_xml_tag(xml, lat_tag)
-            if lon and lat:
-                coords.append(f"{lon} {lat}")
-        geom_wkt = f"POLYGON(({', '.join(coords)}))"
-        return geom_wkt
-
-    def xml2poly(self, xml):
-        """
-        Convert XML corner coordinates to Shapely Polygon.
-
-        Reads XML file and converts corner coordinates to a Shapely Polygon geometry.
-
-        Parameters
-        ----------
-        xml : str
-            Path to the XML file
-
-        Returns
-        -------
-        shapely.geometry.Polygon
-            Polygon geometry representing the image footprint
-        """
-        geom_wkt = self.xml2wkt(xml)
-        return wkt.loads(geom_wkt)
+        return self.reader.get_scene_dicts()
 
     def pair_dict(self, catid1_dict, catid2_dict, pairname):
         def center_date(dt_list):
