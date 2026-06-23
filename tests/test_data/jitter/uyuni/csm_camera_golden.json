@@ -1,0 +1,424 @@
+{
+  "gdf_cam1": {
+    "shape": [
+      1472,
+      16
+    ],
+    "columns": [
+      "original_positions",
+      "position_diff_magnitude",
+      "x_position_diff",
+      "y_position_diff",
+      "z_position_diff",
+      "angular_diff_magnitude",
+      "original_roll",
+      "original_pitch",
+      "original_yaw",
+      "optimized_roll",
+      "optimized_pitch",
+      "optimized_yaw",
+      "roll_diff",
+      "pitch_diff",
+      "yaw_diff",
+      "line_at_position"
+    ],
+    "crs": "EPSG:4978",
+    "has_line_at_position": true,
+    "stats": {
+      "position_diff_magnitude": [
+        1.78929641,
+        1.362783092,
+        0.00881593,
+        11.055749547
+      ],
+      "x_position_diff": [
+        0.015357696,
+        0.037813709,
+        -0.10170368,
+        0.203135916
+      ],
+      "y_position_diff": [
+        -0.957147241,
+        2.027365995,
+        -11.019291984,
+        7.496428238
+      ],
+      "z_position_diff": [
+        -0.076985959,
+        0.162396396,
+        -0.889045737,
+        0.592181027
+      ],
+      "angular_diff_magnitude": [
+        0.535583663,
+        0.499052408,
+        0.001285373,
+        3.618138244
+      ],
+      "roll_diff": [
+        -0.001648124,
+        0.00342884,
+        -0.037392524,
+        0.001439151
+      ],
+      "pitch_diff": [
+        0.001408615,
+        0.732168067,
+        -3.4340672,
+        3.617898409
+      ],
+      "yaw_diff": [
+        -0.000402214,
+        0.003386608,
+        -0.018364376,
+        0.011217996
+      ],
+      "original_roll": [
+        22.304696988,
+        0.445012259,
+        21.531994619,
+        23.071981903
+      ],
+      "original_pitch": [
+        8.782275654,
+        0.043230853,
+        8.71699231,
+        8.866317389
+      ],
+      "original_yaw": [
+        169.937953018,
+        0.069467198,
+        169.818523197,
+        170.058849217
+      ]
+    },
+    "line_at_position_first_last": [
+      1,
+      294448
+    ]
+  },
+  "plot_two_cam": {
+    "n_axes": 26,
+    "suptitle": "Position and Angle Changes for Camera 1 (csm-104001001427B900) and Camera 2 (csm-1040010014761800)\n(original positions in ECEF)",
+    "axes": [
+      {
+        "title": "Camera 1: Position Change\ncsm-104001001427B900",
+        "title_right": "",
+        "xlabel": "Easting (m)",
+        "ylabel": "Northing (m)",
+        "n_lines": 0,
+        "line_digest": "e3b0c44298fc1c14"
+      },
+      {
+        "title": "",
+        "title_right": "Camera 1",
+        "xlabel": "Linescan Image Line Number",
+        "ylabel": "Original $-$ Optimized (m)",
+        "n_lines": 1,
+        "line_digest": "6fa72633297c61b6"
+      },
+      {
+        "title": "",
+        "title_right": "Camera 1",
+        "xlabel": "Linescan Image Line Number",
+        "ylabel": "Original $-$ Optimized (m)",
+        "n_lines": 1,
+        "line_digest": "0dfc1f50a817445f"
+      },
+      {
+        "title": "",
+        "title_right": "Camera 1",
+        "xlabel": "Linescan Image Line Number",
+        "ylabel": "Original $-$ Optimized (m)",
+        "n_lines": 1,
+        "line_digest": "8d180bc94cbe51d1"
+      },
+      {
+        "title": "Camera 1: Angle Change\ncsm-104001001427B900",
+        "title_right": "",
+        "xlabel": "Easting (m)",
+        "ylabel": "Northing (m)",
+        "n_lines": 0,
+        "line_digest": "e3b0c44298fc1c14"
+      },
+      {
+        "title": "",
+        "title_right": "Camera 1",
+        "xlabel": "Linescan Image Line Number",
+        "ylabel": "Original $-$ Optimized (\u00b0)",
+        "n_lines": 1,
+        "line_digest": "1ae9bb2aefcb11f1"
+      },
+      {
+        "title": "",
+        "title_right": "Camera 1",
+        "xlabel": "Linescan Image Line Number",
+        "ylabel": "Original $-$ Optimized (\u00b0)",
+        "n_lines": 1,
+        "line_digest": "fbed5744f90281ff"
+      },
+      {
+        "title": "",
+        "title_right": "Camera 1",
+        "xlabel": "Linescan Image Line Number",
+        "ylabel": "Original $-$ Optimized (\u00b0)",
+        "n_lines": 1,
+        "line_digest": "c5eef74d87f86699"
+      },
+      {
+        "title": "Camera 2: Position Change\ncsm-1040010014761800",
+        "title_right": "",
+        "xlabel": "Easting (m)",
+        "ylabel": "Northing (m)",
+        "n_lines": 0,
+        "line_digest": "e3b0c44298fc1c14"
+      },
+      {
+        "title": "",
+        "title_right": "Camera 2",
+        "xlabel": "Linescan Image Line Number",
+        "ylabel": "Original $-$ Optimized (m)",
+        "n_lines": 1,
+        "line_digest": "ee9d161382691ddf"
+      },
+      {
+        "title": "",
+        "title_right": "Camera 2",
+        "xlabel": "Linescan Image Line Number",
+        "ylabel": "Original $-$ Optimized (m)",
+        "n_lines": 1,
+        "line_digest": "246778d9c01a8867"
+      },
+      {
+        "title": "",
+        "title_right": "Camera 2",
+        "xlabel": "Linescan Image Line Number",
+        "ylabel": "Original $-$ Optimized (m)",
+        "n_lines": 1,
+        "line_digest": "594e3745b08d3fd5"
+      },
+      {
+        "title": "Camera 2: Angle Change\ncsm-1040010014761800",
+        "title_right": "",
+        "xlabel": "Easting (m)",
+        "ylabel": "Northing (m)",
+        "n_lines": 0,
+        "line_digest": "e3b0c44298fc1c14"
+      },
+      {
+        "title": "",
+        "title_right": "Camera 2",
+        "xlabel": "Linescan Image Line Number",
+        "ylabel": "Original $-$ Optimized (\u00b0)",
+        "n_lines": 1,
+        "line_digest": "f02add84b88931e4"
+      },
+      {
+        "title": "",
+        "title_right": "Camera 2",
+        "xlabel": "Linescan Image Line Number",
+        "ylabel": "Original $-$ Optimized (\u00b0)",
+        "n_lines": 1,
+        "line_digest": "ef807c3255f35e48"
+      },
+      {
+        "title": "",
+        "title_right": "Camera 2",
+        "xlabel": "Linescan Image Line Number",
+        "ylabel": "Original $-$ Optimized (\u00b0)",
+        "n_lines": 1,
+        "line_digest": "66b318f145940743"
+      },
+      {
+        "title": "",
+        "title_right": "",
+        "xlabel": "",
+        "ylabel": "Diff Magnitude (m)",
+        "n_lines": 0,
+        "line_digest": "e3b0c44298fc1c14"
+      },
+      {
+        "title": "",
+        "title_right": "",
+        "xlabel": "",
+        "ylabel": "Diff Magnitude (\u00b0)",
+        "n_lines": 0,
+        "line_digest": "e3b0c44298fc1c14"
+      },
+      {
+        "title": "",
+        "title_right": "",
+        "xlabel": "",
+        "ylabel": "Original (\u00b0)",
+        "n_lines": 1,
+        "line_digest": "fca1bf364a793c6d"
+      },
+      {
+        "title": "",
+        "title_right": "",
+        "xlabel": "",
+        "ylabel": "Original (\u00b0)",
+        "n_lines": 1,
+        "line_digest": "d0bf5d64e79b93bf"
+      },
+      {
+        "title": "",
+        "title_right": "",
+        "xlabel": "",
+        "ylabel": "Original (\u00b0)",
+        "n_lines": 1,
+        "line_digest": "c7143ad2175952f6"
+      },
+      {
+        "title": "",
+        "title_right": "",
+        "xlabel": "",
+        "ylabel": "Diff Magnitude (m)",
+        "n_lines": 0,
+        "line_digest": "e3b0c44298fc1c14"
+      },
+      {
+        "title": "",
+        "title_right": "",
+        "xlabel": "",
+        "ylabel": "Diff Magnitude (\u00b0)",
+        "n_lines": 0,
+        "line_digest": "e3b0c44298fc1c14"
+      },
+      {
+        "title": "",
+        "title_right": "",
+        "xlabel": "",
+        "ylabel": "Original (\u00b0)",
+        "n_lines": 1,
+        "line_digest": "21b8969239cb7efc"
+      },
+      {
+        "title": "",
+        "title_right": "",
+        "xlabel": "",
+        "ylabel": "Original (\u00b0)",
+        "n_lines": 1,
+        "line_digest": "acb94906d26ef66e"
+      },
+      {
+        "title": "",
+        "title_right": "",
+        "xlabel": "",
+        "ylabel": "Original (\u00b0)",
+        "n_lines": 1,
+        "line_digest": "ed1557b23cd669ba"
+      }
+    ]
+  },
+  "plot_one_cam": {
+    "n_axes": 13,
+    "suptitle": "Position and Angle Changes for Camera 1 (csm-104001001427B900)\n(original positions in ECEF)",
+    "axes": [
+      {
+        "title": "Camera 1: Position Change\ncsm-104001001427B900",
+        "title_right": "",
+        "xlabel": "Easting (m)",
+        "ylabel": "Northing (m)",
+        "n_lines": 0,
+        "line_digest": "e3b0c44298fc1c14"
+      },
+      {
+        "title": "",
+        "title_right": "Camera 1",
+        "xlabel": "Linescan Image Line Number",
+        "ylabel": "Original $-$ Optimized (m)",
+        "n_lines": 1,
+        "line_digest": "6fa72633297c61b6"
+      },
+      {
+        "title": "",
+        "title_right": "Camera 1",
+        "xlabel": "Linescan Image Line Number",
+        "ylabel": "Original $-$ Optimized (m)",
+        "n_lines": 1,
+        "line_digest": "0dfc1f50a817445f"
+      },
+      {
+        "title": "",
+        "title_right": "Camera 1",
+        "xlabel": "Linescan Image Line Number",
+        "ylabel": "Original $-$ Optimized (m)",
+        "n_lines": 1,
+        "line_digest": "8d180bc94cbe51d1"
+      },
+      {
+        "title": "Camera 1: Angle Change\ncsm-104001001427B900",
+        "title_right": "",
+        "xlabel": "Easting (m)",
+        "ylabel": "Northing (m)",
+        "n_lines": 0,
+        "line_digest": "e3b0c44298fc1c14"
+      },
+      {
+        "title": "",
+        "title_right": "Camera 1",
+        "xlabel": "Linescan Image Line Number",
+        "ylabel": "Original $-$ Optimized (\u00b0)",
+        "n_lines": 1,
+        "line_digest": "1ae9bb2aefcb11f1"
+      },
+      {
+        "title": "",
+        "title_right": "Camera 1",
+        "xlabel": "Linescan Image Line Number",
+        "ylabel": "Original $-$ Optimized (\u00b0)",
+        "n_lines": 1,
+        "line_digest": "fbed5744f90281ff"
+      },
+      {
+        "title": "",
+        "title_right": "Camera 1",
+        "xlabel": "Linescan Image Line Number",
+        "ylabel": "Original $-$ Optimized (\u00b0)",
+        "n_lines": 1,
+        "line_digest": "c5eef74d87f86699"
+      },
+      {
+        "title": "",
+        "title_right": "",
+        "xlabel": "",
+        "ylabel": "Diff Magnitude (m)",
+        "n_lines": 0,
+        "line_digest": "e3b0c44298fc1c14"
+      },
+      {
+        "title": "",
+        "title_right": "",
+        "xlabel": "",
+        "ylabel": "Diff Magnitude (\u00b0)",
+        "n_lines": 0,
+        "line_digest": "e3b0c44298fc1c14"
+      },
+      {
+        "title": "",
+        "title_right": "",
+        "xlabel": "",
+        "ylabel": "Original (\u00b0)",
+        "n_lines": 1,
+        "line_digest": "fca1bf364a793c6d"
+      },
+      {
+        "title": "",
+        "title_right": "",
+        "xlabel": "",
+        "ylabel": "Original (\u00b0)",
+        "n_lines": 1,
+        "line_digest": "d0bf5d64e79b93bf"
+      },
+      {
+        "title": "",
+        "title_right": "",
+        "xlabel": "",
+        "ylabel": "Original (\u00b0)",
+        "n_lines": 1,
+        "line_digest": "c7143ad2175952f6"
+      }
+    ]
+  }
+}
