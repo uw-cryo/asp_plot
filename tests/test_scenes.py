@@ -1,9 +1,24 @@
 import matplotlib
 import pytest
 
-from asp_plot.scenes import ScenePlotter
+from asp_plot.scenes import SceneFiles, ScenePlotter
 
 matplotlib.use("Agg")
+
+
+class TestSceneFiles:
+    """File discovery is isolated in SceneFiles, separate from plotting."""
+
+    @pytest.fixture
+    def files(self):
+        return SceneFiles(directory="tests/test_data", stereo_directory="stereo")
+
+    def test_discovers_sub_scenes(self, files):
+        assert files.left_scene_sub_fn is not None
+        assert files.right_scene_sub_fn is not None
+
+    def test_is_vantor_flag(self, files):
+        assert files.is_vantor is True
 
 
 class TestScenePlotter:
@@ -18,6 +33,11 @@ class TestScenePlotter:
     def test_is_vantor_detection(self, scene_plotter):
         """Test that ScenePlotter detects Vantor satellite from test data XMLs."""
         assert scene_plotter.is_vantor is True
+
+    def test_composes_scene_files(self, scene_plotter):
+        """ScenePlotter delegates discovery to a SceneFiles instance."""
+        assert isinstance(scene_plotter.files, SceneFiles)
+        assert scene_plotter.left_scene_sub_fn == scene_plotter.files.left_scene_sub_fn
 
     def test_plot_scenes(self, scene_plotter):
         try:

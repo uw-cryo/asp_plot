@@ -1,9 +1,56 @@
 import matplotlib
 import pytest
 
-from asp_plot.stereo import StereoPlotter
+from asp_plot.stereo import StereoFiles, StereoPlotter
 
 matplotlib.use("Agg")
+
+
+class TestStereoFiles:
+    """File discovery is isolated in StereoFiles, separate from plotting."""
+
+    @pytest.fixture
+    def files(self):
+        return StereoFiles(
+            directory="tests/test_data",
+            stereo_directory="stereo",
+            dem_gsd=1,
+            reference_dem="tests/test_data/ref_dem.tif",
+        )
+
+    def test_discovers_dem(self, files):
+        assert files.dem_fn is not None
+        assert files.dem_fn.endswith("-DEM.tif")
+
+    def test_discovers_match_and_disparity(self, files):
+        assert files.match_point_fn is not None
+        assert "-disp-" not in files.match_point_fn
+
+    def test_is_vantor_flag(self, files):
+        assert files.is_vantor is True
+
+
+class TestStereoPlotterComposition:
+    """StereoPlotter delegates discovery to a StereoFiles instance."""
+
+    @pytest.fixture
+    def stereo_plotter(self):
+        return StereoPlotter(
+            directory="tests/test_data",
+            stereo_directory="stereo",
+            dem_gsd=1,
+            reference_dem="tests/test_data/ref_dem.tif",
+        )
+
+    def test_has_files_index(self, stereo_plotter):
+        assert isinstance(stereo_plotter.files, StereoFiles)
+
+    def test_properties_delegate_to_files(self, stereo_plotter):
+        assert stereo_plotter.dem_fn == stereo_plotter.files.dem_fn
+        assert stereo_plotter.full_directory == stereo_plotter.files.full_directory
+
+    def test_is_vantor_passed_to_plotter(self, stereo_plotter):
+        assert stereo_plotter.is_vantor == stereo_plotter.files.is_vantor
 
 
 class TestStereoPlotter:
@@ -51,7 +98,7 @@ class TestStereoPlotter:
 
     @pytest.fixture
     def stereo_plotter_without_intersection_error(self, stereo_plotter):
-        stereo_plotter.intersection_error_fn = None
+        stereo_plotter.files.intersection_error_fn = None
         return stereo_plotter
 
     def test_is_vantor_detection(self, stereo_plotter):
@@ -113,7 +160,7 @@ class TestStereoPlotterNoMapproj:
     def stereo_plotter_no_mapproj_no_intersection_error(
         self, stereo_plotter_no_mapproj
     ):
-        stereo_plotter_no_mapproj.intersection_error_fn = None
+        stereo_plotter_no_mapproj.files.intersection_error_fn = None
         return stereo_plotter_no_mapproj
 
     def test_is_not_vantor(self, stereo_plotter_no_mapproj):
