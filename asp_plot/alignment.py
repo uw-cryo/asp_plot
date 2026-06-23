@@ -5,23 +5,13 @@ import re
 import numpy as np
 from osgeo import gdal, osr
 
+from asp_plot.bodies import BODIES
 from asp_plot.utils import (
     Raster,
     detect_planetary_body,
     glob_file,
     run_subprocess_command,
 )
-
-# Body-centered geocentric ("ECEF-equivalent") CRS for each supported
-# planet. Used by apply_dem_translation to convert pc_align's Cartesian
-# translation vector into the DEM's projected coordinate system. The
-# Earth case is keyed via EPSG; planets need a PROJ string because PROJ
-# refuses to operate across celestial bodies.
-_GEOCENTRIC_PROJ = {
-    "earth": None,  # use EPSG:4978
-    "moon": "+proj=geocent +R=1737400 +units=m +no_defs",
-    "mars": "+proj=geocent +R=3396190 +units=m +no_defs",
-}
 
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
@@ -195,7 +185,7 @@ class Alignment:
                 "Use Altimetry.to_csv_for_pc_align_planetary() to create it.\n"
             )
 
-        datum = {"moon": "D_MOON", "mars": "D_MARS"}.get(body)
+        datum = BODIES[body].datum if body in BODIES else None
         if datum is None:
             raise ValueError(
                 f"Unsupported body for pc_align_dem_to_planetary_csv: {body}"
@@ -384,7 +374,7 @@ class Alignment:
         # Mars/Moon and EPSG:4978 for Earth.
         body = detect_planetary_body(self.dem_fn)
         ecef_srs = osr.SpatialReference()
-        proj_string = _GEOCENTRIC_PROJ.get(body)
+        proj_string = BODIES[body].geocentric_proj
         if proj_string is None:
             ecef_srs.ImportFromEPSG(4978)
         else:

@@ -17,6 +17,7 @@ from rasterio import plot as rioplot
 from sliderule import sliderule as sliderule_api
 
 from asp_plot.alignment import Alignment
+from asp_plot.bodies import BODIES
 from asp_plot.stereopair_metadata_parser import StereopairMetadataParser
 from asp_plot.utils import ColorBar, Raster, glob_file, save_figure
 
@@ -25,10 +26,11 @@ logger = logging.getLogger(__name__)
 
 ICESAT2_MISSION_START = datetime(2018, 10, 14, tzinfo=timezone.utc)
 
-# IAU 2000 mean equatorial radii used by ASP DEMs and pc_align.
-# ASP DEM heights are stored as (planetary_radius - sphere_radius).
-MARS_IAU_SPHERE_RADIUS = 3_396_190.0  # meters
-MOON_IAU_SPHERE_RADIUS = 1_737_400.0  # meters
+# IAU 2000 mean equatorial radii used by ASP DEMs and pc_align (stored as
+# (planetary_radius - sphere_radius)). Sourced from the body registry so the
+# values live in exactly one place.
+MARS_IAU_SPHERE_RADIUS = BODIES["mars"].iau_sphere_radius_m  # meters
+MOON_IAU_SPHERE_RADIUS = BODIES["moon"].iau_sphere_radius_m  # meters
 
 WORLDCOVER_NAMES = {
     10: "Tree cover",
@@ -1503,9 +1505,10 @@ class Altimetry:
         "radius",
     ]
 
-    # Geographic CRS WKT strings for building GeoDataFrames
-    _MOON_GEO_CRS = 'GEOGCRS["Moon",DATUM["D_MOON",ELLIPSOID["MOON",1737400,0]],PRIMEM["Reference_Meridian",0],CS[ellipsoidal,2],AXIS["latitude",north,ORDER[1],ANGLEUNIT["degree",0.0174532925199433]],AXIS["longitude",east,ORDER[2],ANGLEUNIT["degree",0.0174532925199433]]]'
-    _MARS_GEO_CRS = 'GEOGCRS["Mars",DATUM["D_MARS",ELLIPSOID["MARS",3396190,0]],PRIMEM["Reference_Meridian",0],CS[ellipsoidal,2],AXIS["latitude",north,ORDER[1],ANGLEUNIT["degree",0.0174532925199433]],AXIS["longitude",east,ORDER[2],ANGLEUNIT["degree",0.0174532925199433]]]'
+    # Geographic CRS WKT strings for building GeoDataFrames (sourced from the
+    # body registry).
+    _MOON_GEO_CRS = BODIES["moon"].geographic_crs_wkt
+    _MARS_GEO_CRS = BODIES["mars"].geographic_crs_wkt
 
     @staticmethod
     def _find_csv_column(cols_lower, candidates):
@@ -1854,7 +1857,7 @@ class Altimetry:
         from asp_plot.utils import detect_planetary_body
 
         body = detect_planetary_body(self.dem_fn)
-        instrument = {"moon": "LOLA", "mars": "MOLA"}.get(body, "Altimetry")
+        instrument = BODIES[body].altimetry_instrument
 
         parameters_used = {
             "max_displacement": max_displacement,
@@ -2042,7 +2045,7 @@ class Altimetry:
             self.planetary_to_dem_dh()
 
         body = detect_planetary_body(self.dem_fn)
-        instrument = {"moon": "LOLA", "mars": "MOLA"}.get(body, "Altimetry")
+        instrument = BODIES[body].altimetry_instrument
         if title is None:
             title = f"{instrument} vs DEM"
 
@@ -2161,7 +2164,7 @@ class Altimetry:
             return
 
         body = detect_planetary_body(self.dem_fn)
-        instrument = {"moon": "LOLA", "mars": "MOLA"}.get(body, "Altimetry")
+        instrument = BODIES[body].altimetry_instrument
         if title is None:
             title = f"{instrument} vs ASP DEM"
 

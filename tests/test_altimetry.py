@@ -408,6 +408,38 @@ class TestPlanetaryDh:
         except Exception as e:
             pytest.fail(f"histogram_planetary_to_dem raised: {e}")
 
+    @pytest.mark.parametrize(
+        "body, instrument",
+        [("moon", "LOLA"), ("mars", "MOLA")],
+    )
+    def test_planetary_plot_titles_use_body_instrument(
+        self, alt_with_points, monkeypatch, body, instrument
+    ):
+        """The planetary plot/histogram titles must reflect the body's
+        altimetry instrument (LOLA for the Moon, MOLA for Mars), sourced
+        from the Body registry.
+
+        The fixture DEM is an Earth DEM, so detection is stubbed to the
+        planetary body to exercise the real moon/mars labeling path that
+        the Earth-DEM fixtures otherwise never reach.
+        """
+        import matplotlib.pyplot as plt
+
+        import asp_plot.utils
+
+        monkeypatch.setattr(
+            asp_plot.utils, "detect_planetary_body", lambda dem_fn: body
+        )
+        alt_with_points.planetary_to_dem_dh()
+
+        plt.close("all")
+        alt_with_points.mapview_plot_planetary_to_dem()
+        assert plt.gcf()._suptitle.get_text() == f"{instrument} vs DEM"
+
+        plt.close("all")
+        alt_with_points.histogram_planetary_to_dem()
+        assert plt.gcf()._suptitle.get_text() == f"{instrument} vs ASP DEM"
+
     def test_to_csv_for_pc_align_planetary(self, alt_with_points, tmp_path):
         """to_csv_for_pc_align_planetary writes lon/lat/radius_m only."""
         # Add the radius_m column the loaders normally populate
