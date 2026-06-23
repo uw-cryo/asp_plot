@@ -55,8 +55,8 @@ class TestImports:
         from asp_plot.selections import FigureSelections
         from asp_plot.sensors import (
             SENSORS,
-            DigitalGlobeMetadata,
             SensorMetadata,
+            WorldViewMetadata,
             sensor_for_directory,
         )
         from asp_plot.stereo import StereoPlotter
@@ -84,6 +84,6 @@ class TestImports:
         assert BODIES is not None
         assert body_for_dem is not None
         assert SensorMetadata is not None
-        assert DigitalGlobeMetadata is not None
+        assert WorldViewMetadata is not None
         assert SENSORS is not None
         assert sensor_for_directory is not None

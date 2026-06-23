@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from asp_plot.sensors import DigitalGlobeMetadata
+from asp_plot.sensors import WorldViewMetadata
 from asp_plot.stereopair_metadata_parser import (
     StereopairMetadataParser,
     get_asymmetry_angle,
@@ -23,7 +23,7 @@ class TestStereopairMetadataParser:
 
     def test_detects_sensor_reader(self, parser):
         # Parser is sensor-agnostic and delegates to a detected reader
-        assert isinstance(parser.reader, DigitalGlobeMetadata)
+        assert isinstance(parser.reader, WorldViewMetadata)
 
     def test_image_list_delegates_to_reader(self, parser):
         assert parser.image_list is parser.reader.image_list

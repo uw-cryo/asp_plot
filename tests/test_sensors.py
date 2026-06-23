@@ -4,24 +4,24 @@ import pytest
 
 from asp_plot.sensors import (
     SENSORS,
-    DigitalGlobeMetadata,
     SensorMetadata,
+    WorldViewMetadata,
     sensor_for_directory,
 )
 
 
-class TestDigitalGlobeMetadata:
+class TestWorldViewMetadata:
     @pytest.fixture
     def reader(self):
-        return DigitalGlobeMetadata(directory="tests/test_data")
+        return WorldViewMetadata(directory="tests/test_data")
 
     @pytest.fixture
     def reader_tiled(self):
-        return DigitalGlobeMetadata(directory="tests/test_data/tiled_xmls")
+        return WorldViewMetadata(directory="tests/test_data/tiled_xmls")
 
     def test_is_sensor_metadata(self, reader):
         assert isinstance(reader, SensorMetadata)
-        assert reader.name == "DigitalGlobe/Maxar"
+        assert reader.name == "WorldView"
 
     def test_image_list_excludes_ortho(self, reader):
         assert len(reader.image_list) > 0
@@ -30,7 +30,7 @@ class TestDigitalGlobeMetadata:
 
     def test_missing_xml_raises(self, tmp_path):
         with pytest.raises(ValueError, match="Missing XML camera files"):
-            DigitalGlobeMetadata(directory=str(tmp_path))
+            WorldViewMetadata(directory=str(tmp_path))
 
     def test_get_scene_dicts(self, reader):
         scene_dicts = reader.get_scene_dicts()
@@ -77,18 +77,18 @@ class TestDigitalGlobeMetadata:
 
 
 class TestSensorDetection:
-    def test_detect_digitalglobe(self):
-        assert DigitalGlobeMetadata.detect("tests/test_data") is True
+    def test_detect_worldview(self):
+        assert WorldViewMetadata.detect("tests/test_data") is True
 
     def test_detect_empty_dir(self, tmp_path):
-        assert DigitalGlobeMetadata.detect(str(tmp_path)) is False
+        assert WorldViewMetadata.detect(str(tmp_path)) is False
 
-    def test_registry_contains_digitalglobe(self):
-        assert DigitalGlobeMetadata in SENSORS
+    def test_registry_contains_worldview(self):
+        assert WorldViewMetadata in SENSORS
 
     def test_sensor_for_directory_returns_reader(self):
         reader = sensor_for_directory("tests/test_data")
-        assert isinstance(reader, DigitalGlobeMetadata)
+        assert isinstance(reader, WorldViewMetadata)
         assert isinstance(reader, SensorMetadata)
 
     def test_sensor_for_directory_no_match_raises(self, tmp_path):

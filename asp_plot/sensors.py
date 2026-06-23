@@ -4,10 +4,10 @@ This module isolates the *sensor-specific* work of discovering scene files and
 extracting per-scene metadata from the *sensor-agnostic* stereo-pair geometry
 math in :mod:`asp_plot.stereopair_metadata_parser`.
 
-The goal is flexibility: today only DigitalGlobe/Maxar XML camera files are
-supported, but adding a new sensor (ASTER, HiRISE, etc.) is a matter of writing
-a new :class:`SensorMetadata` subclass and registering it in ``SENSORS`` — no
-changes to the pair-level geometry code are required.
+The goal is flexibility: today only WorldView (and other DigitalGlobe-heritage)
+XML camera files are supported, but adding a new sensor (ASTER, HiRISE, etc.) is
+a matter of writing a new :class:`SensorMetadata` subclass and registering it in
+``SENSORS`` — no changes to the pair-level geometry code are required.
 
 Each reader is responsible for turning a directory of camera/metadata files into
 a list of *scene dicts*, one per scene, each containing the sensor-agnostic keys
@@ -53,7 +53,7 @@ class SensorMetadata(ABC):
     Attributes
     ----------
     name : str
-        Human-readable sensor name (e.g. ``"DigitalGlobe/Maxar"``).
+        Human-readable sensor name (e.g. ``"WorldView"``).
     directory : str
         Path to the directory containing the sensor's metadata files.
     """
@@ -98,12 +98,13 @@ class SensorMetadata(ABC):
         raise NotImplementedError
 
 
-class DigitalGlobeMetadata(SensorMetadata):
-    """Metadata reader for DigitalGlobe/Maxar satellite XML camera files.
+class WorldViewMetadata(SensorMetadata):
+    """Metadata reader for WorldView satellite XML camera files.
 
-    Parses Digital Globe/Maxar (and similar) satellite XML files to extract
-    per-scene metadata, handling both single XML files and multiple XML tiles
-    per scene (mosaicked with ``dg_mosaic``).
+    Parses WorldView (and other DigitalGlobe-heritage products that share the
+    same XML format, e.g. GeoEye-1, QuickBird, IKONOS) satellite XML files to
+    extract per-scene metadata, handling both single XML files and multiple XML
+    tiles per scene (mosaicked with ``dg_mosaic``).
 
     Attributes
     ----------
@@ -113,11 +114,11 @@ class DigitalGlobeMetadata(SensorMetadata):
         List of XML files found in the directory.
     """
 
-    name = "DigitalGlobe/Maxar"
+    name = "WorldView"
 
     def __init__(self, directory):
         """
-        Initialize the DigitalGlobe/Maxar metadata reader.
+        Initialize the WorldView metadata reader.
 
         Parameters
         ----------
@@ -169,7 +170,7 @@ class DigitalGlobeMetadata(SensorMetadata):
         Returns
         -------
         bool
-            Whether DigitalGlobe/Maxar XML camera files were found.
+            Whether WorldView XML camera files were found.
         """
         return bool(cls._discover_xmls(os.path.expanduser(directory)))
 
@@ -552,7 +553,7 @@ class DigitalGlobeMetadata(SensorMetadata):
 
 
 # Registry of available sensor readers, in detection-priority order.
-SENSORS = [DigitalGlobeMetadata]
+SENSORS = [WorldViewMetadata]
 
 
 def sensor_for_directory(directory):
