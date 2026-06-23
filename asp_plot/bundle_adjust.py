@@ -8,13 +8,7 @@ import pandas as pd
 
 from asp_plot.processing_parameters import ProcessingParameters
 from asp_plot.stereopair_metadata_parser import StereopairMetadataParser
-from asp_plot.utils import (
-    ColorBar,
-    Plotter,
-    glob_file,
-    run_subprocess_command,
-    save_figure,
-)
+from asp_plot.utils import ColorBar, Plotter, glob_file, run_subprocess_command
 
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
@@ -637,6 +631,4 @@ class PlotBundleAdjustFiles(Plotter):
             fig.delaxes(axa[i])
         fig.suptitle(self.title, size=10)
         plt.subplots_adjust(wspace=0.2, hspace=0.4)
-        fig.tight_layout()
-        if save_dir and fig_fn:
-            save_figure(fig, save_dir, fig_fn)
+        self.save(fig, save_dir, fig_fn)

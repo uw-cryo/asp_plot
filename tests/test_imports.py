@@ -51,7 +51,7 @@ class TestImports:
         from asp_plot.gallery import GalleryPlotter
         from asp_plot.processing_parameters import ProcessingParameters
         from asp_plot.report_pipeline import ReportConfig, run_report
-        from asp_plot.scenes import ScenePlotter
+        from asp_plot.scenes import SceneFiles, ScenePlotter
         from asp_plot.selections import FigureSelections
         from asp_plot.sensors import (
             SENSORS,
@@ -59,7 +59,7 @@ class TestImports:
             WorldViewMetadata,
             sensor_for_directory,
         )
-        from asp_plot.stereo import StereoPlotter
+        from asp_plot.stereo import StereoFiles, StereoPlotter
         from asp_plot.stereo_geometry import StereoGeometryPlotter
         from asp_plot.stereopair_metadata_parser import StereopairMetadataParser
         from asp_plot.utils import ColorBar, Plotter, Raster
@@ -72,6 +72,8 @@ class TestImports:
         assert Plotter is not None
         assert StereopairMetadataParser is not None
         assert ScenePlotter is not None
+        assert SceneFiles is not None
+        assert StereoFiles is not None
         assert ProcessingParameters is not None
         assert ReadBundleAdjustFiles is not None
         assert PlotBundleAdjustFiles is not None

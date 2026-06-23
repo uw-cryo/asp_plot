@@ -14,18 +14,152 @@ from asp_plot.selections import (
     pixel_window_to_bbox,
     reproject_bbox,
 )
-from asp_plot.utils import (
-    ColorBar,
-    Plotter,
-    Raster,
-    add_copyright_overlay,
-    detect_vantor_satellite,
-    glob_file,
-    save_figure,
-)
+from asp_plot.utils import ColorBar, Plotter, Raster, detect_vantor_satellite, glob_file
 
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
+
+
+class StereoFiles:
+    """
+    Discover the ASP stereo output files for a processing directory.
+
+    This isolates file discovery (globbing for DEMs, disparity maps, match
+    files, reference DEM, etc.) from the plotting in ``StereoPlotter``,
+    mirroring the ``ReadBundleAdjustFiles`` / ``PlotBundleAdjustFiles`` split.
+    The resolved paths and flags are exposed as plain attributes, which
+    ``StereoPlotter`` consumes.
+
+    Attributes
+    ----------
+    directory : str
+        Root directory for ASP processing.
+    stereo_directory : str
+        Directory containing stereo processing outputs.
+    full_directory : str
+        Full path to the stereo directory.
+    is_vantor : bool
+        Whether the source imagery is from a Vantor (WorldView) satellite.
+    reference_dem : str or None
+        Path to the reference DEM (supplied or recovered from the stereo log).
+    left_image_fn, left_image_sub_fn, right_image_sub_fn : str or None
+        Left/right (sub-sampled) image paths.
+    orthos : bool
+        Whether the left image is map-projected.
+    align_left_fn, align_right_fn : str or None
+        Alignment transform text files.
+    match_point_fn : str
+        Match-point file (the non-``-disp-`` one when several exist).
+    disparity_sub_fn, disparity_fn : str or None
+        Sub-sampled and full disparity map paths.
+    dem_gsd : float or None
+        Ground sample distance of the DEM in meters.
+    dem_fn : str
+        Path to the stereo DEM.
+    intersection_error_fn : str or None
+        Triangulation intersection-error raster.
+    """
+
+    def __init__(
+        self,
+        directory,
+        stereo_directory,
+        dem_gsd=None,
+        dem_fn=None,
+        reference_dem=None,
+    ):
+        """
+        Discover stereo output files.
+
+        Parameters
+        ----------
+        directory : str
+            Root directory for ASP processing.
+        stereo_directory : str
+            Directory containing stereo processing outputs.
+        dem_gsd : float, optional
+            Ground sample distance of the DEM in meters.
+        dem_fn : str, optional
+            Path to the DEM file, default is None (automatically detected).
+        reference_dem : str, optional
+            Path to the reference DEM file, default is None (recovered from the
+            stereo log).
+
+        Raises
+        ------
+        ValueError
+            If no DEM file is found in the stereo directory.
+        """
+        self.directory = os.path.expanduser(directory)
+        self.stereo_directory = stereo_directory
+        self.is_vantor = detect_vantor_satellite(self.directory)
+
+        if reference_dem:
+            self.reference_dem = os.path.expanduser(reference_dem)
+        else:
+            processing_parameters = ProcessingParameters(
+                processing_directory=self.directory,
+                stereo_directory=self.stereo_directory,
+            )
+            self.reference_dem = processing_parameters.from_stereo_log(
+                search_for_reference_dem=True
+            )[-1]
+            if not self.reference_dem:
+                logger.warning(
+                    "\n\nNo reference DEM found in log files. Please supply the reference DEM you used during stereo processing (or another reference DEM) if you would like to see some difference maps.\n\n"
+                )
+            # If the reference DEM path from the log is relative, make it absolute
+            elif not os.path.isabs(self.reference_dem):
+                self.reference_dem = os.path.join(self.directory, self.reference_dem)
+        if self.reference_dem:
+            print(f"\nReference DEM: {self.reference_dem}\n")
+
+        self.full_directory = os.path.join(self.directory, self.stereo_directory)
+        self.left_image_fn = glob_file(self.full_directory, "*-L.tif")
+        # Set processing flag if the left image is not mapprojected
+        self.orthos = False if Raster(self.left_image_fn).transform is None else True
+        self.left_image_sub_fn = glob_file(self.full_directory, "*-L_sub.tif")
+        self.right_image_sub_fn = glob_file(self.full_directory, "*-R_sub.tif")
+        self.align_left_fn = glob_file(self.full_directory, "*-align-L.txt")
+        self.align_right_fn = glob_file(self.full_directory, "*-align-R.txt")
+
+        # There may be multiple match files if stereo was run with --num-matches-from-disparity.
+        # In that case, filter out the match file with `-disp-` in filename.
+        match_files = glob_file(self.full_directory, "*.match", all_files=True)
+        self.match_point_fn = [f for f in match_files if "-disp-" not in f][0]
+
+        self.disparity_sub_fn = glob_file(self.full_directory, "*-D_sub.tif")
+        # We only need the full disparity file to retrieve the GSD for plotting
+        # and rescaling below.
+        self.disparity_fn = glob_file(self.full_directory, "*-D.tif")
+
+        self.dem_gsd = dem_gsd
+
+        if not dem_fn:
+            if self.dem_gsd is not None:
+                self.dem_fn = glob_file(
+                    self.full_directory,
+                    f"*-DEM_{self.dem_gsd}m.tif",
+                    f"*{self.dem_gsd}m-DEM.tif",
+                )
+            else:
+                self.dem_fn = glob_file(
+                    self.full_directory,
+                    "*-DEM.tif",
+                )
+        else:
+            self.dem_fn = glob_file(self.full_directory, dem_fn)
+
+        if not self.dem_fn:
+            raise ValueError(
+                f"\n\nDEM file not found in {self.full_directory}. Make sure it is there and possibly specify the GSD with the dem_gsd argument.\n\n"
+            )
+        else:
+            print(f"\nASP DEM: {self.dem_fn}\n")
+
+        self.intersection_error_fn = glob_file(
+            self.full_directory, "*-IntersectionErr.tif"
+        )
 
 
 class StereoPlotter(Plotter):
@@ -98,79 +232,84 @@ class StereoPlotter(Plotter):
         Notes
         -----
         If dem_fn is not provided, the class will try to find a DEM in the
-        stereo directory with a pattern like *-DEM.tif or *_dem.tif.
+        stereo directory with a pattern like *-DEM.tif or *_dem.tif. File
+        discovery is delegated to :class:`StereoFiles`; the resolved paths are
+        exposed as read-only properties on this plotter.
         """
-        super().__init__(**kwargs)
-        self.directory = os.path.expanduser(directory)
-        self.stereo_directory = stereo_directory
-        self.is_vantor = detect_vantor_satellite(self.directory)
-
-        if reference_dem:
-            self.reference_dem = os.path.expanduser(reference_dem)
-        else:
-            processing_parameters = ProcessingParameters(
-                processing_directory=self.directory,
-                stereo_directory=self.stereo_directory,
-            )
-            self.reference_dem = processing_parameters.from_stereo_log(
-                search_for_reference_dem=True
-            )[-1]
-            if not self.reference_dem:
-                logger.warning(
-                    "\n\nNo reference DEM found in log files. Please supply the reference DEM you used during stereo processing (or another reference DEM) if you would like to see some difference maps.\n\n"
-                )
-            # If the reference DEM path from the log is relative, make it absolute
-            elif not os.path.isabs(self.reference_dem):
-                self.reference_dem = os.path.join(self.directory, self.reference_dem)
-        if self.reference_dem:
-            print(f"\nReference DEM: {self.reference_dem}\n")
-
-        self.full_directory = os.path.join(self.directory, self.stereo_directory)
-        self.left_image_fn = glob_file(self.full_directory, "*-L.tif")
-        # Set processing flag if the left image is not mapprojected
-        self.orthos = False if Raster(self.left_image_fn).transform is None else True
-        self.left_image_sub_fn = glob_file(self.full_directory, "*-L_sub.tif")
-        self.right_image_sub_fn = glob_file(self.full_directory, "*-R_sub.tif")
-        self.align_left_fn = glob_file(self.full_directory, "*-align-L.txt")
-        self.align_right_fn = glob_file(self.full_directory, "*-align-R.txt")
-
-        # There may be multiple match files if stereo was run with --num-matches-from-disparity.
-        # In that case, filter out the match file with `-disp-` in filename.
-        match_files = glob_file(self.full_directory, "*.match", all_files=True)
-        self.match_point_fn = [f for f in match_files if "-disp-" not in f][0]
-
-        self.disparity_sub_fn = glob_file(self.full_directory, "*-D_sub.tif")
-        # We only need the full disparity file to retrieve the GSD for plotting
-        # and rescaling below.
-        self.disparity_fn = glob_file(self.full_directory, "*-D.tif")
-
-        self.dem_gsd = dem_gsd
-
-        if not dem_fn:
-            if self.dem_gsd is not None:
-                self.dem_fn = glob_file(
-                    self.full_directory,
-                    f"*-DEM_{self.dem_gsd}m.tif",
-                    f"*{self.dem_gsd}m-DEM.tif",
-                )
-            else:
-                self.dem_fn = glob_file(
-                    self.full_directory,
-                    "*-DEM.tif",
-                )
-        else:
-            self.dem_fn = glob_file(self.full_directory, dem_fn)
-
-        if not self.dem_fn:
-            raise ValueError(
-                f"\n\nDEM file not found in {self.full_directory}. Make sure it is there and possibly specify the GSD with the dem_gsd argument.\n\n"
-            )
-        else:
-            print(f"\nASP DEM: {self.dem_fn}\n")
-
-        self.intersection_error_fn = glob_file(
-            self.full_directory, "*-IntersectionErr.tif"
+        self.files = StereoFiles(
+            directory,
+            stereo_directory,
+            dem_gsd=dem_gsd,
+            dem_fn=dem_fn,
+            reference_dem=reference_dem,
         )
+        super().__init__(is_vantor=self.files.is_vantor, **kwargs)
+
+    # File discovery lives in StereoFiles; expose the resolved paths/flags as
+    # read-only properties so the plotting methods can keep using ``self.<attr>``.
+    @property
+    def directory(self):
+        return self.files.directory
+
+    @property
+    def stereo_directory(self):
+        return self.files.stereo_directory
+
+    @property
+    def full_directory(self):
+        return self.files.full_directory
+
+    @property
+    def reference_dem(self):
+        return self.files.reference_dem
+
+    @property
+    def left_image_fn(self):
+        return self.files.left_image_fn
+
+    @property
+    def orthos(self):
+        return self.files.orthos
+
+    @property
+    def left_image_sub_fn(self):
+        return self.files.left_image_sub_fn
+
+    @property
+    def right_image_sub_fn(self):
+        return self.files.right_image_sub_fn
+
+    @property
+    def align_left_fn(self):
+        return self.files.align_left_fn
+
+    @property
+    def align_right_fn(self):
+        return self.files.align_right_fn
+
+    @property
+    def match_point_fn(self):
+        return self.files.match_point_fn
+
+    @property
+    def disparity_sub_fn(self):
+        return self.files.disparity_sub_fn
+
+    @property
+    def disparity_fn(self):
+        return self.files.disparity_fn
+
+    @property
+    def dem_gsd(self):
+        return self.files.dem_gsd
+
+    @property
+    def dem_fn(self):
+        return self.files.dem_fn
+
+    @property
+    def intersection_error_fn(self):
+        return self.files.intersection_error_fn
 
     def read_ip_record(self, match_file):
         """
@@ -344,8 +483,20 @@ class StereoPlotter(Plotter):
 
             left_image = Raster(self.left_image_sub_fn).read_array()
             right_image = Raster(self.right_image_sub_fn).read_array()
-            self.plot_array(ax=axa[0], array=left_image, cmap="gray", add_cbar=False)
-            self.plot_array(ax=axa[1], array=right_image, cmap="gray", add_cbar=False)
+            self.plot_array(
+                ax=axa[0],
+                array=left_image,
+                cmap="gray",
+                add_cbar=False,
+                copyright=True,
+            )
+            self.plot_array(
+                ax=axa[1],
+                array=right_image,
+                cmap="gray",
+                add_cbar=False,
+                copyright=True,
+            )
             axa[0].set_title(f"Left (n={match_point_df.shape[0]})")
             axa[1].set_title("Right")
 
@@ -368,32 +519,12 @@ class StereoPlotter(Plotter):
                 s=1,
             )
             axa[1].set_aspect("equal")
-
-            if self.is_vantor:
-                add_copyright_overlay(axa[0])
-                add_copyright_overlay(axa[1])
         else:
-            axa[0].text(
-                0.5,
-                0.5,
-                "One or more required\nfiles are missing",
-                horizontalalignment="center",
-                verticalalignment="center",
-                transform=axa[0].transAxes,
-            )
-            axa[1].text(
-                0.5,
-                0.5,
-                "One or more required\nfiles are missing",
-                horizontalalignment="center",
-                verticalalignment="center",
-                transform=axa[1].transAxes,
-            )
+            self.plot_missing(axa[0])
+            self.plot_missing(axa[1])
 
         fig.suptitle(self.title, size=10)
-        fig.tight_layout()
-        if save_dir and fig_fn:
-            save_figure(fig, save_dir, fig_fn)
+        self.save(fig, save_dir, fig_fn)
 
     def plot_disparity(
         self, unit="pixels", remove_bias=True, quiver=True, save_dir=None, fig_fn=None
@@ -512,18 +643,9 @@ class StereoPlotter(Plotter):
             axa[2].set_title("offset magnitude")
         else:
             for ax in axa:
-                ax.text(
-                    0.5,
-                    0.5,
-                    "One or more required\nfiles are missing",
-                    horizontalalignment="center",
-                    verticalalignment="center",
-                    transform=ax.transAxes,
-                )
+                self.plot_missing(ax)
 
-        fig.tight_layout()
-        if save_dir and fig_fn:
-            save_figure(fig, save_dir, fig_fn)
+        self.save(fig, save_dir, fig_fn)
 
     def _auto_hillshade_clip_offsets(
         self, ie, subset_size, intersection_error_percentiles
@@ -668,9 +790,7 @@ class StereoPlotter(Plotter):
             hs = raster.hillshade()
             self._plot_hillshade_with_overlay(ax, dem, hs, gsd)
 
-            fig.tight_layout()
-            if save_dir and fig_fn:
-                save_figure(fig, save_dir, fig_fn)
+            self.save(fig, save_dir, fig_fn)
 
             return
 
@@ -823,9 +943,8 @@ class StereoPlotter(Plotter):
                     clim=clim,
                     cmap="gray",
                     add_cbar=False,
+                    copyright=True,
                 )
-                if self.is_vantor:
-                    add_copyright_overlay(ax_img)
                 axes_to_modify = [ax_hs, ax_img]
             else:
                 plt.delaxes(ax_img)
@@ -839,8 +958,7 @@ class StereoPlotter(Plotter):
                     spine.set_color(color)
                     spine.set_linewidth(4)
 
-        if save_dir and fig_fn:
-            save_figure(fig, save_dir, fig_fn)
+        self.save(fig, save_dir, fig_fn, tight_layout=False)
 
     def get_diff_vs_reference(self):
         """
@@ -969,14 +1087,7 @@ class StereoPlotter(Plotter):
             hs = raster.hillshade()
             self._plot_hillshade_with_overlay(axa[0], dem, hs, gsd, clim=el_clim)
         else:
-            axa[0].text(
-                0.5,
-                0.5,
-                "One or more required\nfiles are missing",
-                horizontalalignment="center",
-                verticalalignment="center",
-                transform=axa[0].transAxes,
-            )
+            self.plot_missing(axa[0])
         axa[0].set_title("Stereo DEM")
 
         if self.intersection_error_fn:
@@ -989,14 +1100,7 @@ class StereoPlotter(Plotter):
                 cbar_label="Distance (m)",
             )
         else:
-            axa[1].text(
-                0.5,
-                0.5,
-                "One or more required\nfiles are missing",
-                horizontalalignment="center",
-                verticalalignment="center",
-                transform=axa[1].transAxes,
-            )
+            self.plot_missing(axa[1])
         axa[1].set_title("Triangulation intersection error")
 
         diff = self.get_diff_vs_reference()
@@ -1012,16 +1116,7 @@ class StereoPlotter(Plotter):
                 cbar_label="Elevation diff. (m)",
             )
         else:
-            axa[2].text(
-                0.5,
-                0.5,
-                "One or more required\nfiles are missing",
-                horizontalalignment="center",
-                verticalalignment="center",
-                transform=axa[2].transAxes,
-            )
+            self.plot_missing(axa[2])
         axa[2].set_title("Reference DEM $-$ Stereo DEM")
 
-        fig.tight_layout()
-        if save_dir and fig_fn:
-            save_figure(fig, save_dir, fig_fn)
+        self.save(fig, save_dir, fig_fn)

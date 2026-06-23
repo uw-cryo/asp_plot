@@ -9,6 +9,7 @@ from PIL import Image
 from asp_plot.report import ReportMetadata, ReportSection, compile_report
 from asp_plot.utils import (
     ColorBar,
+    Plotter,
     Raster,
     add_copyright_overlay,
     detect_planetary_body,
@@ -177,6 +178,15 @@ class TestRaster:
         assert isinstance(hillshade, np.ma.MaskedArray)
         assert hillshade.ndim == 2
 
+    def test_hillshade_with_shape(self, test_dem):
+        """Hillshade resampled to a target shape (used by the gallery)."""
+        raster = Raster(test_dem)
+        full = raster.hillshade()
+        shape = (full.shape[0] // 2, full.shape[1] // 2)
+        hs = raster.hillshade(shape=shape)
+        assert isinstance(hs, np.ma.MaskedArray)
+        assert hs.shape == shape
+
     def test_load_and_diff_rasters(self, test_dem, test_ref_dem):
         """Test static method for loading and differencing rasters."""
         diff, transform, crs, nodata = Raster.load_and_diff_rasters(
@@ -292,6 +302,66 @@ class TestColorBar:
         cb.get_clim(data)
         norm = cb.get_norm(lognorm=False)
         assert norm is not None
+
+    def test_get_norm_explicit_clim(self):
+        """Explicit clim is used without relying on the mutable self.clim."""
+        cb = ColorBar()
+        norm = cb.get_norm(lognorm=False, clim=(0.0, 10.0))
+        assert norm.vmin == 0.0
+        assert norm.vmax == 10.0
+
+
+class TestPlotter:
+    """Test the Plotter scaffold (save, plot_missing, copyright path)."""
+
+    def test_is_vantor_default_false(self):
+        assert Plotter().is_vantor is False
+
+    def test_plot_array_copyright_overlay(self):
+        """copyright=True draws the overlay only when is_vantor is True."""
+        data = np.ma.masked_invalid(np.random.rand(10, 10))
+
+        plotter = Plotter(is_vantor=True)
+        fig, ax = plt.subplots()
+        plotter.plot_array(ax, data, add_cbar=False, copyright=True)
+        assert any("Vantor" in t.get_text() for t in ax.texts)
+        plt.close(fig)
+
+        plotter = Plotter(is_vantor=False)
+        fig, ax = plt.subplots()
+        plotter.plot_array(ax, data, add_cbar=False, copyright=True)
+        assert not any("Vantor" in t.get_text() for t in ax.texts)
+        plt.close(fig)
+
+    def test_plot_array_no_copyright_by_default(self):
+        """Even an is_vantor plotter adds no overlay unless copyright=True."""
+        data = np.ma.masked_invalid(np.random.rand(10, 10))
+        plotter = Plotter(is_vantor=True)
+        fig, ax = plt.subplots()
+        plotter.plot_array(ax, data, add_cbar=False)
+        assert not any("Vantor" in t.get_text() for t in ax.texts)
+        plt.close(fig)
+
+    def test_plot_missing(self):
+        plotter = Plotter()
+        fig, ax = plt.subplots()
+        plotter.plot_missing(ax)
+        assert any("missing" in t.get_text() for t in ax.texts)
+        plt.close(fig)
+
+    def test_save_writes_file(self, tmp_path):
+        plotter = Plotter()
+        fig, ax = plt.subplots()
+        plotter.save(fig, save_dir=str(tmp_path), fig_fn="out.png")
+        assert (tmp_path / "out.png").exists()
+        plt.close(fig)
+
+    def test_save_no_write_without_filename(self, tmp_path):
+        plotter = Plotter()
+        fig, ax = plt.subplots()
+        plotter.save(fig, save_dir=str(tmp_path), fig_fn=None)
+        assert list(tmp_path.iterdir()) == []
+        plt.close(fig)
 
 
 class TestGetUtmEpsg:

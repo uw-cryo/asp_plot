@@ -527,7 +527,7 @@ class ColorBar:
             extend = "min"
         return extend
 
-    def get_norm(self, lognorm=False):
+    def get_norm(self, lognorm=False, clim=None):
         """
         Get normalization for colormap.
 
@@ -535,17 +535,18 @@ class ColorBar:
         ----------
         lognorm : bool, optional
             Whether to use logarithmic normalization, default is False
+        clim : tuple, optional
+            Explicit color limits (min, max) to normalize against. If None
+            (default), falls back to ``self.clim`` (set by a prior ``get_clim``
+            or ``find_common_clim`` call). Passing ``clim`` explicitly avoids
+            relying on the mutable ``self.clim`` state.
 
         Returns
         -------
         matplotlib.colors.Normalize
             Normalization object for matplotlib colormaps
-
-        Notes
-        -----
-        Requires the clim attribute to be set (by calling get_clim or find_common_clim)
         """
-        vmin, vmax = self.clim
+        vmin, vmax = clim if clim is not None else self.clim
         if lognorm:
             norm = matplotlib.colors.LogNorm(vmin=vmin, vmax=vmax)
         else:
@@ -851,30 +852,45 @@ class Raster:
         else:
             return bounds
 
-    def hillshade(self):
+    def hillshade(self, shape=None):
         """
         Generate a hillshade from the raster.
+
+        Parameters
+        ----------
+        shape : tuple of int or None, optional
+            Target ``(height, width)`` for the hillshade. When given, the source
+            is resampled to this shape (in memory) before computing the
+            hillshade, so the result matches a downsampled DEM array. When None
+            (default), the hillshade is computed at full resolution and a
+            cached ``*_hs.tif`` file is reused if present.
 
         Returns
         -------
         numpy.ma.MaskedArray
-            Hillshade array
+            Hillshade array (nodata masked at 0).
 
         Notes
         -----
-        First checks if a hillshade file already exists with "_hs.tif" suffix.
-        If not, generates the hillshade using GDAL.
+        At full resolution this first checks for a sibling ``*_hs.tif`` file and
+        reuses it; otherwise it generates the hillshade using GDAL
+        (``computeEdges``). The cache is skipped when ``shape`` is given, since
+        the cached file is full-resolution.
         """
-        hs_fn = os.path.splitext(self.fn)[0] + "_hs.tif"
-        if os.path.exists(hs_fn):
-            hillshade = Raster(hs_fn).read_array()
+        if shape is None:
+            hs_fn = os.path.splitext(self.fn)[0] + "_hs.tif"
+            if os.path.exists(hs_fn):
+                return Raster(hs_fn).read_array()
+            src = gdal.Open(self.fn)
         else:
-            gdal_ds = gdal.Open(self.fn)
-            hs_ds = gdal.DEMProcessing(
-                "", gdal_ds, "hillshade", format="MEM", computeEdges=True
+            out_h, out_w = shape
+            src = gdal.Translate(
+                "", gdal.Open(self.fn), format="MEM", width=out_w, height=out_h
             )
-            hillshade = np.ma.masked_equal(hs_ds.ReadAsArray(), 0)
-        return hillshade
+        hs_ds = gdal.DEMProcessing(
+            "", src, "hillshade", format="MEM", computeEdges=True
+        )
+        return np.ma.masked_equal(hs_ds.ReadAsArray(), 0)
 
     def compute_difference(self, second_fn, save=False):
         """
@@ -1062,6 +1078,7 @@ class Plotter:
         clim_perc=(2, 98),
         lognorm=False,
         title=None,
+        is_vantor=False,
     ):
         """
         Initialize the Plotter.
@@ -1074,11 +1091,67 @@ class Plotter:
             Whether to use logarithmic color normalization, default is False
         title : str, optional
             Plot title, default is None
+        is_vantor : bool, optional
+            Whether the source imagery is from a Vantor (WorldView) satellite.
+            When True, ``plot_array`` adds a copyright overlay for panels that
+            request it via ``copyright=True``. Default is False.
         """
         self.clim_perc = clim_perc
         self.lognorm = lognorm
         self.title = title
+        self.is_vantor = is_vantor
         self.cb = ColorBar(perc_range=self.clim_perc)
+
+    def save(self, fig, save_dir=None, fig_fn=None, tight_layout=True, **kwargs):
+        """
+        Finalize and optionally save a figure.
+
+        Centralizes the save tail duplicated across plotting methods: an
+        optional ``fig.tight_layout()`` followed by a write to disk only when
+        both ``save_dir`` and ``fig_fn`` are given.
+
+        Parameters
+        ----------
+        fig : matplotlib.figure.Figure
+            Figure to finalize.
+        save_dir : str or None, optional
+            Directory to save the figure, default is None (don't save).
+        fig_fn : str or None, optional
+            Filename for the saved figure, default is None (don't save).
+        tight_layout : bool, optional
+            Whether to call ``fig.tight_layout()`` first, default is True.
+            Pass False for figures using absolute (``add_axes``) layouts.
+        **kwargs
+            Additional keyword arguments forwarded to ``save_figure`` (e.g.
+            ``dpi``).
+        """
+        if tight_layout:
+            fig.tight_layout()
+        if save_dir and fig_fn:
+            save_figure(fig, save_dir, fig_fn, **kwargs)
+
+    @staticmethod
+    def plot_missing(ax, message="One or more required\nfiles are missing"):
+        """
+        Draw a centered "missing files" placeholder on an empty axes.
+
+        Replaces the placeholder text block duplicated across plotting methods.
+
+        Parameters
+        ----------
+        ax : matplotlib.axes.Axes
+            Axes to annotate.
+        message : str, optional
+            Placeholder text, default "One or more required\\nfiles are missing".
+        """
+        ax.text(
+            0.5,
+            0.5,
+            message,
+            horizontalalignment="center",
+            verticalalignment="center",
+            transform=ax.transAxes,
+        )
 
     def plot_array(
         self,
@@ -1089,6 +1162,7 @@ class Plotter:
         add_cbar=True,
         cbar_label=None,
         alpha=1,
+        copyright=False,
     ):
         """
         Plot a 2D array on the given axes.
@@ -1109,6 +1183,12 @@ class Plotter:
             Label for the colorbar, default is None
         alpha : float, optional
             Transparency (0-1), default is 1
+        copyright : bool, optional
+            Whether to add a satellite-imagery copyright overlay, default is
+            False. The overlay is only drawn when this is True *and* the Plotter
+            was created with ``is_vantor=True`` (i.e. the source imagery is from
+            a Vantor/WorldView satellite). Set on the panels that display the
+            optical scenes.
 
         Returns
         -------
@@ -1145,6 +1225,9 @@ class Plotter:
         ax.set_xticks([])
         ax.set_yticks([])
         ax.set_title(self.title)
+
+        if copyright and self.is_vantor:
+            add_copyright_overlay(ax)
 
         return im
 
@@ -1188,10 +1271,8 @@ class Plotter:
         If ctx_kwargs are provided, adds a basemap using contextily.
         """
         if clim is None:
-            self.cb.get_clim(gdf[column_name])
-        else:
-            self.cb.clim = clim
-        norm = self.cb.get_norm(self.lognorm)
+            clim = self.cb.get_clim(gdf[column_name])
+        norm = self.cb.get_norm(self.lognorm, clim=clim)
 
         gdf.plot(
             ax=ax,
