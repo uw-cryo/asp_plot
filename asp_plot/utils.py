@@ -21,6 +21,15 @@ from rasterio.windows import Window, from_bounds
 logger = logging.getLogger(__name__)
 
 
+def nmad(a, c=1.4826):
+    """Normalized Median Absolute Deviation.
+
+    A robust measure of dispersion that is less sensitive to outliers than
+    the standard deviation: ``c * median(|a - median(a)|)``.
+    """
+    return np.nanmedian(np.fabs(a - np.nanmedian(a))) * c
+
+
 def glob_file(directory, *patterns, all_files=False):
     """
     Find files matching pattern(s) in a directory.
