@@ -106,208 +106,182 @@
         "title_right": "",
         "xlabel": "Easting (m)",
         "ylabel": "Northing (m)",
-        "n_lines": 0,
-        "line_digest": "e3b0c44298fc1c14"
+        "n_lines": 0
       },
       {
         "title": "",
         "title_right": "Camera 1",
         "xlabel": "Linescan Image Line Number",
         "ylabel": "Original $-$ Optimized (m)",
-        "n_lines": 1,
-        "line_digest": "6fa72633297c61b6"
+        "n_lines": 1
       },
       {
         "title": "",
         "title_right": "Camera 1",
         "xlabel": "Linescan Image Line Number",
         "ylabel": "Original $-$ Optimized (m)",
-        "n_lines": 1,
-        "line_digest": "0dfc1f50a817445f"
+        "n_lines": 1
       },
       {
         "title": "",
         "title_right": "Camera 1",
         "xlabel": "Linescan Image Line Number",
         "ylabel": "Original $-$ Optimized (m)",
-        "n_lines": 1,
-        "line_digest": "8d180bc94cbe51d1"
+        "n_lines": 1
       },
       {
         "title": "Camera 1: Angle Change\ncsm-104001001427B900",
         "title_right": "",
         "xlabel": "Easting (m)",
         "ylabel": "Northing (m)",
-        "n_lines": 0,
-        "line_digest": "e3b0c44298fc1c14"
+        "n_lines": 0
       },
       {
         "title": "",
         "title_right": "Camera 1",
         "xlabel": "Linescan Image Line Number",
         "ylabel": "Original $-$ Optimized (\u00b0)",
-        "n_lines": 1,
-        "line_digest": "1ae9bb2aefcb11f1"
+        "n_lines": 1
       },
       {
         "title": "",
         "title_right": "Camera 1",
         "xlabel": "Linescan Image Line Number",
         "ylabel": "Original $-$ Optimized (\u00b0)",
-        "n_lines": 1,
-        "line_digest": "fbed5744f90281ff"
+        "n_lines": 1
       },
       {
         "title": "",
         "title_right": "Camera 1",
         "xlabel": "Linescan Image Line Number",
         "ylabel": "Original $-$ Optimized (\u00b0)",
-        "n_lines": 1,
-        "line_digest": "c5eef74d87f86699"
+        "n_lines": 1
       },
       {
         "title": "Camera 2: Position Change\ncsm-1040010014761800",
         "title_right": "",
         "xlabel": "Easting (m)",
         "ylabel": "Northing (m)",
-        "n_lines": 0,
-        "line_digest": "e3b0c44298fc1c14"
+        "n_lines": 0
       },
       {
         "title": "",
         "title_right": "Camera 2",
         "xlabel": "Linescan Image Line Number",
         "ylabel": "Original $-$ Optimized (m)",
-        "n_lines": 1,
-        "line_digest": "ee9d161382691ddf"
+        "n_lines": 1
       },
       {
         "title": "",
         "title_right": "Camera 2",
         "xlabel": "Linescan Image Line Number",
         "ylabel": "Original $-$ Optimized (m)",
-        "n_lines": 1,
-        "line_digest": "246778d9c01a8867"
+        "n_lines": 1
       },
       {
         "title": "",
         "title_right": "Camera 2",
         "xlabel": "Linescan Image Line Number",
         "ylabel": "Original $-$ Optimized (m)",
-        "n_lines": 1,
-        "line_digest": "594e3745b08d3fd5"
+        "n_lines": 1
       },
       {
         "title": "Camera 2: Angle Change\ncsm-1040010014761800",
         "title_right": "",
         "xlabel": "Easting (m)",
         "ylabel": "Northing (m)",
-        "n_lines": 0,
-        "line_digest": "e3b0c44298fc1c14"
+        "n_lines": 0
       },
       {
         "title": "",
         "title_right": "Camera 2",
         "xlabel": "Linescan Image Line Number",
         "ylabel": "Original $-$ Optimized (\u00b0)",
-        "n_lines": 1,
-        "line_digest": "f02add84b88931e4"
+        "n_lines": 1
       },
       {
         "title": "",
         "title_right": "Camera 2",
         "xlabel": "Linescan Image Line Number",
         "ylabel": "Original $-$ Optimized (\u00b0)",
-        "n_lines": 1,
-        "line_digest": "ef807c3255f35e48"
+        "n_lines": 1
       },
       {
         "title": "",
         "title_right": "Camera 2",
         "xlabel": "Linescan Image Line Number",
         "ylabel": "Original $-$ Optimized (\u00b0)",
-        "n_lines": 1,
-        "line_digest": "66b318f145940743"
+        "n_lines": 1
       },
       {
         "title": "",
         "title_right": "",
         "xlabel": "",
         "ylabel": "Diff Magnitude (m)",
-        "n_lines": 0,
-        "line_digest": "e3b0c44298fc1c14"
+        "n_lines": 0
       },
       {
         "title": "",
         "title_right": "",
         "xlabel": "",
         "ylabel": "Diff Magnitude (\u00b0)",
-        "n_lines": 0,
-        "line_digest": "e3b0c44298fc1c14"
+        "n_lines": 0
       },
       {
         "title": "",
         "title_right": "",
         "xlabel": "",
         "ylabel": "Original (\u00b0)",
-        "n_lines": 1,
-        "line_digest": "fca1bf364a793c6d"
+        "n_lines": 1
       },
       {
         "title": "",
         "title_right": "",
         "xlabel": "",
         "ylabel": "Original (\u00b0)",
-        "n_lines": 1,
-        "line_digest": "d0bf5d64e79b93bf"
+        "n_lines": 1
       },
       {
         "title": "",
         "title_right": "",
         "xlabel": "",
         "ylabel": "Original (\u00b0)",
-        "n_lines": 1,
-        "line_digest": "c7143ad2175952f6"
+        "n_lines": 1
       },
       {
         "title": "",
         "title_right": "",
         "xlabel": "",
         "ylabel": "Diff Magnitude (m)",
-        "n_lines": 0,
-        "line_digest": "e3b0c44298fc1c14"
+        "n_lines": 0
       },
       {
         "title": "",
         "title_right": "",
         "xlabel": "",
         "ylabel": "Diff Magnitude (\u00b0)",
-        "n_lines": 0,
-        "line_digest": "e3b0c44298fc1c14"
+        "n_lines": 0
       },
       {
         "title": "",
         "title_right": "",
         "xlabel": "",
         "ylabel": "Original (\u00b0)",
-        "n_lines": 1,
-        "line_digest": "21b8969239cb7efc"
+        "n_lines": 1
       },
       {
         "title": "",
         "title_right": "",
         "xlabel": "",
         "ylabel": "Original (\u00b0)",
-        "n_lines": 1,
-        "line_digest": "acb94906d26ef66e"
+        "n_lines": 1
       },
       {
         "title": "",
         "title_right": "",
         "xlabel": "",
         "ylabel": "Original (\u00b0)",
-        "n_lines": 1,
-        "line_digest": "ed1557b23cd669ba"
+        "n_lines": 1
       }
     ]
   },
@@ -320,104 +294,91 @@
         "title_right": "",
         "xlabel": "Easting (m)",
         "ylabel": "Northing (m)",
-        "n_lines": 0,
-        "line_digest": "e3b0c44298fc1c14"
+        "n_lines": 0
       },
       {
         "title": "",
         "title_right": "Camera 1",
         "xlabel": "Linescan Image Line Number",
         "ylabel": "Original $-$ Optimized (m)",
-        "n_lines": 1,
-        "line_digest": "6fa72633297c61b6"
+        "n_lines": 1
       },
       {
         "title": "",
         "title_right": "Camera 1",
         "xlabel": "Linescan Image Line Number",
         "ylabel": "Original $-$ Optimized (m)",
-        "n_lines": 1,
-        "line_digest": "0dfc1f50a817445f"
+        "n_lines": 1
       },
       {
         "title": "",
         "title_right": "Camera 1",
         "xlabel": "Linescan Image Line Number",
         "ylabel": "Original $-$ Optimized (m)",
-        "n_lines": 1,
-        "line_digest": "8d180bc94cbe51d1"
+        "n_lines": 1
       },
       {
         "title": "Camera 1: Angle Change\ncsm-104001001427B900",
         "title_right": "",
         "xlabel": "Easting (m)",
         "ylabel": "Northing (m)",
-        "n_lines": 0,
-        "line_digest": "e3b0c44298fc1c14"
+        "n_lines": 0
       },
       {
         "title": "",
         "title_right": "Camera 1",
         "xlabel": "Linescan Image Line Number",
         "ylabel": "Original $-$ Optimized (\u00b0)",
-        "n_lines": 1,
-        "line_digest": "1ae9bb2aefcb11f1"
+        "n_lines": 1
       },
       {
         "title": "",
         "title_right": "Camera 1",
         "xlabel": "Linescan Image Line Number",
         "ylabel": "Original $-$ Optimized (\u00b0)",
-        "n_lines": 1,
-        "line_digest": "fbed5744f90281ff"
+        "n_lines": 1
       },
       {
         "title": "",
         "title_right": "Camera 1",
         "xlabel": "Linescan Image Line Number",
         "ylabel": "Original $-$ Optimized (\u00b0)",
-        "n_lines": 1,
-        "line_digest": "c5eef74d87f86699"
+        "n_lines": 1
       },
       {
         "title": "",
         "title_right": "",
         "xlabel": "",
         "ylabel": "Diff Magnitude (m)",
-        "n_lines": 0,
-        "line_digest": "e3b0c44298fc1c14"
+        "n_lines": 0
       },
       {
         "title": "",
         "title_right": "",
         "xlabel": "",
         "ylabel": "Diff Magnitude (\u00b0)",
-        "n_lines": 0,
-        "line_digest": "e3b0c44298fc1c14"
+        "n_lines": 0
       },
       {
         "title": "",
         "title_right": "",
         "xlabel": "",
         "ylabel": "Original (\u00b0)",
-        "n_lines": 1,
-        "line_digest": "fca1bf364a793c6d"
+        "n_lines": 1
       },
       {
         "title": "",
         "title_right": "",
         "xlabel": "",
         "ylabel": "Original (\u00b0)",
-        "n_lines": 1,
-        "line_digest": "d0bf5d64e79b93bf"
+        "n_lines": 1
       },
       {
         "title": "",
         "title_right": "",
         "xlabel": "",
         "ylabel": "Original (\u00b0)",
-        "n_lines": 1,
-        "line_digest": "c7143ad2175952f6"
+        "n_lines": 1
       }
     ]
   }

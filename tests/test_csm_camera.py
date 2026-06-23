@@ -1,4 +1,3 @@
-import hashlib
 import json
 import os
 
@@ -69,17 +68,14 @@ def _gdf_summary(gdf):
     return out
 
 
-def _line_digest(ax):
-    """Stable digest of all Line2D y-data on an axis (rounded)."""
-    h = hashlib.sha256()
-    for ln in ax.get_lines():
-        y = np.asarray(ln.get_ydata(), dtype=float)
-        y = np.round(y, 6)
-        h.update(y.tobytes())
-    return h.hexdigest()[:16]
-
-
 def _fig_capture(fig):
+    """Capture the platform-stable structure of a figure.
+
+    Only string/int fields (titles, axis labels, line counts, axes count,
+    suptitle) are recorded -- these are reproducible across numpy/scipy/
+    matplotlib versions. The numeric content of the plotted lines is verified
+    separately, with tolerance, by ``_assert_camera_lines``.
+    """
     axes = fig.axes
     cap = {
         "n_axes": len(axes),
@@ -94,10 +90,31 @@ def _fig_capture(fig):
                 "xlabel": ax.get_xlabel(),
                 "ylabel": ax.get_ylabel(),
                 "n_lines": len(ax.get_lines()),
-                "line_digest": _line_digest(ax),
             }
         )
     return cap
+
+
+def _assert_camera_lines(main_axes, gdf):
+    """Assert a camera's line panels plot that camera's GDF columns.
+
+    ``main_axes`` is the camera's 8 grid axes in row-major order:
+    ``[pos_map, x, y, z, ang_map, roll, pitch, yaw]``. This is what pins the
+    cam1/cam2 collapse -- it proves each camera's panels are fed that camera's
+    data (e.g. camera 2's x panel must carry ``gdf_cam2.x_position_diff``).
+    Compared with tolerance so it is robust across platforms.
+    """
+    expected = {
+        1: gdf.x_position_diff.values,
+        2: gdf.y_position_diff.values,
+        3: gdf.z_position_diff.values,
+        5: gdf.roll_diff.values,
+        6: gdf.pitch_diff.values,
+        7: gdf.yaw_diff.values,
+    }
+    for idx, want in expected.items():
+        got = np.asarray(main_axes[idx].get_lines()[0].get_ydata(), dtype=float)
+        np.testing.assert_allclose(got, want, rtol=1e-9, atol=1e-9)
 
 
 class TestCameraOptimization:
@@ -161,17 +178,27 @@ class TestCsmCameraCharacterization:
 
     def test_csm_camera_summary_plot_two_cam_golden(self):
         golden = _load_golden()["plot_two_cam"]
+        gdf_cam1 = get_orbit_plot_gdf(CAM1[0], CAM1[1])
+        gdf_cam2 = get_orbit_plot_gdf(CAM2[0], CAM2[1])
         plt.close("all")
         csm_camera_summary_plot(CAM1, CAM2)
-        cap = _fig_capture(plt.gcf())
+        fig = plt.gcf()
+        cap = _fig_capture(fig)
+        # fig.axes[0:8] are camera 1's grid (rows 0-1), [8:16] camera 2's
+        # (rows 2-3), both in row-major order; later axes are colorbars/twins.
+        _assert_camera_lines(fig.axes[0:8], gdf_cam1)
+        _assert_camera_lines(fig.axes[8:16], gdf_cam2)
         plt.close("all")
         assert cap == golden
 
     def test_csm_camera_summary_plot_one_cam_golden(self):
         golden = _load_golden()["plot_one_cam"]
+        gdf_cam1 = get_orbit_plot_gdf(CAM1[0], CAM1[1])
         plt.close("all")
         csm_camera_summary_plot(CAM1)
-        cap = _fig_capture(plt.gcf())
+        fig = plt.gcf()
+        cap = _fig_capture(fig)
+        _assert_camera_lines(fig.axes[0:8], gdf_cam1)
         plt.close("all")
         assert cap == golden
 
