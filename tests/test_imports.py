@@ -18,12 +18,16 @@ class TestImports:
         import asp_plot.csm_camera
         import asp_plot.gallery
         import asp_plot.processing_parameters
+        import asp_plot.report_captions
+        import asp_plot.report_pipeline
         import asp_plot.scenes
         import asp_plot.selections
         import asp_plot.stereo_geometry
         import asp_plot.stereopair_metadata_parser
         import asp_plot.utils
 
+        assert asp_plot.report_pipeline is not None
+        assert asp_plot.report_captions is not None
         assert asp_plot.selections is not None
         assert asp_plot.gallery is not None
         assert asp_plot.stereo_geometry is not None
@@ -44,6 +48,7 @@ class TestImports:
         from asp_plot.bundle_adjust import PlotBundleAdjustFiles, ReadBundleAdjustFiles
         from asp_plot.gallery import GalleryPlotter
         from asp_plot.processing_parameters import ProcessingParameters
+        from asp_plot.report_pipeline import ReportConfig, run_report
         from asp_plot.scenes import ScenePlotter
         from asp_plot.selections import FigureSelections
         from asp_plot.stereo import StereoPlotter
@@ -65,6 +70,8 @@ class TestImports:
         assert StereoPlotter is not None
         assert Altimetry is not None
         assert Alignment is not None
+        assert ReportConfig is not None
+        assert run_report is not None
         assert Body is not None
         assert BODIES is not None
         assert body_for_dem is not None
