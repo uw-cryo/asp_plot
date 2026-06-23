@@ -7,6 +7,7 @@ import click
 import contextily as ctx
 
 from asp_plot.altimetry import Altimetry
+from asp_plot.bodies import BODIES
 from asp_plot.bundle_adjust import PlotBundleAdjustFiles, ReadBundleAdjustFiles
 from asp_plot.processing_parameters import ProcessingParameters
 from asp_plot.report import (
@@ -804,7 +805,7 @@ def main(
                     )
 
         elif body in ("moon", "mars"):
-            instrument = {"moon": "LOLA", "mars": "MOLA"}[body]
+            instrument = BODIES[body].altimetry_instrument
 
             if not altimetry_csv:
                 print(

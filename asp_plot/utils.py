@@ -250,13 +250,12 @@ def get_planetary_bounds(dem_fn, body=None):
         semi_major = ellipsoid.semi_major_metre
         inv_flat = ellipsoid.inverse_flattening
     else:
-        # Fallback values for known bodies
-        _body_radii = {
-            "moon": (1737400.0, 0.0),
-            "mars": (3396190.0, 0.0),
-            "earth": (6378137.0, 298.257223563),
-        }
-        semi_major, inv_flat = _body_radii.get(body, (6378137.0, 298.257223563))
+        # Fallback values for known bodies, sourced from the body registry.
+        from asp_plot.bodies import BODIES
+
+        fallback = BODIES.get(body, BODIES["earth"])
+        semi_major = fallback.semi_major_axis_m
+        inv_flat = fallback.inverse_flattening
 
     # Construct a geographic CRS from the ellipsoid parameters
     geo_crs = CRS.from_json_dict(
