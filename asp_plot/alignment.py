@@ -115,10 +115,62 @@ class Alignment:
                 f"\nATL06 filtered CSV file not found: {atl06sr_csv}\nWe need this to run pc_align. It can be created with the to_csv_for_pc_align() function in the Altimetry module.\n"
             )
 
+        self._run_pc_align(
+            csv=atl06sr_csv,
+            csv_format="1:lon 2:lat 3:height_above_datum",
+            max_displacement=max_displacement,
+            max_source_points=max_source_points,
+            alignment_method=alignment_method,
+            output_prefix=output_prefix,
+        )
+
+    def _run_pc_align(
+        self,
+        csv,
+        csv_format,
+        max_displacement,
+        datum=None,
+        max_source_points=10000000,
+        alignment_method="point-to-point",
+        output_prefix="pc_align/pc_align",
+    ):
+        """Run ASP ``pc_align`` to align ``self.dem_fn`` to a reference CSV.
+
+        Backs both :meth:`pc_align_dem_to_atl06sr` (ICESat-2) and
+        :meth:`pc_align_dem_to_planetary_csv` (LOLA/MOLA). The two paths
+        differ only in ``csv_format``, the optional ``--datum`` flag, and the
+        default ``max_displacement``; the rest of the ``pc_align`` argv is
+        identical, so it lives here once.
+
+        Parameters
+        ----------
+        csv : str
+            Path to the reference CSV. The caller is responsible for
+            validating that it exists.
+        csv_format : str
+            ASP ``--csv-format`` string describing the lon/lat/height columns.
+        max_displacement : float
+            ``--max-displacement`` in meters.
+        datum : str or None, optional
+            ASP ``--datum`` flag (e.g. ``"D_MOON"``/``"D_MARS"``). Omitted
+            from the command when None (the ICESat-2/Earth path).
+        max_source_points : int, optional
+            ``--max-num-source-points``. Default 10,000,000.
+        alignment_method : str, optional
+            ``--alignment-method``. Default ``"point-to-point"``.
+        output_prefix : str, optional
+            Output prefix relative to ``self.directory``.
+        """
         pc_align_folder = os.path.join(self.directory, output_prefix)
 
+        datum_note = (
+            f"\n  --datum {datum}, --max-displacement {max_displacement}"
+            if datum is not None
+            else ""
+        )
         print(
-            f"Running pc_align on {self.dem_fn} and {atl06sr_csv}\nWriting to {pc_align_folder}*"
+            f"Running pc_align on {self.dem_fn} and {csv}{datum_note}\n"
+            f"Writing to {pc_align_folder}*"
         )
 
         command = [
@@ -130,12 +182,16 @@ class Alignment:
             "--alignment-method",
             alignment_method,
             "--csv-format",
-            "1:lon 2:lat 3:height_above_datum",
+            csv_format,
+        ]
+        if datum is not None:
+            command += ["--datum", datum]
+        command += [
             "--compute-translation-only",
             "--output-prefix",
             pc_align_folder,
             self.dem_fn,
-            atl06sr_csv,
+            csv,
         ]
 
         run_subprocess_command(command)
@@ -191,34 +247,15 @@ class Alignment:
                 f"Unsupported body for pc_align_dem_to_planetary_csv: {body}"
             )
 
-        pc_align_folder = os.path.join(self.directory, output_prefix)
-
-        print(
-            f"Running pc_align on {self.dem_fn} and {planetary_csv}\n"
-            f"  --datum {datum}, --max-displacement {max_displacement}\n"
-            f"Writing to {pc_align_folder}*"
+        self._run_pc_align(
+            csv=planetary_csv,
+            csv_format="1:lon 2:lat 3:radius_m",
+            max_displacement=max_displacement,
+            datum=datum,
+            max_source_points=max_source_points,
+            alignment_method=alignment_method,
+            output_prefix=output_prefix,
         )
-
-        command = [
-            "pc_align",
-            "--max-displacement",
-            str(max_displacement),
-            "--max-num-source-points",
-            str(max_source_points),
-            "--alignment-method",
-            alignment_method,
-            "--csv-format",
-            "1:lon 2:lat 3:radius_m",
-            "--datum",
-            datum,
-            "--compute-translation-only",
-            "--output-prefix",
-            pc_align_folder,
-            self.dem_fn,
-            planetary_csv,
-        ]
-
-        run_subprocess_command(command)
 
     def pc_align_report(self, output_prefix="pc_align/pc_align"):
         """

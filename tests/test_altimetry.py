@@ -215,6 +215,35 @@ class TestAltimetry:
         assert result.aligned_dem_fn is None
         assert icesat.aligned_dem_fn is None
         assert not fake_aligned.exists(), "aligned DEM should be cleaned up"
+        # Pins the threshold-branch wording (Earth path appends "Aligned DEM
+        # removed."), which differs from the planetary path.
+        assert result.message == (
+            "No significant improvement: p50 2.00 m -> 2.00 m, 0.0% <= 5.0% "
+            "threshold. Aligned DEM removed."
+        )
+
+    def test_align_and_evaluate_translation_too_small(self, icesat, monkeypatch):
+        """A large p50 drop that is nonetheless not written (translation under
+        the GSD-fraction threshold, so alignment_report leaves aligned_dem_fn
+        None) is rejected with the translation-specific message."""
+
+        def fake_alignment_report(self, **kwargs):
+            self.aligned_dem_fn = None  # translation too small -> not written
+            self.alignment_report_df = pd.DataFrame(
+                [{"key": "all", "p50_beg": 2.0, "p50_end": 0.5}]
+            )
+
+        monkeypatch.setattr(Altimetry, "alignment_report", fake_alignment_report)
+        result = icesat.align_and_evaluate(
+            improvement_threshold_pct=5.0, min_translation_threshold=0.1
+        )
+        assert result.status == "no_improvement"
+        assert result.improvement_pct == pytest.approx(75.0)
+        assert result.message == (
+            "No significant improvement: Translation magnitude is below 10% of "
+            "the DEM GSD, so no aligned DEM was written despite a 75.0% p50 "
+            "reduction."
+        )
 
     def test_align_and_evaluate_success(self, icesat, monkeypatch, tmp_path):
         """Substantial p50 reduction maps to success and retains the aligned DEM."""
@@ -252,6 +281,93 @@ class TestAltimetry:
         assert fake_aligned.exists(), "aligned DEM should be retained"
         assert result.improvement_pct is not None
         assert result.improvement_pct > 5.0
+        assert result.message == (
+            f"p50 improved from 2.00 m -> 0.50 m (75.0% reduction). "
+            f"Aligned DEM written to {fake_aligned}."
+        )
+
+
+class TestAlignmentEvaluationHelpers:
+    """Unit tests for the shared keep/discard helpers backing both the
+    ICESat-2 and planetary align-and-evaluate paths."""
+
+    @pytest.fixture
+    def alt(self):
+        return Altimetry(
+            directory="tests/test_data",
+            dem_fn="tests/test_data/stereo/date_time_left_right_1m-DEM.tif",
+        )
+
+    def test_improvement_pct_normal(self, alt):
+        assert alt._improvement_pct(2.0, 0.5) == pytest.approx(75.0)
+        assert alt._improvement_pct(4.0, 4.0) == pytest.approx(0.0)
+
+    @pytest.mark.parametrize(
+        "p50_beg, p50_end",
+        [(float("nan"), 1.0), (1.0, float("nan")), (0.0, 1.0)],
+    )
+    def test_improvement_pct_returns_none(self, alt, p50_beg, p50_end):
+        assert alt._improvement_pct(p50_beg, p50_end) is None
+
+    def test_evaluate_improvement_keeps_good_alignment(self, alt):
+        # Good improvement, translation fine -> None signals "keep".
+        out = alt._evaluate_improvement(
+            df=pd.DataFrame([{"key": "all"}]),
+            p50_beg=2.0,
+            p50_end=0.5,
+            improvement_pct=75.0,
+            improvement_threshold_pct=5.0,
+            translation_too_small=False,
+            no_improvement_reason="unused",
+            parameters_used={},
+        )
+        assert out is None
+
+    @pytest.mark.parametrize(
+        "improvement_pct, p50_end, translation_too_small",
+        [
+            (0.0, 2.0, False),  # at/below threshold
+            (None, 2.0, False),  # not computable
+            (75.0, 0.5, True),  # good improvement but translation too small
+        ],
+    )
+    def test_evaluate_improvement_rejects_and_cleans_up(
+        self, alt, tmp_path, improvement_pct, p50_end, translation_too_small
+    ):
+        fake_aligned = tmp_path / "a_pc_align_translated.tif"
+        fake_aligned.write_bytes(b"dummy")
+        alt.aligned_dem_fn = str(fake_aligned)
+
+        out = alt._evaluate_improvement(
+            df=pd.DataFrame([{"key": "all"}]),
+            p50_beg=2.0,
+            p50_end=p50_end,
+            improvement_pct=improvement_pct,
+            improvement_threshold_pct=5.0,
+            translation_too_small=translation_too_small,
+            no_improvement_reason="my reason",
+            parameters_used={"x": 1},
+        )
+        assert out.status == "no_improvement"
+        assert out.aligned_dem_fn is None
+        assert out.message == "No significant improvement: my reason"
+        assert out.parameters_used == {"x": 1}
+        # The aligned DEM is cleaned up on rejection.
+        assert not fake_aligned.exists()
+        assert alt.aligned_dem_fn is None
+
+    def test_success_result_message(self, alt, tmp_path):
+        alt.aligned_dem_fn = str(tmp_path / "aligned.tif")
+        out = alt._success_result(
+            pd.DataFrame([{"key": "all"}]), 2.0, 0.5, 75.0, {"x": 1}
+        )
+        assert out.status == "success"
+        assert out.aligned_dem_fn == str(tmp_path / "aligned.tif")
+        assert out.improvement_pct == pytest.approx(75.0)
+        assert out.message == (
+            f"p50 improved from 2.00 m -> 0.50 m (75.0% reduction). "
+            f"Aligned DEM written to {tmp_path / 'aligned.tif'}."
+        )
 
 
 class TestLazySlideruleInit:
@@ -488,6 +604,62 @@ class TestPlanetaryDh:
         result = alt_with_points.align_and_evaluate_planetary(minimum_points=10_000)
         assert result.status == "insufficient_points"
         assert result.aligned_dem_fn is None
+
+    def test_align_and_evaluate_planetary_no_improvement(
+        self, alt_with_points, tmp_path, monkeypatch
+    ):
+        """End-to-end planetary path through the shared keep/discard helper:
+        pc_align reports no p50 change, so the aligned DEM is rejected with
+        the planetary-specific reason wording (no "Aligned DEM removed."
+        suffix; GSD value is included only on the translation branch)."""
+        alt = alt_with_points
+        alt.directory = str(tmp_path)
+        alt.planetary_points["radius_m"] = alt.planetary_points["height"] + 6_378_137.0
+
+        import asp_plot.altimetry as altmod
+
+        monkeypatch.setattr(
+            "asp_plot.utils.detect_planetary_body", lambda dem_fn: "mars"
+        )
+        monkeypatch.setattr(
+            Altimetry,
+            "to_csv_for_pc_align_planetary",
+            lambda self, filename_prefix="x": str(tmp_path / "p.csv"),
+        )
+
+        class FakeAlignment:
+            def __init__(self, directory, dem_fn):
+                pass
+
+            def pc_align_dem_to_planetary_csv(self, **kwargs):
+                pass
+
+            def pc_align_report(self, output_prefix):
+                # No improvement: p50 unchanged; translation large enough that
+                # translation_too_small is False (forces the threshold branch).
+                return {
+                    "p50_beg": 2.0,
+                    "p50_end": 2.0,
+                    "translation_magnitude": 5.0,
+                }
+
+        class FakeRaster:
+            def __init__(self, fn):
+                pass
+
+            def get_gsd(self):
+                return 1.0
+
+        monkeypatch.setattr(altmod, "Alignment", FakeAlignment)
+        monkeypatch.setattr(altmod, "Raster", FakeRaster)
+
+        result = alt.align_and_evaluate_planetary(minimum_points=1)
+        assert result.status == "no_improvement"
+        assert result.aligned_dem_fn is None
+        assert result.message == (
+            "No significant improvement: p50 2.00 m -> 2.00 m, 0.0% <= 5.0% "
+            "threshold."
+        )
 
 
 class TestLoadPlanetaryCsv:
