@@ -283,6 +283,45 @@ class Icesat2Source:
             t0=t0,
             t1=t1,
         )
+        self._print_time_filter_summary(
+            time_range, t0_str, t1_str, resolved_date, t0, time_buffer_days
+        )
+
+        # Build the per-level SlideRule parameter sets (shared + custom).
+        level_parms = self._build_level_parms(
+            processing_levels, region, t0_str, t1_str, res, len, ats, maxi, cnt
+        )
+
+        # Record the request settings + cache locations so a report run can
+        # write them to a figure-selections file for reproducibility (#121).
+        self.atl06sr_request_parms = {
+            "processing_levels": list(processing_levels),
+            "res": res,
+            "len": len,
+            "ats": ats,
+            "time_range": time_range,
+            "t0": t0_str,
+            "t1": t1_str,
+        }
+        self.atl06sr_parquet_paths = {}
+
+        for key, parms in level_parms.items():
+            print(f"\nICESat-2 ATL06 request processing for: {key}")
+            fn = os.path.join(self.alt.directory, f"{filename}_{key}.parquet")
+            self.atl06sr_parquet_paths[key] = fn
+            print(parms)
+
+            atl06sr = self._load_cached_atl06sr(fn, parms)
+            if atl06sr is None:
+                atl06sr = self._request_atl06sr_level(parms, fn, save_to_parquet)
+
+            self._ingest_atl06sr(key, atl06sr, h_sigma_quantile)
+
+    @staticmethod
+    def _print_time_filter_summary(
+        time_range, t0_str, t1_str, resolved_date, t0, time_buffer_days
+    ):
+        """Print the resolved server-side time filter, matching the request cascade."""
         if time_range == "all" and resolved_date is None and t0 is None:
             print(f"Time filter: {t0_str} to {t1_str} (all available)")
         elif resolved_date is not None:
@@ -295,19 +334,23 @@ class Icesat2Source:
         else:
             print(f"Time filter: {t0_str} to {t1_str} (all available, fallback)")
 
-        # See parameter discussion on: https://github.com/SlideRuleEarth/sliderule/issues/448
-        # "srt": -1 tells the server side code to look at the ATL03 confidence array for each photon
-        # and choose the confidence level that is highest across all five surface type entries.
-        # cnf options: {"atl03_tep", "atl03_not_considered", "atl03_background", "atl03_within_10m", \
-        # "atl03_low", "atl03_medium", "atl03_high"}
-        # Note reduced count for limited number of ground photons
+    @staticmethod
+    def _build_level_parms(
+        processing_levels, region, t0_str, t1_str, res, len, ats, maxi, cnt
+    ):
+        """Build the merged SlideRule parameter dict for each requested level.
 
-        # TODO: use the WorldCover values to determine if we should report canopy or top of canopy
-        #   This is tricky, and not clear yet how to go about this. For now, just request all processing levels.
+        Returns ``{level_key: parms}`` where ``parms`` is the shared request
+        envelope merged with the level-specific confidence/surface-type
+        settings. Only levels in ``processing_levels`` are included.
 
-        # TODO: Use more generic variable names and strings for functions that are not just limited to atl06
-        #   This can be done when we implement additional requests for other data types
-
+        See the SlideRule parameter discussion at
+        https://github.com/SlideRuleEarth/sliderule/issues/448 — ``"srt": -1``
+        tells the server to choose, per photon, the highest ATL03 confidence
+        across all five surface-type entries. ``cnf`` options are
+        ``atl03_{tep,not_considered,background,within_10m,low,medium,high}``.
+        Ground uses a reduced ``cnt`` because ground photons are sparser.
+        """
         # Shared parameters for all processing levels
         shared_parms = {
             "poly": region,
@@ -346,76 +389,71 @@ class Icesat2Source:
             },
         }
 
-        # Filter custom_parms to only include requested processing levels
-        custom_parms = {
-            key: parms
+        return {
+            key: {**shared_parms, **parms}
             for key, parms in custom_parms.items()
             if key in processing_levels
         }
 
-        # Record the request settings + cache locations so a report run can
-        # write them to a figure-selections file for reproducibility (#121).
-        self.atl06sr_request_parms = {
-            "processing_levels": list(processing_levels),
-            "res": res,
-            "len": len,
-            "ats": ats,
-            "time_range": time_range,
-            "t0": t0_str,
-            "t1": t1_str,
-        }
-        self.atl06sr_parquet_paths = {}
+    def _load_cached_atl06sr(self, fn, parms):
+        """Return cached ATL06-SR points if a parquet matching ``parms`` exists.
 
-        for key, custom_parm in custom_parms.items():
-            parms = {**shared_parms, **custom_parm}
+        Returns the cached :class:`~geopandas.GeoDataFrame` when ``fn`` exists
+        and the SlideRule parameters it was built with match ``parms``; returns
+        ``None`` (signalling a fresh request is needed) otherwise.
+        """
+        if not os.path.exists(fn):
+            return None
+        print(f"Existing file found, reading in: {fn}")
+        atl06sr = gpd.read_parquet(fn)
+        if self._params_match_cache(parms, atl06sr):
+            return atl06sr
+        return None
 
-            fn_base = f"{filename}_{key}"
+    @staticmethod
+    def _params_match_cache(parms, atl06sr):
+        """Whether a cached parquet was produced by the same SlideRule params.
 
-            print(f"\nICESat-2 ATL06 request processing for: {key}")
-            fn = os.path.join(self.alt.directory, f"{fn_base}.parquet")
-            self.atl06sr_parquet_paths[key] = fn
+        The request parameters are persisted in the parquet's
+        ``sliderule_parameters`` column (see :meth:`_save_to_parquet`). The
+        ``poly`` is compared as a string and the ``output`` key (a random temp
+        path SlideRule injects during ``run()``) is stripped from both sides so
+        an otherwise-identical request is recognized as a cache hit. Prints the
+        reason and returns ``False`` when the cache cannot be reused.
+        """
+        if "sliderule_parameters" not in atl06sr.columns:
+            print("No parameters column found, regenerating...")
+            return False
+        try:
+            file_parms = json.loads(atl06sr["sliderule_parameters"].iloc[0])
+        except Exception as e:
+            print(f"Could not parse cached parameters: {e}. Regenerating...")
+            return False
 
-            print(parms)
+        parms_copy = parms.copy()
+        parms_copy["poly"] = str(parms_copy["poly"])
+        # Strip "output" (a random temp path injected by SlideRule during
+        # run()) from both sides before comparison.
+        parms_copy.pop("output", None)
+        file_parms.pop("output", None)
 
-            # Check for cached file with matching parameters
-            need_request = True
-            if os.path.exists(fn):
-                print(f"Existing file found, reading in: {fn}")
-                atl06sr = gpd.read_parquet(fn)
+        if str(parms_copy) == str(file_parms):
+            return True
+        print("Parameters don't match request. Regenerating...")
+        return False
 
-                if "sliderule_parameters" in atl06sr.columns:
-                    try:
-                        file_parms = json.loads(atl06sr["sliderule_parameters"].iloc[0])
-                        parms_copy = parms.copy()
-                        parms_copy["poly"] = str(parms_copy["poly"])
-                        # Strip "output" (contains a random temp path
-                        # injected by SlideRule during run()) from both
-                        # sides before comparison.
-                        parms_copy.pop("output", None)
-                        file_parms.pop("output", None)
+    def _request_atl06sr_level(self, parms, fn, save_to_parquet):
+        """Fetch one processing level from SlideRule and sample WorldCover.
 
-                        if str(parms_copy) == str(file_parms):
-                            need_request = False
-                        else:
-                            print("Parameters don't match request. Regenerating...")
-                    except Exception as e:
-                        print(
-                            f"Could not parse cached parameters: {e}. "
-                            "Regenerating..."
-                        )
-                else:
-                    print("No parameters column found, regenerating...")
-
-            if need_request:
-                atl06sr = sliderule_api.run("atl03x", parms)
-                # Sample ESA WorldCover before caching so the column
-                # is persisted in the parquet and doesn't have to be
-                # re-sampled on subsequent runs.
-                atl06sr = self._sample_worldcover_into_gdf(atl06sr)
-                if save_to_parquet:
-                    self._save_to_parquet(fn, atl06sr, parms)
-
-            self._ingest_atl06sr(key, atl06sr, h_sigma_quantile)
+        Runs the ``atl03x`` request, samples ESA WorldCover before caching so
+        the column is persisted in the parquet (and need not be re-sampled on
+        later runs), and optionally writes the parquet to ``fn``.
+        """
+        atl06sr = sliderule_api.run("atl03x", parms)
+        atl06sr = self._sample_worldcover_into_gdf(atl06sr)
+        if save_to_parquet:
+            self._save_to_parquet(fn, atl06sr, parms)
+        return atl06sr
 
     def _ingest_atl06sr(self, key, atl06sr, h_sigma_quantile=1.0):
         """
