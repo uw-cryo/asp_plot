@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.spatial.transform import Rotation as R
 
-from asp_plot.csm_camera import estim_satellite_orientation
+from asp_plot.csm_io import estim_satellite_orientation
 from asp_plot.stereopair_metadata_parser import StereopairMetadataParser
 from asp_plot.utils import save_figure
 
