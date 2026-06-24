@@ -1,9 +1,8 @@
 import glob
 import logging
 import os
-import re
-from datetime import datetime
 
+from asp_plot.asp_log import STEREO_STEP_ORDER, AspLog
 from asp_plot.utils import glob_file
 
 logging.basicConfig(level=logging.WARNING)
@@ -18,6 +17,11 @@ class ProcessingParameters:
     including bundle adjustment, stereo, and point2dem logs. It provides
     methods to parse these logs and obtain command lines, run times, and
     other relevant processing information.
+
+    All of the format-specific parsing (version banner, command line,
+    timestamps, reference DEM) is delegated to the versioned adapter in
+    :mod:`asp_plot.asp_log`, so this class stays focused on locating the right
+    log files and assembling the parameter dictionary.
 
     Attributes
     ----------
@@ -84,24 +88,46 @@ class ProcessingParameters:
         )
         self.processing_parameters_dict = {}
 
-        try:
-            self.bundle_adjust_log = glob_file(
-                self.full_ba_directory, "*log-bundle_adjust*.txt"
-            )
-        except:
-            self.bundle_adjust_log = None
-        try:
-            self.stereo_logs = glob.glob(
-                os.path.join(self.full_stereo_directory, "*log-stereo*.txt")
-            )
-        except:
-            self.stereo_logs = None
-        try:
-            self.point2dem_log = glob_file(
-                self.full_stereo_directory, "*log-point2dem*.txt"
-            )
-        except:
-            self.point2dem_log = None
+        # Locate log files. A missing directory (None) means that stage was not
+        # requested -- not an error -- so we guard on it rather than catching a
+        # blanket exception that would also hide real I/O problems.
+        self.bundle_adjust_log = (
+            glob_file(self.full_ba_directory, "*log-bundle_adjust*.txt")
+            if self.full_ba_directory
+            else None
+        )
+        self.stereo_logs = (
+            glob.glob(os.path.join(self.full_stereo_directory, "*log-stereo*.txt"))
+            if self.full_stereo_directory
+            else None
+        )
+        self.point2dem_log = (
+            glob_file(self.full_stereo_directory, "*log-point2dem*.txt")
+            if self.full_stereo_directory
+            else None
+        )
+
+    def _stereo_log(self, step):
+        """Return the stereo log for a given pipeline ``step``, or None.
+
+        ``step`` is a name from :data:`asp_plot.asp_log.STEREO_STEP_ORDER`
+        (e.g. ``"stereo_pprc"``).
+        """
+        if not self.stereo_logs:
+            return None
+        return next(
+            (log for log in self.stereo_logs if f"log-{step}" in log),
+            None,
+        )
+
+    def _ordered_stereo_logs(self):
+        """Return present stereo logs as ``(step, path)`` in pipeline order."""
+        ordered = []
+        for step in STEREO_STEP_ORDER:
+            log = self._stereo_log(step)
+            if log:
+                ordered.append((step, log))
+        return ordered
 
     def get_asp_version(self):
         """Extract the ASP version string from the first available log file.
@@ -114,24 +140,20 @@ class ProcessingParameters:
         log_candidates = []
         if self.bundle_adjust_log:
             log_candidates.append(self.bundle_adjust_log)
-        if self.stereo_logs:
-            pprc = next(
-                (log for log in self.stereo_logs if "log-stereo_pprc" in log),
-                None,
-            )
-            if pprc:
-                log_candidates.append(pprc)
+        pprc = self._stereo_log("stereo_pprc")
+        if pprc:
+            log_candidates.append(pprc)
         if self.point2dem_log:
             log_candidates.append(self.point2dem_log)
 
         for log_file in log_candidates:
             try:
-                with open(log_file, "r") as f:
-                    first_line = f.readline().strip()
-                if first_line.startswith("ASP "):
-                    return first_line[4:]
-            except Exception:
+                version = AspLog(log_file).asp_version
+            except OSError as e:
+                logger.warning("Could not read %s for ASP version: %s", log_file, e)
                 continue
+            if version:
+                return version
         return "N/A"
 
     def from_log_files(self):
@@ -164,7 +186,7 @@ class ProcessingParameters:
             bundle_adjust_params, ba_run_time, reference_dem = (
                 self.from_bundle_adjust_log()
             )
-            if reference_dem != "":
+            if reference_dem:
                 processing_timestamp, stereo_params, stereo_run_time = (
                     self.from_stereo_log()
                 )
@@ -172,9 +194,6 @@ class ProcessingParameters:
                 processing_timestamp, stereo_params, stereo_run_time, reference_dem = (
                     self.from_stereo_log(search_for_reference_dem=True)
                 )
-            bundle_adjust_params = (
-                "bundle_adjust " + bundle_adjust_params.split(maxsplit=1)[1]
-            )
         else:
             bundle_adjust_params = "Bundle adjustment not run"
             ba_run_time = "N/A"
@@ -183,9 +202,6 @@ class ProcessingParameters:
             )
 
         point2dem_params, point2dem_run_time = self.from_point2dem_log()
-
-        stereo_params = "stereo " + stereo_params.split(maxsplit=1)[1]
-        point2dem_params = "point2dem " + point2dem_params.split(maxsplit=1)[1]
 
         self.processing_parameters_dict = {
             "asp_version": self.get_asp_version(),
@@ -213,9 +229,9 @@ class ProcessingParameters:
         tuple
             A tuple containing (bundle_adjust_params, run_time, reference_dem)
             where:
-            - bundle_adjust_params: str, the bundle adjustment command line
+            - bundle_adjust_params: str, the canonical ``bundle_adjust`` command
             - run_time: str, formatted run time (e.g., "2 hours and 15 minutes")
-            - reference_dem: str, path to the reference DEM used
+            - reference_dem: str, path to the reference DEM used ("" if none)
 
         Raises
         ------
@@ -226,17 +242,9 @@ class ProcessingParameters:
             raise ValueError(
                 f"\n\nCould not find bundle adjust log file in {self.full_ba_directory}\nCheck that the *log*.txt file exists in the directory specified.\n\n"
             )
-        bundle_adjust_params = ""
-        with open(self.bundle_adjust_log, "r") as file:
-            for line in file:
-                if "bundle_adjust" in line and not bundle_adjust_params:
-                    bundle_adjust_params = line.strip()
-                    break
-
-        reference_dem = self.get_reference_dem(
-            self.bundle_adjust_log, starting_string="Loading DEM:"
-        )
-
+        log = AspLog(self.bundle_adjust_log)
+        bundle_adjust_params = log.canonical_command("bundle_adjust")
+        reference_dem = log.reference_dem or ""
         run_time = self.get_run_time([self.bundle_adjust_log])
 
         return bundle_adjust_params, run_time, reference_dem
@@ -252,7 +260,7 @@ class ProcessingParameters:
         -------
         tuple
             A tuple containing (point2dem_params, run_time) where:
-            - point2dem_params: str, the point2dem command line
+            - point2dem_params: str, the canonical ``point2dem`` command line
             - run_time: str, formatted run time (e.g., "0 hours and 45 minutes")
 
         Raises
@@ -264,13 +272,7 @@ class ProcessingParameters:
             raise ValueError(
                 f"\n\nCould not find point2dem log file in {self.full_stereo_directory}\nCheck that the *log*.txt file exists in the directory specified.\n\n"
             )
-        point2dem_params = ""
-        with open(self.point2dem_log, "r") as file:
-            for line in file:
-                if "point2dem" in line and not point2dem_params:
-                    point2dem_params = line.strip()
-                    break
-
+        point2dem_params = AspLog(self.point2dem_log).canonical_command("point2dem")
         run_time = self.get_run_time([self.point2dem_log])
 
         return point2dem_params, run_time
@@ -280,9 +282,11 @@ class ProcessingParameters:
         Extract parameters from the stereo log files.
 
         Parses the stereo log files to extract command lines, processing timestamp,
-        and optionally searches for reference DEM information. This method uses
-        both the preprocessing (pprc) and triangulation (tri) logs to get
-        start/end times and stereo parameters.
+        and optionally searches for reference DEM information. The earliest and
+        latest stereo stages present (per
+        :data:`asp_plot.asp_log.STEREO_STEP_ORDER`) bracket the run, so the
+        command/reference DEM come from the final stage and the run-time span
+        from first-stage start to last-stage end.
 
         Parameters
         ----------
@@ -295,11 +299,11 @@ class ProcessingParameters:
             If search_for_reference_dem is False, returns:
             (processing_timestamp, stereo_params, run_time) where:
             - processing_timestamp: datetime, when processing started
-            - stereo_params: str, the stereo command line
+            - stereo_params: str, the canonical ``stereo`` command line
             - run_time: str, formatted run time
 
             If search_for_reference_dem is True, additionally returns:
-            - reference_dem: str, path to the reference DEM used
+            - reference_dem: str, path to the reference DEM used ("" if none)
 
         Raises
         ------
@@ -316,66 +320,47 @@ class ProcessingParameters:
         5. stereo_fltr - filtering
         6. stereo_tri - triangulation
 
-        This method uses the pprc log for start time and the tri log for
-        end time to calculate total runtime.
+        This method uses the first stage's log for the start time and the last
+        stage's log for the end time to calculate total runtime.
         """
-        # Stereo proceeds as:
-        #  1. stereo_pprc
-        #  2. stereo_corr
-        #  3. stereo_blend (logs in tile/ dirs)
-        #  4. stereo_rfne (logs in tile/ dirs)
-        #  5. stereo_fltr
-        #  6. stereo_tri
         if not self.stereo_logs:
             raise ValueError(
                 f"\n\nCould not find stereo log files in {self.full_stereo_directory}\nCheck that these *log*.txt files exist in the directory specified.\n\n"
             )
-        pprc_log = next(
-            (log for log in self.stereo_logs if "log-stereo_pprc" in log), None
-        )
-        tri_log = next(
-            (log for log in self.stereo_logs if "log-stereo_tri" in log), None
-        )
-        stereo_params = ""
-        with open(tri_log, "r") as file:
-            for line in file:
-                if "stereo" in line and not stereo_params:
-                    stereo_params = line.strip()
-                    break
+        ordered = self._ordered_stereo_logs()
+        if not ordered:
+            raise ValueError(
+                f"\n\nCould not match any known stereo stage in {self.full_stereo_directory}\nExpected logs such as log-stereo_pprc*.txt ... log-stereo_tri*.txt.\n\n"
+            )
+        first_log = ordered[0][1]
+        last_log = ordered[-1][1]
 
-        processing_timestamp = ""
-        with open(pprc_log, "r") as file:
-            for line in file:
-                if re.match(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}", line):
-                    processing_timestamp = datetime.strptime(
-                        line.split()[0] + " " + line.split()[1], "%Y-%m-%d %H:%M:%S"
-                    )
+        last_stage_log = AspLog(last_log)
+        stereo_params = last_stage_log.canonical_command("stereo")
 
-        run_time = self.get_run_time([pprc_log, tri_log])
+        # processing_timestamp mirrors historical behavior: the last console
+        # timestamp recorded in the first stage's (pprc) log.
+        processing_timestamp = AspLog(first_log).last_timestamp or ""
+
+        run_time = self.get_run_time([first_log, last_log])
 
         if search_for_reference_dem:
-            reference_dem = self.get_reference_dem(
-                pprc_log, starting_string="Input DEM:"
-            )
-
+            reference_dem = last_stage_log.reference_dem
+            if not reference_dem:
+                # Fall back to the first stage (pprc announces "Using input DEM:").
+                reference_dem = AspLog(first_log).reference_dem or ""
             return processing_timestamp, stereo_params, run_time, reference_dem
         else:
             return processing_timestamp, stereo_params, run_time
 
-    def get_reference_dem(self, logfile, starting_string="DEM:"):
+    def get_reference_dem(self, logfile):
         """
         Extract reference DEM path from a log file.
-
-        Searches for the reference DEM path in a log file using a
-        pattern matching approach.
 
         Parameters
         ----------
         logfile : str
             Path to the log file to search
-        starting_string : str, optional
-            String pattern that precedes the DEM path in the log,
-            default is "DEM:"
 
         Returns
         -------
@@ -384,18 +369,10 @@ class ProcessingParameters:
 
         Notes
         -----
-        This is a helper method used by from_bundle_adjust_log and
-        from_stereo_log to extract reference DEM information.
-        Different log file types use different patterns to indicate
-        reference DEMs, hence the configurable starting_string parameter.
+        Parsing is delegated to the versioned adapter, which recognizes the
+        known ASP phrasings ("Loading DEM:", "Using input DEM:", "Input DEM:").
         """
-        reference_dem = ""
-        pattern = re.compile(starting_string, re.IGNORECASE)
-        with open(logfile, "r") as file:
-            for line in file:
-                if pattern.search(line):
-                    reference_dem = pattern.split(line)[1].strip()
-        return reference_dem
+        return AspLog(logfile).reference_dem or ""
 
     def get_run_time(self, logfiles):
         """
@@ -426,26 +403,11 @@ class ProcessingParameters:
         If only one log file is provided, it will be used for both
         start and end times. This is useful for single-stage processes.
         """
-        start_time = None
-        end_time = None
-
         start_log = logfiles[0]
         end_log = logfiles[-1] if len(logfiles) > 1 else start_log
 
-        with open(start_log, "r") as file:
-            for line in file:
-                if re.match(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}", line):
-                    start_time = datetime.strptime(
-                        line.split()[0] + " " + line.split()[1], "%Y-%m-%d %H:%M:%S"
-                    )
-                    break
-
-        with open(end_log, "r") as file:
-            for line in file:
-                if re.match(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}", line):
-                    end_time = datetime.strptime(
-                        line.split()[0] + " " + line.split()[1], "%Y-%m-%d %H:%M:%S"
-                    )
+        start_time = AspLog(start_log).first_timestamp
+        end_time = AspLog(end_log).last_timestamp
 
         if start_time and end_time:
             time_diff = end_time - start_time
