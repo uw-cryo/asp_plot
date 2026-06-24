@@ -7,7 +7,9 @@ objects and exposes their behaviour under one notebook-friendly API:
   caching, WorldCover sampling, temporal/outlier filtering, DEM differencing,
   and track/segment selection.
 - :class:`asp_plot.planetary_source.PlanetarySource` — LOLA/MOLA loading and
-  DEM differencing.
+  DEM differencing, via the per-body :class:`~asp_plot.planetary_source.LolaSource`
+  / :class:`~asp_plot.planetary_source.MolaSource` subclasses selected from the
+  DEM's body at construction.
 - :class:`asp_plot.altimetry_plots.AltimetryPlotter` — all figure rendering,
   operating on prepared dataframes.
 
@@ -33,10 +35,12 @@ from asp_plot.bodies import BODIES
 from asp_plot.icesat2_source import ICESAT2_MISSION_START, Icesat2Source  # noqa: F401
 from asp_plot.planetary_source import (  # noqa: F401
     GDS_BASE_URL,
+    LolaSource,
+    MolaSource,
     PlanetarySource,
     gds_query_async,
 )
-from asp_plot.utils import Raster, glob_file
+from asp_plot.utils import Raster, detect_planetary_body, glob_file
 
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
@@ -90,8 +94,9 @@ class Altimetry:
     Process and analyze ICESat-2 / planetary altimetry against ASP DEMs.
 
     Coordinates the ICESat-2 (:class:`Icesat2Source`) and planetary
-    (:class:`PlanetarySource`) data sources and the plotting layer
-    (:class:`AltimetryPlotter`), exposing them under a single API. It can
+    (:class:`PlanetarySource`, i.e. :class:`LolaSource` / :class:`MolaSource`)
+    data sources and the plotting layer (:class:`AltimetryPlotter`), exposing
+    them under a single API. It can
     request and filter altimetry data, align a DEM to it, and visualize the
     results.
 
@@ -174,7 +179,13 @@ class Altimetry:
             atl06sr_processing_levels=atl06sr_processing_levels,
             atl06sr_processing_levels_filtered=atl06sr_processing_levels_filtered,
         )
-        self.planetary = PlanetarySource(self)
+        # Pick the planetary source from the DEM's body so LOLA/MOLA loading is
+        # dispatched once, at construction. Earth DEMs get the body-agnostic
+        # base (its load_planetary_csv raises, redirecting to ICESat-2).
+        planetary_cls = {"moon": LolaSource, "mars": MolaSource}.get(
+            detect_planetary_body(dem_fn), PlanetarySource
+        )
+        self.planetary = planetary_cls(self)
         self.plotter = AltimetryPlotter(self)
 
     # ------------------------------------------------------------------ #
