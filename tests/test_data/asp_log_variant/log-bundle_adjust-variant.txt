@@ -1,0 +1,12 @@
+ASP-NG 4.1.0
+Build ID: deadbeef
+Build date: 2025-05-30
+
+/opt/asp-ng/libexec/bundle_adjust -t dg --datum WGS84 --ip-per-tile 50 left.tif right.tif left.xml right.xml -o ba/run --threads 16
+
+uname -a
+Linux variant-host 6.1.0 #1 SMP x86_64 GNU/Linux
+
+2025-06-01T08:00:00 [ console ] : Starting bundle adjustment.
+2025-06-01T08:00:05 [ console ] : Reference DEM: /data/ref/cop30_variant.tif
+2025-06-01T08:07:30 [ console ] : Finished bundle adjustment.
