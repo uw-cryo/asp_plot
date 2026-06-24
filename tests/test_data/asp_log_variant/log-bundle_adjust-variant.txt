@@ -1,5 +1,5 @@
 ASP-NG 4.1.0
-Build ID: deadbeef
+Build ID: foobar
 Build date: 2025-05-30
 
 /opt/asp-ng/libexec/bundle_adjust -t dg --datum WGS84 --ip-per-tile 50 left.tif right.tif left.xml right.xml -o ba/run --threads 16
