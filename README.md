@@ -43,3 +43,5 @@ See the [CLI documentation](https://asp-plot.readthedocs.io/en/latest/cli/index.
 ## Contributing
 
 See the [contributing guide](https://asp-plot.readthedocs.io/en/latest/contributing.html) for development setup, testing, and release process.
+
+[`AGENTS.md`](AGENTS.md) is a module-by-module map of the codebase and its design patterns — a useful orientation for contributors, and the onboarding reference auto-discovered by AI coding agents (Claude Code and others).
