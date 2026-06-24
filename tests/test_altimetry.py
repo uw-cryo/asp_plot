@@ -11,7 +11,7 @@ from shapely.geometry import Point
 from asp_plot.altimetry import ICESAT2_MISSION_START, AlignmentResult, Altimetry
 from asp_plot.altimetry_plots import AltimetryPlotter
 from asp_plot.icesat2_source import Icesat2Source
-from asp_plot.planetary_source import PlanetarySource
+from asp_plot.planetary_source import LolaSource, MolaSource, PlanetarySource
 
 matplotlib.use("Agg")
 
@@ -695,6 +695,31 @@ class TestPlanetaryDh:
         )
 
 
+class TestPlanetarySourceDispatch:
+    """The coordinator picks the planetary source from the DEM's body."""
+
+    DEM_FN = "tests/test_data/stereo/date_time_left_right_1m-DEM.tif"
+
+    @pytest.mark.parametrize(
+        "body, cls",
+        [("moon", LolaSource), ("mars", MolaSource), ("earth", PlanetarySource)],
+    )
+    def test_coordinator_picks_body_source(self, monkeypatch, body, cls):
+        import asp_plot.altimetry as altmod
+
+        monkeypatch.setattr(altmod, "detect_planetary_body", lambda fn: body)
+        alt = Altimetry(directory="tests/test_data", dem_fn=self.DEM_FN)
+        assert type(alt.planetary) is cls
+
+    def test_earth_base_source_load_raises(self):
+        # The Earth (base) source cannot parse a planetary CSV and redirects
+        # the caller to ICESat-2.
+        alt = Altimetry(directory="tests/test_data", dem_fn=self.DEM_FN)
+        assert isinstance(alt.planetary, PlanetarySource)
+        with pytest.raises(ValueError, match="ICESat-2"):
+            alt.planetary.load_planetary_csv("anything.csv")
+
+
 class TestLoadPlanetaryCsv:
     """Test LOLA and MOLA CSV loading and validation."""
 
@@ -714,15 +739,16 @@ class TestLoadPlanetaryCsv:
             " 15.3286,  -9.6021,     297.16\n"
             " 15.3286,  -9.6039,     300.09\n"
         )
-        alt.planetary._load_lola_csv(str(csv))
-        assert alt.planetary_points is not None
-        assert len(alt.planetary_points) == 3
-        assert "height" in alt.planetary_points.columns
-        assert "radius_m" in alt.planetary_points.columns
+        src = LolaSource(alt)
+        src.load_planetary_csv(str(csv))
+        assert src.planetary_points is not None
+        assert len(src.planetary_points) == 3
+        assert "height" in src.planetary_points.columns
+        assert "radius_m" in src.planetary_points.columns
         # Height should equal topography directly for LOLA
-        assert alt.planetary_points["height"].iloc[0] == pytest.approx(295.81)
+        assert src.planetary_points["height"].iloc[0] == pytest.approx(295.81)
         # radius_m back-computed against the IAU 1737.4 km sphere
-        assert alt.planetary_points["radius_m"].iloc[0] == pytest.approx(1737695.81)
+        assert src.planetary_points["radius_m"].iloc[0] == pytest.approx(1737695.81)
 
     def test_load_lola_csv_pts_radius_km(self, alt, tmp_path):
         """LOLA Point per Row CSV has Pt_Radius in km — auto-convert to m."""
@@ -732,12 +758,13 @@ class TestLoadPlanetaryCsv:
             " 15.3287,  -9.6003, 1737.668720\n"
             " 15.3286,  -9.6021, 1737.666748\n"
         )
-        alt.planetary._load_lola_csv(str(csv))
+        src = LolaSource(alt)
+        src.load_planetary_csv(str(csv))
         # Pt_Radius is preferred; km auto-detected and converted to m.
-        assert alt.planetary_points["radius_m"].iloc[0] == pytest.approx(
+        assert src.planetary_points["radius_m"].iloc[0] == pytest.approx(
             1737668.720, abs=1e-3
         )
-        assert alt.planetary_points["height"].iloc[0] == pytest.approx(
+        assert src.planetary_points["height"].iloc[0] == pytest.approx(
             268.720, abs=1e-3
         )
 
@@ -749,14 +776,15 @@ class TestLoadPlanetaryCsv:
             "137.13264, -4.91750,   -4499.73, 3391690.27,1999-08-31T19:13:24.847\n"
             "137.13197, -4.91240,   -4505.07, 3391684.93,1999-08-31T19:13:24.947\n"
         )
-        alt.planetary._load_mola_csv(str(csv))
-        assert alt.planetary_points is not None
-        assert len(alt.planetary_points) == 2
-        assert "height" in alt.planetary_points.columns
-        assert "radius_m" in alt.planetary_points.columns
+        src = MolaSource(alt)
+        src.load_planetary_csv(str(csv))
+        assert src.planetary_points is not None
+        assert len(src.planetary_points) == 2
+        assert "height" in src.planetary_points.columns
+        assert "radius_m" in src.planetary_points.columns
         # height = PLANET_RAD - 3,396,190 (IAU sphere)
-        assert alt.planetary_points["height"].iloc[0] == pytest.approx(-4499.73)
-        assert alt.planetary_points["radius_m"].iloc[0] == pytest.approx(3391690.27)
+        assert src.planetary_points["height"].iloc[0] == pytest.approx(-4499.73)
+        assert src.planetary_points["radius_m"].iloc[0] == pytest.approx(3391690.27)
 
     def test_load_mola_topo_only_raises(self, alt, tmp_path):
         """Test that a *_topo_csv.csv (no PLANET_RAD) is rejected with help."""
@@ -766,7 +794,7 @@ class TestLoadPlanetaryCsv:
             "137.13264, -4.91750,   -4499.73,1999-08-31T19:13:24.847\n"
         )
         with pytest.raises(ValueError, match="PLANET_RAD"):
-            alt.planetary._load_mola_csv(str(csv))
+            MolaSource(alt).load_planetary_csv(str(csv))
 
     def test_load_mola_csv_lon_conversion(self, alt, tmp_path):
         """Test that MOLA 0-360 longitude is converted to -180/180."""
@@ -775,22 +803,23 @@ class TestLoadPlanetaryCsv:
             "LONG_EAST,LAT_NORTH, TOPOGRAPHY, PLANET_RAD,            UTC\n"
             "270.0, 10.0, -3000.0, 3393190.0, 1999-01-01T00:00:00\n"
         )
-        alt.planetary._load_mola_csv(str(csv))
-        assert alt.planetary_points["lon"].iloc[0] == pytest.approx(-90.0)
+        src = MolaSource(alt)
+        src.load_planetary_csv(str(csv))
+        assert src.planetary_points["lon"].iloc[0] == pytest.approx(-90.0)
 
     def test_load_csv_empty_raises(self, alt, tmp_path):
         """Test that empty CSV raises ValueError."""
         csv = tmp_path / "empty.csv"
         csv.write_text("Pt_Longitude, Pt_Latitude, Topography\n")
         with pytest.raises(ValueError, match="empty"):
-            alt.planetary._load_lola_csv(str(csv))
+            LolaSource(alt).load_planetary_csv(str(csv))
 
     def test_load_csv_wrong_columns_raises(self, alt, tmp_path):
         """Test that wrong columns raise ValueError with helpful message."""
         csv = tmp_path / "wrong.csv"
         csv.write_text("col_a, col_b, col_c\n1,2,3\n")
         with pytest.raises(ValueError, match="planetary radius"):
-            alt.planetary._load_lola_csv(str(csv))
+            LolaSource(alt).load_planetary_csv(str(csv))
 
     def test_load_planetary_csv_earth_raises(self, alt, tmp_path):
         """Test that load_planetary_csv rejects Earth DEMs."""

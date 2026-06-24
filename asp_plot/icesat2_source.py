@@ -20,10 +20,9 @@ from datetime import datetime, timedelta, timezone
 import geopandas as gpd
 import numpy as np
 import pandas as pd
-import rioxarray
-import xarray as xr
 from sliderule import sliderule as sliderule_api
 
+from asp_plot.altimetry_source import AltimetrySource
 from asp_plot.stereopair_metadata_parser import StereopairMetadataParser
 from asp_plot.utils import Raster
 from asp_plot.utils import nmad as _nmad
@@ -33,7 +32,7 @@ logger = logging.getLogger(__name__)
 ICESAT2_MISSION_START = datetime(2018, 10, 14, tzinfo=timezone.utc)
 
 
-class Icesat2Source:
+class Icesat2Source(AltimetrySource):
     """Request, cache, filter and difference ICESat-2 ATL06-SR points.
 
     Parameters
@@ -55,7 +54,7 @@ class Icesat2Source:
         atl06sr_processing_levels=None,
         atl06sr_processing_levels_filtered=None,
     ):
-        self.alt = alt
+        super().__init__(alt)
         self.atl06sr_processing_levels = (
             {} if atl06sr_processing_levels is None else atl06sr_processing_levels
         )
@@ -283,6 +282,45 @@ class Icesat2Source:
             t0=t0,
             t1=t1,
         )
+        self._print_time_filter_summary(
+            time_range, t0_str, t1_str, resolved_date, t0, time_buffer_days
+        )
+
+        # Build the per-level SlideRule parameter sets (shared + custom).
+        level_parms = self._build_level_parms(
+            processing_levels, region, t0_str, t1_str, res, len, ats, maxi, cnt
+        )
+
+        # Record the request settings + cache locations so a report run can
+        # write them to a figure-selections file for reproducibility (#121).
+        self.atl06sr_request_parms = {
+            "processing_levels": list(processing_levels),
+            "res": res,
+            "len": len,
+            "ats": ats,
+            "time_range": time_range,
+            "t0": t0_str,
+            "t1": t1_str,
+        }
+        self.atl06sr_parquet_paths = {}
+
+        for key, parms in level_parms.items():
+            print(f"\nICESat-2 ATL06 request processing for: {key}")
+            fn = os.path.join(self.alt.directory, f"{filename}_{key}.parquet")
+            self.atl06sr_parquet_paths[key] = fn
+            print(parms)
+
+            atl06sr = self._load_cached_atl06sr(fn, parms)
+            if atl06sr is None:
+                atl06sr = self._request_atl06sr_level(parms, fn, save_to_parquet)
+
+            self._ingest_atl06sr(key, atl06sr, h_sigma_quantile)
+
+    @staticmethod
+    def _print_time_filter_summary(
+        time_range, t0_str, t1_str, resolved_date, t0, time_buffer_days
+    ):
+        """Print the resolved server-side time filter, matching the request cascade."""
         if time_range == "all" and resolved_date is None and t0 is None:
             print(f"Time filter: {t0_str} to {t1_str} (all available)")
         elif resolved_date is not None:
@@ -295,19 +333,23 @@ class Icesat2Source:
         else:
             print(f"Time filter: {t0_str} to {t1_str} (all available, fallback)")
 
-        # See parameter discussion on: https://github.com/SlideRuleEarth/sliderule/issues/448
-        # "srt": -1 tells the server side code to look at the ATL03 confidence array for each photon
-        # and choose the confidence level that is highest across all five surface type entries.
-        # cnf options: {"atl03_tep", "atl03_not_considered", "atl03_background", "atl03_within_10m", \
-        # "atl03_low", "atl03_medium", "atl03_high"}
-        # Note reduced count for limited number of ground photons
+    @staticmethod
+    def _build_level_parms(
+        processing_levels, region, t0_str, t1_str, res, len, ats, maxi, cnt
+    ):
+        """Build the merged SlideRule parameter dict for each requested level.
 
-        # TODO: use the WorldCover values to determine if we should report canopy or top of canopy
-        #   This is tricky, and not clear yet how to go about this. For now, just request all processing levels.
+        Returns ``{level_key: parms}`` where ``parms`` is the shared request
+        envelope merged with the level-specific confidence/surface-type
+        settings. Only levels in ``processing_levels`` are included.
 
-        # TODO: Use more generic variable names and strings for functions that are not just limited to atl06
-        #   This can be done when we implement additional requests for other data types
-
+        See the SlideRule parameter discussion at
+        https://github.com/SlideRuleEarth/sliderule/issues/448 — ``"srt": -1``
+        tells the server to choose, per photon, the highest ATL03 confidence
+        across all five surface-type entries. ``cnf`` options are
+        ``atl03_{tep,not_considered,background,within_10m,low,medium,high}``.
+        Ground uses a reduced ``cnt`` because ground photons are sparser.
+        """
         # Shared parameters for all processing levels
         shared_parms = {
             "poly": region,
@@ -346,76 +388,71 @@ class Icesat2Source:
             },
         }
 
-        # Filter custom_parms to only include requested processing levels
-        custom_parms = {
-            key: parms
+        return {
+            key: {**shared_parms, **parms}
             for key, parms in custom_parms.items()
             if key in processing_levels
         }
 
-        # Record the request settings + cache locations so a report run can
-        # write them to a figure-selections file for reproducibility (#121).
-        self.atl06sr_request_parms = {
-            "processing_levels": list(processing_levels),
-            "res": res,
-            "len": len,
-            "ats": ats,
-            "time_range": time_range,
-            "t0": t0_str,
-            "t1": t1_str,
-        }
-        self.atl06sr_parquet_paths = {}
+    def _load_cached_atl06sr(self, fn, parms):
+        """Return cached ATL06-SR points if a parquet matching ``parms`` exists.
 
-        for key, custom_parm in custom_parms.items():
-            parms = {**shared_parms, **custom_parm}
+        Returns the cached :class:`~geopandas.GeoDataFrame` when ``fn`` exists
+        and the SlideRule parameters it was built with match ``parms``; returns
+        ``None`` (signalling a fresh request is needed) otherwise.
+        """
+        if not os.path.exists(fn):
+            return None
+        print(f"Existing file found, reading in: {fn}")
+        atl06sr = gpd.read_parquet(fn)
+        if self._params_match_cache(parms, atl06sr):
+            return atl06sr
+        return None
 
-            fn_base = f"{filename}_{key}"
+    @staticmethod
+    def _params_match_cache(parms, atl06sr):
+        """Whether a cached parquet was produced by the same SlideRule params.
 
-            print(f"\nICESat-2 ATL06 request processing for: {key}")
-            fn = os.path.join(self.alt.directory, f"{fn_base}.parquet")
-            self.atl06sr_parquet_paths[key] = fn
+        The request parameters are persisted in the parquet's
+        ``sliderule_parameters`` column (see :meth:`_save_to_parquet`). The
+        ``poly`` is compared as a string and the ``output`` key (a random temp
+        path SlideRule injects during ``run()``) is stripped from both sides so
+        an otherwise-identical request is recognized as a cache hit. Prints the
+        reason and returns ``False`` when the cache cannot be reused.
+        """
+        if "sliderule_parameters" not in atl06sr.columns:
+            print("No parameters column found, regenerating...")
+            return False
+        try:
+            file_parms = json.loads(atl06sr["sliderule_parameters"].iloc[0])
+        except Exception as e:
+            print(f"Could not parse cached parameters: {e}. Regenerating...")
+            return False
 
-            print(parms)
+        parms_copy = parms.copy()
+        parms_copy["poly"] = str(parms_copy["poly"])
+        # Strip "output" (a random temp path injected by SlideRule during
+        # run()) from both sides before comparison.
+        parms_copy.pop("output", None)
+        file_parms.pop("output", None)
 
-            # Check for cached file with matching parameters
-            need_request = True
-            if os.path.exists(fn):
-                print(f"Existing file found, reading in: {fn}")
-                atl06sr = gpd.read_parquet(fn)
+        if str(parms_copy) == str(file_parms):
+            return True
+        print("Parameters don't match request. Regenerating...")
+        return False
 
-                if "sliderule_parameters" in atl06sr.columns:
-                    try:
-                        file_parms = json.loads(atl06sr["sliderule_parameters"].iloc[0])
-                        parms_copy = parms.copy()
-                        parms_copy["poly"] = str(parms_copy["poly"])
-                        # Strip "output" (contains a random temp path
-                        # injected by SlideRule during run()) from both
-                        # sides before comparison.
-                        parms_copy.pop("output", None)
-                        file_parms.pop("output", None)
+    def _request_atl06sr_level(self, parms, fn, save_to_parquet):
+        """Fetch one processing level from SlideRule and sample WorldCover.
 
-                        if str(parms_copy) == str(file_parms):
-                            need_request = False
-                        else:
-                            print("Parameters don't match request. Regenerating...")
-                    except Exception as e:
-                        print(
-                            f"Could not parse cached parameters: {e}. "
-                            "Regenerating..."
-                        )
-                else:
-                    print("No parameters column found, regenerating...")
-
-            if need_request:
-                atl06sr = sliderule_api.run("atl03x", parms)
-                # Sample ESA WorldCover before caching so the column
-                # is persisted in the parquet and doesn't have to be
-                # re-sampled on subsequent runs.
-                atl06sr = self._sample_worldcover_into_gdf(atl06sr)
-                if save_to_parquet:
-                    self._save_to_parquet(fn, atl06sr, parms)
-
-            self._ingest_atl06sr(key, atl06sr, h_sigma_quantile)
+        Runs the ``atl03x`` request, samples ESA WorldCover before caching so
+        the column is persisted in the parquet (and need not be re-sampled on
+        later runs), and optionally writes the parquet to ``fn``.
+        """
+        atl06sr = sliderule_api.run("atl03x", parms)
+        atl06sr = self._sample_worldcover_into_gdf(atl06sr)
+        if save_to_parquet:
+            self._save_to_parquet(fn, atl06sr, parms)
+        return atl06sr
 
     def _ingest_atl06sr(self, key, atl06sr, h_sigma_quantile=1.0):
         """
@@ -738,14 +775,9 @@ class Icesat2Source:
         for key, atl06sr in self.atl06sr_processing_levels_filtered.items():
             if column not in atl06sr.columns:
                 continue
-            dh = atl06sr[column]
-            mean_val = np.nanmean(dh)
-            std_val = np.nanstd(dh.dropna().values)
-            if std_val == 0 or np.isnan(std_val):
+            mask = self._std_outlier_mask(atl06sr[column], n_sigma)
+            if mask is None:
                 continue
-            mask = (dh - mean_val).abs() <= n_sigma * std_val
-            # Keep rows where column is NaN (no dh yet) so they aren't dropped
-            mask = mask | dh.isna()
             n_before = len(atl06sr)
             self.atl06sr_processing_levels_filtered[key] = atl06sr[mask]
             n_after = len(self.atl06sr_processing_levels_filtered[key])
@@ -924,14 +956,12 @@ class Icesat2Source:
         CSV format with columns for longitude, latitude, and height.
         """
         atl06sr = self.atl06sr_processing_levels_filtered[key].to_crs("EPSG:4326")
-        csv_fn = os.path.join(self.alt.directory, f"{filename_prefix}_{key}.csv")
         df = atl06sr[["geometry", "h_mean"]].copy()
         df["lon"] = df["geometry"].x
         df["lat"] = df["geometry"].y
         df["height_above_datum"] = df["h_mean"]
         df = df[["lon", "lat", "height_above_datum"]]
-        df.to_csv(csv_fn, header=True, index=False)
-        return csv_fn
+        return self._write_csv_to_directory(df, f"{filename_prefix}_{key}.csv")
 
     def atl06sr_to_dem_dh(self, n_sigma=3):
         """
@@ -940,13 +970,14 @@ class Icesat2Source:
         Interpolates DEM heights at ATL06-SR point locations and calculates
         the difference between ICESat-2 heights and DEM heights. If an aligned
         DEM is available, also calculates differences against it. Outliers
-        beyond ``n_sigma`` × NMAD from the median are removed by default.
+        beyond ``n_sigma`` × standard deviation from the mean are removed by
+        default (via :meth:`filter_outliers`).
 
         Parameters
         ----------
         n_sigma : float or None, optional
-            Remove dh outliers beyond this many NMAD from the median.
-            Default 3. Pass None to skip outlier filtering.
+            Remove dh outliers beyond this many standard deviations from the
+            mean. Default 3. Pass None to skip outlier filtering.
 
         Returns
         -------
@@ -963,32 +994,22 @@ class Icesat2Source:
         ATL06-SR point locations using xarray and rioxarray. It handles
         coordinate system conversions automatically.
         """
-        dem = rioxarray.open_rasterio(self.alt.dem_fn, masked=True).squeeze()
-        epsg = dem.rio.crs.to_epsg()
+        # Sampling reprojects each track to the DEM CRS and stores the
+        # reprojected frame back, so downstream track geometry (segment
+        # endpoints) lives in the DEM/working CRS. The DEM is opened once and
+        # interpolated per key.
+        dem = self._open_dem(self.alt.dem_fn)
         for key, atl06sr in self.atl06sr_processing_levels_filtered.items():
-            atl06sr = atl06sr.to_crs(f"EPSG:{epsg}")
-
-            x = xr.DataArray(atl06sr.geometry.x.values, dims="z")
-            y = xr.DataArray(atl06sr.geometry.y.values, dims="z")
-            sample = dem.interp(x=x, y=y)
-
-            atl06sr["dem_height"] = sample.values
+            sample, atl06sr = self._interp_dem_at_points(dem, atl06sr)
+            atl06sr["dem_height"] = sample
             atl06sr["icesat_minus_dem"] = atl06sr["h_mean"] - atl06sr["dem_height"]
             self.atl06sr_processing_levels_filtered[key] = atl06sr
 
         if self.alt.aligned_dem_fn:
-            aligned_dem = rioxarray.open_rasterio(
-                self.alt.aligned_dem_fn, masked=True
-            ).squeeze()
-            epsg = aligned_dem.rio.crs.to_epsg()
+            aligned_dem = self._open_dem(self.alt.aligned_dem_fn)
             for key, atl06sr in self.atl06sr_processing_levels_filtered.items():
-                atl06sr = atl06sr.to_crs(f"EPSG:{epsg}")
-
-                x = xr.DataArray(atl06sr.geometry.x.values, dims="z")
-                y = xr.DataArray(atl06sr.geometry.y.values, dims="z")
-                sample = aligned_dem.interp(x=x, y=y)
-
-                atl06sr["aligned_dem_height"] = sample.values
+                sample, atl06sr = self._interp_dem_at_points(aligned_dem, atl06sr)
+                atl06sr["aligned_dem_height"] = sample
                 atl06sr["icesat_minus_aligned_dem"] = (
                     atl06sr["h_mean"] - atl06sr["aligned_dem_height"]
                 )
