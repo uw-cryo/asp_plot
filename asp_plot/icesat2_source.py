@@ -20,10 +20,9 @@ from datetime import datetime, timedelta, timezone
 import geopandas as gpd
 import numpy as np
 import pandas as pd
-import rioxarray
-import xarray as xr
 from sliderule import sliderule as sliderule_api
 
+from asp_plot.altimetry_source import AltimetrySource
 from asp_plot.stereopair_metadata_parser import StereopairMetadataParser
 from asp_plot.utils import Raster
 from asp_plot.utils import nmad as _nmad
@@ -33,7 +32,7 @@ logger = logging.getLogger(__name__)
 ICESAT2_MISSION_START = datetime(2018, 10, 14, tzinfo=timezone.utc)
 
 
-class Icesat2Source:
+class Icesat2Source(AltimetrySource):
     """Request, cache, filter and difference ICESat-2 ATL06-SR points.
 
     Parameters
@@ -55,7 +54,7 @@ class Icesat2Source:
         atl06sr_processing_levels=None,
         atl06sr_processing_levels_filtered=None,
     ):
-        self.alt = alt
+        super().__init__(alt)
         self.atl06sr_processing_levels = (
             {} if atl06sr_processing_levels is None else atl06sr_processing_levels
         )
@@ -776,14 +775,9 @@ class Icesat2Source:
         for key, atl06sr in self.atl06sr_processing_levels_filtered.items():
             if column not in atl06sr.columns:
                 continue
-            dh = atl06sr[column]
-            mean_val = np.nanmean(dh)
-            std_val = np.nanstd(dh.dropna().values)
-            if std_val == 0 or np.isnan(std_val):
+            mask = self._std_outlier_mask(atl06sr[column], n_sigma)
+            if mask is None:
                 continue
-            mask = (dh - mean_val).abs() <= n_sigma * std_val
-            # Keep rows where column is NaN (no dh yet) so they aren't dropped
-            mask = mask | dh.isna()
             n_before = len(atl06sr)
             self.atl06sr_processing_levels_filtered[key] = atl06sr[mask]
             n_after = len(self.atl06sr_processing_levels_filtered[key])
@@ -962,14 +956,12 @@ class Icesat2Source:
         CSV format with columns for longitude, latitude, and height.
         """
         atl06sr = self.atl06sr_processing_levels_filtered[key].to_crs("EPSG:4326")
-        csv_fn = os.path.join(self.alt.directory, f"{filename_prefix}_{key}.csv")
         df = atl06sr[["geometry", "h_mean"]].copy()
         df["lon"] = df["geometry"].x
         df["lat"] = df["geometry"].y
         df["height_above_datum"] = df["h_mean"]
         df = df[["lon", "lat", "height_above_datum"]]
-        df.to_csv(csv_fn, header=True, index=False)
-        return csv_fn
+        return self._write_csv_to_directory(df, f"{filename_prefix}_{key}.csv")
 
     def atl06sr_to_dem_dh(self, n_sigma=3):
         """
@@ -1001,32 +993,22 @@ class Icesat2Source:
         ATL06-SR point locations using xarray and rioxarray. It handles
         coordinate system conversions automatically.
         """
-        dem = rioxarray.open_rasterio(self.alt.dem_fn, masked=True).squeeze()
-        epsg = dem.rio.crs.to_epsg()
+        # Sampling reprojects each track to the DEM CRS and stores the
+        # reprojected frame back, so downstream track geometry (segment
+        # endpoints) lives in the DEM/working CRS. The DEM is opened once and
+        # interpolated per key.
+        dem = self._open_dem(self.alt.dem_fn)
         for key, atl06sr in self.atl06sr_processing_levels_filtered.items():
-            atl06sr = atl06sr.to_crs(f"EPSG:{epsg}")
-
-            x = xr.DataArray(atl06sr.geometry.x.values, dims="z")
-            y = xr.DataArray(atl06sr.geometry.y.values, dims="z")
-            sample = dem.interp(x=x, y=y)
-
-            atl06sr["dem_height"] = sample.values
+            sample, atl06sr = self._interp_dem_at_points(dem, atl06sr)
+            atl06sr["dem_height"] = sample
             atl06sr["icesat_minus_dem"] = atl06sr["h_mean"] - atl06sr["dem_height"]
             self.atl06sr_processing_levels_filtered[key] = atl06sr
 
         if self.alt.aligned_dem_fn:
-            aligned_dem = rioxarray.open_rasterio(
-                self.alt.aligned_dem_fn, masked=True
-            ).squeeze()
-            epsg = aligned_dem.rio.crs.to_epsg()
+            aligned_dem = self._open_dem(self.alt.aligned_dem_fn)
             for key, atl06sr in self.atl06sr_processing_levels_filtered.items():
-                atl06sr = atl06sr.to_crs(f"EPSG:{epsg}")
-
-                x = xr.DataArray(atl06sr.geometry.x.values, dims="z")
-                y = xr.DataArray(atl06sr.geometry.y.values, dims="z")
-                sample = aligned_dem.interp(x=x, y=y)
-
-                atl06sr["aligned_dem_height"] = sample.values
+                sample, atl06sr = self._interp_dem_at_points(aligned_dem, atl06sr)
+                atl06sr["aligned_dem_height"] = sample
                 atl06sr["icesat_minus_aligned_dem"] = (
                     atl06sr["h_mean"] - atl06sr["aligned_dem_height"]
                 )
