@@ -970,13 +970,14 @@ class Icesat2Source(AltimetrySource):
         Interpolates DEM heights at ATL06-SR point locations and calculates
         the difference between ICESat-2 heights and DEM heights. If an aligned
         DEM is available, also calculates differences against it. Outliers
-        beyond ``n_sigma`` × NMAD from the median are removed by default.
+        beyond ``n_sigma`` × standard deviation from the mean are removed by
+        default (via :meth:`filter_outliers`).
 
         Parameters
         ----------
         n_sigma : float or None, optional
-            Remove dh outliers beyond this many NMAD from the median.
-            Default 3. Pass None to skip outlier filtering.
+            Remove dh outliers beyond this many standard deviations from the
+            mean. Default 3. Pass None to skip outlier filtering.
 
         Returns
         -------

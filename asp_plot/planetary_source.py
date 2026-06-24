@@ -1,12 +1,15 @@
-"""Planetary (LOLA/MOLA) altimetry source.
+"""Planetary (LOLA/MOLA) altimetry sources.
 
 Owns the planetary-altimetry side of :class:`asp_plot.altimetry.Altimetry`:
 loading LOLA (Moon) and MOLA (Mars) point clouds from ODE GDS CSV exports,
 sampling the ASP DEM at those points, and exporting a pc_align-ready CSV.
 
-The class holds its own data (``planetary_points``) and reads the
-cross-cutting ``dem_fn`` / ``directory`` / ``aligned_dem_fn`` from the
-coordinating :class:`Altimetry` instance passed at construction.
+The body-agnostic machinery (DEM differencing, pc_align export, the shared CSV
+reader) lives on :class:`PlanetarySource`; the per-body CSV loaders live on its
+:class:`LolaSource` (Moon) and :class:`MolaSource` (Mars) subclasses. Each
+instance holds its own data (``planetary_points``) and reads the cross-cutting
+``dem_fn`` / ``directory`` / ``aligned_dem_fn`` from the coordinating
+:class:`Altimetry` instance passed at construction.
 """
 
 import logging
@@ -389,7 +392,7 @@ class LolaSource(PlanetarySource):
             Path to a LOLA RDR CSV from the ODE GDS API.
         """
         df, is_radius = self._load_planetary_csv_common(
-            csv_path, "LOLA", prefer="radius"
+            csv_path, self.instrument, prefer="radius"
         )
 
         if is_radius:
@@ -442,7 +445,7 @@ class MolaSource(PlanetarySource):
             a ``PLANET_RAD`` column (use the ``*_pts_csv.csv`` file).
         """
         df, is_radius = self._load_planetary_csv_common(
-            csv_path, "MOLA", prefer="radius"
+            csv_path, self.instrument, prefer="radius"
         )
 
         if not is_radius:

@@ -70,8 +70,9 @@ class AltimetrySource:
         """Boolean mask keeping dh values within ``n_sigma`` × std of the mean.
 
         Rows whose ``dh`` is NaN are kept (they carry no difference yet and
-        must not be dropped). Returns ``None`` when the spread is degenerate
-        (zero or non-finite std), signalling that no filtering should occur.
+        must not be dropped). Returns ``None`` — signalling that no filtering
+        should occur — when there are no finite values or the spread is
+        degenerate (zero or non-finite std).
 
         Parameters
         ----------
