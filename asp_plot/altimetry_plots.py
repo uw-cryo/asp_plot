@@ -363,6 +363,18 @@ class AltimetryPlotter:
 
         x_bounds = []
         y_bounds = []
+        # CRS to reproject every panel into. This is independent of whether a
+        # basemap is drawn: a basemap is only fetched when the caller passes
+        # contextily kwargs (e.g. source=...). Previously this CRS was injected
+        # into ``ctx_kwargs``, which made the ``if ctx_kwargs`` basemap guard
+        # below always true and forced a tile download on every call (a network
+        # hang in offline/CI runs).
+        if map_crs:
+            crs = map_crs
+        elif ctx_kwargs:
+            crs = ctx_kwargs.get("crs", "EPSG:4326")
+        else:
+            crs = "EPSG:4326"
         for ax, time_stamp in zip(axes, time_stamps):
             key_to_plot = f"{key}{time_stamp}"
 
@@ -379,13 +391,6 @@ class AltimetryPlotter:
                 continue
 
             atl06sr = filtered[key_to_plot]
-            if map_crs:
-                crs = map_crs
-                ctx_kwargs["crs"] = map_crs
-            elif ctx_kwargs:
-                crs = ctx_kwargs["crs"]
-            else:
-                crs = "EPSG:4326"
             atl06sr_sorted = atl06sr.sort_values(by="h_mean").to_crs(crs)
             bounds = atl06sr_sorted.total_bounds
             x_bounds.extend([bounds[0], bounds[2]])
@@ -424,6 +429,7 @@ class AltimetryPlotter:
                 min(y_bounds) - padding * y_range, max(y_bounds) + padding * y_range
             )
             if ctx_kwargs:
+                ctx_kwargs.setdefault("crs", crs)
                 ctx.add_basemap(ax=ax, **ctx_kwargs)
 
         suptitle = f"{title}"
