@@ -214,12 +214,12 @@ class ProcessingParameters:
             "stereo_run_time": stereo_run_time,
             "point2dem": point2dem_params,
             "point2dem_run_time": point2dem_run_time,
-            "mapproject": self.get_mapproject_commands(),
+            "mapproject": self.get_mapproject_commands(stereo_params),
         }
 
         return self.processing_parameters_dict
 
-    def get_mapproject_commands(self):
+    def get_mapproject_commands(self, stereo_command=None):
         """Reconstruct ``mapproject`` commands from mapprojected scene metadata.
 
         ASP's ``mapproject`` does not write a log file, but it stamps the
@@ -227,6 +227,15 @@ class ProcessingParameters:
         (issue #96). The mapprojected scenes live alongside the raw inputs in
         the processing root and/or the bundle-adjust directory, so we scan those
         plus the stereo directory.
+
+        Parameters
+        ----------
+        stereo_command : str, optional
+            The stereo command line for this run. When supplied, only
+            mapprojected outputs that the stereo run actually consumed (their
+            filename appears in the command) are reported -- so a
+            non-mapprojected run that shares a directory with mapprojected
+            scenes does not spuriously list a mapproject step.
 
         Returns
         -------
@@ -240,7 +249,8 @@ class ProcessingParameters:
                 self.processing_directory,
                 self.full_ba_directory,
                 self.full_stereo_directory,
-            ]
+            ],
+            stereo_command=stereo_command,
         )
 
     def from_bundle_adjust_log(self):

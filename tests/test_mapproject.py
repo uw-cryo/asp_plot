@@ -144,6 +144,36 @@ class TestFindCommands:
     def test_none_and_missing_dirs_skipped(self):
         assert find_mapproject_commands([None, "/no/such/dir"]) == []
 
+    def test_stereo_command_gate_includes_used_scene(self, tmp_path):
+        # A mapprojected stereo run lists the *_corr_map.tif inputs, so the
+        # output is kept.
+        _write_tagged_tif(str(tmp_path / "scene_corr_map.tif"), ASP_TAGS)
+        stereo_cmd = (
+            "stereo_corr --alignment-method none scene_corr_map.tif "
+            "other_corr_map.tif scene.xml other.xml stereo/run ref/dem.tif"
+        )
+        cmds = find_mapproject_commands([str(tmp_path)], stereo_command=stereo_cmd)
+        assert len(cmds) == 1
+
+    def test_stereo_command_gate_excludes_unused_scene(self, tmp_path):
+        # The non-mapprojected run in the same directory lists the raw
+        # *_corr.tif inputs; the leftover *_corr_map.tif must NOT be reported.
+        # Note "scene_corr.tif" is not a substring of "scene_corr_map.tif".
+        _write_tagged_tif(str(tmp_path / "scene_corr_map.tif"), ASP_TAGS)
+        stereo_cmd = (
+            "stereo_corr --alignment-method affineepipolar scene_corr.tif "
+            "other_corr.tif scene.xml other.xml stereo_no_mapproj/run"
+        )
+        cmds = find_mapproject_commands([str(tmp_path)], stereo_command=stereo_cmd)
+        assert cmds == []
+
+    def test_no_stereo_command_means_no_gating(self, tmp_path):
+        # Backwards-compatible default: without a stereo command, every
+        # discovered mapproject output is returned.
+        _write_tagged_tif(str(tmp_path / "scene_corr_map.tif"), ASP_TAGS)
+        assert len(find_mapproject_commands([str(tmp_path)])) == 1
+        assert len(find_mapproject_commands([str(tmp_path)], stereo_command="")) == 1
+
 
 @pytest.mark.parametrize(
     "name", ["s_map.tif", "s_proj.tif", "s.map.tif", "arbitrary_name.tif", "out.tiff"]

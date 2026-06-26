@@ -158,7 +158,7 @@ def _t_srs_token(crs):
     return None
 
 
-def find_mapproject_commands(directories):
+def find_mapproject_commands(directories, stereo_command=None):
     """Find ASP-mapprojected outputs across ``directories`` and reconstruct them.
 
     Scans each directory (non-recursively) for GeoTIFFs and keeps those carrying
@@ -174,6 +174,18 @@ def find_mapproject_commands(directories):
     directories : iterable of str or None
         Directories to scan (e.g. the processing root, stereo dir, BA dir).
         ``None`` entries are skipped.
+    stereo_command : str, optional
+        The stereo command line for the run being reported. When given, a
+        mapprojected output is kept only if its filename appears among the
+        stereo inputs (i.e. this run actually consumed it). This scopes the
+        result to the run at hand: a non-mapprojected stereo run that shares a
+        directory with leftover mapprojected scenes (e.g. ``stereo/`` and
+        ``stereo_no_mapproj/`` under one parent) no longer picks them up. A
+        mapprojected run's ``stereo`` command lists the ``*_map.tif`` inputs; a
+        non-mapprojected run lists the raw images instead, so the gate is a
+        plain filename-membership test -- no fragile positional parsing. When
+        ``None`` (or empty), no gating is applied and every discovered output is
+        returned.
 
     Returns
     -------
@@ -197,6 +209,11 @@ def find_mapproject_commands(directories):
             if real in scanned:
                 continue
             scanned.add(real)
+            # Scope to what this stereo run actually used: a mapprojected output
+            # is an input to mapprojected stereo, so its basename appears in the
+            # stereo command. Skip outputs the run did not consume.
+            if stereo_command and os.path.basename(path) not in stereo_command:
+                continue
             command = reconstruct_mapproject_command(path)
             # Dedupe on the reconstructed command: distinct left/right scenes
             # differ (different input image + output name), but the same scene
