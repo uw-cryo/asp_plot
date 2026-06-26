@@ -30,7 +30,7 @@ def nmad(a, c=1.4826):
     return np.nanmedian(np.fabs(a - np.nanmedian(a))) * c
 
 
-def glob_file(directory, *patterns, all_files=False):
+def glob_file(directory, *patterns, all_files=False, recursive=False):
     """
     Find files matching pattern(s) in a directory.
 
@@ -47,6 +47,9 @@ def glob_file(directory, *patterns, all_files=False):
     all_files : bool, optional
         If True, return all matching files; if False, return only the first match.
         Default is False.
+    recursive : bool, optional
+        If True, enable recursive globbing so a ``**`` in a pattern matches this
+        directory and all subdirectories. Default is False.
 
     Returns
     -------
@@ -59,10 +62,11 @@ def glob_file(directory, *patterns, all_files=False):
     >>> first_tif = glob_file("/path/to/dir", "*.tif")
     >>> all_tifs = glob_file("/path/to/dir", "*.tif", all_files=True)
     >>> dem_file = glob_file("/path/to/dir", "*-DEM.tif", "*_dem.tif")
+    >>> nested = glob_file("/path/to/dir", "**/*.xml", all_files=True, recursive=True)
     """
     directory = os.path.expanduser(directory)
     for pattern in patterns:
-        files = glob.glob(os.path.join(directory, pattern))
+        files = glob.glob(os.path.join(directory, pattern), recursive=recursive)
         if files:
             if all_files:
                 return files

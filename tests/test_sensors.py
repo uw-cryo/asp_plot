@@ -1,3 +1,6 @@
+import shutil
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -8,6 +11,12 @@ from asp_plot.sensors import (
     WorldViewMetadata,
     sensor_for_directory,
 )
+
+# The two committed single-scene WorldView camera XMLs at the top level of
+# tests/test_data (one *.r100.xml per CATID, no tiles).
+TEST_DATA_DIR = Path("tests/test_data")
+CAM_A = TEST_DATA_DIR / "10300100D0772D00.r100.xml"
+CAM_B = TEST_DATA_DIR / "10300100D12D7400.r100.xml"
 
 
 class TestWorldViewMetadata:
@@ -94,3 +103,126 @@ class TestSensorDetection:
     def test_sensor_for_directory_no_match_raises(self, tmp_path):
         with pytest.raises(ValueError, match="No supported sensor metadata"):
             sensor_for_directory(str(tmp_path))
+
+
+class TestWorldViewDiscovery:
+    """Shallow-first XML discovery and non-camera XML exclusion."""
+
+    def test_finds_xml_nested_several_dirs_deep(self, tmp_path):
+        # Real deliveries nest the camera XML well below the directory handed in.
+        nested = tmp_path / "order" / "DVD_VOL_1" / "order" / "scene_PAN"
+        nested.mkdir(parents=True)
+        shutil.copy(CAM_A, nested / "camera.xml")
+
+        found = WorldViewMetadata._discover_xmls(str(tmp_path))
+        assert [Path(f).name for f in found] == ["camera.xml"]
+
+    def test_top_level_takes_precedence_over_nested(self, tmp_path):
+        # A flat delivery / processing dir keeps its camera XMLs at the top
+        # level, so discovery uses those and does NOT descend into unrelated
+        # subdirectories (which would change report behavior).
+        shutil.copy(CAM_A, tmp_path / "top.xml")
+        nested = tmp_path / "subdir"
+        nested.mkdir()
+        shutil.copy(CAM_B, nested / "nested.xml")
+
+        found = WorldViewMetadata._discover_xmls(str(tmp_path))
+        assert [Path(f).name for f in found] == ["top.xml"]
+
+    def test_non_recursive_ignores_nested(self, tmp_path):
+        nested = tmp_path / "scene_PAN"
+        nested.mkdir()
+        shutil.copy(CAM_A, nested / "camera.xml")
+
+        assert WorldViewMetadata._discover_xmls(str(tmp_path), recursive=False) == []
+
+    def test_excludes_readme_and_ortho(self, tmp_path):
+        pan = tmp_path / "scene_PAN"
+        pan.mkdir()
+        shutil.copy(CAM_A, pan / "camera.xml")
+        # Decoys that ship alongside camera XMLs and must be ignored by name.
+        (tmp_path / "500647760070_01_README.XML").write_text("<README/>")
+        (pan / "scene-ortho.xml").write_text("<isd/>")
+
+        found = WorldViewMetadata._discover_xmls(str(tmp_path))
+        assert [Path(f).name for f in found] == ["camera.xml"]
+
+    def test_detect_uses_recursive_discovery(self, tmp_path):
+        nested = tmp_path / "a" / "b" / "scene_PAN"
+        nested.mkdir(parents=True)
+        shutil.copy(CAM_A, nested / "camera.xml")
+        assert WorldViewMetadata.detect(str(tmp_path)) is True
+
+
+class TestWorldViewSceneGrouping:
+    """Grouping discovered XMLs into scenes by CATID read from content."""
+
+    @staticmethod
+    def _scene_with_catid(src, dst, new_catid):
+        """Copy ``src`` to ``dst`` with its CATID rewritten to ``new_catid``."""
+        # CAM_A's CATID is its filename stem; rewrite every occurrence so the
+        # copy reads as a distinct scene.
+        text = Path(src).read_text().replace("10300100D0772D00", new_catid)
+        Path(dst).write_text(text)
+
+    def test_distinct_single_tile_scenes_not_mosaicked(self, tmp_path):
+        # Three distinct single-tile scenes in one flat directory must NOT be
+        # treated as tiles of one scene just because there are more than two.
+        shutil.copy(CAM_A, tmp_path / "a.xml")
+        shutil.copy(CAM_B, tmp_path / "b.xml")
+        self._scene_with_catid(CAM_A, tmp_path / "c.xml", "10300100DEADBE00")
+
+        reader = WorldViewMetadata(directory=str(tmp_path))
+        catid_xmls = reader.get_catid_xmls()
+
+        assert set(catid_xmls) == {
+            "10300100D0772D00",
+            "10300100D12D7400",
+            "10300100DEADBE00",
+        }
+        # Each scene maps to one of the untouched inputs ...
+        assert {Path(v).name for v in catid_xmls.values()} == {
+            "a.xml",
+            "b.xml",
+            "c.xml",
+        }
+        # ... and no dg_mosaic output was produced.
+        assert not list(tmp_path.glob("*_asp_plot_dg_mosaic*"))
+
+    def test_skips_xml_without_catid(self, tmp_path, caplog):
+        shutil.copy(CAM_A, tmp_path / "a.xml")
+        shutil.copy(CAM_B, tmp_path / "b.xml")
+        # A non-camera XML whose name does not match readme/ortho, so it passes
+        # discovery and must be skipped by the content (CATID) check.
+        (tmp_path / "sidecar.xml").write_text("<metadata><note>hi</note></metadata>")
+
+        reader = WorldViewMetadata(directory=str(tmp_path))
+        with caplog.at_level("WARNING"):
+            catid_xmls = reader.get_catid_xmls()
+
+        assert set(catid_xmls) == {"10300100D0772D00", "10300100D12D7400"}
+        assert "without a CATID" in caplog.text
+
+    def test_all_xmls_without_catid_raises(self, tmp_path):
+        (tmp_path / "sidecar.xml").write_text("<metadata/>")
+        reader = WorldViewMetadata(directory=str(tmp_path))
+        with pytest.raises(ValueError, match="No XML camera files with a CATID"):
+            reader.get_catid_xmls()
+
+    def test_lone_r100_delivery_used_as_is(self):
+        # A scene delivered as a single *.r100.xml is the camera itself and must
+        # not be dropped as a regenerable mosaic intermediate.
+        reader = WorldViewMetadata(directory=str(TEST_DATA_DIR))
+        catid_xmls = reader.get_catid_xmls()
+        assert set(catid_xmls) == {"10300100D0772D00", "10300100D12D7400"}
+        assert all(v.endswith(".r100.xml") for v in catid_xmls.values())
+
+    def test_tiled_scene_reuses_existing_mosaic(self):
+        # Raw tiles + a pre-existing mosaic: grouped to one mosaic per CATID
+        # without invoking dg_mosaic (the committed mosaic output is reused).
+        reader = WorldViewMetadata(directory="tests/test_data/tiled_xmls")
+        catid_xmls = reader.get_catid_xmls()
+        assert set(catid_xmls) == {"10200100A1865800", "10200100A37C1C00"}
+        assert all(
+            v.endswith("_asp_plot_dg_mosaic.r100.xml") for v in catid_xmls.values()
+        )
