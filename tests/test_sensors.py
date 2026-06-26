@@ -9,7 +9,9 @@ from asp_plot.sensors import (
     SENSORS,
     SensorMetadata,
     WorldViewMetadata,
+    resolve_xml_inputs,
     sensor_for_directory,
+    sensor_for_inputs,
 )
 
 # The two committed single-scene WorldView camera XMLs at the top level of
@@ -152,6 +154,79 @@ class TestWorldViewDiscovery:
         nested.mkdir(parents=True)
         shutil.copy(CAM_A, nested / "camera.xml")
         assert WorldViewMetadata.detect(str(tmp_path)) is True
+
+
+class TestFlexibleInputResolution:
+    """Resolving files / directories / globs into camera XMLs (geom_plot *.XML)."""
+
+    def test_resolve_explicit_files(self):
+        # The shell-expanded ``geom_plot *.XML`` case: a list of file paths.
+        found = resolve_xml_inputs([str(CAM_A), str(CAM_B)])
+        assert found == sorted([str(CAM_A), str(CAM_B)])
+
+    def test_resolve_directory(self):
+        # A bare directory is discovered the same way as the directory API.
+        found = resolve_xml_inputs(str(TEST_DATA_DIR))
+        assert set(found) == {str(CAM_A), str(CAM_B)}
+
+    def test_resolve_glob_pattern(self):
+        found = resolve_xml_inputs(str(TEST_DATA_DIR / "*.r100.xml"))
+        assert set(found) == {str(CAM_A), str(CAM_B)}
+
+    def test_resolve_single_string_not_iterated_per_char(self):
+        # A lone path string must be treated as one path, not a char iterable.
+        found = resolve_xml_inputs(str(CAM_A))
+        assert found == [str(CAM_A)]
+
+    def test_resolve_mixed_inputs_deduplicated(self, tmp_path):
+        # A file, a directory, and a glob that all reference overlapping XMLs
+        # collapse to a de-duplicated, sorted set.
+        shutil.copy(CAM_A, tmp_path / "a.xml")
+        shutil.copy(CAM_B, tmp_path / "b.xml")
+        found = resolve_xml_inputs(
+            [
+                str(tmp_path / "a.xml"),
+                str(tmp_path),  # also discovers a.xml and b.xml
+                str(tmp_path / "*.xml"),  # again
+            ]
+        )
+        assert found == sorted([str(tmp_path / "a.xml"), str(tmp_path / "b.xml")])
+
+    def test_resolve_finds_nested_xml(self, tmp_path):
+        # A directory input still descends into deeply-nested deliveries.
+        nested = tmp_path / "order" / "scene_PAN"
+        nested.mkdir(parents=True)
+        shutil.copy(CAM_A, nested / "camera.xml")
+        found = resolve_xml_inputs(str(tmp_path))
+        assert [Path(f).name for f in found] == ["camera.xml"]
+
+    def test_resolve_missing_input_skipped(self, tmp_path, caplog):
+        with caplog.at_level("WARNING"):
+            found = resolve_xml_inputs(
+                [str(CAM_A), str(tmp_path / "does_not_exist.xml")]
+            )
+        assert found == [str(CAM_A)]
+        assert "does not exist" in caplog.text
+
+    def test_sensor_for_inputs_returns_reader(self):
+        reader = sensor_for_inputs([str(CAM_A), str(CAM_B)])
+        assert isinstance(reader, WorldViewMetadata)
+        assert set(reader.image_list) == {str(CAM_A), str(CAM_B)}
+
+    def test_sensor_for_inputs_no_xml_raises(self, tmp_path):
+        with pytest.raises(ValueError, match="No XML files found"):
+            sensor_for_inputs([str(tmp_path / "nope.xml")])
+
+    def test_reader_from_image_list_filters_non_camera(self, tmp_path):
+        # README/ortho decoys handed in explicitly are still dropped.
+        readme = tmp_path / "500647760070_01_README.XML"
+        readme.write_text("<README/>")
+        reader = WorldViewMetadata(image_list=[str(CAM_A), str(readme)])
+        assert reader.image_list == [str(CAM_A)]
+
+    def test_reader_requires_directory_or_image_list(self):
+        with pytest.raises(ValueError, match="either a directory or an image_list"):
+            WorldViewMetadata()
 
 
 class TestWorldViewSceneGrouping:
