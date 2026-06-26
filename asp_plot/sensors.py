@@ -25,6 +25,7 @@ DataFrame), and ``fp_gdf`` (footprint GeoDataFrame in EPSG:4326).
 import logging
 import os
 import re
+import xml.etree.ElementTree as ET
 from abc import ABC, abstractmethod
 from datetime import datetime
 
@@ -145,24 +146,64 @@ class WorldViewMetadata(SensorMetadata):
                 "\n\nMissing XML camera files in directory. Cannot extract metadata without these.\n\n"
             )
 
+    # XML files that are delivered alongside the camera models but are *not*
+    # camera models themselves and must be ignored. Matched against the file
+    # basename, case-insensitively: ortho products (``*ortho*.xml``) and the
+    # ``README.XML`` that ships in every DigitalGlobe-heritage delivery.
+    _NON_CAMERA_XML_RE = re.compile(r"ortho|readme", re.IGNORECASE)
+
     @staticmethod
-    def _discover_xmls(directory):
-        """Glob non-ortho XML camera files in ``directory``.
+    def _filter_camera_xmls(image_list):
+        """Drop non-camera XMLs (ortho products, README.XML, ...) by basename.
+
+        Matched against the basename so a parent directory named e.g.
+        ``ortho_run/`` does not exclude otherwise-valid scenes.
+        """
+        return sorted(
+            file
+            for file in (image_list or [])
+            if not WorldViewMetadata._NON_CAMERA_XML_RE.search(os.path.basename(file))
+        )
+
+    @staticmethod
+    def _discover_xmls(directory, recursive=True):
+        """Glob camera-model XML files in ``directory``.
+
+        Searches the top level of ``directory`` first: a flat delivery or an ASP
+        processing directory keeps its camera XMLs there, so those take
+        precedence and unrelated XMLs in subdirectories are not pulled in. Only
+        when the top level has no camera XML does it fall back to a recursive
+        search, because some satellite deliveries nest the camera XML several
+        subdirectories deep (e.g. ``.../<order>/DVD_VOL_1/<order>/<scene>_PAN/
+        <scene>.XML``) alongside ``README.XML`` files that must be ignored. This
+        lets a user point at such a delivery without flattening it first, while
+        leaving the behavior of flat directories unchanged.
 
         Parameters
         ----------
         directory : str
             Path to directory to search.
+        recursive : bool, optional
+            If True (default), fall back to a recursive search when the top
+            level holds no camera XML. If False, only the top level is searched.
 
         Returns
         -------
         list
-            List of XML file paths, excluding ``*ortho*.xml`` files.
+            Sorted list of XML file paths, excluding non-camera XMLs such as
+            ``*ortho*.xml`` and ``README.XML``.
         """
-        # glob_file returns None (not []) when nothing matches
-        image_list = glob_file(directory, "*.[Xx][Mm][Ll]", all_files=True) or []
-        # Drop potential *ortho*.xml files from image_list
-        return [file for file in image_list if not re.search(r".*ortho.*\.xml", file)]
+        # glob_file returns None (not []) when nothing matches.
+        found = WorldViewMetadata._filter_camera_xmls(
+            glob_file(directory, "*.[Xx][Mm][Ll]", all_files=True)
+        )
+        if not found and recursive:
+            found = WorldViewMetadata._filter_camera_xmls(
+                glob_file(
+                    directory, "**/*.[Xx][Mm][Ll]", all_files=True, recursive=True
+                )
+            )
+        return found
 
     @classmethod
     def detect(cls, directory):
@@ -197,105 +238,143 @@ class WorldViewMetadata(SensorMetadata):
             catid_dicts.append(self.get_id_dict(catid, xml))
         return catid_dicts
 
+    @staticmethod
+    def _read_catid(xml_file):
+        """Return the CATID of an XML file, or None if it has none.
+
+        A delivery may contain XML files that are not camera models (e.g. a
+        stray metadata sidecar) and therefore carry no ``CATID`` tag. Those are
+        not camera scenes and should be skipped rather than crashing discovery,
+        so this swallows the missing-tag/parse errors and returns None.
+
+        Parameters
+        ----------
+        xml_file : str
+            Path to the XML file.
+
+        Returns
+        -------
+        str or None
+            The catalog ID, or None if the file has no ``CATID`` tag or cannot
+            be parsed as XML.
+        """
+        try:
+            return get_xml_tag(xml_file, "CATID")
+        except (ValueError, ET.ParseError):
+            return None
+
     def get_catid_xmls(self):
         """
-        Get XML files associated with each catalog ID.
+        Get a single representative XML file for each catalog ID.
 
-        Checks for multiple XML files for each catalog ID and handles mosaicking
-        if needed.
+        Groups the discovered XML files by their catalog ID (read from the XML
+        content, not the filename) and resolves each scene to one XML: a scene
+        delivered as a single XML is used as-is, while a scene tiled across
+        multiple XMLs is mosaicked into one with ``dg_mosaic``.
 
         Returns
         -------
         dict
-            Dictionary mapping catalog IDs to XML file paths
+            Dictionary mapping catalog IDs to a single XML file path.
+
+        Raises
+        ------
+        ValueError
+            If none of the discovered XML files contain a ``CATID`` tag.
 
         Notes
         -----
-        If more than two XML files are found, they will be mosaicked using
-        dg_mosaic before proceeding.
+        Mosaicking is decided per catalog ID, so a directory holding many
+        distinct single-tile scenes is *not* mosaicked just because it contains
+        more than two XML files. Mosaicking a tiled scene requires ``dg_mosaic``
+        from the NASA Ames Stereo Pipeline on the system path.
         """
-        # First check for multiple XML files and dg_mosaic if needed
-        if len(self.image_list) > 2:
-            print(
-                "\nMore than two XML files found in directory. Mosaicking before proceeding.\n"
-            )
-            self.mosaic_multiple_xmls()
-
-        # Get CATIDs
-        catid_xmls = {}
+        # Group every discovered XML by CATID read from XML content (filenames
+        # are not reliable). Files without a CATID are not camera models (e.g. a
+        # README.XML that slipped past the name filter) and are skipped with a
+        # warning rather than crashing.
+        catid_groups = {}
         for xml_file in self.image_list:
-            catid = get_xml_tag(xml_file, "CATID")
-            catid_xmls[catid] = xml_file
+            catid = self._read_catid(xml_file)
+            if catid is None:
+                logger.warning(
+                    "Skipping XML without a CATID tag (not a camera model): %s",
+                    xml_file,
+                )
+                continue
+            catid_groups.setdefault(catid, []).append(xml_file)
 
-        # TODO: need to improve logic and looping here and in get_id_dict for dictionary creation when
-        # there are multiple XML files for a given scene
-        # use ~/Desktop/asp-plot-examples/antarctica/tiled_xmls_example for testing this
+        if not catid_groups:
+            raise ValueError(
+                "\n\nNo XML camera files with a CATID tag found in directory.\n\n"
+            )
+
+        # Resolve each CATID to a single representative XML. A mosaic output
+        # (``*.r100.xml`` / ``*.r50.xml``) is only a regenerable intermediate
+        # when raw tiles for the same CATID are also present; when it is the
+        # only XML for a CATID it *is* the delivered camera and is used as-is.
+        catid_xmls = {}
+        for catid, group in sorted(catid_groups.items()):
+            raw_tiles = sorted(
+                f for f in group if not re.search(r"\.r100\.|\.r50\.", f)
+            )
+            if not raw_tiles:
+                # Delivered as a single, already-mosaicked XML (e.g. *.r100.xml).
+                catid_xmls[catid] = sorted(group)[0]
+            elif len(raw_tiles) == 1:
+                # Single tile: use it directly, no mosaicking needed.
+                catid_xmls[catid] = raw_tiles[0]
+            else:
+                print(
+                    f"\nCATID {catid} is tiled across {len(raw_tiles)} XMLs. "
+                    "Mosaicking before proceeding.\n"
+                )
+                catid_xmls[catid] = self._mosaic_tiles(catid, raw_tiles)
 
         return catid_xmls
 
-    def mosaic_multiple_xmls(self):
+    def _mosaic_tiles(self, catid, tile_xmls):
         """
-        Mosaic multiple XML files for each catalog ID.
+        Mosaic the tile XMLs of a single catalog ID into one XML.
 
-        Uses dg_mosaic to merge multiple XML files for the same catalog ID
-        into a single XML file. This is needed when a scene is composed of
-        multiple image tiles.
+        Uses ``dg_mosaic`` to merge the image tiles of one scene into a single
+        camera XML. An existing mosaic output is reused rather than regenerated.
+
+        Parameters
+        ----------
+        catid : str
+            Catalog ID the tiles belong to (used for the output filename).
+        tile_xmls : list of str
+            Paths to the tile XML files for this catalog ID.
 
         Returns
         -------
-        None
-            Updates the image_list attribute with mosaicked XML files
+        str
+            Path to the mosaicked ``*.r100.xml`` file.
 
         Notes
         -----
         Requires dg_mosaic from the NASA Ames Stereo Pipeline to be installed
         and available in the system path.
         """
-        # Drop existing *.r100.* and *.r50.* files from image_list if they are present
-        self.image_list = [
-            file
-            for file in self.image_list
-            if not re.search(r"\.r100\..*|\.r50\..*", file)
-        ]
+        output_xml = os.path.join(self.directory, f"{catid}_asp_plot_dg_mosaic")
+        output_xml_r100 = f"{output_xml}.r100.xml"
 
-        # Group XML files by CATID
-        catid_xml_dict = {}
-        for xml_file in self.image_list:
-            catid = get_xml_tag(xml_file, "CATID")
-            if catid not in catid_xml_dict:
-                catid_xml_dict[catid] = []
-            catid_xml_dict[catid].append(xml_file)
+        if not os.path.exists(output_xml_r100):
+            # Build the command string instead of a list, needed for subprocess call, .split() below
+            xml_files = " ".join(tile_xmls)
+            command = (
+                f"dg_mosaic --skip-tif-gen --output-prefix {output_xml} {xml_files}"
+            )
 
-        # Convert lists to space-separated strings
-        catid_xml_dict = {
-            catid: " ".join(xml_files) for catid, xml_files in catid_xml_dict.items()
-        }
+            print(f"\nRunning dg_mosaic with command: {command}\n")
 
-        # Run dg_mosaic with: dg_mosaic --skip-tif-gen --output-prefix <NAME> <SPACE SEPARATED XML FILES>
-        output_xmls = []
-        for catid, xml_files in catid_xml_dict.items():
-            output_xml = os.path.join(self.directory, f"{catid}_asp_plot_dg_mosaic")
-            output_xml_r100 = f"{output_xml}.r100.xml"
+            # Run the command
+            run_subprocess_command(command.split())
+        else:
+            print(f"\nUsing existing mosaicked XML file: {output_xml_r100}\n")
 
-            if not os.path.exists(output_xml_r100):
-                # Build the command string instead of a list, needed for subprocess call, .split() below
-                command = (
-                    f"dg_mosaic --skip-tif-gen --output-prefix {output_xml} {xml_files}"
-                )
-
-                print(f"\nRunning dg_mosaic with command: {command}\n")
-
-                # Run the command
-                run_subprocess_command(command.split())
-            else:
-                print(f"\nUsing existing mosaicked XML file: {output_xml_r100}\n")
-
-            output_xmls.append(output_xml_r100)
-
-        # Then create the new image list with just the mosaicked XML files
-        self.image_list = []
-        for output_xml in output_xmls:
-            self.image_list.append(output_xml)
+        return output_xml_r100
 
     def get_id_dict(self, catid, xml, geteph=True):
         """
