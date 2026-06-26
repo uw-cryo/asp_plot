@@ -101,6 +101,28 @@ class TestAltimetry:
                 f"plot_atl06sr_time_stamps() method raised an exception: {str(e)}"
             )
 
+    def test_plot_atl06sr_time_stamps_no_basemap_by_default(self, icesat, monkeypatch):
+        # Regression: with no contextily kwargs, the method must NOT fetch a
+        # basemap (which would hit the network and hang offline / in CI). The
+        # default map_crs must not silently enable it.
+        import asp_plot.altimetry_plots as ap
+
+        calls = []
+        monkeypatch.setattr(ap.ctx, "add_basemap", lambda *a, **k: calls.append(k))
+        icesat.plot_atl06sr_time_stamps()
+        assert calls == []
+
+    def test_plot_atl06sr_time_stamps_basemap_when_requested(self, icesat, monkeypatch):
+        # When the caller passes contextily kwargs, a basemap is drawn and the
+        # reprojection CRS is forwarded to contextily.
+        import asp_plot.altimetry_plots as ap
+
+        calls = []
+        monkeypatch.setattr(ap.ctx, "add_basemap", lambda *a, **k: calls.append(k))
+        icesat.plot_atl06sr_time_stamps(source="dummy_source")
+        assert len(calls) >= 1
+        assert all(c.get("crs") for c in calls)
+
     def test_plot_atl06sr(self, icesat):
         try:
             icesat.plot_atl06sr()
