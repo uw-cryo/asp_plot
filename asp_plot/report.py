@@ -190,6 +190,11 @@ def compile_report(
     - stereo_run_time: Time to run stereo
     - point2dem: Point2dem command
     - point2dem_run_time: Time to run point2dem
+
+    Optional keys:
+    - mapproject: list of reconstructed mapproject command strings (one per
+      mapprojected input scene); rendered on the Processing Parameters page
+      when present and non-empty.
     """
     pdf = ASPReportPDF(report_title=report_title)
     pdf.alias_nb_pages()
@@ -432,6 +437,16 @@ def _add_alignment_stats_row_table(pdf, stats_row):
     pdf.ln(6)
 
 
+def _render_command_block(pdf, label, cmd):
+    """Render a single bold-labelled, monospace-wrapped command on the PDF."""
+    pdf.set_font("Helvetica", "B", 10)
+    pdf.cell(0, 7, f"{label} Command:", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_font("Courier", "", 7)
+    wrapped = textwrap.fill(cmd, width=120)
+    pdf.multi_cell(0, 4, wrapped, new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(4)
+
+
 def _add_processing_parameters_page(pdf, params, report_command):
     """Add the Processing Parameters page (runtime table + commands).
 
@@ -460,19 +475,39 @@ def _add_processing_parameters_page(pdf, params, report_command):
         pdf.multi_cell(0, 4, ref_dem)
         pdf.ln(4)
 
-    for key, label in [
-        ("bundle_adjust", "Bundle Adjust"),
-        ("stereo", "Stereo"),
-        ("point2dem", "point2dem"),
-    ]:
-        cmd = params.get(key, "")
-        if cmd:
-            pdf.set_font("Helvetica", "B", 10)
-            pdf.cell(0, 7, f"{label} Command:", new_x="LMARGIN", new_y="NEXT")
-            pdf.set_font("Courier", "", 7)
+    # Render commands in ASP pipeline order: bundle_adjust -> mapproject ->
+    # stereo -> point2dem. mapproject is reconstructed from output metadata
+    # (it writes no log), so it carries an explanatory note and may be a list.
+    if params.get("bundle_adjust"):
+        _render_command_block(pdf, "Bundle Adjust", params["bundle_adjust"])
+
+    mapproject_cmds = params.get("mapproject") or []
+    if mapproject_cmds:
+        label = (
+            "Mapproject Command" if len(mapproject_cmds) == 1 else "Mapproject Commands"
+        )
+        pdf.set_font("Helvetica", "B", 10)
+        pdf.cell(0, 7, f"{label}:", new_x="LMARGIN", new_y="NEXT")
+        pdf.set_font("Helvetica", "I", 7)
+        pdf.multi_cell(
+            0,
+            4,
+            "Reconstructed from output GeoTIFF metadata (mapproject writes no "
+            "log file); session type and grid size are the resolved values.",
+            new_x="LMARGIN",
+            new_y="NEXT",
+        )
+        pdf.set_font("Courier", "", 7)
+        for cmd in mapproject_cmds:
             wrapped = textwrap.fill(cmd, width=120)
-            pdf.multi_cell(0, 4, wrapped)
-            pdf.ln(4)
+            pdf.multi_cell(0, 4, wrapped, new_x="LMARGIN", new_y="NEXT")
+            pdf.ln(1)
+        pdf.ln(3)
+
+    if params.get("stereo"):
+        _render_command_block(pdf, "Stereo", params["stereo"])
+    if params.get("point2dem"):
+        _render_command_block(pdf, "point2dem", params["point2dem"])
 
     if report_command:
         pdf.set_font("Helvetica", "B", 10)

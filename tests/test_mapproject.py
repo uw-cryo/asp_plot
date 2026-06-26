@@ -1,0 +1,262 @@
+"""Tests for reconstructing mapproject commands from GeoTIFF metadata (#96)."""
+
+import numpy as np
+import pytest
+import rasterio
+from rasterio.crs import CRS
+from rasterio.transform import from_origin
+
+from asp_plot.mapproject import (
+    _format_coord,
+    find_mapproject_commands,
+    reconstruct_mapproject_command,
+)
+
+# A realistic ASP mapproject metadata signature, mirroring what gdalinfo shows
+# on a WorldView _corr_map.tif (RPC session, bundle-adjusted).
+ASP_TAGS = {
+    "INPUT_IMAGE_FILE": "scene_corr.tif",
+    "CAMERA_FILE": "scene.xml",
+    "DEM_FILE": "ref/cop30.tif",
+    "CAMERA_MODEL_TYPE": "rpc",
+    "BUNDLE_ADJUST_PREFIX": "ba/run",
+}
+
+
+def _write_tagged_tif(path, tags, crs="EPSG:32616", origin=(735685.0, 3727694.0)):
+    """Write a tiny GeoTIFF with the given ASP metadata tags."""
+    with rasterio.open(
+        path,
+        "w",
+        driver="GTiff",
+        height=4,
+        width=4,
+        count=1,
+        dtype="float32",
+        crs=CRS.from_user_input(crs) if crs else None,
+        transform=from_origin(origin[0], origin[1], 0.5, 0.5),
+    ) as dst:
+        dst.write(np.ones((1, 4, 4), dtype="float32"))
+        if tags:
+            dst.update_tags(**tags)
+
+
+class TestReconstruct:
+    def test_full_command(self, tmp_path):
+        fn = tmp_path / "scene_corr_map.tif"
+        _write_tagged_tif(str(fn), ASP_TAGS)
+        cmd = reconstruct_mapproject_command(str(fn))
+
+        # Resolved session, srs, grid, projwin, BA prefix, then positional args.
+        assert cmd.startswith("mapproject -t rpc --t_srs EPSG:32616 --tr 0.5 ")
+        assert "--t_projwin 735685 3727692 735687 3727694" in cmd
+        assert "--bundle-adjust-prefix ba/run" in cmd
+        # Positional order: DEM, input image, camera, output (basename).
+        assert cmd.endswith("ref/cop30.tif scene_corr.tif scene.xml scene_corr_map.tif")
+
+    def test_no_bundle_adjust_prefix_omitted(self, tmp_path):
+        tags = dict(ASP_TAGS, BUNDLE_ADJUST_PREFIX="NONE")
+        fn = tmp_path / "scene_map.tif"
+        _write_tagged_tif(str(fn), tags)
+        cmd = reconstruct_mapproject_command(str(fn))
+        assert "--bundle-adjust-prefix" not in cmd
+
+    def test_non_epsg_crs_falls_back_to_proj4(self, tmp_path):
+        # A custom stereographic frame with no EPSG code (cf. jitter solving).
+        proj = (
+            "+proj=stere +lat_0=46.85 +lon_0=-121.76 +k=1 +x_0=0 +y_0=0 "
+            "+datum=WGS84 +units=m +no_defs"
+        )
+        tags = dict(ASP_TAGS, CAMERA_MODEL_TYPE="csm")
+        fn = tmp_path / "out.map.tif"
+        _write_tagged_tif(str(fn), tags, crs=proj, origin=(-45315.0, 56025.0))
+        cmd = reconstruct_mapproject_command(str(fn))
+        assert '--t_srs "+proj=stere' in cmd
+        assert "-t csm" in cmd
+
+    def test_projwin_not_scientific_notation(self, tmp_path):
+        # Large UTM northings must not render as 3.7e+06 (unusable on the CLI).
+        import re
+
+        fn = tmp_path / "scene_map.tif"
+        _write_tagged_tif(str(fn), ASP_TAGS)
+        cmd = reconstruct_mapproject_command(str(fn))
+        # No <digit>e[+-]<digit> exponent tokens (would not match "bundle-adjust").
+        assert not re.search(r"\de[+-]\d", cmd)
+
+    def test_geographic_crs_keeps_grid_precision(self, tmp_path):
+        # A geographic-CRS output has a tiny degree-scale --tr (~5e-6); it must
+        # keep full precision, not collapse to 1 significant figure.
+        deg = 0.5 / 111320.0  # ~0.5 m pixel at the equator, in degrees
+        fn = tmp_path / "geo_map.tif"
+        _write_tagged_tif(str(fn), ASP_TAGS, crs="EPSG:4326", origin=(-121.76, 46.85))
+        # rewrite at the degree-scale resolution (helper hardcodes 0.5 m)
+        with rasterio.open(
+            str(fn),
+            "w",
+            driver="GTiff",
+            height=4,
+            width=4,
+            count=1,
+            dtype="float32",
+            crs=CRS.from_epsg(4326),
+            transform=from_origin(-121.76, 46.85, deg, deg),
+        ) as dst:
+            dst.write(np.ones((1, 4, 4), "float32"))
+            dst.update_tags(**ASP_TAGS)
+        cmd = reconstruct_mapproject_command(str(fn))
+        assert "--t_srs EPSG:4326" in cmd
+        # full-precision tr, not a 1-sig-fig "0.000004"
+        assert "--tr 0.0000044915558" in cmd
+
+    def test_non_mapproject_tif_returns_none(self, tmp_path):
+        # A georeferenced raster with no ASP mapproject tags is not a candidate.
+        fn = tmp_path / "plain.tif"
+        _write_tagged_tif(str(fn), tags={})
+        assert reconstruct_mapproject_command(str(fn)) is None
+
+    def test_partial_tags_returns_none(self, tmp_path):
+        # Missing the camera file -> not enough to reconstruct.
+        fn = tmp_path / "partial.tif"
+        _write_tagged_tif(str(fn), {"INPUT_IMAGE_FILE": "scene.tif"})
+        assert reconstruct_mapproject_command(str(fn)) is None
+
+    def test_missing_dem_file_tag_returns_none(self, tmp_path):
+        # DEM_FILE is part of the required signature (and is read back during
+        # reconstruction), so a file lacking it is not a candidate.
+        tags = {k: v for k, v in ASP_TAGS.items() if k != "DEM_FILE"}
+        fn = tmp_path / "no_dem.tif"
+        _write_tagged_tif(str(fn), tags)
+        assert reconstruct_mapproject_command(str(fn)) is None
+
+    def test_missing_file_returns_none(self, tmp_path):
+        assert reconstruct_mapproject_command(str(tmp_path / "nope.tif")) is None
+
+
+class TestFindCommands:
+    def test_finds_pair_and_dedupes(self, tmp_path):
+        # Left/right scenes in the root; one also reachable via a stereo subdir.
+        _write_tagged_tif(
+            str(tmp_path / "left_map.tif"),
+            dict(ASP_TAGS, INPUT_IMAGE_FILE="left_corr.tif"),
+        )
+        _write_tagged_tif(
+            str(tmp_path / "right_map.tif"),
+            dict(ASP_TAGS, INPUT_IMAGE_FILE="right_corr.tif"),
+        )
+        # A non-mapproject tif should be ignored.
+        _write_tagged_tif(str(tmp_path / "dem.tif"), tags={})
+
+        cmds = find_mapproject_commands([str(tmp_path), None, "nonexistent"])
+        assert len(cmds) == 2
+        assert any("left_corr.tif" in c for c in cmds)
+        assert any("right_corr.tif" in c for c in cmds)
+        # Sorted for stable report output.
+        assert cmds == sorted(cmds)
+
+    def test_same_command_across_dirs_deduped(self, tmp_path):
+        # The same mapprojected scene present in two scanned directories yields
+        # one identical command and must not be reported twice.
+        d1 = tmp_path / "root"
+        d2 = tmp_path / "stereo"
+        d1.mkdir()
+        d2.mkdir()
+        _write_tagged_tif(str(d1 / "scene_map.tif"), ASP_TAGS)
+        _write_tagged_tif(str(d2 / "scene_map.tif"), ASP_TAGS)
+        cmds = find_mapproject_commands([str(d1), str(d2)])
+        assert len(cmds) == 1
+
+    def test_empty_when_no_mapproject_outputs(self, tmp_path):
+        _write_tagged_tif(str(tmp_path / "run-DEM.tif"), tags={})
+        assert find_mapproject_commands([str(tmp_path)]) == []
+
+    def test_none_and_missing_dirs_skipped(self):
+        assert find_mapproject_commands([None, "/no/such/dir"]) == []
+
+    def test_stereo_command_gate_includes_used_scene(self, tmp_path):
+        # A mapprojected stereo run lists the *_corr_map.tif inputs, so the
+        # output is kept.
+        _write_tagged_tif(str(tmp_path / "scene_corr_map.tif"), ASP_TAGS)
+        stereo_cmd = (
+            "stereo_corr --alignment-method none scene_corr_map.tif "
+            "other_corr_map.tif scene.xml other.xml stereo/run ref/dem.tif"
+        )
+        cmds = find_mapproject_commands([str(tmp_path)], stereo_command=stereo_cmd)
+        assert len(cmds) == 1
+
+    def test_stereo_command_gate_excludes_unused_scene(self, tmp_path):
+        # The non-mapprojected run in the same directory lists the raw
+        # *_corr.tif inputs; the leftover *_corr_map.tif must NOT be reported.
+        # Note "scene_corr.tif" is not a substring of "scene_corr_map.tif".
+        _write_tagged_tif(str(tmp_path / "scene_corr_map.tif"), ASP_TAGS)
+        stereo_cmd = (
+            "stereo_corr --alignment-method affineepipolar scene_corr.tif "
+            "other_corr.tif scene.xml other.xml stereo_no_mapproj/run"
+        )
+        cmds = find_mapproject_commands([str(tmp_path)], stereo_command=stereo_cmd)
+        assert cmds == []
+
+    def test_no_stereo_command_means_no_gating(self, tmp_path):
+        # Backwards-compatible default: without a stereo command, every
+        # discovered mapproject output is returned.
+        _write_tagged_tif(str(tmp_path / "scene_corr_map.tif"), ASP_TAGS)
+        assert len(find_mapproject_commands([str(tmp_path)])) == 1
+        assert len(find_mapproject_commands([str(tmp_path)], stereo_command="")) == 1
+
+    def test_gate_is_whole_token_not_substring(self, tmp_path):
+        # "run.tif" must not be considered "used" just because the stereo
+        # command mentions "prun.tif" (substring) -- the gate matches whole
+        # argument basenames.
+        _write_tagged_tif(str(tmp_path / "run.tif"), ASP_TAGS)
+        cmds = find_mapproject_commands(
+            [str(tmp_path)],
+            stereo_command="stereo_corr prun.tif other.tif a.xml b.xml out/run",
+        )
+        assert cmds == []
+
+    def test_gate_matches_path_qualified_token(self, tmp_path):
+        # The stereo command may reference the input with a directory prefix;
+        # the gate compares basenames, so it still matches.
+        _write_tagged_tif(str(tmp_path / "scene_map.tif"), ASP_TAGS)
+        cmds = find_mapproject_commands(
+            [str(tmp_path)],
+            stereo_command="stereo_corr ../maps/scene_map.tif o.tif s.xml o.xml run",
+        )
+        assert len(cmds) == 1
+
+
+@pytest.mark.parametrize(
+    "name", ["s_map.tif", "s_proj.tif", "s.map.tif", "arbitrary_name.tif", "out.tiff"]
+)
+def test_discovery_is_filename_independent(tmp_path, name):
+    # Identity comes from the metadata signature, not the filename: any .tif/
+    # .tiff carrying the tags is found, regardless of naming convention.
+    _write_tagged_tif(str(tmp_path / name), ASP_TAGS)
+    assert len(find_mapproject_commands([str(tmp_path)])) == 1
+
+
+class TestFormatCoord:
+    @pytest.mark.parametrize(
+        "value,expected",
+        [
+            (15.0, "15"),  # integers stay integers
+            (0.481, "0.481"),  # clean grid values stay clean
+            (5172652.5, "5172652.5"),  # large UTM northing, no exponent
+            (-45315.0, "-45315"),  # negative origin
+            (0.0, "0"),
+            (3722294.9790000003, "3722294.979"),  # float noise rounded away
+        ],
+    )
+    def test_clean_values(self, value, expected):
+        assert _format_coord(value) == expected
+
+    def test_no_scientific_notation_for_small_values(self):
+        # A degree-scale resolution must not render as 4.49e-06.
+        out = _format_coord(4.491555874955085e-06)
+        assert "e" not in out
+        assert out.startswith("0.0000044915558")
+
+    def test_preserves_significant_figures(self):
+        # 12 significant figures retained for a small value (full grid precision).
+        out = _format_coord(4.491555874955085e-06)
+        assert len(out.replace("0.", "").lstrip("0")) >= 11
