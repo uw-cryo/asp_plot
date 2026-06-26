@@ -3,6 +3,7 @@ import logging
 import os
 
 from asp_plot.asp_log import STEREO_STEP_ORDER, AspLog
+from asp_plot.mapproject import find_mapproject_commands
 from asp_plot.utils import glob_file
 
 logging.basicConfig(level=logging.WARNING)
@@ -213,9 +214,34 @@ class ProcessingParameters:
             "stereo_run_time": stereo_run_time,
             "point2dem": point2dem_params,
             "point2dem_run_time": point2dem_run_time,
+            "mapproject": self.get_mapproject_commands(),
         }
 
         return self.processing_parameters_dict
+
+    def get_mapproject_commands(self):
+        """Reconstruct ``mapproject`` commands from mapprojected scene metadata.
+
+        ASP's ``mapproject`` does not write a log file, but it stamps the
+        reconstruction inputs into each output GeoTIFF header
+        (issue #96). The mapprojected scenes live alongside the raw inputs in
+        the processing root and/or the bundle-adjust directory, so we scan those
+        plus the stereo directory.
+
+        Returns
+        -------
+        list of str
+            Reconstructed ``mapproject`` command lines (one per mapprojected
+            input image found), sorted; empty if the run was not mapprojected or
+            the outputs carry no ASP metadata.
+        """
+        return find_mapproject_commands(
+            [
+                self.processing_directory,
+                self.full_ba_directory,
+                self.full_stereo_directory,
+            ]
+        )
 
     def from_bundle_adjust_log(self):
         """

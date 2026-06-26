@@ -129,7 +129,7 @@ The package is organized by functionality, with each module focused on a specifi
 - `ReportMetadata`: Dataclass for DEM metadata displayed on the title page (dimensions, GSD, CRS, nodata %, elevation range, DEM filename, reference DEM, acquisition dates). The "Acquisition Date(s)" row is added to the summary table only when `acquisition_dates` is non-empty.
 - `ASPReportPDF`: FPDF subclass with custom header/footer and page numbers
 - `compile_report()`: Assembles title page, Processing Parameters (page 2), figure sections with captions, and any trailing alignment pages into a PDF. Accepts optional `report_command` string to record the CLI invocation. Figures are automatically scaled to fit page dimensions, preventing overflow/cutoff. `sections` is a mixed list of `ReportSection | AlignmentReportPage`; dispatch is by `isinstance` check.
-- `_add_processing_parameters_page()`: helper that renders the runtime summary table plus the bundle_adjust / stereo / point2dem / report commands on page 2 (moved from the trailing page as of v1.13.0).
+- `_add_processing_parameters_page()`: helper that renders the runtime summary table plus the bundle_adjust / stereo / point2dem / report commands on page 2 (moved from the trailing page as of v1.13.0). Also renders the reconstructed `mapproject` command(s) (from the optional `mapproject` list key; see `mapproject.py`) with a "reconstructed from output metadata" note.
 - `_fmt_sig()`: formats a number compactly — 2 decimals for |x| < 10, 1 decimal for 10 ≤ |x| < 100, 0 decimals above, "n/a" for non-finite. Used for alignment stats.
 - Title page displays: processing date, ASP version (from logs), asp_plot version (from package metadata)
 - Page order: title + DEM summary → Processing Parameters → diagnostic figures → (if `--pc_align` ran) alignment report page + aligned-DEM figures.
@@ -151,8 +151,13 @@ The package is organized by functionality, with each module focused on a specifi
 
 **`processing_parameters.py`** - `ProcessingParameters` class
 - Delegates all ASP-log parsing to `asp_log.AspLog` (no more inline string surgery; the bare `except:` clauses became directory guards)
-- Extracts command lines, run times, and processing parameters; `from_log_files()` returns a dict including the `asp_version` key
+- Extracts command lines, run times, and processing parameters; `from_log_files()` returns a dict including the `asp_version` key and a `mapproject` key (list of reconstructed mapproject commands; see `mapproject.py`)
 - Used by report generation to document processing settings
+
+**`mapproject.py`** - Reconstruct `mapproject` commands from output GeoTIFF metadata (issue #96)
+- ASP's `mapproject` writes **no log file** (unlike `bundle_adjust`/`stereo`/`point2dem`), so `asp_log.py` has nothing to parse for the mapprojection step. Instead of requiring a new ASP `--log` flag, the command is reconstructed **from the output data alone**: ASP stamps `INPUT_IMAGE_FILE` / `CAMERA_FILE` / `DEM_FILE` / `CAMERA_MODEL_TYPE` / `BUNDLE_ADJUST_PREFIX` into each mapprojected GeoTIFF header, and the raster's own CRS / resolution / bounds give `--t_srs` / `--tr` / `--t_projwin`
+- `reconstruct_mapproject_command(raster_path)`: returns the `mapproject ...` string, or `None` if the ASP mapproject tag signature (`INPUT_IMAGE_FILE` + `CAMERA_FILE`) is absent. `--t_srs` is `EPSG:XXXX` when an exact EPSG code exists, else the quoted PROJ string (custom planetary/local frames, e.g. jitter stereographic). The reconstruction is faithful but **not byte-for-byte re-runnable** (session is the resolved `-t`, an input `--mpp` shows as the resolved `--tr`, output reads the actual filename) — the report flags this with a one-line note
+- `find_mapproject_commands(directories)`: scans dirs (processing root, BA dir, stereo dir) for tifs matching the mapproject filename conventions, keeps those carrying the tag signature, reconstructs each, dedupes by (input image, output basename). `ProcessingParameters.get_mapproject_commands()` calls it; `report.py` renders the results under "Mapproject Command(s)" on the Processing Parameters page
 
 **`sensors.py`** - Sensor-specific scene metadata readers (issue #25)
 - `SensorMetadata` ABC defining the reader interface (`detect` + `get_scene_dicts`) and the sensor-agnostic scene-dict schema, mirroring the `bodies.py` registry pattern so adding ASTER/HiRISE/etc. is a new subclass with no change to the geometry code

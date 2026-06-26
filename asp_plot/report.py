@@ -190,6 +190,11 @@ def compile_report(
     - stereo_run_time: Time to run stereo
     - point2dem: Point2dem command
     - point2dem_run_time: Time to run point2dem
+
+    Optional keys:
+    - mapproject: list of reconstructed mapproject command strings (one per
+      mapprojected input scene); rendered on the Processing Parameters page
+      when present and non-empty.
     """
     pdf = ASPReportPDF(report_title=report_title)
     pdf.alias_nb_pages()
@@ -473,6 +478,29 @@ def _add_processing_parameters_page(pdf, params, report_command):
             wrapped = textwrap.fill(cmd, width=120)
             pdf.multi_cell(0, 4, wrapped)
             pdf.ln(4)
+
+    mapproject_cmds = params.get("mapproject") or []
+    if mapproject_cmds:
+        label = (
+            "Mapproject Command" if len(mapproject_cmds) == 1 else "Mapproject Commands"
+        )
+        pdf.set_font("Helvetica", "B", 10)
+        pdf.cell(0, 7, f"{label}:", new_x="LMARGIN", new_y="NEXT")
+        pdf.set_font("Helvetica", "I", 7)
+        pdf.multi_cell(
+            0,
+            4,
+            "Reconstructed from output GeoTIFF metadata (mapproject writes no "
+            "log file); session type and grid size are the resolved values.",
+            new_x="LMARGIN",
+            new_y="NEXT",
+        )
+        pdf.set_font("Courier", "", 7)
+        for cmd in mapproject_cmds:
+            wrapped = textwrap.fill(cmd, width=120)
+            pdf.multi_cell(0, 4, wrapped, new_x="LMARGIN", new_y="NEXT")
+            pdf.ln(1)
+        pdf.ln(3)
 
     if report_command:
         pdf.set_font("Helvetica", "B", 10)

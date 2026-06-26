@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Reconstruct `mapproject` commands in the PDF report** ([#96](https://github.com/uw-cryo/asp_plot/issues/96)). ASP's `mapproject` does not write a log file the way `bundle_adjust` / `stereo` / `point2dem` do, so the processing-parameters page never documented the mapprojection step. Rather than depend on a new ASP `--log` flag, the new `asp_plot/mapproject.py` reconstructs the command **from the output GeoTIFF metadata alone**: ASP stamps `INPUT_IMAGE_FILE` / `CAMERA_FILE` / `DEM_FILE` / `CAMERA_MODEL_TYPE` / `BUNDLE_ADJUST_PREFIX` into each mapprojected output, and combined with the raster's CRS (`--t_srs`), resolution (`--tr`), and bounds (`--t_projwin`) that is enough to rebuild the invocation. `ProcessingParameters.from_log_files()` now adds a `mapproject` key (a list — one command per mapprojected input scene found), and the report's "Processing Parameters" page renders them under a "Mapproject Command(s)" heading with a note that the values are reconstructed (resolved session/grid). Works across ASTER, WorldView/RPC, and CSM (jitter) sessions, including custom projections without an EPSG code (falls back to the PROJ string).
+
 ## [1.17.0] - 2026-06-24
 
 ### Changed
