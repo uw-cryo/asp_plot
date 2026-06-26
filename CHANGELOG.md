@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.18.1] - 2026-06-26
+
+### Fixed
+- **`© Vantor` attribution now covers all Vantor-owned satellites, not just WorldView** ([#137](https://github.com/uw-cryo/asp_plot/issues/137)). The copyright-overlay check (`detect_vantor_satellite`) matched only `SATID` values starting with `WV`, so GeoEye-1 (`GE01`), QuickBird (`QB02`), and IKONOS scenes — all owned by the same rights-holder (DigitalGlobe → Maxar → Vantor) — were silently left un-attributed. Detection now matches a `VANTOR_SATID_PREFIXES` whitelist (`WV` incl. WorldView Legion `WVLG`, `GE`, `QB`, `IK`). This clarifies that `is_vantor` / `detect_vantor_satellite` are an **attribution** concern (named for the company), intentionally distinct from sensor/reader **identity** (the WorldView-named abstraction in `sensors.py`); the two names are documented as deliberately different so they aren't reconciled into one.
+
 ## [1.18.0] - 2026-06-25
 
 ### Added

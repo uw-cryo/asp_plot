@@ -110,8 +110,8 @@ The package is organized by functionality, with each module focused on a specifi
 - Coordinate utilities: `get_utm_epsg()` for determining UTM EPSG from lon/lat, `get_planetary_bounds()` for DEM bounds in planetocentric 0-360 lon/lat
 - Planetary body detection: `detect_planetary_body(dem_fn)` returns `"earth"`, `"moon"`, or `"mars"` by inspecting CRS WKT DATUM/ELLIPSOID fields
 - Subprocess utilities: `run_subprocess_command()`
-- Vantor/copyright utilities:
-  - `detect_vantor_satellite(directory)`: Checks XML files for WorldView SATIDs (WV01/WV02/WV03)
+- Vantor/copyright utilities (an **attribution** concern — named for the rights-holder — kept deliberately distinct from sensor/reader **identity**, the WorldView-named abstraction in `sensors.py`; #137):
+  - `detect_vantor_satellite(directory)`: True when an XML camera file's `SATID` matches `VANTOR_SATID_PREFIXES` — any DigitalGlobe→Maxar→Vantor-owned satellite, i.e. the WorldView family (`WV*`, incl. Legion `WVLG`), GeoEye (`GE*`), QuickBird (`QB*`), IKONOS (`IK*`) — not just WorldView. Gates the `© Vantor` overlay via `Plotter.is_vantor`
   - `add_copyright_overlay(ax)`: Adds "© Vantor {year}" text overlay to bottom-right of matplotlib axes
 - Scene metadata: `get_acquisition_dates(directory, extra_dirs=None)` reads `FIRSTLINETIME` from WorldView/Maxar XMLs and parses the capture timestamp from `AST_L1A_...` file/directory names. Returns a sorted, deduplicated list of `"YYYY-MM-DD HH:MM:SS UTC"` strings; empty if nothing is found. Used by the CLI to populate `ReportMetadata.acquisition_dates`.
 

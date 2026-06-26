@@ -1101,9 +1101,10 @@ class Plotter:
         title : str, optional
             Plot title, default is None
         is_vantor : bool, optional
-            Whether the source imagery is from a Vantor (WorldView) satellite.
-            When True, ``plot_array`` adds a copyright overlay for panels that
-            request it via ``copyright=True``. Default is False.
+            Whether the source imagery is from a Vantor-owned satellite (the
+            WorldView family, GeoEye, QuickBird, etc.). When True, ``plot_array``
+            adds a "© Vantor" copyright overlay for panels that request it via
+            ``copyright=True``. Default is False.
         """
         self.clim_perc = clim_perc
         self.lognorm = lognorm
@@ -1196,8 +1197,8 @@ class Plotter:
             Whether to add a satellite-imagery copyright overlay, default is
             False. The overlay is only drawn when this is True *and* the Plotter
             was created with ``is_vantor=True`` (i.e. the source imagery is from
-            a Vantor/WorldView satellite). Set on the panels that display the
-            optical scenes.
+            a Vantor-owned satellite). Set on the panels that display the optical
+            scenes.
 
         Returns
         -------
@@ -1297,8 +1298,26 @@ class Plotter:
             ctx.add_basemap(ax=ax, **ctx_kwargs)
 
 
+# SATID prefixes for the DigitalGlobe -> Maxar -> Vantor satellite heritage, all
+# of which carry "© Vantor" attribution. Covers the WorldView family ("WV", incl.
+# WorldView Legion "WVLG"), GeoEye ("GE"), QuickBird ("QB"), and IKONOS ("IK").
+VANTOR_SATID_PREFIXES = ("WV", "GE", "QB", "IK")
+
+
 def detect_vantor_satellite(directory):
-    """Check if XML files in directory indicate a Vantor (WorldView) satellite.
+    """Check if XML files in directory indicate a Vantor-owned satellite.
+
+    This is an *attribution* check, distinct from sensor/reader identity: it
+    decides whether the "© Vantor" copyright overlay applies (see
+    :func:`add_copyright_overlay` and :class:`Plotter`). It is named for the
+    rights-holder (Vantor, formerly Maxar/DigitalGlobe) and matches *any* Vantor
+    satellite, not just WorldView. Sensor *identity* — which reader parses the
+    XML — is a separate concern handled by the WorldView-named abstraction in
+    :mod:`asp_plot.sensors`; the two names intentionally differ and should not be
+    "reconciled" into one.
+
+    A scene is considered Vantor-owned when an XML camera file carries a SATID
+    matching one of :data:`VANTOR_SATID_PREFIXES`.
 
     Parameters
     ----------
@@ -1308,7 +1327,8 @@ def detect_vantor_satellite(directory):
     Returns
     -------
     bool
-        True if any XML file contains a WorldView SATID (WV01, WV02, WV03, etc.).
+        True if any XML file contains a Vantor-heritage SATID (e.g. WV01-WV04,
+        WVLG, GE01, QB02).
     """
     try:
         xml_files = glob_file(directory, "*.[Xx][Mm][Ll]", all_files=True)
@@ -1320,7 +1340,7 @@ def detect_vantor_satellite(directory):
     for xml_file in xml_files:
         try:
             satid = get_xml_tag(xml_file, "SATID")
-            if satid.startswith("WV"):
+            if satid.startswith(VANTOR_SATID_PREFIXES):
                 return True
         except (ValueError, Exception):
             continue
