@@ -4,7 +4,7 @@ This file provides guidance to AI coding agents (Claude Code and others) when wo
 
 ## Project Overview
 
-`asp_plot` (current version: 1.17.0) is a Python package for visualizing output from the NASA Ames Stereo Pipeline (ASP). It processes stereo satellite imagery results (both terrestrial and planetary), generates diagnostic plots, and creates comprehensive PDF reports similar to those from commercial SfM software like Agisoft Metashape. Requires Python >= 3.11. Published on PyPI and conda-forge.
+`asp_plot` (current version: 1.18.0) is a Python package for visualizing output from the NASA Ames Stereo Pipeline (ASP). It processes stereo satellite imagery results (both terrestrial and planetary), generates diagnostic plots, and creates comprehensive PDF reports similar to those from commercial SfM software like Agisoft Metashape. Requires Python >= 3.11. Published on PyPI and conda-forge.
 
 The package supports:
 - Stereo DEM processing visualization
