@@ -437,6 +437,16 @@ def _add_alignment_stats_row_table(pdf, stats_row):
     pdf.ln(6)
 
 
+def _render_command_block(pdf, label, cmd):
+    """Render a single bold-labelled, monospace-wrapped command on the PDF."""
+    pdf.set_font("Helvetica", "B", 10)
+    pdf.cell(0, 7, f"{label} Command:", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_font("Courier", "", 7)
+    wrapped = textwrap.fill(cmd, width=120)
+    pdf.multi_cell(0, 4, wrapped, new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(4)
+
+
 def _add_processing_parameters_page(pdf, params, report_command):
     """Add the Processing Parameters page (runtime table + commands).
 
@@ -465,19 +475,11 @@ def _add_processing_parameters_page(pdf, params, report_command):
         pdf.multi_cell(0, 4, ref_dem)
         pdf.ln(4)
 
-    def _render_command(label, cmd):
-        pdf.set_font("Helvetica", "B", 10)
-        pdf.cell(0, 7, f"{label} Command:", new_x="LMARGIN", new_y="NEXT")
-        pdf.set_font("Courier", "", 7)
-        wrapped = textwrap.fill(cmd, width=120)
-        pdf.multi_cell(0, 4, wrapped, new_x="LMARGIN", new_y="NEXT")
-        pdf.ln(4)
-
     # Render commands in ASP pipeline order: bundle_adjust -> mapproject ->
     # stereo -> point2dem. mapproject is reconstructed from output metadata
     # (it writes no log), so it carries an explanatory note and may be a list.
     if params.get("bundle_adjust"):
-        _render_command("Bundle Adjust", params["bundle_adjust"])
+        _render_command_block(pdf, "Bundle Adjust", params["bundle_adjust"])
 
     mapproject_cmds = params.get("mapproject") or []
     if mapproject_cmds:
@@ -503,9 +505,9 @@ def _add_processing_parameters_page(pdf, params, report_command):
         pdf.ln(3)
 
     if params.get("stereo"):
-        _render_command("Stereo", params["stereo"])
+        _render_command_block(pdf, "Stereo", params["stereo"])
     if params.get("point2dem"):
-        _render_command("point2dem", params["point2dem"])
+        _render_command_block(pdf, "point2dem", params["point2dem"])
 
     if report_command:
         pdf.set_font("Helvetica", "B", 10)

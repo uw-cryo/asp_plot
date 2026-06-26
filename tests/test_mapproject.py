@@ -6,7 +6,11 @@ import rasterio
 from rasterio.crs import CRS
 from rasterio.transform import from_origin
 
-from asp_plot.mapproject import find_mapproject_commands, reconstruct_mapproject_command
+from asp_plot.mapproject import (
+    _format_coord,
+    find_mapproject_commands,
+    reconstruct_mapproject_command,
+)
 
 # A realistic ASP mapproject metadata signature, mirroring what gdalinfo shows
 # on a WorldView _corr_map.tif (RPC session, bundle-adjusted).
@@ -79,6 +83,31 @@ class TestReconstruct:
         cmd = reconstruct_mapproject_command(str(fn))
         # No <digit>e[+-]<digit> exponent tokens (would not match "bundle-adjust").
         assert not re.search(r"\de[+-]\d", cmd)
+
+    def test_geographic_crs_keeps_grid_precision(self, tmp_path):
+        # A geographic-CRS output has a tiny degree-scale --tr (~5e-6); it must
+        # keep full precision, not collapse to 1 significant figure.
+        deg = 0.5 / 111320.0  # ~0.5 m pixel at the equator, in degrees
+        fn = tmp_path / "geo_map.tif"
+        _write_tagged_tif(str(fn), ASP_TAGS, crs="EPSG:4326", origin=(-121.76, 46.85))
+        # rewrite at the degree-scale resolution (helper hardcodes 0.5 m)
+        with rasterio.open(
+            str(fn),
+            "w",
+            driver="GTiff",
+            height=4,
+            width=4,
+            count=1,
+            dtype="float32",
+            crs=CRS.from_epsg(4326),
+            transform=from_origin(-121.76, 46.85, deg, deg),
+        ) as dst:
+            dst.write(np.ones((1, 4, 4), "float32"))
+            dst.update_tags(**ASP_TAGS)
+        cmd = reconstruct_mapproject_command(str(fn))
+        assert "--t_srs EPSG:4326" in cmd
+        # full-precision tr, not a 1-sig-fig "0.000004"
+        assert "--tr 0.0000044915558" in cmd
 
     def test_non_mapproject_tif_returns_none(self, tmp_path):
         # A georeferenced raster with no ASP mapproject tags is not a candidate.
@@ -174,6 +203,27 @@ class TestFindCommands:
         assert len(find_mapproject_commands([str(tmp_path)])) == 1
         assert len(find_mapproject_commands([str(tmp_path)], stereo_command="")) == 1
 
+    def test_gate_is_whole_token_not_substring(self, tmp_path):
+        # "run.tif" must not be considered "used" just because the stereo
+        # command mentions "prun.tif" (substring) -- the gate matches whole
+        # argument basenames.
+        _write_tagged_tif(str(tmp_path / "run.tif"), ASP_TAGS)
+        cmds = find_mapproject_commands(
+            [str(tmp_path)],
+            stereo_command="stereo_corr prun.tif other.tif a.xml b.xml out/run",
+        )
+        assert cmds == []
+
+    def test_gate_matches_path_qualified_token(self, tmp_path):
+        # The stereo command may reference the input with a directory prefix;
+        # the gate compares basenames, so it still matches.
+        _write_tagged_tif(str(tmp_path / "scene_map.tif"), ASP_TAGS)
+        cmds = find_mapproject_commands(
+            [str(tmp_path)],
+            stereo_command="stereo_corr ../maps/scene_map.tif o.tif s.xml o.xml run",
+        )
+        assert len(cmds) == 1
+
 
 @pytest.mark.parametrize(
     "name", ["s_map.tif", "s_proj.tif", "s.map.tif", "arbitrary_name.tif", "out.tiff"]
@@ -183,3 +233,30 @@ def test_discovery_is_filename_independent(tmp_path, name):
     # .tiff carrying the tags is found, regardless of naming convention.
     _write_tagged_tif(str(tmp_path / name), ASP_TAGS)
     assert len(find_mapproject_commands([str(tmp_path)])) == 1
+
+
+class TestFormatCoord:
+    @pytest.mark.parametrize(
+        "value,expected",
+        [
+            (15.0, "15"),  # integers stay integers
+            (0.481, "0.481"),  # clean grid values stay clean
+            (5172652.5, "5172652.5"),  # large UTM northing, no exponent
+            (-45315.0, "-45315"),  # negative origin
+            (0.0, "0"),
+            (3722294.9790000003, "3722294.979"),  # float noise rounded away
+        ],
+    )
+    def test_clean_values(self, value, expected):
+        assert _format_coord(value) == expected
+
+    def test_no_scientific_notation_for_small_values(self):
+        # A degree-scale resolution must not render as 4.49e-06.
+        out = _format_coord(4.491555874955085e-06)
+        assert "e" not in out
+        assert out.startswith("0.0000044915558")
+
+    def test_preserves_significant_figures(self):
+        # 12 significant figures retained for a small value (full grid precision).
+        out = _format_coord(4.491555874955085e-06)
+        assert len(out.replace("0.", "").lstrip("0")) >= 11

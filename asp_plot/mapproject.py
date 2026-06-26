@@ -27,10 +27,11 @@ so. See ``reconstruct_mapproject_command`` for the exact argv order.
 import glob
 import logging
 import os
-import warnings
 
+import numpy as np
 import rasterio
-from rasterio.errors import NotGeoreferencedWarning
+
+from asp_plot.utils import Raster
 
 logger = logging.getLogger(__name__)
 
@@ -48,15 +49,23 @@ REQUIRED_TAGS = ("INPUT_IMAGE_FILE", "CAMERA_FILE", "DEM_FILE")
 RASTER_EXTENSIONS = ("*.tif", "*.tiff")
 
 
-def _format_coord(value):
-    """Format a projwin/resolution coordinate without scientific notation.
+def _format_coord(value, sig_figs=12):
+    """Format a projwin/resolution coordinate for the CLI.
 
-    GeoTIFF bounds can be large UTM northings (~5.2e6); ``%g`` would render those
-    in exponential form, which is unusable as a CLI argument. We emit a plain
-    decimal, trimming trailing zeros so integers stay integers.
+    Renders to ``sig_figs`` significant figures, positionally (never scientific
+    notation), trimming trailing zeros. Significant figures -- not fixed decimal
+    places -- because the two ends of the range matter: GeoTIFF bounds can be
+    large UTM northings (~5.2e6) while a geographic-CRS ``--tr`` can be ~5e-6
+    degrees. A fixed ``%.6f`` would coarsen the latter to ~1 significant figure;
+    plain shortest-repr would surface float noise on the former
+    (``3722294.979`` computed as ``3722294.9790000003``). Twelve significant
+    figures is well clear of double-precision noise (~16 figures) yet keeps
+    clean grid values clean (``0.481`` -> ``0.481``, ``15.0`` -> ``15``).
     """
-    text = f"{value:.6f}".rstrip("0").rstrip(".")
-    return text if text else "0"
+    if not np.isfinite(value) or value == 0:
+        return "0" if value == 0 else repr(value)
+    decimals = sig_figs - 1 - int(np.floor(np.log10(abs(value))))
+    return np.format_float_positional(round(value, decimals), trim="-")
 
 
 def reconstruct_mapproject_command(raster_path):
@@ -88,73 +97,77 @@ def reconstruct_mapproject_command(raster_path):
     otherwise as the PROJ string (quoted), so custom planetary/local projections
     (e.g. the stereographic frames used in jitter solving) still round-trip.
     """
+    # Reuse the package Raster wrapper: it suppresses the NotGeoreferencedWarning
+    # that the raw (non-georef) input scenes raise during discovery, and it owns
+    # the EPSG/GSD/bounds derivation (incl. the compound-CRS EPSG fallback) that
+    # _t_srs_token relies on.
     try:
-        # Discovery opens every candidate raster, including the raw (non-
-        # georeferenced) input scenes; rasterio's NotGeoreferencedWarning on
-        # those is expected and noise here, so silence it. The filter must be
-        # set before open(), where the warning is emitted.
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", NotGeoreferencedWarning)
-            ds = rasterio.open(raster_path)
-        with ds:
-            tags = ds.tags()
-            if not all(tags.get(k) for k in REQUIRED_TAGS):
-                return None
-
-            crs = ds.crs
-            res = ds.res
-            bounds = ds.bounds
-
-            parts = ["mapproject"]
-
-            session = tags.get("CAMERA_MODEL_TYPE")
-            if session:
-                parts += ["-t", session]
-
-            t_srs = _t_srs_token(crs)
-            if t_srs:
-                parts += ["--t_srs", t_srs]
-
-            parts += ["--tr", _format_coord(res[0])]
-            parts += [
-                "--t_projwin",
-                _format_coord(bounds.left),
-                _format_coord(bounds.bottom),
-                _format_coord(bounds.right),
-                _format_coord(bounds.top),
-            ]
-
-            ba_prefix = tags.get("BUNDLE_ADJUST_PREFIX")
-            if ba_prefix and ba_prefix != "NONE":
-                parts += ["--bundle-adjust-prefix", ba_prefix]
-
-            parts += [
-                tags["DEM_FILE"],
-                tags["INPUT_IMAGE_FILE"],
-                tags["CAMERA_FILE"],
-                os.path.basename(raster_path),
-            ]
-            return " ".join(parts)
+        raster = Raster(raster_path)
     except rasterio.errors.RasterioIOError as e:
         logger.warning("Could not read %s for mapproject metadata: %s", raster_path, e)
         return None
 
+    with raster.ds:
+        tags = raster.ds.tags()
+        if not all(tags.get(k) for k in REQUIRED_TAGS):
+            return None
 
-def _t_srs_token(crs):
-    """Return the ``--t_srs`` token for a rasterio CRS (or ``None``).
+        parts = ["mapproject"]
 
-    Prefers a compact ``EPSG:XXXX`` when the CRS resolves to an exact EPSG code;
-    falls back to the PROJ string (quoted, since it contains spaces) so custom
-    projections without an EPSG code are still representable on the CLI.
+        session = tags.get("CAMERA_MODEL_TYPE")
+        if session:
+            parts += ["-t", session]
+
+        t_srs = _t_srs_token(raster)
+        if t_srs:
+            parts += ["--t_srs", t_srs]
+
+        parts += ["--tr", _format_coord(raster.get_gsd())]
+        bounds = raster.ds.bounds
+        parts += [
+            "--t_projwin",
+            _format_coord(bounds.left),
+            _format_coord(bounds.bottom),
+            _format_coord(bounds.right),
+            _format_coord(bounds.top),
+        ]
+
+        ba_prefix = tags.get("BUNDLE_ADJUST_PREFIX")
+        if ba_prefix and ba_prefix != "NONE":
+            parts += ["--bundle-adjust-prefix", ba_prefix]
+
+        parts += [
+            tags["DEM_FILE"],
+            tags["INPUT_IMAGE_FILE"],
+            tags["CAMERA_FILE"],
+            os.path.basename(raster_path),
+        ]
+        return " ".join(parts)
+
+
+def _t_srs_token(raster):
+    """Return the ``--t_srs`` token for a :class:`~asp_plot.utils.Raster`.
+
+    Prefers a compact ``EPSG:XXXX`` via ``Raster.get_epsg_code()`` (which already
+    falls back to the horizontal 2D component for compound / 3D-promoted CRSs);
+    failing that, emits the PROJ string (quoted, since it contains spaces) so
+    custom projections without an EPSG code -- e.g. the stereographic frames used
+    in jitter solving -- still round-trip. A missing or malformed CRS returns
+    ``None`` (logged) rather than raising, so one odd raster cannot abort report
+    generation.
     """
+    crs = raster.ds.crs
     if crs is None:
         return None
-    epsg = crs.to_epsg()
-    if epsg:
-        return f"EPSG:{epsg}"
-    proj4 = crs.to_proj4()
-    if proj4:
-        return f'"{proj4}"'
+    try:
+        epsg = raster.get_epsg_code()
+        if epsg:
+            return f"EPSG:{epsg}"
+        proj4 = crs.to_proj4()
+        if proj4:
+            return f'"{proj4}"'
+    except Exception as e:  # malformed/exotic CRS -- don't crash the report
+        logger.warning("Could not derive --t_srs from CRS: %s", e)
     return None
 
 
@@ -192,6 +205,17 @@ def find_mapproject_commands(directories, stereo_command=None):
     list of str
         Reconstructed ``mapproject`` command lines, sorted; empty if none found.
     """
+    # Scope to what this stereo run actually used: a mapprojected output is an
+    # input to mapprojected stereo, so its basename matches one of the stereo
+    # command's argument basenames. Compare against the set of whole-token
+    # basenames (not a raw substring of the command) so a short output name like
+    # "run.tif" can't spuriously match "prun.tif" or a path fragment.
+    stereo_input_basenames = (
+        {os.path.basename(token) for token in stereo_command.split()}
+        if stereo_command
+        else None
+    )
+
     seen = set()
     commands = []
     scanned = set()
@@ -209,10 +233,10 @@ def find_mapproject_commands(directories, stereo_command=None):
             if real in scanned:
                 continue
             scanned.add(real)
-            # Scope to what this stereo run actually used: a mapprojected output
-            # is an input to mapprojected stereo, so its basename appears in the
-            # stereo command. Skip outputs the run did not consume.
-            if stereo_command and os.path.basename(path) not in stereo_command:
+            if (
+                stereo_input_basenames is not None
+                and os.path.basename(path) not in stereo_input_basenames
+            ):
                 continue
             command = reconstruct_mapproject_command(path)
             # Dedupe on the reconstructed command: distinct left/right scenes
