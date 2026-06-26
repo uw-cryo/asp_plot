@@ -106,6 +106,12 @@ class WorldViewMetadata(SensorMetadata):
     extract per-scene metadata, handling both single XML files and multiple XML
     tiles per scene (mosaicked with ``dg_mosaic``).
 
+    This class is named for the *sensor family* (the stable WorldView name) and
+    governs which reader parses the XML. It is intentionally distinct from the
+    *attribution* check :func:`asp_plot.utils.detect_vantor_satellite`, which is
+    named for the rights-holder (Vantor) and decides whether the "© Vantor"
+    overlay applies. The two concerns use different names on purpose; see #137.
+
     Attributes
     ----------
     directory : str

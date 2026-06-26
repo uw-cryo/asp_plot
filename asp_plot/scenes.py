@@ -26,7 +26,8 @@ class SceneFiles:
     full_stereo_directory : str
         Full path to the stereo directory.
     is_vantor : bool
-        Whether the source imagery is from a Vantor (WorldView) satellite.
+        Whether the source imagery is from a Vantor-owned satellite (WorldView
+        family, GeoEye, QuickBird, etc.); gates the "© Vantor" copyright overlay.
     left_scene_sub_fn, right_scene_sub_fn : str or None
         Paths to the left/right sub-sampled scene files.
     """
