@@ -92,6 +92,14 @@ class TestReconstruct:
         _write_tagged_tif(str(fn), {"INPUT_IMAGE_FILE": "scene.tif"})
         assert reconstruct_mapproject_command(str(fn)) is None
 
+    def test_missing_dem_file_tag_returns_none(self, tmp_path):
+        # DEM_FILE is part of the required signature (and is read back during
+        # reconstruction), so a file lacking it is not a candidate.
+        tags = {k: v for k, v in ASP_TAGS.items() if k != "DEM_FILE"}
+        fn = tmp_path / "no_dem.tif"
+        _write_tagged_tif(str(fn), tags)
+        assert reconstruct_mapproject_command(str(fn)) is None
+
     def test_missing_file_returns_none(self, tmp_path):
         assert reconstruct_mapproject_command(str(tmp_path / "nope.tif")) is None
 
@@ -117,6 +125,18 @@ class TestFindCommands:
         # Sorted for stable report output.
         assert cmds == sorted(cmds)
 
+    def test_same_command_across_dirs_deduped(self, tmp_path):
+        # The same mapprojected scene present in two scanned directories yields
+        # one identical command and must not be reported twice.
+        d1 = tmp_path / "root"
+        d2 = tmp_path / "stereo"
+        d1.mkdir()
+        d2.mkdir()
+        _write_tagged_tif(str(d1 / "scene_map.tif"), ASP_TAGS)
+        _write_tagged_tif(str(d2 / "scene_map.tif"), ASP_TAGS)
+        cmds = find_mapproject_commands([str(d1), str(d2)])
+        assert len(cmds) == 1
+
     def test_empty_when_no_mapproject_outputs(self, tmp_path):
         _write_tagged_tif(str(tmp_path / "run-DEM.tif"), tags={})
         assert find_mapproject_commands([str(tmp_path)]) == []
@@ -125,7 +145,11 @@ class TestFindCommands:
         assert find_mapproject_commands([None, "/no/such/dir"]) == []
 
 
-@pytest.mark.parametrize("glob_name", ["s_map.tif", "s_proj.tif", "s.map.tif"])
-def test_filename_conventions_discovered(tmp_path, glob_name):
-    _write_tagged_tif(str(tmp_path / glob_name), ASP_TAGS)
+@pytest.mark.parametrize(
+    "name", ["s_map.tif", "s_proj.tif", "s.map.tif", "arbitrary_name.tif", "out.tiff"]
+)
+def test_discovery_is_filename_independent(tmp_path, name):
+    # Identity comes from the metadata signature, not the filename: any .tif/
+    # .tiff carrying the tags is found, regardless of naming convention.
+    _write_tagged_tif(str(tmp_path / name), ASP_TAGS)
     assert len(find_mapproject_commands([str(tmp_path)])) == 1

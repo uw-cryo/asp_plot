@@ -24,21 +24,28 @@ file itself. Callers that surface this to users (e.g. the PDF report) should say
 so. See ``reconstruct_mapproject_command`` for the exact argv order.
 """
 
+import glob
 import logging
 import os
+import warnings
 
 import rasterio
+from rasterio.errors import NotGeoreferencedWarning
 
 logger = logging.getLogger(__name__)
 
-# GeoTIFF metadata tags ASP's mapproject writes into every output. The first two
-# are the minimal signature we require to treat a raster as a mapproject output;
-# without an input image and camera there is nothing meaningful to reconstruct.
-REQUIRED_TAGS = ("INPUT_IMAGE_FILE", "CAMERA_FILE")
+# GeoTIFF metadata tags ASP's mapproject writes into every output. This trio is
+# the signature we require to treat a raster as a mapproject output -- and the
+# *only* thing we rely on to identify mapprojected files. We deliberately do not
+# match on filename conventions (``*_map.tif`` etc.): the tags are written by ASP
+# itself, are self-validating, and survive a rename, whereas a filename glob
+# would force an external naming convention and miss anything that deviates. All
+# three are read back during reconstruction, so requiring them here also guards
+# the ``tags[...]`` lookups below.
+REQUIRED_TAGS = ("INPUT_IMAGE_FILE", "CAMERA_FILE", "DEM_FILE")
 
-# Filename globs ASP/asp_plot conventionally use for mapprojected scenes. Used to
-# narrow directory scans before reading headers; the tag check is authoritative.
-MAPPROJECT_GLOBS = ("*_map.tif", "*_proj.tif", "*.map.tif", "*-mapproj.tif")
+# Raster extensions scanned when discovering mapproject outputs in a directory.
+RASTER_EXTENSIONS = ("*.tif", "*.tiff")
 
 
 def _format_coord(value):
@@ -82,7 +89,14 @@ def reconstruct_mapproject_command(raster_path):
     (e.g. the stereographic frames used in jitter solving) still round-trip.
     """
     try:
-        with rasterio.open(raster_path) as ds:
+        # Discovery opens every candidate raster, including the raw (non-
+        # georeferenced) input scenes; rasterio's NotGeoreferencedWarning on
+        # those is expected and noise here, so silence it. The filter must be
+        # set before open(), where the warning is emitted.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", NotGeoreferencedWarning)
+            ds = rasterio.open(raster_path)
+        with ds:
             tags = ds.tags()
             if not all(tags.get(k) for k in REQUIRED_TAGS):
                 return None
@@ -147,11 +161,13 @@ def _t_srs_token(crs):
 def find_mapproject_commands(directories):
     """Find ASP-mapprojected outputs across ``directories`` and reconstruct them.
 
-    Scans each directory (non-recursively) for GeoTIFFs matching the known
-    mapproject filename conventions, keeps those carrying the ASP mapproject
-    metadata signature, and reconstructs a command for each. Results are
-    deduplicated by input image (a scene can be discovered under more than one
-    of the passed directories) and returned sorted for stable report output.
+    Scans each directory (non-recursively) for GeoTIFFs and keeps those carrying
+    the ASP mapproject metadata signature (see ``REQUIRED_TAGS``) -- identity is
+    decided entirely by the file's own metadata, not by its name, so the result
+    is robust to ASP/asp_plot filename conventions. Each kept output is
+    reconstructed into a command; results are deduplicated (the same scene can be
+    reached via more than one of the passed directories) and returned sorted for
+    stable report output.
 
     Parameters
     ----------
@@ -164,9 +180,7 @@ def find_mapproject_commands(directories):
     list of str
         Reconstructed ``mapproject`` command lines, sorted; empty if none found.
     """
-    import glob
-
-    seen_inputs = set()
+    seen = set()
     commands = []
     scanned = set()
     for directory in directories:
@@ -176,22 +190,18 @@ def find_mapproject_commands(directories):
         if not os.path.isdir(directory):
             continue
         candidates = set()
-        for pattern in MAPPROJECT_GLOBS:
-            candidates.update(glob.glob(os.path.join(directory, pattern)))
-        for path in candidates:
+        for ext in RASTER_EXTENSIONS:
+            candidates.update(glob.glob(os.path.join(directory, ext)))
+        for path in sorted(candidates):
             real = os.path.realpath(path)
             if real in scanned:
                 continue
             scanned.add(real)
             command = reconstruct_mapproject_command(path)
-            if not command:
-                continue
-            # Dedupe by (input image, output name) so the left/right pair both
-            # show, but the same file reached via two directories does not.
-            with rasterio.open(path) as ds:
-                key = (ds.tags().get("INPUT_IMAGE_FILE"), os.path.basename(path))
-            if key in seen_inputs:
-                continue
-            seen_inputs.add(key)
-            commands.append(command)
+            # Dedupe on the reconstructed command: distinct left/right scenes
+            # differ (different input image + output name), but the same scene
+            # copied into two scanned directories yields an identical command.
+            if command and command not in seen:
+                seen.add(command)
+                commands.append(command)
     return sorted(commands)
