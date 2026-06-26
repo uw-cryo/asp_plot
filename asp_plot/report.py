@@ -465,19 +465,19 @@ def _add_processing_parameters_page(pdf, params, report_command):
         pdf.multi_cell(0, 4, ref_dem)
         pdf.ln(4)
 
-    for key, label in [
-        ("bundle_adjust", "Bundle Adjust"),
-        ("stereo", "Stereo"),
-        ("point2dem", "point2dem"),
-    ]:
-        cmd = params.get(key, "")
-        if cmd:
-            pdf.set_font("Helvetica", "B", 10)
-            pdf.cell(0, 7, f"{label} Command:", new_x="LMARGIN", new_y="NEXT")
-            pdf.set_font("Courier", "", 7)
-            wrapped = textwrap.fill(cmd, width=120)
-            pdf.multi_cell(0, 4, wrapped)
-            pdf.ln(4)
+    def _render_command(label, cmd):
+        pdf.set_font("Helvetica", "B", 10)
+        pdf.cell(0, 7, f"{label} Command:", new_x="LMARGIN", new_y="NEXT")
+        pdf.set_font("Courier", "", 7)
+        wrapped = textwrap.fill(cmd, width=120)
+        pdf.multi_cell(0, 4, wrapped, new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(4)
+
+    # Render commands in ASP pipeline order: bundle_adjust -> mapproject ->
+    # stereo -> point2dem. mapproject is reconstructed from output metadata
+    # (it writes no log), so it carries an explanatory note and may be a list.
+    if params.get("bundle_adjust"):
+        _render_command("Bundle Adjust", params["bundle_adjust"])
 
     mapproject_cmds = params.get("mapproject") or []
     if mapproject_cmds:
@@ -501,6 +501,11 @@ def _add_processing_parameters_page(pdf, params, report_command):
             pdf.multi_cell(0, 4, wrapped, new_x="LMARGIN", new_y="NEXT")
             pdf.ln(1)
         pdf.ln(3)
+
+    if params.get("stereo"):
+        _render_command("Stereo", params["stereo"])
+    if params.get("point2dem"):
+        _render_command("point2dem", params["point2dem"])
 
     if report_command:
         pdf.set_font("Helvetica", "B", 10)
