@@ -46,6 +46,9 @@ GOLDEN_PARAMETERS = {
         "20220419_2321_10300100D12D7400_10300100D0772D00-PC.tif"
     ),
     "point2dem_run_time": "0 hours and 14 minutes",
+    # The stereo fixtures are not mapprojected scenes (no ASP mapproject GeoTIFF
+    # metadata), so no commands are reconstructed.
+    "mapproject": [],
 }
 
 
@@ -103,4 +106,8 @@ class TestProcessingParameters:
         result = processing_parameters.from_log_files()
         assert set(result.keys()) == set(GOLDEN_PARAMETERS.keys())
         for key, expected in GOLDEN_PARAMETERS.items():
-            assert str(result[key]) == expected, f"drift in field {key!r}"
+            actual = result[key]
+            if isinstance(expected, list):
+                assert actual == expected, f"drift in field {key!r}"
+            else:
+                assert str(actual) == expected, f"drift in field {key!r}"

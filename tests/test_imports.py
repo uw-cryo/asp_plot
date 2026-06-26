@@ -17,6 +17,7 @@ class TestImports:
         import asp_plot.bundle_adjust
         import asp_plot.csm_camera
         import asp_plot.gallery
+        import asp_plot.mapproject
         import asp_plot.processing_parameters
         import asp_plot.report_captions
         import asp_plot.report_pipeline
@@ -36,6 +37,7 @@ class TestImports:
         assert asp_plot.stereopair_metadata_parser is not None
         assert asp_plot.scenes is not None
         assert asp_plot.processing_parameters is not None
+        assert asp_plot.mapproject is not None
         assert asp_plot.csm_camera is not None
         assert asp_plot.bundle_adjust is not None
         assert asp_plot.altimetry is not None
@@ -49,6 +51,10 @@ class TestImports:
         from asp_plot.bodies import BODIES, Body, body_for_dem
         from asp_plot.bundle_adjust import PlotBundleAdjustFiles, ReadBundleAdjustFiles
         from asp_plot.gallery import GalleryPlotter
+        from asp_plot.mapproject import (
+            find_mapproject_commands,
+            reconstruct_mapproject_command,
+        )
         from asp_plot.processing_parameters import ProcessingParameters
         from asp_plot.report_pipeline import ReportConfig, run_report
         from asp_plot.scenes import SceneFiles, ScenePlotter
@@ -89,3 +95,5 @@ class TestImports:
         assert WorldViewMetadata is not None
         assert SENSORS is not None
         assert sensor_for_directory is not None
+        assert reconstruct_mapproject_command is not None
+        assert find_mapproject_commands is not None
