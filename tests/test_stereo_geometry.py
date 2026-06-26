@@ -10,8 +10,11 @@ matplotlib.use("Agg")
 class TestStereoGeometryPlotter:
     @pytest.fixture
     def stereo_geometry_plotter(self):
+        # add_basemap=False keeps the test offline; a True default would fetch
+        # contextily tiles from a live server and hang/flake in CI.
         stereo_geometry_plotter = StereoGeometryPlotter(
             directory="tests/test_data",
+            add_basemap=False,
         )
         return stereo_geometry_plotter
 
@@ -19,6 +22,7 @@ class TestStereoGeometryPlotter:
     def stereo_geometry_plotter_tiled(self):
         stereo_geometry_plotter = StereoGeometryPlotter(
             directory="tests/test_data/tiled_xmls",
+            add_basemap=False,
         )
         return stereo_geometry_plotter
 
