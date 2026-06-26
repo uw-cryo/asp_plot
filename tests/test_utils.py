@@ -586,6 +586,25 @@ class TestDetectVantorSatellite:
         """Test directory with no XML files."""
         assert detect_vantor_satellite(str(tmp_path)) is False
 
+    @staticmethod
+    def _write_xml(tmp_path, satid):
+        xml = tmp_path / f"{satid}_scene.xml"
+        xml.write_text(f"<isd><IMD><IMAGE><SATID>{satid}</SATID></IMAGE></IMD></isd>")
+        return tmp_path
+
+    @pytest.mark.parametrize("satid", ["WV03", "WVLG", "GE01", "QB02", "IK01"])
+    def test_vantor_satids_detected(self, tmp_path, satid):
+        """Any Vantor-heritage SATID (WorldView/Legion, GeoEye, QuickBird, IKONOS)
+        is attributable, not just WorldView."""
+        directory = self._write_xml(tmp_path, satid)
+        assert detect_vantor_satellite(str(directory)) is True
+
+    @pytest.mark.parametrize("satid", ["ASTER", "PHR1A", "S2A"])
+    def test_non_vantor_satids_rejected(self, tmp_path, satid):
+        """Non-Vantor SATIDs must not trigger the © Vantor attribution."""
+        directory = self._write_xml(tmp_path, satid)
+        assert detect_vantor_satellite(str(directory)) is False
+
 
 class TestAddCopyrightOverlay:
     def test_overlay_added(self):
