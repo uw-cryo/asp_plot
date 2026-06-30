@@ -1,4 +1,5 @@
 import logging
+import os
 
 import matplotlib.gridspec as gridspec
 import matplotlib.pyplot as plt
@@ -124,17 +125,26 @@ class StereoGeometryPlotter:
         convergence angle, base-to-height ratio, bisector elevation angle,
         asymmetry angle, intersection area, and metadata for both scenes.
         """
+        # Asymmetry angle and intersection area are only defined when the two
+        # footprints overlap (common to miss in N-scene sets); fall back to "N/A"
+        # so non-overlapping pairs still render a title. For overlapping pairs the
+        # f"{x:0.2f}" formatting matches the previous "%0.2f" output exactly.
+        asym = p.get("asymmetry_angle")
+        asym_str = f"{asym:0.2f}" if asym is not None else "N/A"
+        area = p.get("intersection_area")
+        area_str = f"{area:0.2f}" if area is not None else "N/A"
+
         title = p["pairname"]
         title += "\nCenter datetime: %s" % p["cdate"]
         title += "\nTime offset: %s" % str(p["dt"])
         title += (
-            "\nConv. angle: %0.2f, B:H ratio: %0.2f, BIE: %0.2f, Assym Angle: %0.2f, Int. area: %0.2f km2"
+            "\nConv. angle: %0.2f, B:H ratio: %0.2f, BIE: %0.2f, Assym Angle: %s, Int. area: %s km2"
             % (
                 p["conv_ang"],
                 p["bh"],
                 p["bie"],
-                p["asymmetry_angle"],
-                p["intersection_area"],
+                asym_str,
+                area_str,
             )
         )
         title += self.get_scene_string(p, "catid1_dict")
@@ -273,6 +283,11 @@ class StereoGeometryPlotter:
         eph1_gdf.iloc[0:2].to_crs(map_crs).plot(ax=ax, **start_kw)
         eph2_gdf.iloc[0:2].to_crs(map_crs).plot(ax=ax, **start_kw)
 
+        # Frame the map on the footprints (not the far-reaching ephemeris tracks),
+        # so the contextily zoom resolves to a sensible level instead of a coarse,
+        # slow, near-useless world-scale tile fetch. See _set_map_extent.
+        self._set_map_extent(ax, [fp1_gdf, fp2_gdf], map_crs)
+
         if self.add_basemap:
             import contextily as ctx
 
@@ -284,37 +299,59 @@ class StereoGeometryPlotter:
         if tight_layout:
             plt.tight_layout()
 
-    def dg_geom_plot(self, save_dir=None, fig_fn=None):
+    def _set_map_extent(self, ax, fp_gdfs, map_crs, buffer_frac=0.15):
         """
-        Create a comprehensive stereo geometry visualization.
+        Frame a map axis on the footprints with a small margin.
 
-        Generates a figure with two subplots:
-        1. A skyplot showing satellite viewing angles (left)
-        2. A map view showing satellite paths and image footprints (right)
+        The map plots the full satellite ephemeris tracks, which span hundreds of
+        kilometers and would otherwise drive matplotlib's autoscale (and, in turn,
+        the contextily basemap zoom) out to a coarse, slow, near-useless
+        world-scale tile request. Pinning the extent to the image footprints keeps
+        the basemap at a useful zoom; ephemeris tracks beyond the frame are simply
+        clipped at the axis edge.
 
         Parameters
         ----------
-        save_dir : str, optional
-            Directory to save the figure, default is None (figure not saved)
-        fig_fn : str, optional
-            Filename for the figure, default is None (figure not saved)
-
-        Returns
-        -------
-        matplotlib.figure.Figure
-            The created figure object (not shown automatically)
-
-        Notes
-        -----
-        If both save_dir and fig_fn are provided, the figure is saved using
-        the save_figure utility function.
-
-        The map uses a local transverse Mercator projection centered on the
-        intersection of the two image footprints to minimize distortion.
+        ax : matplotlib.axes.Axes
+            Map axes to set limits on.
+        fp_gdfs : iterable of geopandas.GeoDataFrame
+            Footprint GeoDataFrames (in EPSG:4326) to frame.
+        map_crs : str
+            CRS the axis is drawn in; footprints are reprojected to it.
+        buffer_frac : float, optional
+            Fractional margin added on each side, default 0.15.
         """
-        # load pair information as dict
-        p = self.parser.get_pair_dict()
+        bounds = [fp.to_crs(map_crs).total_bounds for fp in fp_gdfs]
+        minx = min(b[0] for b in bounds)
+        miny = min(b[1] for b in bounds)
+        maxx = max(b[2] for b in bounds)
+        maxy = max(b[3] for b in bounds)
+        # Guard against a degenerate (zero-width) extent.
+        dx = (maxx - minx) * buffer_frac or 1000.0
+        dy = (maxy - miny) * buffer_frac or 1000.0
+        ax.set_xlim(minx - dx, maxx + dx)
+        ax.set_ylim(miny - dy, maxy + dy)
 
+    @staticmethod
+    def _scene_colors(n):
+        """Return n distinct colors for scene/footprint coloring (tab10 cycle)."""
+        cmap = plt.get_cmap("tab10")
+        return [cmap(i % 10) for i in range(n)]
+
+    def _render_pair(self, p, save_dir=None, fig_fn=None):
+        """
+        Render one stereo-pair figure (skyplot + map + full-stats title).
+
+        This is the per-pair figure shared by the two-scene case and every pair of
+        an N-scene set.
+
+        Parameters
+        ----------
+        p : dict
+            Stereo-pair dictionary from the parser.
+        save_dir, fig_fn : str, optional
+            If both are given, the figure is saved there.
+        """
         fig = plt.figure(figsize=(10, 7.5))
         G = gridspec.GridSpec(nrows=1, ncols=2)
         ax0 = fig.add_subplot(G[0, 0:1], polar=True)
@@ -322,11 +359,9 @@ class StereoGeometryPlotter:
 
         self.skyplot(ax0, p, title=False, tight_layout=False)
 
-        # Use local projection to minimize distortion
-        # Should be OK to use transverse mercator here, usually within ~2-3 deg
-        map_crs = self.parser.get_centroid_projection(
-            p["intersection"], proj_type="tmerc"
-        )
+        # Use local projection to minimize distortion; transverse mercator is fine
+        # here (usually within ~2-3 deg). Robust to non-overlapping pairs.
+        map_crs = self.parser.get_pair_map_projection(p, proj_type="tmerc")
 
         self.map_plot(
             ax1,
@@ -340,6 +375,149 @@ class StereoGeometryPlotter:
 
         if save_dir and fig_fn:
             save_figure(fig, save_dir, fig_fn)
+            # Saved to disk; release it so N-scene runs don't accumulate dozens of
+            # open figures. Interactive callers (no save) keep the figure to display.
+            plt.close(fig)
+
+    def _overview_skyplot(self, ax, scenes):
+        """Skyplot of all N satellite positions, color-coded by scene."""
+        ax.set_theta_direction(-1)
+        ax.set_theta_zero_location("N")
+        ax.grid(True)
+
+        plot_kw = {"marker": "o", "ls": "", "ms": 5}
+        ax.plot(0, 0, marker="o", color="k")
+        for d, color in zip(scenes, self._scene_colors(len(scenes))):
+            ax.plot(
+                np.radians(d["meansataz"]),
+                (90 - d["meansatel"]),
+                label=d.get("catid", "?"),
+                color=color,
+                **plot_kw,
+            )
+        ax.legend(loc="lower left", fontsize="small")
+        ax.set_rmin(0)
+        ax.set_rmax(50)
+
+    def _overview_map(self, ax, scenes, map_crs):
+        """Map of all N footprints and ephemeris tracks, color-coded by scene."""
+        poly_kw = {"alpha": 0.5, "edgecolor": "k", "linewidth": 0.5}
+        eph_kw = {"markersize": 2}
+        start_kw = {"markersize": 5, "facecolor": "w", "edgecolor": "k"}
+
+        fp_gdfs = []
+        for d, color in zip(scenes, self._scene_colors(len(scenes))):
+            fp_gdf = d["fp_gdf"]
+            fp_gdfs.append(fp_gdf)
+            fp_gdf.to_crs(map_crs).plot(ax=ax, color=color, **poly_kw)
+            eph_gdf = d["eph_gdf"]
+            eph_gdf.to_crs(map_crs).plot(
+                ax=ax, label=d.get("catid", "?"), color=color, **eph_kw
+            )
+            eph_gdf.iloc[0:2].to_crs(map_crs).plot(ax=ax, **start_kw)
+
+        self._set_map_extent(ax, fp_gdfs, map_crs)
+
+        if self.add_basemap:
+            import contextily as ctx
+
+            try:
+                ctx.add_basemap(ax, crs=map_crs, attribution=False)
+            except Exception:
+                pass
+
+        ax.legend(loc="best", prop={"size": 6})
+
+    def _overview_title(self, scenes):
+        """Acquisition summary title for the overview figure (no pair metrics)."""
+        base = os.path.split(self.parser.directory.rstrip("/\\"))[-1]
+        catids = [d.get("catid", "?") for d in scenes]
+        title = f"{base}: {len(scenes)}-scene overview"
+        dates = sorted(d["date"] for d in scenes if d.get("date") is not None)
+        if dates:
+            title += f"\n{dates[0]} to {dates[-1]}"
+        title += "\n" + ", ".join(catids)
+        return title
+
+    def _render_overview(self, scenes, save_dir=None, fig_fn=None):
+        """Render the N-scene overview figure (all scenes, color-coded)."""
+        fig = plt.figure(figsize=(10, 7.5))
+        G = gridspec.GridSpec(nrows=1, ncols=2)
+        ax0 = fig.add_subplot(G[0, 0:1], polar=True)
+        ax1 = fig.add_subplot(G[0, 1:2])
+
+        self._overview_skyplot(ax0, scenes)
+        map_crs = self.parser.get_scenes_centroid_projection(proj_type="tmerc")
+        self._overview_map(ax1, scenes, map_crs)
+
+        plt.suptitle(self._overview_title(scenes), fontsize=10)
+
+        if save_dir and fig_fn:
+            save_figure(fig, save_dir, fig_fn)
+            plt.close(fig)
+
+    def dg_geom_plot(self, save_dir=None, fig_fn=None):
+        """
+        Create stereo geometry visualization(s).
+
+        For exactly two scenes this produces a single figure (skyplot + map +
+        full pairwise-stats title) — unchanged from prior behavior. For more than
+        two scenes it produces, as separate files:
+
+        - one **overview** figure with all scenes color-coded (skyplot + map), and
+        - one figure **per pair** (every N-choose-2 combination), each with the
+          full pairwise stats in its title.
+
+        Parameters
+        ----------
+        save_dir : str, optional
+            Directory to save the figure(s), default is None (not saved).
+        fig_fn : str, optional
+            Filename for the two-scene figure; for N>2 it is the stem from which
+            ``<stem>_overview.png`` and ``<stem>_<labelA>_<labelB>.png`` are
+            derived (``label`` is the CATID, or ``pairN`` if a CATID is missing).
+
+        Returns
+        -------
+        list of str
+            The filename(s) saved (empty if save_dir/fig_fn were not provided).
+
+        Notes
+        -----
+        Each figure's map uses a local transverse Mercator projection centered on
+        the relevant footprints to minimize distortion.
+        """
+        scenes = self.parser.get_catid_dicts()
+        n = len(scenes)
+        if n < 2:
+            raise ValueError(
+                f"Need at least two scenes for stereo geometry, but found {n}."
+            )
+
+        if n == 2:
+            p = self.parser.get_pair_dict()
+            self._render_pair(p, save_dir, fig_fn)
+            return [fig_fn] if (save_dir and fig_fn) else []
+
+        # N > 2: overview figure + one figure per pair.
+        stem, ext = os.path.splitext(fig_fn) if fig_fn else ("stereo_geom", ".png")
+        saved = []
+
+        overview_fn = f"{stem}_overview{ext}" if fig_fn else None
+        self._render_overview(scenes, save_dir, overview_fn)
+        if save_dir and overview_fn:
+            saved.append(overview_fn)
+
+        for i, p in enumerate(self.parser.get_pair_dicts()):
+            c1 = p["catid1_dict"].get("catid")
+            c2 = p["catid2_dict"].get("catid")
+            suffix = f"{c1}_{c2}" if (c1 and c2) else f"pair{i + 1}"
+            pair_fn = f"{stem}_{suffix}{ext}" if fig_fn else None
+            self._render_pair(p, save_dir, pair_fn)
+            if save_dir and pair_fn:
+                saved.append(pair_fn)
+
+        return saved
 
     @staticmethod
     def _compute_roll_pitch_yaw(eph_gdf, att_df):
