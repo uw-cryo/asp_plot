@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.19.0] - 2026-06-30
+
+### Added
+- **`stereo_geom` makes pre-ASP stereo geometry plots straight from satellite XMLs** ([#73](https://github.com/uw-cryo/asp_plot/issues/73)). You can now assess candidate stereo geometry (skyplot + footprint/ephemeris map + convergence/B:H/BIE/asymmetry stats) *before* running ASP, directly from the delivered camera XMLs, without a tidy directory layout. Delivered across three pieces:
+  - **Robust, structure-agnostic XML discovery** ([#150](https://github.com/uw-cryo/asp_plot/issues/150)). Camera XMLs are found recursively (they routinely sit three or four directories deep), decoys like `README.XML` and ortho sidecars are ignored, and scenes are grouped by the CATID read from the file *contents* — never assumed to be in the filename. Tiled deliveries are mosaicked per CATID via `dg_mosaic`.
+  - **Flexible CLI inputs** ([#152](https://github.com/uw-cryo/asp_plot/issues/152)). `stereo_geom` takes positional `INPUTS` that may be any mix of XML files, directories, and glob patterns — `stereo_geom *.XML`, `stereo_geom a.xml b.xml`, `stereo_geom delivery_dir/` — searched recursively. The original `--directory` flag is retained as the fallback, so existing usage is unchanged. New `resolve_xml_inputs()` / `sensor_for_inputs()` / `SensorMetadata.detect_files()` plumbing and a `WorldViewMetadata(image_list=...)` constructor back this, with `inputs=` threaded through `StereopairMetadataParser` and `StereoGeometryPlotter`.
+  - **N-scene multi-view assessment.** `stereo_geom` is no longer limited to a pair. Given more than two scenes it writes one color-coded **overview** figure (all satellite positions on the skyplot, all footprints/ephemeris on the map) plus **one figure per pair** for every N-choose-2 combination, each titled with that pair's full stereo stats — the multi-view use case from the issue (e.g. the Utqiagvik scenes). Two-scene output is unchanged. Pairs whose footprints do not overlap are still plotted, with intersection-dependent stats shown as `N/A`. The parser gains `get_pair_dicts()` (all combinations), `get_scenes_centroid_projection()`, and `get_pair_map_projection()`; `get_pair_dict()` is now the exact-two-scene entry point.
+
+### Fixed
+- **Stereo-geometry map basemap no longer fetches coarse world-scale tiles** ([#73](https://github.com/uw-cryo/asp_plot/issues/73)). The map plots the full satellite ephemeris tracks, which span hundreds of kilometers and were driving matplotlib's autoscale — and therefore the contextily zoom — out to a negative/clamped level, producing a slow, near-useless tile request that could appear to hang. The map is now framed on the image footprints before the basemap is added, so the zoom resolves to a usable level; ephemeris beyond the frame is clipped at the axis edge.
+- **Non-overlapping footprints no longer crash intersection handling.** `get_pair_intersection()` computed the local-projection area before checking whether the two footprints actually intersect, raising on a `None` intersection. This was unreachable in the two-scene path (always overlapping) but is common among the pairs of an N-scene set; the area calculation is now skipped when there is no overlap.
+
 ## [1.18.1] - 2026-06-26
 
 ### Fixed
