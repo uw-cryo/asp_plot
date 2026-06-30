@@ -25,6 +25,23 @@ class TestStereopairMetadataParser:
         # Parser is sensor-agnostic and delegates to a detected reader
         assert isinstance(parser.reader, WorldViewMetadata)
 
+    def test_inputs_file_list_matches_directory(self, parser):
+        # Building from an explicit XML file list (geom_plot *.XML) yields the
+        # same pair geometry as pointing at the directory.
+        files = [
+            "tests/test_data/10300100D0772D00.r100.xml",
+            "tests/test_data/10300100D12D7400.r100.xml",
+        ]
+        parser_from_files = StereopairMetadataParser(inputs=files)
+        assert isinstance(parser_from_files.reader, WorldViewMetadata)
+        assert parser_from_files.get_pair_dict()["conv_ang"] == pytest.approx(
+            parser.get_pair_dict()["conv_ang"]
+        )
+
+    def test_requires_directory_or_inputs(self):
+        with pytest.raises(ValueError, match="either a directory or inputs"):
+            StereopairMetadataParser()
+
     def test_image_list_delegates_to_reader(self, parser):
         assert parser.image_list is parser.reader.image_list
         assert len(parser.image_list) > 0
