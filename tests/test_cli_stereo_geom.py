@@ -71,3 +71,24 @@ class TestStereoGeomCli:
         (tmp_path / "note.txt").write_text("not xml")
         result = _run(["--directory", str(tmp_path)])
         assert result.exit_code != 0
+
+    def test_three_scenes_emit_overview_and_pairs(self, tmp_path):
+        # More than two scenes -> overview + one figure per pair, derived from
+        # the --output_filename stem.
+        third = "tests/test_data/tiled_xmls/10200100A1865800.r100.xml"
+        result = _run(
+            [
+                CAM_A,
+                CAM_B,
+                third,
+                "--output_directory",
+                str(tmp_path),
+                "--output_filename",
+                "geom.png",
+            ]
+        )
+        assert result.exit_code == 0, result.output
+        pngs = sorted(p.name for p in tmp_path.glob("*.png"))
+        assert "geom_overview.png" in pngs
+        # 1 overview + 3 pairs (3-choose-2).
+        assert len(pngs) == 4

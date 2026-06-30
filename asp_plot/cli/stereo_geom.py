@@ -31,7 +31,11 @@ from asp_plot.stereo_geometry import StereoGeometryPlotter
     "--output_filename",
     prompt=False,
     default=None,
-    help="Filename for the output plot. Default: Directory name with _stereo_geom.png suffix.",
+    help=(
+        "Filename for the output plot. Default: Directory name with "
+        "_stereo_geom.png suffix. With more than two scenes this is the stem for "
+        "the per-pair and overview figures."
+    ),
 )
 def main(
     inputs,
@@ -82,11 +86,18 @@ def main(
 
     os.makedirs(output_directory, exist_ok=True)
 
-    plotter.dg_geom_plot(save_dir=output_directory, fig_fn=output_filename)
+    saved = plotter.dg_geom_plot(save_dir=output_directory, fig_fn=output_filename)
 
-    print(
-        f"\nStereo geometry plot saved to {os.path.join(output_directory, output_filename)}\n"
-    )
+    if saved:
+        if len(saved) == 1:
+            print(
+                f"\nStereo geometry plot saved to {os.path.join(output_directory, saved[0])}\n"
+            )
+        else:
+            print(f"\nStereo geometry plots saved ({len(saved)}):")
+            for fn in saved:
+                print(f"  {os.path.join(output_directory, fn)}")
+            print()
 
 
 if __name__ == "__main__":

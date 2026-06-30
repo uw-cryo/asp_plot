@@ -169,7 +169,7 @@ The package is organized by functionality, with each module focused on a specifi
 - Computes stereo geometry metrics: convergence angle, base-to-height ratio, bisector elevation, asymmetry
 - Provides spatial utilities: `get_pair_utm_epsg()`, `get_intersection_bounds()`, `get_scene_bounds()`
 - `get_catid_dicts()` returns dictionaries per catalog ID with ephemeris, attitude, and geometry data (sourced from the sensor reader)
-- Currently supports pairs; N-scene support is planned
+- **N-scene aware** (issue #73): `get_pair_dict()` is the exact-two-scene entry point (raises otherwise); `get_pair_dicts()` returns one pair dict per N-choose-2 combination so >2 scenes can be assessed pairwise. `get_pair_map_projection()` falls back to the footprint union when a pair does not overlap, and `get_pair_intersection()` tolerates a `None` intersection (non-overlapping pairs report `intersection_area = None`)
 
 **`stereo.py`** - `StereoPlotter` class (inherits from `Plotter`)
 - Visualizes ASP stereo processing results
@@ -322,6 +322,7 @@ All CLI tools are in `asp_plot/cli/` and use Click for argument parsing:
 - Creates skyplot and map view from XML camera files
 - Supports multiple XMLs with automatic mosaicking
 - Accepts positional `INPUTS` (any mix of XML files, directories, and globs — e.g. `stereo_geom *.XML`); falls back to `--directory` when no positional inputs are given. Both paths funnel into the same plotter (`inputs=` vs `directory=`)
+- **N-scene output** (issue #73): two scenes → one `<name>_stereo_geom.png` (unchanged). More than two → one color-coded overview figure (`_overview.png`) plus one figure per pair (`_<catidA>_<catidB>.png`, or `_pairN.png` if a CATID is missing), each with full pairwise stats. `dg_geom_plot()` dispatches on scene count and returns the list of saved filenames; `StereoGeometryPlotter` adds `_render_pair`/`_render_overview`. Map views keep the full (autoscaled) extent so all satellite ephemeris tracks are visible (off-nadir scenes have tracks tens to hundreds of km from the footprints), with tracks drawn on top of the semi-transparent footprints; `_add_basemap_safe` falls back to a coarse zoom so the wide-extent basemap fetch doesn't fail on contextily's negative auto-zoom
 
 **`gallery.py`** - DEM gallery tool (`gallery` command)
 - Wrapper for `GalleryPlotter`; lays out many DEMs as a grid sharing one color scale

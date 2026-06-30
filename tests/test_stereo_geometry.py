@@ -48,3 +48,52 @@ class TestStereoGeometryPlotter:
             stereo_geometry_plotter.satellite_position_orientation_plot()
         except Exception as e:
             pytest.fail(f"figure method raised an exception: {str(e)}")
+
+    def test_two_scene_single_figure(self, stereo_geometry_plotter, tmp_path):
+        # Two scenes -> exactly one figure, named as given (unchanged behavior).
+        saved = stereo_geometry_plotter.dg_geom_plot(
+            save_dir=str(tmp_path), fig_fn="geom.png"
+        )
+        assert saved == ["geom.png"]
+        assert (tmp_path / "geom.png").exists()
+
+
+class TestStereoGeometryPlotterNScene:
+    """More than two scenes: overview figure + one figure per pair."""
+
+    THREE_SCENES = [
+        "tests/test_data/10300100D0772D00.r100.xml",
+        "tests/test_data/10300100D12D7400.r100.xml",
+        "tests/test_data/tiled_xmls/10200100A1865800.r100.xml",
+    ]
+
+    @pytest.fixture
+    def plotter_n(self):
+        return StereoGeometryPlotter(inputs=self.THREE_SCENES, add_basemap=False)
+
+    def test_emits_overview_plus_one_figure_per_pair(self, plotter_n, tmp_path):
+        # 3 scenes -> 1 overview + 3 pair figures (3-choose-2).
+        saved = plotter_n.dg_geom_plot(save_dir=str(tmp_path), fig_fn="geom.png")
+        assert len(saved) == 4
+        assert "geom_overview.png" in saved
+        pair_files = [f for f in saved if f != "geom_overview.png"]
+        assert len(pair_files) == 3
+        for fn in saved:
+            assert (tmp_path / fn).exists()
+
+    def test_pair_filenames_keyed_by_catid(self, plotter_n, tmp_path):
+        saved = plotter_n.dg_geom_plot(save_dir=str(tmp_path), fig_fn="geom.png")
+        catids = ["10300100D0772D00", "10300100D12D7400", "10200100A1865800"]
+        pair_files = [f for f in saved if f != "geom_overview.png"]
+        # Every pair file is named with both scenes' CATIDs (no pairN fallback,
+        # since these scenes all carry CATIDs).
+        for fn in pair_files:
+            present = [c for c in catids if c in fn]
+            assert len(present) == 2
+
+    def test_single_scene_raises(self, tmp_path):
+        plotter = StereoGeometryPlotter(
+            inputs=["tests/test_data/10300100D0772D00.r100.xml"], add_basemap=False
+        )
+        with pytest.raises(ValueError, match="at least two scenes"):
+            plotter.dg_geom_plot(save_dir=str(tmp_path), fig_fn="geom.png")
