@@ -283,54 +283,18 @@ class StereoGeometryPlotter:
         eph1_gdf.iloc[0:2].to_crs(map_crs).plot(ax=ax, **start_kw)
         eph2_gdf.iloc[0:2].to_crs(map_crs).plot(ax=ax, **start_kw)
 
-        # Frame the map on the footprints (not the far-reaching ephemeris tracks),
-        # so the contextily zoom resolves to a sensible level instead of a coarse,
-        # slow, near-useless world-scale tile fetch. See _set_map_extent.
-        self._set_map_extent(ax, [fp1_gdf, fp2_gdf], map_crs)
-
+        # Keep the full (autoscaled) extent so both satellite tracks are visible --
+        # the tracks matter more than zooming in on the footprints, and off-nadir
+        # scenes have tracks tens to hundreds of km from the ground. _add_basemap_safe
+        # keeps the wide-extent basemap fetch from failing on a negative auto-zoom.
         if self.add_basemap:
-            import contextily as ctx
-
-            ctx.add_basemap(ax, crs=map_crs, attribution=False)
+            self._add_basemap_safe(ax, map_crs)
 
         ax.legend(loc="best", prop={"size": 6})
         if title:
             ax.set_title(self.get_title(p), fontsize=7.5)
         if tight_layout:
             plt.tight_layout()
-
-    def _set_map_extent(self, ax, fp_gdfs, map_crs, buffer_frac=0.15):
-        """
-        Frame a map axis on the footprints with a small margin.
-
-        The map plots the full satellite ephemeris tracks, which span hundreds of
-        kilometers and would otherwise drive matplotlib's autoscale (and, in turn,
-        the contextily basemap zoom) out to a coarse, slow, near-useless
-        world-scale tile request. Pinning the extent to the image footprints keeps
-        the basemap at a useful zoom; ephemeris tracks beyond the frame are simply
-        clipped at the axis edge.
-
-        Parameters
-        ----------
-        ax : matplotlib.axes.Axes
-            Map axes to set limits on.
-        fp_gdfs : iterable of geopandas.GeoDataFrame
-            Footprint GeoDataFrames (in EPSG:4326) to frame.
-        map_crs : str
-            CRS the axis is drawn in; footprints are reprojected to it.
-        buffer_frac : float, optional
-            Fractional margin added on each side, default 0.15.
-        """
-        bounds = [fp.to_crs(map_crs).total_bounds for fp in fp_gdfs]
-        minx = min(b[0] for b in bounds)
-        miny = min(b[1] for b in bounds)
-        maxx = max(b[2] for b in bounds)
-        maxy = max(b[3] for b in bounds)
-        # Guard against a degenerate (zero-width) extent.
-        dx = (maxx - minx) * buffer_frac or 1000.0
-        dy = (maxy - miny) * buffer_frac or 1000.0
-        ax.set_xlim(minx - dx, maxx + dx)
-        ax.set_ylim(miny - dy, maxy + dy)
 
     @staticmethod
     def _scene_colors(n):
