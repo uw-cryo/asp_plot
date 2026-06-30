@@ -400,33 +400,53 @@ class StereoGeometryPlotter:
         ax.set_rmax(50)
 
     def _overview_map(self, ax, scenes, map_crs):
-        """Map of all N footprints and ephemeris tracks, color-coded by scene."""
+        """Map of all N footprints and ephemeris tracks, color-coded by scene.
+
+        Unlike the per-pair map, the overview keeps the full (autoscaled) extent so
+        every satellite track is visible -- off-nadir scenes have tracks tens to
+        hundreds of km from the ground footprints, and the overview's purpose is to
+        show that multi-view geometry. Footprints are drawn first and the tracks on
+        top, so the tracks are not buried under the (semi-transparent) overlapping
+        footprints.
+        """
         poly_kw = {"alpha": 0.5, "edgecolor": "k", "linewidth": 0.5}
         eph_kw = {"markersize": 2}
         start_kw = {"markersize": 5, "facecolor": "w", "edgecolor": "k"}
+        colors = self._scene_colors(len(scenes))
 
-        fp_gdfs = []
-        for d, color in zip(scenes, self._scene_colors(len(scenes))):
-            fp_gdf = d["fp_gdf"]
-            fp_gdfs.append(fp_gdf)
-            fp_gdf.to_crs(map_crs).plot(ax=ax, color=color, **poly_kw)
+        # Footprints on the bottom...
+        for d, color in zip(scenes, colors):
+            d["fp_gdf"].to_crs(map_crs).plot(ax=ax, color=color, **poly_kw)
+        # ...then every satellite track and its start marker on top.
+        for d, color in zip(scenes, colors):
             eph_gdf = d["eph_gdf"]
             eph_gdf.to_crs(map_crs).plot(
                 ax=ax, label=d.get("catid", "?"), color=color, **eph_kw
             )
             eph_gdf.iloc[0:2].to_crs(map_crs).plot(ax=ax, **start_kw)
 
-        self._set_map_extent(ax, fp_gdfs, map_crs)
-
         if self.add_basemap:
-            import contextily as ctx
-
-            try:
-                ctx.add_basemap(ax, crs=map_crs, attribution=False)
-            except Exception:
-                pass
+            self._add_basemap_safe(ax, map_crs)
 
         ax.legend(loc="best", prop={"size": 6})
+
+    @staticmethod
+    def _add_basemap_safe(ax, map_crs):
+        """Add a contextily basemap, clamped for wide (overview) extents.
+
+        Very large extents make contextily's auto-zoom resolve to an invalid
+        (negative) zoom that errors; fall back to a coarse continental zoom so the
+        overview still gets a basemap instead of silently dropping it.
+        """
+        import contextily as ctx
+
+        try:
+            ctx.add_basemap(ax, crs=map_crs, attribution=False)
+        except Exception:
+            try:
+                ctx.add_basemap(ax, crs=map_crs, attribution=False, zoom=6)
+            except Exception:
+                pass
 
     def _overview_title(self, scenes):
         """Acquisition summary title for the overview figure (no pair metrics)."""
