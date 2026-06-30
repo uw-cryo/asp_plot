@@ -160,12 +160,12 @@ The package is organized by functionality, with each module focused on a specifi
 - `find_mapproject_commands(directories, stereo_command=None)`: scans dirs (processing root, BA dir, stereo dir) for all `*.tif`/`*.tiff` and keeps those carrying the tag signature — **identity is decided by the file's own metadata, never by filename**, so there is no naming-convention dependency (reading a GeoTIFF header is cheap; the `NotGeoreferencedWarning` from raw non-georef inputs is silenced). Dedupes by the reconstructed command string (identical scene reached via two dirs collapses; distinct left/right both show). When `stereo_command` is given, a discovered output is kept only if its filename appears in that command — this scopes the result to the run being reported, so a non-mapprojected run sharing a parent dir with mapprojected scenes (the `stereo/` + `stereo_no_mapproj/` layout) does **not** spuriously list a mapproject step. It's a whole-token basename membership test (the output basename must equal one of the stereo command's argument basenames — not a raw substring, so `run.tif` can't match `prun.tif`), not positional parsing. `ProcessingParameters.get_mapproject_commands(stereo_command)` passes the parsed stereo command; `report.py` renders the results under "Mapproject Command(s)" on the Processing Parameters page (via the module-level `_render_command_block` helper, shared with the bundle_adjust/stereo/point2dem commands)
 
 **`sensors.py`** - Sensor-specific scene metadata readers (issue #25)
-- `SensorMetadata` ABC defining the reader interface (`detect` + `get_scene_dicts`) and the sensor-agnostic scene-dict schema, mirroring the `bodies.py` registry pattern so adding ASTER/HiRISE/etc. is a new subclass with no change to the geometry code
-- `WorldViewMetadata(SensorMetadata)`: the WorldView/Maxar XML logic (file discovery, `dg_mosaic` tiling, per-scene extraction, ephemeris/attitude/footprint) moved verbatim out of the parser. Named after the satellite family rather than the (twice-renamed: DigitalGlobe → Maxar → Vantor) company; the same format also covers GeoEye-1/QuickBird/IKONOS
-- `SENSORS` registry + `sensor_for_directory()` detection
+- `SensorMetadata` ABC defining the reader interface (`detect` + `detect_files` + `get_scene_dicts`) and the sensor-agnostic scene-dict schema, mirroring the `bodies.py` registry pattern so adding ASTER/HiRISE/etc. is a new subclass with no change to the geometry code
+- `WorldViewMetadata(SensorMetadata)`: the WorldView/Maxar XML logic (file discovery, `dg_mosaic` tiling, per-scene extraction, ephemeris/attitude/footprint) moved verbatim out of the parser. Named after the satellite family rather than the (twice-renamed: DigitalGlobe → Maxar → Vantor) company; the same format also covers GeoEye-1/QuickBird/IKONOS. Constructible from either a `directory=` (recursive discovery) or an explicit `image_list=` (already-resolved XML paths); non-camera files (`README.XML`, ortho) are filtered out either way
+- `SENSORS` registry + two detection entry points: `sensor_for_directory()` (scans a directory) and `sensor_for_inputs()` (accepts a mixed list of files/dirs/globs). The latter routes through `resolve_xml_inputs()`, which expands directories (recursively), globs, and plain paths into a deduped, sorted XML list — this is what lets `stereo_geom *.XML` / explicit files / a delivery dir all work without a fixed structure
 
 **`stereopair_metadata_parser.py`** - `StereopairMetadataParser` class
-- Now a **sensor-agnostic orchestrator** (issue #25): detects a reader via `sensor_for_directory()`, delegates scene discovery/extraction to it, and keeps only the pair-level geometry
+- Now a **sensor-agnostic orchestrator** (issue #25): detects a reader via `sensor_for_directory()` (from `directory=`) or `sensor_for_inputs()` (from a mixed `inputs=` list of files/dirs/globs), delegates scene discovery/extraction to it, and keeps only the pair-level geometry
 - Computes stereo geometry metrics: convergence angle, base-to-height ratio, bisector elevation, asymmetry
 - Provides spatial utilities: `get_pair_utm_epsg()`, `get_intersection_bounds()`, `get_scene_bounds()`
 - `get_catid_dicts()` returns dictionaries per catalog ID with ephemeris, attitude, and geometry data (sourced from the sensor reader)
@@ -321,6 +321,7 @@ All CLI tools are in `asp_plot/cli/` and use Click for argument parsing:
 - Wrapper for `StereoGeometryPlotter`
 - Creates skyplot and map view from XML camera files
 - Supports multiple XMLs with automatic mosaicking
+- Accepts positional `INPUTS` (any mix of XML files, directories, and globs — e.g. `stereo_geom *.XML`); falls back to `--directory` when no positional inputs are given. Both paths funnel into the same plotter (`inputs=` vs `directory=`)
 
 **`gallery.py`** - DEM gallery tool (`gallery` command)
 - Wrapper for `GalleryPlotter`; lays out many DEMs as a grid sharing one color scale
