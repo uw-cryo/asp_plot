@@ -1,6 +1,7 @@
 import logging
 import os
 from datetime import timedelta
+from itertools import combinations
 
 import geopandas as gpd
 import numpy as np
@@ -234,11 +235,9 @@ class StereopairMetadataParser:
         """List of scene metadata files (delegated to the sensor reader)."""
         return self.reader.image_list
 
-    # TODO: This method assumes that only two scenes are captured with get_catid_dicts
-    # Should be updated to support more than two scenes, or need a separate method for N scenes
     def get_pair_dict(self):
         """
-        Get a dictionary with all stereo pair information.
+        Get a dictionary with all stereo pair information for exactly two scenes.
 
         Creates a comprehensive dictionary containing stereo pair information,
         including convergence angle, base-to-height ratio, bisector elevation angle,
@@ -249,14 +248,101 @@ class StereopairMetadataParser:
         dict
             Dictionary with stereo pair information and geometry parameters
 
-        Notes
-        -----
-        Currently only supports exactly two scenes. Future versions will support N scenes.
+        Raises
+        ------
+        ValueError
+            If the inputs do not contain exactly two scenes. Use
+            :meth:`get_pair_dicts` for the per-pair dictionaries of N scenes.
         """
         catid_dicts = self.get_catid_dicts()
+        if len(catid_dicts) != 2:
+            raise ValueError(
+                f"get_pair_dict() requires exactly two scenes, but found "
+                f"{len(catid_dicts)}. Use get_pair_dicts() for N-scene inputs."
+            )
         catid1_dict, catid2_dict = catid_dicts
         pairname = os.path.split(self.directory.rstrip("/\\"))[-1]
         return self.pair_dict(catid1_dict, catid2_dict, pairname)
+
+    def get_pair_dicts(self):
+        """
+        Get per-pair dictionaries for every combination of scenes.
+
+        Builds one stereo-pair dictionary (see :meth:`pair_dict`) for each of the
+        N-choose-2 combinations of the discovered scenes, so N-scene inputs can be
+        assessed pairwise. For exactly two scenes this returns a single-element
+        list; ``get_pair_dict`` remains the canonical two-scene entry point.
+
+        Returns
+        -------
+        list of dict
+            One stereo-pair dictionary per scene combination.
+
+        Raises
+        ------
+        ValueError
+            If fewer than two scenes are found (no pair can be formed).
+        """
+        catid_dicts = self.get_catid_dicts()
+        if len(catid_dicts) < 2:
+            raise ValueError(
+                f"Need at least two scenes to form a stereo pair, but found "
+                f"{len(catid_dicts)}."
+            )
+        base = os.path.split(self.directory.rstrip("/\\"))[-1]
+        pairs = []
+        for d1, d2 in combinations(catid_dicts, 2):
+            c1 = d1.get("catid", "?")
+            c2 = d2.get("catid", "?")
+            pairname = f"{base}: {c1} / {c2}"
+            pairs.append(self.pair_dict(d1, d2, pairname))
+        return pairs
+
+    def get_scenes_centroid_projection(self, proj_type="tmerc"):
+        """
+        Local projection centered on the union of all scene footprints.
+
+        Used for the N-scene overview map so the projection is centered on all
+        scenes together rather than a single pair intersection.
+
+        Parameters
+        ----------
+        proj_type : str, optional
+            Projection type, default "tmerc" (see :meth:`get_centroid_projection`).
+
+        Returns
+        -------
+        str
+            Proj4 string centered on the union of all scene footprints.
+        """
+        catid_dicts = self.get_catid_dicts()
+        union = union_all([d["geom"] for d in catid_dicts])
+        return self.get_centroid_projection(union, proj_type)
+
+    def get_pair_map_projection(self, p, proj_type="tmerc"):
+        """
+        Local projection for a single pair's map, robust to no overlap.
+
+        Centers on the pair intersection when the footprints overlap; otherwise
+        falls back to the union of the two footprints so non-overlapping pairs
+        (common in N-scene sets) still get a sensible map projection.
+
+        Parameters
+        ----------
+        p : dict
+            Stereo-pair dictionary from :meth:`pair_dict`.
+        proj_type : str, optional
+            Projection type, default "tmerc".
+
+        Returns
+        -------
+        str
+            Proj4 string centered on the pair's intersection or footprint union.
+        """
+        geom = p["intersection"]
+        if geom is None:
+            geom = union_all([p["catid1_dict"]["geom"], p["catid2_dict"]["geom"]])
+        return self.get_centroid_projection(geom, proj_type)
 
     def get_catid_dicts(self):
         """
@@ -420,8 +506,10 @@ class StereopairMetadataParser:
         geom2 = p["catid2_dict"]["geom"]
         intersection = geom_intersection([geom1, geom2])
         p["intersection"] = intersection
-        intersection_local = geom2local(intersection)
         if intersection is not None:
+            # Project to local CRS for area; skipped entirely when the footprints
+            # do not overlap (common for some pairs of an N-scene set).
+            intersection_local = geom2local(intersection)
             # Area calc shouldn't matter too much
             intersection_area = intersection_local.area
             p["intersection_area"] = np.round(intersection_area / 1e6, 2)

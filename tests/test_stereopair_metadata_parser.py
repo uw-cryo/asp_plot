@@ -128,6 +128,55 @@ class TestStereopairMetadataParser:
         assert 0 <= p["asymmetry_angle"] < p["conv_ang"]
 
 
+class TestNSceneParser:
+    """N-scene (more than two) parsing: per-pair dicts for all combinations."""
+
+    # Three distinct CATIDs from committed test data. The two root scenes overlap
+    # (the existing stereo pair); the tiled scene is a different location, so two
+    # of the three pairs do NOT overlap -- exercising the no-intersection path.
+    THREE_SCENES = [
+        "tests/test_data/10300100D0772D00.r100.xml",
+        "tests/test_data/10300100D12D7400.r100.xml",
+        "tests/test_data/tiled_xmls/10200100A1865800.r100.xml",
+    ]
+
+    @pytest.fixture
+    def parser_n(self):
+        return StereopairMetadataParser(inputs=self.THREE_SCENES)
+
+    def test_three_scenes_discovered(self, parser_n):
+        assert len(parser_n.get_catid_dicts()) == 3
+
+    def test_get_pair_dicts_all_combinations(self, parser_n):
+        # 3 scenes -> 3-choose-2 = 3 pairs, each with a valid convergence angle.
+        pairs = parser_n.get_pair_dicts()
+        assert len(pairs) == 3
+        for p in pairs:
+            assert "catid1_dict" in p and "catid2_dict" in p
+            assert 0 < p["conv_ang"] < 90
+            assert p["bh"] == get_bh_ratio(p["conv_ang"])
+
+    def test_get_pair_dicts_handles_non_overlap(self, parser_n):
+        # Non-overlapping pairs must still build (intersection None, no crash);
+        # at least one of the three pairs overlaps and one does not.
+        pairs = parser_n.get_pair_dicts()
+        overlaps = [p for p in pairs if p["intersection"] is not None]
+        non_overlaps = [p for p in pairs if p["intersection"] is None]
+        assert len(overlaps) >= 1
+        assert len(non_overlaps) >= 1
+        # Non-overlapping pairs report no intersection area.
+        for p in non_overlaps:
+            assert p["intersection_area"] is None
+
+    def test_get_pair_dict_requires_two_scenes(self, parser_n):
+        with pytest.raises(ValueError, match="exactly two scenes"):
+            parser_n.get_pair_dict()
+
+    def test_scenes_centroid_projection(self, parser_n):
+        proj = parser_n.get_scenes_centroid_projection()
+        assert proj.startswith("+proj=tmerc")
+
+
 class TestStereoGeometryCalculations:
     """Direct tests for stereo geometry formulas (convergence, BIE, asymmetry).
 
