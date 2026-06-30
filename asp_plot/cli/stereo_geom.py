@@ -6,11 +6,14 @@ from asp_plot.stereo_geometry import StereoGeometryPlotter
 
 
 @click.command()
+@click.argument("inputs", nargs=-1, type=click.Path())
 @click.option(
     "--directory",
-    prompt=True,
-    default="./",
-    help="Directory containing XML files for stereo geometry analysis. Default: current directory.",
+    default=None,
+    help=(
+        "Directory containing XML files for stereo geometry analysis. "
+        "Used when no positional INPUTS are given. Default: current directory."
+    ),
 )
 @click.option(
     "--add_basemap",
@@ -31,6 +34,7 @@ from asp_plot.stereo_geometry import StereoGeometryPlotter
     help="Filename for the output plot. Default: Directory name with _stereo_geom.png suffix.",
 )
 def main(
+    inputs,
     directory,
     add_basemap,
     output_directory,
@@ -38,30 +42,46 @@ def main(
 ):
     """
     Generate stereo geometry plots for WorldView XML files.
-    This tool creates a skyplot and map visualization of the satellite positions and ground footprints.
+
+    This tool creates a skyplot and map visualization of the satellite positions
+    and ground footprints. INPUTS may be any mix of XML files, directories, and
+    glob patterns and need not follow a fixed directory structure, e.g.:
+
+        stereo_geom *.XML
+
+        stereo_geom scene1.xml scene2.xml
+
+        stereo_geom my_delivery_dir/
+
+    If no INPUTS are given, --directory is used (default: current directory).
     """
-    directory = os.path.expanduser(directory)
-    if output_directory:
-        output_directory = os.path.expanduser(output_directory)
+    # Positional INPUTS take precedence; otherwise fall back to --directory.
+    if inputs:
+        inputs = [os.path.expanduser(i) for i in inputs]
+        plotter = StereoGeometryPlotter(inputs=inputs, add_basemap=add_basemap)
+        source_desc = " ".join(inputs)
+        # Base directory for default output paths (resolved by the parser).
+        base_directory = plotter.directory
+    else:
+        base_directory = os.path.expanduser(directory or "./")
+        plotter = StereoGeometryPlotter(
+            directory=base_directory, add_basemap=add_basemap
+        )
+        source_desc = base_directory
 
-    print(f"\nProcessing stereo geometry for XML files in {directory}\n")
+    print(f"\nProcessing stereo geometry for XML files in {source_desc}\n")
 
-    # Get directory name for default output filename
-    dir_name = os.path.split(directory.rstrip("/\\"))[-1]
-
-    # Set default output directory to input directory
+    # Derive default output directory/filename from the base directory.
+    dir_name = os.path.split(base_directory.rstrip("/\\"))[-1]
     if output_directory is None:
-        output_directory = directory
-
-    # Set default output filename using directory name
+        output_directory = base_directory
+    else:
+        output_directory = os.path.expanduser(output_directory)
     if output_filename is None:
         output_filename = f"{dir_name}_stereo_geom.png"
 
-    # Create output directory if it doesn't exist
     os.makedirs(output_directory, exist_ok=True)
 
-    # Create the geometry plotter and generate the plot
-    plotter = StereoGeometryPlotter(directory, add_basemap=add_basemap)
     plotter.dg_geom_plot(save_dir=output_directory, fig_fn=output_filename)
 
     print(

@@ -22,6 +22,7 @@ attributes (``meansataz``, ``meansatel``, ``meanoffnadirviewangle``,
 DataFrame), and ``fp_gdf`` (footprint GeoDataFrame in EPSG:4326).
 """
 
+import glob
 import logging
 import os
 import re
@@ -87,6 +88,26 @@ class SensorMetadata(ABC):
         """
         raise NotImplementedError
 
+    @classmethod
+    @abstractmethod
+    def detect_files(cls, image_list):
+        """Return True if this reader can handle the files in ``image_list``.
+
+        The file-list counterpart of :meth:`detect`, used when the sensor must
+        be chosen from an explicit list of inputs rather than a directory.
+
+        Parameters
+        ----------
+        image_list : list of str
+            Candidate metadata file paths.
+
+        Returns
+        -------
+        bool
+            Whether this sensor's metadata files are present in the list.
+        """
+        raise NotImplementedError
+
     @abstractmethod
     def get_scene_dicts(self):
         """Return a list of per-scene metadata dictionaries.
@@ -123,27 +144,53 @@ class WorldViewMetadata(SensorMetadata):
 
     name = "WorldView"
 
-    def __init__(self, directory):
+    def __init__(self, directory=None, image_list=None):
         """
         Initialize the WorldView metadata reader.
 
+        The reader can be built either from a ``directory`` (its camera XMLs are
+        discovered) or from an explicit ``image_list`` of XML files (e.g. a
+        ``geom_plot *.XML`` invocation, where the shell has already expanded the
+        files). At least one of the two must be given.
+
         Parameters
         ----------
-        directory : str
-            Path to directory containing XML camera model files.
+        directory : str, optional
+            Path to directory containing XML camera model files. When
+            ``image_list`` is also given, this is used only as the base
+            directory for ``dg_mosaic`` outputs and the pair name.
+        image_list : list of str, optional
+            Explicit list of XML camera files to use instead of discovering
+            them from ``directory``. Non-camera XMLs (``README.XML``,
+            ``*ortho*.xml``) are still filtered out.
 
         Raises
         ------
         ValueError
-            If no XML files are found in the directory.
+            If neither ``directory`` nor ``image_list`` is given, or if no
+            camera XML files are found.
         """
-        super().__init__(directory)
+        if directory is None and image_list is None:
+            raise ValueError("Provide either a directory or an image_list.")
 
-        self.image_list = self._discover_xmls(self.directory)
+        if image_list is not None:
+            # Explicit file list (e.g. shell-expanded ``geom_plot *.XML``): use
+            # it directly, but still drop non-camera XMLs by name. Fall back to
+            # the files' common parent for mosaic output / pair naming when no
+            # directory is supplied.
+            self.image_list = self._filter_camera_xmls(image_list)
+            self.directory = (
+                os.path.expanduser(directory)
+                if directory
+                else _common_base(self.image_list)
+            )
+        else:
+            super().__init__(directory)
+            self.image_list = self._discover_xmls(self.directory)
 
         if not self.image_list:
             raise ValueError(
-                "\n\nMissing XML camera files in directory. Cannot extract metadata without these.\n\n"
+                "\n\nMissing XML camera files. Cannot extract metadata without these.\n\n"
             )
 
     # XML files that are delivered alongside the camera models but are *not*
@@ -220,6 +267,27 @@ class WorldViewMetadata(SensorMetadata):
             Whether WorldView XML camera files were found.
         """
         return bool(cls._discover_xmls(os.path.expanduser(directory)))
+
+    @classmethod
+    def detect_files(cls, image_list):
+        """Return True if any file in ``image_list`` is a camera XML.
+
+        The file-list counterpart of :meth:`detect`, used to choose a reader
+        for an explicit list of inputs (see :func:`sensor_for_inputs`). A file
+        is a camera XML if it survives the non-camera basename filter (so
+        ``README.XML`` / ``*ortho*.xml`` alone do not match).
+
+        Parameters
+        ----------
+        image_list : list of str
+            Candidate XML file paths.
+
+        Returns
+        -------
+        bool
+            Whether any camera XML files are present.
+        """
+        return bool(cls._filter_camera_xmls(image_list))
 
     def get_scene_dicts(self):
         """
@@ -639,6 +707,120 @@ class WorldViewMetadata(SensorMetadata):
 
 # Registry of available sensor readers, in detection-priority order.
 SENSORS = [WorldViewMetadata]
+
+
+def _common_base(paths):
+    """Return a base directory for a list of files.
+
+    Used to pick a working directory (for ``dg_mosaic`` outputs and pair
+    naming) when a reader is built from an explicit file list rather than a
+    directory. Returns the files' common parent directory, or the current
+    working directory if they share no common parent or the list is empty.
+    """
+    paths = [os.path.abspath(p) for p in (paths or [])]
+    if not paths:
+        return os.getcwd()
+    base = os.path.commonpath(paths) if len(paths) > 1 else os.path.dirname(paths[0])
+    # commonpath can return a file path if one entry is a prefix of another;
+    # make sure we hand back a directory.
+    return base if os.path.isdir(base) else os.path.dirname(base)
+
+
+def resolve_xml_inputs(inputs, recursive=True):
+    """Expand files, directories, and glob patterns into XML file paths.
+
+    Lets a user point the tools at messy inputs without a fixed directory
+    structure — e.g. ``geom_plot *.XML`` (already expanded by the shell),
+    ``geom_plot scene1.xml scene2.xml``, ``geom_plot delivery_dir/``, or a mix.
+
+    Each item of ``inputs`` may be:
+
+    - a path to an XML file (included directly),
+    - a directory (searched with :meth:`WorldViewMetadata._discover_xmls`, which
+      is shallow-first and falls back to a recursive search), or
+    - a glob pattern (expanded with :func:`glob.glob`).
+
+    Results are de-duplicated (by absolute path) and returned sorted. Note that
+    sensor-specific filtering of non-camera XMLs (``README.XML``, ortho
+    products) is applied by the reader, not here.
+
+    Parameters
+    ----------
+    inputs : str or os.PathLike or iterable of those
+        One or more files, directories, and/or glob patterns.
+    recursive : bool, optional
+        Passed through to directory discovery and ``**`` glob expansion.
+        Default True.
+
+    Returns
+    -------
+    list of str
+        Sorted, de-duplicated XML file paths.
+    """
+    if isinstance(inputs, (str, os.PathLike)):
+        inputs = [inputs]
+
+    collected = []
+    for item in inputs:
+        item = os.path.expanduser(str(item))
+        if os.path.isdir(item):
+            collected.extend(
+                WorldViewMetadata._discover_xmls(item, recursive=recursive)
+            )
+        elif glob.has_magic(item):
+            collected.extend(glob.glob(item, recursive=recursive))
+        elif os.path.isfile(item):
+            collected.append(item)
+        else:
+            logger.warning("Input does not exist, skipping: %s", item)
+
+    seen = set()
+    unique = []
+    for path in collected:
+        key = os.path.abspath(path)
+        if key not in seen:
+            seen.add(key)
+            unique.append(path)
+    return sorted(unique)
+
+
+def sensor_for_inputs(inputs):
+    """Detect and instantiate the appropriate sensor reader for explicit inputs.
+
+    The file-list counterpart of :func:`sensor_for_directory`. Resolves
+    ``inputs`` (files, directories, and/or globs) into a list of XML files,
+    then returns an instance of the first registered reader whose
+    :meth:`SensorMetadata.detect_files` matches.
+
+    Parameters
+    ----------
+    inputs : str or os.PathLike or iterable of those
+        One or more files, directories, and/or glob patterns.
+
+    Returns
+    -------
+    SensorMetadata
+        An initialized reader for the detected sensor.
+
+    Raises
+    ------
+    ValueError
+        If no XML files are found, or no registered sensor reader matches them.
+    """
+    image_list = resolve_xml_inputs(inputs)
+    if not image_list:
+        raise ValueError(
+            "\n\nNo XML files found for the given input(s). "
+            "Provide camera XML files, a directory, or a glob pattern.\n\n"
+        )
+    base = _common_base(image_list)
+    for sensor_cls in SENSORS:
+        if sensor_cls.detect_files(image_list):
+            return sensor_cls(directory=base, image_list=image_list)
+    raise ValueError(
+        "\n\nNo supported sensor metadata files found among the given input(s). "
+        f"Supported sensors: {', '.join(s.name for s in SENSORS)}.\n\n"
+    )
 
 
 def sensor_for_directory(directory):

@@ -7,7 +7,7 @@ import numpy as np
 from osgeo import osr
 from shapely import union_all
 
-from asp_plot.sensors import sensor_for_directory
+from asp_plot.sensors import sensor_for_directory, sensor_for_inputs
 from asp_plot.utils import get_utm_epsg
 
 osr.UseExceptions()
@@ -196,25 +196,38 @@ class StereopairMetadataParser:
     >>> print(f"Base-to-height ratio: {pair_dict['bh']}")
     """
 
-    def __init__(self, directory):
+    def __init__(self, directory=None, inputs=None):
         """
         Initialize the StereopairMetadataParser.
 
-        Detects the sensor from the directory contents and builds the matching
-        metadata reader.
+        Detects the sensor and builds the matching metadata reader, either from
+        a ``directory`` or from an explicit list of ``inputs`` (files,
+        directories, and/or glob patterns, e.g. a ``geom_plot *.XML`` call).
+        Exactly one of the two should be given.
 
         Parameters
         ----------
-        directory : str
-            Path to directory containing camera model / metadata files
+        directory : str, optional
+            Path to directory containing camera model / metadata files.
+        inputs : str or os.PathLike or iterable of those, optional
+            Explicit files, directories, and/or glob patterns to use instead of
+            a single ``directory``. Takes precedence when both are given.
 
         Raises
         ------
         ValueError
-            If no supported sensor metadata files are found in the directory
+            If neither ``directory`` nor ``inputs`` is given, or if no supported
+            sensor metadata files are found.
         """
-        self.directory = os.path.expanduser(directory)
-        self.reader = sensor_for_directory(self.directory)
+        if inputs is None and directory is None:
+            raise ValueError("Provide either a directory or inputs.")
+
+        if inputs is not None:
+            self.reader = sensor_for_inputs(inputs)
+            self.directory = self.reader.directory
+        else:
+            self.directory = os.path.expanduser(directory)
+            self.reader = sensor_for_directory(self.directory)
 
     @property
     def image_list(self):

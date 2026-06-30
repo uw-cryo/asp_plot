@@ -4,16 +4,33 @@ The `stereo_geom` command-line tool creates visualizations of stereo geometry fo
 
 ## Basic usage
 
+Pass the XML camera files directly. `INPUTS` may be any mix of XML files, directories, and glob patterns, and need not follow a fixed directory structure:
+
+```bash
+# A shell glob expands to the candidate XML files
+stereo_geom *.XML
+
+# Explicit files
+stereo_geom scene1.xml scene2.xml
+
+# A delivery directory (searched recursively for camera XMLs)
+stereo_geom my_delivery_dir/
+```
+
+Directories are searched recursively for camera XMLs, and non-camera files (e.g. `README.XML`, ortho `*_ortho.xml`) are skipped automatically. By default, the tool saves the output as `<directory_name>_stereo_geom.png` in the common input directory.
+
+## Using `--directory` instead
+
+When no positional `INPUTS` are given, the tool falls back to `--directory` (default: current directory). This is the original interface and remains supported:
+
 ```bash
 stereo_geom --directory /path/to/directory/with/xml/files
 ```
 
-By default, the tool saves the output as `<directory_name>_stereo_geom.png` in the input directory.
-
 ## Custom output location
 
 ```bash
-stereo_geom --directory /path/to/directory/with/xml/files \
+stereo_geom scene1.xml scene2.xml \
             --output_directory /path/to/save/plots \
             --output_filename custom_output.png
 ```
@@ -23,22 +40,33 @@ stereo_geom --directory /path/to/directory/with/xml/files \
 Adding a basemap to the map view requires an internet connection:
 
 ```bash
-stereo_geom --directory /path/to/directory/with/xml/files \
+stereo_geom my_delivery_dir/ \
             --add_basemap True
 ```
 
 ## Full options
 
 ```
-Usage: stereo_geom [OPTIONS]
+Usage: stereo_geom [OPTIONS] [INPUTS]...
 
-  Generate stereo geometry plots for DigitalGlobe/Maxar XML files. This tool
-  creates a skyplot and map visualization of the satellite positions and
-  ground footprints.
+  Generate stereo geometry plots for WorldView XML files.
+
+  This tool creates a skyplot and map visualization of the satellite positions
+  and ground footprints. INPUTS may be any mix of XML files, directories, and
+  glob patterns and need not follow a fixed directory structure, e.g.:
+
+      stereo_geom *.XML
+
+      stereo_geom scene1.xml scene2.xml
+
+      stereo_geom my_delivery_dir/
+
+  If no INPUTS are given, --directory is used (default: current directory).
 
 Options:
   --directory TEXT         Directory containing XML files for stereo geometry
-                           analysis. Default: current directory.
+                           analysis. Used when no positional INPUTS are given.
+                           Default: current directory.
   --add_basemap BOOLEAN    If True, add a basemap to the figures, which
                            requires internet connection. Default: True.
   --output_directory TEXT  Directory to save the output plot. Default: Input

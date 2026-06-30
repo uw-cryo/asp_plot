@@ -39,21 +39,29 @@ class StereoGeometryPlotter:
     >>> plotter.dg_geom_plot(save_dir='/path/to/output', fig_fn='stereo_geom.png')
     """
 
-    def __init__(self, directory, add_basemap=True, **kwargs):
+    def __init__(self, directory=None, add_basemap=True, inputs=None, **kwargs):
         """
         Initialize the StereoGeometryPlotter.
 
         Parameters
         ----------
-        directory : str
-            Path to directory containing XML camera model files
+        directory : str, optional
+            Path to directory containing XML camera model files.
         add_basemap : bool, optional
             Whether to add a contextily basemap to the plots, default is True
+        inputs : str or os.PathLike or iterable of those, optional
+            Explicit files, directories, and/or glob patterns to use instead of
+            a single ``directory`` (e.g. a ``geom_plot *.XML`` call). Takes
+            precedence when both are given.
         **kwargs
             Additional keyword arguments passed to StereopairMetadataParser
         """
-        self.directory = directory
-        self.parser = StereopairMetadataParser(directory=directory, **kwargs)
+        self.parser = StereopairMetadataParser(
+            directory=directory, inputs=inputs, **kwargs
+        )
+        # When built from an explicit input list, fall back to the parser's
+        # resolved base directory (used for default output paths).
+        self.directory = directory if directory is not None else self.parser.directory
         self.add_basemap = add_basemap
 
     def get_scene_string(self, p, key="catid1_dict"):
