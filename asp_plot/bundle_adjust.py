@@ -1,3 +1,4 @@
+import glob
 import logging
 import os
 
@@ -5,7 +6,13 @@ import geopandas as gpd
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from matplotlib.cm import ScalarMappable
+from matplotlib.colors import TwoSlopeNorm
+from pyproj import Transformer
+from scipy.spatial.transform import Rotation
+from shapely.geometry import Point
 
+from asp_plot.csm_io import read_positions_rotations_from_file
 from asp_plot.processing_parameters import ProcessingParameters
 from asp_plot.stereopair_metadata_parser import StereopairMetadataParser
 from asp_plot.utils import ColorBar, Plotter, glob_file, run_subprocess_command
@@ -632,3 +639,531 @@ class PlotBundleAdjustFiles(Plotter):
         fig.suptitle(self.title, size=10)
         plt.subplots_adjust(wspace=0.2, hspace=0.4)
         self.save(fig, save_dir, fig_fn)
+
+
+def _enu_basis(center_ecef):
+    """
+    Build a local East-North-Up basis at an ECEF point.
+
+    Parameters
+    ----------
+    center_ecef : array-like
+        A single ECEF (EPSG:4978) coordinate as [x, y, z] in meters.
+
+    Returns
+    -------
+    tuple of numpy.ndarray
+        The (east, north, up) unit vectors expressed in ECEF, so that the
+        east/north/up component of any ECEF vector ``v`` is ``v @ east`` etc.
+
+    Notes
+    -----
+    The basis is computed from the geodetic latitude and longitude of the
+    point (the sub-satellite location for a camera center). This lets us
+    decompose the ECEF camera-center shift from a ``.adjust`` file into the
+    horizontal and vertical components that ASP reports in
+    ``camera_offsets.txt``.
+    """
+    lat, lon, _ = Transformer.from_crs("EPSG:4978", "EPSG:4326").transform(*center_ecef)
+    lat, lon = np.radians(lat), np.radians(lon)
+    up = np.array([np.cos(lat) * np.cos(lon), np.cos(lat) * np.sin(lon), np.sin(lat)])
+    east = np.array([-np.sin(lon), np.cos(lon), 0.0])
+    north = np.cross(up, east)
+    return east, north, up
+
+
+def _normalize_camera_id(name):
+    """
+    Normalize a camera/image identifier so BA outputs can be matched.
+
+    Strips the ASP ``run-`` prefix, common file extensions, and the ``_corr``
+    suffix that ``bundle_adjust`` appends to image names, so that camera files
+    (e.g. ``run-<id>.adjusted_state.json``) can be matched to the rows of
+    ``camera_offsets.txt`` (e.g. ``<id>_corr.tif``).
+    """
+    name = os.path.basename(name)
+    for suffix in (".adjusted_state.json", ".adjusted_state.adjust", ".adjust"):
+        if name.endswith(suffix):
+            name = name[: -len(suffix)]
+            break
+    name = os.path.splitext(name)[0]
+    if name.startswith("run-"):
+        name = name[len("run-") :]
+    if name.endswith("_corr"):
+        name = name[: -len("_corr")]
+    return name
+
+
+class ReadBundleAdjustCameras:
+    """
+    Read before/after camera geometry from an ASP bundle_adjust folder.
+
+    Unlike :class:`asp_plot.csm_camera.csm_camera_summary_plot`, which requires
+    the user to supply the original (pre-adjustment) camera files, this reader
+    works directly on a ``bundle_adjust`` output directory. It combines three
+    self-contained products that ASP always writes there:
+
+    - ``*.adjust`` -- the rigid adjustment (ECEF translation + rotation
+      quaternion) applied to each camera. Per ASP's convention a world point
+      projects the same in the original camera as ``R * (P - C) + C + T`` in
+      the adjusted camera, so the translation ``T`` is the bulk camera-center
+      shift (exact at the camera center for pixel (0, 0)).
+    - ``*.adjusted_state.json`` -- the optimized CSM camera state, used to
+      locate each camera center in space.
+    - ``*camera_offsets.txt`` (optional) -- ASP's authoritative per-camera
+      horizontal and vertical camera-center change, in the local North-East-Down
+      frame. When present it is used for the reported magnitudes (it also folds
+      in the rotation lever-arm that the bulk translation ``T`` does not).
+
+    Parameters
+    ----------
+    directory : str
+        Root directory of ASP processing.
+    bundle_adjust_directory : str
+        Subdirectory containing bundle adjustment outputs.
+
+    Examples
+    --------
+    >>> reader = ReadBundleAdjustCameras('/path/to/asp', 'ba')
+    >>> gdf = reader.get_camera_optimization_gdf(map_crs=32616)
+    """
+
+    def __init__(self, directory, bundle_adjust_directory):
+        self.directory = os.path.expanduser(directory)
+        self.bundle_adjust_directory = bundle_adjust_directory
+        self.full_directory = os.path.join(self.directory, bundle_adjust_directory)
+
+    def get_camera_offsets_df(self):
+        """
+        Read ``*camera_offsets.txt`` into a DataFrame if it exists.
+
+        Returns
+        -------
+        pandas.DataFrame or None
+            DataFrame with columns ``image``, ``horizontal_offset_m``,
+            ``vertical_offset_m``, and a normalized ``camera_id`` for matching.
+            Returns None if the file is not present (it is only written by
+            recent ASP versions).
+        """
+        # camera_offsets.txt is optional (only written by recent ASP versions),
+        # so look it up directly to avoid glob_file's "missing" warning.
+        matches = glob.glob(os.path.join(self.full_directory, "*camera_offsets.txt"))
+        if not matches:
+            return None
+        df = pd.read_csv(
+            matches[0],
+            sep=r"\s+",
+            comment="#",
+            header=None,
+            names=["image", "horizontal_offset_m", "vertical_offset_m"],
+        )
+        df["camera_id"] = df["image"].apply(_normalize_camera_id)
+        return df
+
+    def _find_adjust_file(self, state_path):
+        """
+        Find the ``.adjust`` file matching an ``.adjusted_state.json`` file.
+
+        Handles both naming conventions seen in ASP output: ``<base>.adjust``
+        (alongside ``<base>.adjusted_state.json``) and
+        ``<base>.adjusted_state.adjust`` (e.g. ASTER jitter runs).
+        """
+        candidates = [
+            state_path[: -len(".adjusted_state.json")] + ".adjust",
+            state_path[: -len(".json")] + ".adjust",
+        ]
+        for candidate in candidates:
+            if os.path.exists(candidate):
+                return candidate
+        return None
+
+    @staticmethod
+    def read_adjust_file(adjust_path):
+        """
+        Parse an ASP ``.adjust`` file.
+
+        Parameters
+        ----------
+        adjust_path : str
+            Path to a ``.adjust`` file.
+
+        Returns
+        -------
+        tuple
+            ``(translation, rotation)`` where ``translation`` is a length-3
+            numpy array of the ECEF camera-center shift in meters and
+            ``rotation`` is a :class:`scipy.spatial.transform.Rotation`.
+
+        Notes
+        -----
+        The first line holds the translation ``x y z`` (meters); the second
+        holds the rotation quaternion in ASP's ``w x y z`` order, which is
+        reordered to the ``x y z w`` order that SciPy expects.
+        """
+        with open(adjust_path, "r") as f:
+            lines = f.read().split("\n")
+        translation = np.array([float(x) for x in lines[0].split()])
+        w, x, y, z = (float(v) for v in lines[1].split())
+        rotation = Rotation.from_quat([x, y, z, w])
+        return translation, rotation
+
+    def _representative_center(self, state_path):
+        """
+        Return a representative ECEF camera center for a camera state file.
+
+        For frame cameras this is the single camera center; for linescan
+        cameras it is the mean of the trajectory positions (the mid-orbit
+        sub-satellite point), used to place the camera on the map.
+        """
+        positions, _ = read_positions_rotations_from_file(state_path)
+        return np.mean(np.array(positions), axis=0)
+
+    def get_camera_optimization_gdf(self, map_crs=None):
+        """
+        Build a per-camera GeoDataFrame of before/after camera changes.
+
+        Parameters
+        ----------
+        map_crs : int or None, optional
+            EPSG code (e.g. a UTM zone) for the output geometry. If None, the
+            geometry is returned in geographic coordinates (EPSG:4326). A
+            projected CRS is recommended for the position quiver so the
+            east/north shift components align with the map axes.
+
+        Returns
+        -------
+        geopandas.GeoDataFrame
+            One row per camera, with geometry at the (projected) camera center
+            and columns:
+
+            - ``camera_id`` : normalized camera identifier.
+            - ``t_east``, ``t_north``, ``t_up`` : ECEF translation ``T``
+              decomposed into the local ENU frame (meters).
+            - ``t_horizontal`` : horizontal magnitude of ``T`` (meters).
+            - ``adj_roll``, ``adj_pitch``, ``adj_yaw`` : the ``.adjust``
+              rotation as intrinsic XYZ Euler angles (degrees).
+            - ``horizontal_offset_m``, ``vertical_offset_m`` : ASP's reported
+              camera-center change from ``camera_offsets.txt`` when available,
+              otherwise filled from ``t_horizontal`` / ``t_up``.
+            - ``offsets_from_asp`` : True if the offsets came from
+              ``camera_offsets.txt``, False if derived from ``T``.
+
+        Raises
+        ------
+        ValueError
+            If no ``.adjusted_state.json`` files are found in the directory.
+        """
+        state_paths = glob_file(
+            self.full_directory, "*.adjusted_state.json", all_files=True
+        )
+        if state_paths is None:
+            raise ValueError(
+                "\n\nNo *.adjusted_state.json files found. This reader needs the "
+                "CSM camera state files written by bundle_adjust (or jitter_solve).\n\n"
+            )
+
+        offsets_df = self.get_camera_offsets_df()
+
+        rows, centers_ecef = [], []
+        for state_path in sorted(state_paths):
+            adjust_path = self._find_adjust_file(state_path)
+            if adjust_path is None:
+                logger.warning(
+                    f"\n\nNo matching .adjust file for {state_path}. Skipping.\n\n"
+                )
+                continue
+
+            translation, rotation = self.read_adjust_file(adjust_path)
+            center_ecef = self._representative_center(state_path)
+            east, north, up = _enu_basis(center_ecef)
+            t_east, t_north, t_up = (
+                float(translation @ east),
+                float(translation @ north),
+                float(translation @ up),
+            )
+            roll, pitch, yaw = rotation.as_euler("XYZ", degrees=True)
+            camera_id = _normalize_camera_id(state_path)
+
+            row = {
+                "camera_id": camera_id,
+                "t_east": t_east,
+                "t_north": t_north,
+                "t_up": t_up,
+                "t_horizontal": float(np.hypot(t_east, t_north)),
+                "adj_roll": float(roll),
+                "adj_pitch": float(pitch),
+                "adj_yaw": float(yaw),
+            }
+
+            offset_match = None
+            if offsets_df is not None:
+                match = offsets_df[offsets_df["camera_id"] == camera_id]
+                if len(match):
+                    offset_match = match.iloc[0]
+
+            if offset_match is not None:
+                row["horizontal_offset_m"] = float(offset_match["horizontal_offset_m"])
+                row["vertical_offset_m"] = float(offset_match["vertical_offset_m"])
+                row["offsets_from_asp"] = True
+            else:
+                row["horizontal_offset_m"] = row["t_horizontal"]
+                row["vertical_offset_m"] = abs(t_up)
+                row["offsets_from_asp"] = False
+
+            rows.append(row)
+            centers_ecef.append(center_ecef)
+
+        if not rows:
+            raise ValueError(
+                "\n\nFound *.adjusted_state.json files but no matching .adjust files. "
+                "Cannot build the camera optimization GeoDataFrame.\n\n"
+            )
+
+        gdf = gpd.GeoDataFrame(
+            pd.DataFrame(rows),
+            geometry=[Point(*c) for c in centers_ecef],
+            crs="EPSG:4978",
+        )
+        gdf = gdf.to_crs(epsg=map_crs) if map_crs else gdf.to_crs(epsg=4326)
+        return gdf
+
+
+class PlotBundleAdjustCameras(Plotter):
+    """
+    Visualize before/after camera position and orientation changes.
+
+    Consumes the GeoDataFrame from
+    :meth:`ReadBundleAdjustCameras.get_camera_optimization_gdf` and renders the
+    three complementary views requested in issues #95 and #43:
+
+    1. A map-view quiver of the horizontal camera-center shift, with the
+       vertical change encoded as a diverging (RdBu) color.
+    2. Per-camera bars of the horizontal and vertical camera-center change.
+    3. A quiver of the orientation change (yaw/roll as the arrow direction,
+       pitch as color).
+
+    Parameters
+    ----------
+    gdf : geopandas.GeoDataFrame
+        Output of
+        :meth:`ReadBundleAdjustCameras.get_camera_optimization_gdf`.
+    **kwargs
+        Forwarded to :class:`asp_plot.utils.Plotter`.
+    """
+
+    def __init__(self, gdf, **kwargs):
+        super().__init__(**kwargs)
+        self.gdf = gdf
+
+    def plot_position_change_quiver(
+        self, ax=None, cmap="RdBu", arrow_frac=0.18, save_dir=None, fig_fn=None
+    ):
+        """
+        Map-view quiver of the horizontal camera-center shift.
+
+        Each arrow points in the direction of the horizontal camera-center
+        translation (``t_east``, ``t_north``); its color encodes the vertical
+        change (``t_up``) on a symmetric diverging scale. A reference arrow
+        (quiverkey) shows the true scale in meters.
+
+        Parameters
+        ----------
+        ax : matplotlib.axes.Axes or None, optional
+            Axes to draw on. A new figure is created if None.
+        cmap : str, optional
+            Diverging colormap for the vertical change, default "RdBu".
+        arrow_frac : float, optional
+            Target length of the largest arrow as a fraction of the map width,
+            default 0.18.
+        save_dir, fig_fn : str or None, optional
+            If both are given (and a new figure was created), save the figure.
+        """
+        created = ax is None
+        if created:
+            fig, ax = plt.subplots(figsize=(8, 7))
+
+        gdf = self.gdf
+        x, y = gdf.geometry.x.values, gdf.geometry.y.values
+        vmax = max(float(np.abs(gdf.t_up).max()), 1e-9)
+        norm = TwoSlopeNorm(vmin=-vmax, vcenter=0.0, vmax=vmax)
+
+        max_h = max(float(gdf.t_horizontal.max()), 1e-9)
+        span = max(x.max() - x.min(), y.max() - y.min(), 1.0)
+        scale = max_h / (arrow_frac * span)
+
+        q = ax.quiver(
+            x,
+            y,
+            gdf.t_east,
+            gdf.t_north,
+            gdf.t_up,
+            cmap=cmap,
+            norm=norm,
+            angles="xy",
+            scale_units="xy",
+            scale=scale,
+            width=0.012,
+            edgecolor="k",
+            linewidth=0.4,
+        )
+        ax.quiverkey(
+            q,
+            0.80,
+            0.06,
+            max_h,
+            f"{max_h:.2f} m",
+            labelpos="E",
+            coordinates="axes",
+            fontproperties={"size": 8},
+        )
+        ax.scatter(x, y, c="k", s=6, zorder=3)
+        cbar = plt.colorbar(
+            ScalarMappable(norm=norm, cmap=cmap), ax=ax, extend="both", pad=0.02
+        )
+        cbar.set_label("Vertical change (m, + up)", fontsize=9)
+        ax.set_title("Camera position change (before → after)", fontsize=11)
+        ax.set_xlabel("Easting (m)", fontsize=9)
+        ax.set_ylabel("Northing (m)", fontsize=9)
+        ax.ticklabel_format(style="plain", useOffset=False)
+        ax.margins(0.25)
+
+        if created:
+            self.save(fig, save_dir, fig_fn)
+        return ax
+
+    def plot_center_offset_bars(self, ax=None, save_dir=None, fig_fn=None):
+        """
+        Per-camera bars of horizontal and vertical camera-center change.
+
+        Uses ASP's ``camera_offsets.txt`` values when available (see
+        ``offsets_from_asp``); otherwise falls back to the horizontal/vertical
+        components of the ``.adjust`` translation.
+
+        Parameters
+        ----------
+        ax : matplotlib.axes.Axes or None, optional
+            Axes to draw on. A new figure is created if None.
+        save_dir, fig_fn : str or None, optional
+            If both are given (and a new figure was created), save the figure.
+        """
+        created = ax is None
+        if created:
+            fig, ax = plt.subplots(figsize=(8, 5))
+
+        gdf = self.gdf
+        ids = gdf.camera_id.values
+        xi = np.arange(len(ids))
+        ax.bar(
+            xi - 0.2,
+            gdf.horizontal_offset_m,
+            0.4,
+            label="Horizontal",
+            color="#4169E1",
+        )
+        ax.bar(
+            xi + 0.2,
+            gdf.vertical_offset_m.abs(),
+            0.4,
+            label="Vertical",
+            color="#87CEEB",
+        )
+        ax.set_xticks(xi)
+        ax.set_xticklabels(ids, rotation=30, ha="right", fontsize=7)
+        ax.set_ylabel("Camera-center change (m)", fontsize=9)
+        source = (
+            "camera_offsets.txt"
+            if bool(gdf.offsets_from_asp.any())
+            else "|.adjust translation|"
+        )
+        ax.set_title(f"Per-camera center displacement\n(from {source})", fontsize=11)
+        ax.legend(fontsize=8)
+        ax.grid(True, axis="y", linestyle=":", linewidth=0.5, alpha=0.8)
+
+        if created:
+            self.save(fig, save_dir, fig_fn)
+        return ax
+
+    def plot_orientation_change_quiver(
+        self, ax=None, cmap="PuOr", save_dir=None, fig_fn=None
+    ):
+        """
+        Quiver of the per-camera orientation change from the ``.adjust`` file.
+
+        Following issue #43, the arrow direction encodes yaw (x) and roll (y)
+        change and the color encodes pitch change, all in degrees.
+
+        Parameters
+        ----------
+        ax : matplotlib.axes.Axes or None, optional
+            Axes to draw on. A new figure is created if None.
+        cmap : str, optional
+            Diverging colormap for the pitch change, default "PuOr".
+        save_dir, fig_fn : str or None, optional
+            If both are given (and a new figure was created), save the figure.
+        """
+        created = ax is None
+        if created:
+            fig, ax = plt.subplots(figsize=(8, 5))
+
+        gdf = self.gdf
+        ids = gdf.camera_id.values
+        xi = np.arange(len(ids))
+        pmax = max(float(np.abs(gdf.adj_pitch).max()), 1e-12)
+        norm = TwoSlopeNorm(vmin=-pmax, vcenter=0.0, vmax=pmax)
+        q = ax.quiver(
+            xi,
+            np.zeros(len(xi)),
+            gdf.adj_yaw,
+            gdf.adj_roll,
+            gdf.adj_pitch,
+            cmap=cmap,
+            norm=norm,
+            angles="xy",
+        )
+        ax.quiverkey(
+            q,
+            0.72,
+            0.06,
+            float(np.abs(np.hypot(gdf.adj_yaw, gdf.adj_roll)).max()) or 1e-6,
+            "roll/yaw change",
+            labelpos="E",
+            coordinates="axes",
+            fontproperties={"size": 8},
+        )
+        cbar = plt.colorbar(
+            ScalarMappable(norm=norm, cmap=cmap), ax=ax, extend="both", pad=0.02
+        )
+        cbar.set_label("Pitch change (°)", fontsize=9)
+        ax.set_xticks(xi)
+        ax.set_xticklabels(ids, rotation=30, ha="right", fontsize=7)
+        ax.set_ylabel("Roll change (°)", fontsize=9)
+        ax.set_title(
+            "Orientation change\n(arrow: yaw = x, roll = y; color: pitch)", fontsize=11
+        )
+        ax.axhline(0, color="k", lw=0.5)
+        ax.margins(0.25)
+
+        if created:
+            self.save(fig, save_dir, fig_fn)
+        return ax
+
+    def summary_plot(self, save_dir=None, fig_fn=None):
+        """
+        Combined three-panel summary of camera position and orientation change.
+
+        Draws, left to right, the position-change map quiver, the per-camera
+        center-displacement bars, and the orientation-change quiver.
+
+        Parameters
+        ----------
+        save_dir, fig_fn : str or None, optional
+            If both are given, save the figure.
+        """
+        fig, axes = plt.subplots(1, 3, figsize=(19, 6))
+        self.plot_position_change_quiver(ax=axes[0])
+        self.plot_center_offset_bars(ax=axes[1])
+        self.plot_orientation_change_quiver(ax=axes[2])
+        if self.title:
+            fig.suptitle(self.title, size=12)
+        self.save(fig, save_dir, fig_fn)
+        return fig

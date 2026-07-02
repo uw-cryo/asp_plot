@@ -1,9 +1,16 @@
 import geopandas as gpd
 import matplotlib
+import numpy as np
 import pandas as pd
 import pytest
 
-from asp_plot.bundle_adjust import PlotBundleAdjustFiles, ReadBundleAdjustFiles
+from asp_plot.bundle_adjust import (
+    PlotBundleAdjustCameras,
+    PlotBundleAdjustFiles,
+    ReadBundleAdjustCameras,
+    ReadBundleAdjustFiles,
+    _normalize_camera_id,
+)
 
 matplotlib.use("Agg")
 
@@ -67,3 +74,85 @@ class TestBundleAdjust:
         )
         assert isinstance(resid_initial, gpd.GeoDataFrame)
         assert isinstance(resid_final, gpd.GeoDataFrame)
+
+
+class TestBundleAdjustCameras:
+    @pytest.fixture
+    def cam_reader(self):
+        # ba_cams holds a stereo pair of CSM cameras with .adjust,
+        # .adjusted_state.json, and a camera_offsets.txt fixture.
+        return ReadBundleAdjustCameras("tests/test_data", "ba_cams")
+
+    def test_normalize_camera_id(self):
+        assert (
+            _normalize_camera_id("run-1040010074793300_corr.tif") == "1040010074793300"
+        )
+        assert (
+            _normalize_camera_id("run-out-Band3B.adjusted_state.json") == "out-Band3B"
+        )
+        assert (
+            _normalize_camera_id("1040010075633C00.adjusted_state.adjust")
+            == "1040010075633C00"
+        )
+
+    def test_read_adjust_file(self, cam_reader):
+        translation, rotation = cam_reader.read_adjust_file(
+            "tests/test_data/ba_cams/1040010074793300.adjust"
+        )
+        assert translation.shape == (3,)
+        # Nearly-identity adjustment: rotation magnitude should be tiny.
+        assert rotation.magnitude() < 0.01
+
+    def test_get_camera_offsets_df(self, cam_reader):
+        df = cam_reader.get_camera_offsets_df()
+        assert isinstance(df, pd.DataFrame)
+        assert {"horizontal_offset_m", "vertical_offset_m", "camera_id"} <= set(
+            df.columns
+        )
+
+    def test_get_camera_optimization_gdf(self, cam_reader):
+        gdf = cam_reader.get_camera_optimization_gdf(map_crs=32619)
+        assert isinstance(gdf, gpd.GeoDataFrame)
+        assert len(gdf) == 2
+        for col in [
+            "camera_id",
+            "t_east",
+            "t_north",
+            "t_up",
+            "t_horizontal",
+            "adj_roll",
+            "adj_pitch",
+            "adj_yaw",
+            "horizontal_offset_m",
+            "vertical_offset_m",
+            "offsets_from_asp",
+        ]:
+            assert col in gdf.columns
+        # camera_offsets.txt fixture is present, so magnitudes come from ASP.
+        assert gdf.offsets_from_asp.all()
+        assert gdf.crs.to_epsg() == 32619
+
+    def test_optimization_gdf_fallback_without_offsets(self, cam_reader, monkeypatch):
+        """Without camera_offsets.txt, magnitudes fall back to the .adjust translation."""
+        monkeypatch.setattr(cam_reader, "get_camera_offsets_df", lambda: None)
+        gdf = cam_reader.get_camera_optimization_gdf(map_crs=32619)
+        assert not gdf.offsets_from_asp.any()
+        # Fallback horizontal offset equals the translation horizontal magnitude.
+        assert np.allclose(gdf.horizontal_offset_m, gdf.t_horizontal)
+
+    def test_get_camera_optimization_gdf_raises_without_state(self):
+        # The plain "ba" residual dir has no .adjusted_state.json files.
+        reader = ReadBundleAdjustCameras("tests/test_data", "ba")
+        with pytest.raises(ValueError):
+            reader.get_camera_optimization_gdf()
+
+    def test_plot_methods(self, cam_reader):
+        gdf = cam_reader.get_camera_optimization_gdf(map_crs=32619)
+        plotter = PlotBundleAdjustCameras(gdf, title="Test cameras")
+        try:
+            plotter.plot_position_change_quiver()
+            plotter.plot_center_offset_bars()
+            plotter.plot_orientation_change_quiver()
+            plotter.summary_plot()
+        except Exception as e:
+            pytest.fail(f"figure method raised an exception: {str(e)}")
