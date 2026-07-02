@@ -34,7 +34,7 @@ from asp_plot.bundle_adjust import PlotBundleAdjustCameras, ReadBundleAdjustCame
     "--save_dir",
     prompt=False,
     default=None,
-    help="Directory to save the figure. Default: None, which does not save the figure.",
+    help="Directory to save the figure. Default: the bundle_adjust directory itself.",
 )
 @click.option(
     "--fig_fn",
@@ -59,6 +59,10 @@ def main(directory, bundle_adjust_directory, map_crs, title, save_dir, fig_fn):
     gdf = reader.get_camera_optimization_gdf(
         map_crs=int(map_crs.split(":")[-1]) if map_crs else None
     )
+    # Default to saving in the bundle_adjust directory so a bare CLI call always
+    # writes a figure somewhere sensible (the command does not display a window).
+    if save_dir is None:
+        save_dir = reader.full_directory
     PlotBundleAdjustCameras(gdf, title=title).summary_plot(
         save_dir=save_dir, fig_fn=fig_fn
     )
