@@ -683,26 +683,21 @@ def _enu_basis(center_ecef):
     return east, north, up
 
 
-def _normalize_camera_id(name):
+def _camera_label(path):
     """
-    Normalize a camera/image identifier so BA outputs can be matched.
+    Human-readable label for a camera, from its filename.
 
-    Strips the ASP ``run-`` prefix, common file extensions, and the ``_corr``
-    suffix that ``bundle_adjust`` appends to image names, so that camera files
-    (e.g. ``run-<id>.adjusted_state.json``) can be matched to the rows of
-    ``camera_offsets.txt`` (e.g. ``<id>_corr.tif``).
+    Strips only the deterministic camera-file extension (``.adjusted_state.json``,
+    ``.adjusted_state.adjust``, ``.adjust``, or ``.xml``) -- it makes no
+    assumptions about the ASP output prefix (the ``-o`` value, e.g. ``run`` or
+    ``ba_mvs_csm``) or ``_corr``-style suffixes, so the label is just the real
+    filename stem. This is display-only and never used to associate files.
     """
-    name = os.path.basename(name)
-    for suffix in (".adjusted_state.json", ".adjusted_state.adjust", ".adjust"):
-        if name.endswith(suffix):
-            name = name[: -len(suffix)]
-            break
-    name = os.path.splitext(name)[0]
-    if name.startswith("run-"):
-        name = name[len("run-") :]
-    if name.endswith("_corr"):
-        name = name[: -len("_corr")]
-    return name
+    name = os.path.basename(path)
+    for ext in (".adjusted_state.json", ".adjusted_state.adjust", ".adjust", ".xml"):
+        if name.endswith(ext):
+            return name[: -len(ext)]
+    return os.path.splitext(name)[0]
 
 
 def _camera_center_from_xml(xml_path):
@@ -796,8 +791,8 @@ class ReadBundleAdjustCameras:
         Returns
         -------
         pandas.DataFrame or None
-            DataFrame with columns ``image``, ``horizontal_offset_m``,
-            ``vertical_offset_m``, and a normalized ``camera_id`` for matching.
+            DataFrame with columns ``image``, ``horizontal_offset_m``, and
+            ``vertical_offset_m`` (one row per input image, in ASP's order).
             Returns None if the file is not present (it is only written by
             recent ASP versions).
         """
@@ -806,15 +801,61 @@ class ReadBundleAdjustCameras:
         matches = glob.glob(os.path.join(self.full_directory, "*camera_offsets.txt"))
         if not matches:
             return None
-        df = pd.read_csv(
+        return pd.read_csv(
             matches[0],
             sep=r"\s+",
             comment="#",
             header=None,
             names=["image", "horizontal_offset_m", "vertical_offset_m"],
         )
-        df["camera_id"] = df["image"].apply(_normalize_camera_id)
-        return df
+
+    @staticmethod
+    def _read_list_file(path):
+        """Read an ASP ``*_list.txt`` file as ordered, comment-free lines."""
+        entries = []
+        with open(path, "r") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#"):
+                    entries.append(line)
+        return entries
+
+    def _offsets_by_camera_basename(self):
+        """
+        Associate ``camera_offsets.txt`` rows with cameras via ``camera_list.txt``.
+
+        ASP writes ``camera_offsets.txt`` (one row per input image) and
+        ``camera_list.txt`` (one output camera per line) together and **in the
+        same input order**. Zipping them by position is exact and needs no
+        filename-string assumptions (no ``run-``/``_corr`` guessing). The result
+        is keyed by the camera file's basename so a discovered camera can be
+        looked up directly.
+
+        Returns
+        -------
+        dict or None
+            Maps each camera basename (e.g. ``run-<id>.adjusted_state.json`` or
+            ``<id>.xml``) to ``(horizontal_offset_m, vertical_offset_m)``. Returns
+            None if either companion file is absent or their lengths disagree.
+        """
+        offsets_df = self.get_camera_offsets_df()
+        list_matches = glob.glob(os.path.join(self.full_directory, "*camera_list.txt"))
+        if offsets_df is None or not list_matches:
+            return None
+        cameras = [
+            os.path.basename(entry) for entry in self._read_list_file(list_matches[0])
+        ]
+        if len(cameras) != len(offsets_df):
+            logger.warning(
+                "\n\ncamera_list.txt and camera_offsets.txt lengths differ "
+                f"({len(cameras)} vs {len(offsets_df)}); ignoring ASP offsets and "
+                "falling back to the .adjust translation.\n\n"
+            )
+            return None
+        return {
+            camera: (float(row.horizontal_offset_m), float(row.vertical_offset_m))
+            for camera, (_, row) in zip(cameras, offsets_df.iterrows())
+        }
 
     def _find_state_file(self, adjust_path):
         """
@@ -974,7 +1015,7 @@ class ReadBundleAdjustCameras:
             One row per camera, with geometry at the (projected) camera center
             and columns:
 
-            - ``camera_id`` : normalized camera identifier.
+            - ``camera_id`` : camera filename stem (display label).
             - ``t_east``, ``t_north``, ``t_up`` : ECEF translation ``T``
               decomposed into the local ENU frame (meters).
             - ``t_horizontal`` : horizontal magnitude of ``T`` (meters).
@@ -998,7 +1039,7 @@ class ReadBundleAdjustCameras:
                 ".adjust files written by bundle_adjust (or jitter_solve).\n\n"
             )
 
-        offsets_df = self.get_camera_offsets_df()
+        offsets_by_camera = self._offsets_by_camera_basename()
         xml_index = None  # built lazily, only if a DG (state-less) camera appears
 
         rows, centers_ecef = [], []
@@ -1023,14 +1064,14 @@ class ReadBundleAdjustCameras:
 
             # A corrupt/truncated .adjust, state, or XML file should not sink the
             # whole run; skip that one camera with a warning.
+            camera_path = state_path if state_path is not None else xml_path
             try:
                 translation, rotation = self.read_adjust_file(adjust_path)
                 if state_path is not None:
                     center_ecef = self._representative_center(state_path)
-                    camera_id = _normalize_camera_id(state_path)
                 else:
                     center_ecef = _camera_center_from_xml(xml_path)
-                    camera_id = _normalize_camera_id(xml_path)
+                camera_id = _camera_label(camera_path)
             except Exception as e:
                 logger.warning(
                     f"\n\nCould not parse camera files for {adjust_path} "
@@ -1056,15 +1097,12 @@ class ReadBundleAdjustCameras:
                 "adj_yaw": float(yaw),
             }
 
-            offset_match = None
-            if offsets_df is not None:
-                match = offsets_df[offsets_df["camera_id"] == camera_id]
-                if len(match):
-                    offset_match = match.iloc[0]
+            offset = None
+            if offsets_by_camera is not None:
+                offset = offsets_by_camera.get(os.path.basename(camera_path))
 
-            if offset_match is not None:
-                row["horizontal_offset_m"] = float(offset_match["horizontal_offset_m"])
-                row["vertical_offset_m"] = float(offset_match["vertical_offset_m"])
+            if offset is not None:
+                row["horizontal_offset_m"], row["vertical_offset_m"] = offset
                 row["offsets_from_asp"] = True
             else:
                 row["horizontal_offset_m"] = row["t_horizontal"]

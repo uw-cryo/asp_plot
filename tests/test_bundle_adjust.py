@@ -9,7 +9,7 @@ from asp_plot.bundle_adjust import (
     PlotBundleAdjustFiles,
     ReadBundleAdjustCameras,
     ReadBundleAdjustFiles,
-    _normalize_camera_id,
+    _camera_label,
 )
 
 matplotlib.use("Agg")
@@ -83,17 +83,15 @@ class TestBundleAdjustCameras:
         # .adjusted_state.json, and a camera_offsets.txt fixture.
         return ReadBundleAdjustCameras("tests/test_data", "ba_cams")
 
-    def test_normalize_camera_id(self):
+    def test_camera_label(self):
+        # Only deterministic camera extensions are stripped; the ASP output
+        # prefix (run-, ba_mvs_csm-, ...) is left intact -- no brittle guessing.
+        assert _camera_label("run-out-Band3B.adjusted_state.json") == "run-out-Band3B"
         assert (
-            _normalize_camera_id("run-1040010074793300_corr.tif") == "1040010074793300"
+            _camera_label("ba_mvs_csm-10300100D044F700.r100.adjusted_state.json")
+            == "ba_mvs_csm-10300100D044F700.r100"
         )
-        assert (
-            _normalize_camera_id("run-out-Band3B.adjusted_state.json") == "out-Band3B"
-        )
-        assert (
-            _normalize_camera_id("1040010075633C00.adjusted_state.adjust")
-            == "1040010075633C00"
-        )
+        assert _camera_label("10300100D044F700.r100.xml") == "10300100D044F700.r100"
 
     def test_read_adjust_file(self, cam_reader):
         translation, rotation = cam_reader.read_adjust_file(
@@ -106,8 +104,16 @@ class TestBundleAdjustCameras:
     def test_get_camera_offsets_df(self, cam_reader):
         df = cam_reader.get_camera_offsets_df()
         assert isinstance(df, pd.DataFrame)
-        assert {"horizontal_offset_m", "vertical_offset_m", "camera_id"} <= set(
-            df.columns
+        assert {"image", "horizontal_offset_m", "vertical_offset_m"} <= set(df.columns)
+
+    def test_offsets_associated_by_camera_list_order(self, cam_reader):
+        # Positional association via camera_list.txt: no filename munging.
+        mapping = cam_reader._offsets_by_camera_basename()
+        assert mapping["1040010074793300.adjusted_state.json"][0] == pytest.approx(
+            0.72481032
+        )
+        assert mapping["1040010075633C00.adjusted_state.json"][1] == pytest.approx(
+            0.20482915
         )
 
     def test_get_camera_optimization_gdf(self, cam_reader):
@@ -133,8 +139,8 @@ class TestBundleAdjustCameras:
         assert gdf.crs.to_epsg() == 32619
 
     def test_optimization_gdf_fallback_without_offsets(self, cam_reader, monkeypatch):
-        """Without camera_offsets.txt, magnitudes fall back to the .adjust translation."""
-        monkeypatch.setattr(cam_reader, "get_camera_offsets_df", lambda: None)
+        """Without ASP offsets, magnitudes fall back to the .adjust translation."""
+        monkeypatch.setattr(cam_reader, "_offsets_by_camera_basename", lambda: None)
         gdf = cam_reader.get_camera_optimization_gdf(map_crs=32619)
         assert not gdf.offsets_from_asp.any()
         # Fallback horizontal offset equals the translation horizontal magnitude.
