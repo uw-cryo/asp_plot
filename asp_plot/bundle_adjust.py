@@ -12,7 +12,12 @@ from pyproj import Transformer
 from scipy.spatial.transform import Rotation
 from shapely.geometry import Point
 
-from asp_plot.csm_io import read_positions_rotations_from_file
+from asp_plot.csm_io import (
+    getTimeAtLine,
+    isLinescan,
+    read_csm_cam,
+    read_positions_rotations_from_file,
+)
 from asp_plot.processing_parameters import ProcessingParameters
 from asp_plot.stereopair_metadata_parser import StereopairMetadataParser
 from asp_plot.utils import (
@@ -702,13 +707,18 @@ def _normalize_camera_id(name):
 
 def _camera_center_from_xml(xml_path):
     """
-    Return a representative ECEF camera center from a DigitalGlobe XML.
+    Return the image-center ECEF camera center from a DigitalGlobe XML.
 
     Reads the ``<EPHEMLIST>`` satellite ephemeris (ECF positions, meters) and
-    returns the mean position -- the sub-satellite point over the collect, used
-    to place the camera on the map and build its local ENU frame. This is the
-    original (pre-adjustment) camera center: DG ``bundle_adjust`` runs store the
+    interpolates the position at the time the sensor imaged the center image
+    line -- the sub-satellite point at mid-acquisition, used to place the camera
+    on the map and build its local ENU frame. This is the original
+    (pre-adjustment) camera center: DG ``bundle_adjust`` runs store the
     optimization only as a ``.adjust`` delta, with no ``.adjusted_state.json``.
+
+    The center-line time is ``FIRSTLINETIME + (NUMROWS / 2) / AVGLINERATE``,
+    converted to an ephemeris sample index via ``STARTTIME`` / ``TIMEINTERVAL``.
+    Falls back to the ephemeris mean if any of those tags are missing.
 
     Parameters
     ----------
@@ -725,7 +735,19 @@ def _camera_center_from_xml(xml_path):
         dtype=np.float64,
     )
     # Columns are: point_num, X, Y, Z, dX, dY, dZ, covariance...
-    return ephem[:, 1:4].mean(axis=0)
+    positions = ephem[:, 1:4]
+    try:
+        start = pd.to_datetime(get_xml_tag(xml_path, "STARTTIME"))
+        dt = float(get_xml_tag(xml_path, "TIMEINTERVAL"))
+        first_line = pd.to_datetime(get_xml_tag(xml_path, "FIRSTLINETIME"))
+        num_rows = float(get_xml_tag(xml_path, "NUMROWS"))
+        line_rate = float(get_xml_tag(xml_path, "AVGLINERATE"))
+        center_time = first_line + pd.Timedelta((num_rows / 2.0) / line_rate, unit="s")
+        index = (center_time - start).total_seconds() / dt
+        sample = np.arange(len(positions))
+        return np.array([np.interp(index, sample, positions[:, k]) for k in range(3)])
+    except Exception:
+        return positions.mean(axis=0)
 
 
 class ReadBundleAdjustCameras:
@@ -900,14 +922,28 @@ class ReadBundleAdjustCameras:
 
     def _representative_center(self, state_path):
         """
-        Return a representative ECEF camera center for a camera state file.
+        Return the image-center ECEF camera center for a camera state file.
 
-        For frame cameras this is the single camera center; for linescan
-        cameras it is the mean of the trajectory positions (the mid-orbit
-        sub-satellite point), used to place the camera on the map.
+        For frame cameras this is the single camera center. For linescan
+        cameras it is the trajectory position at the center image line (the
+        sub-satellite point at mid-acquisition), which is more meaningful than
+        the trajectory mean when the stored ephemeris is padded beyond the image
+        acquisition window. Falls back to the trajectory mean if the center-line
+        time cannot be computed.
         """
         positions, _ = read_positions_rotations_from_file(state_path)
-        return np.mean(np.array(positions), axis=0)
+        positions = np.array(positions)
+        if len(positions) < 2 or not isLinescan(state_path):
+            return positions.mean(axis=0)
+        try:
+            j = read_csm_cam(state_path)
+            center_time = getTimeAtLine(j, (j["m_nLines"] - 1) / 2.0)
+            times = j["m_t0Ephem"] + j["m_dtEphem"] * np.arange(len(positions))
+            return np.array(
+                [np.interp(center_time, times, positions[:, k]) for k in range(3)]
+            )
+        except Exception:
+            return positions.mean(axis=0)
 
     def get_camera_optimization_gdf(
         self, map_crs=None, original_cameras_directory=None
