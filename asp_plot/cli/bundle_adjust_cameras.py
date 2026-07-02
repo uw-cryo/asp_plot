@@ -1,3 +1,5 @@
+import os
+
 import click
 
 from asp_plot.bundle_adjust import PlotBundleAdjustCameras, ReadBundleAdjustCameras
@@ -8,13 +10,9 @@ from asp_plot.bundle_adjust import PlotBundleAdjustCameras, ReadBundleAdjustCame
     "--directory",
     prompt=True,
     default="",
-    help="Root ASP processing directory. No default. Must be supplied.",
-)
-@click.option(
-    "--bundle_adjust_directory",
-    prompt=True,
-    default="ba",
-    help="Subdirectory (relative to --directory) holding the bundle_adjust output. Default: ba.",
+    help="Path to the bundle_adjust output directory (the folder holding the "
+    "*.adjust, *.adjusted_state.json, and optional *camera_offsets.txt files). "
+    "No default. Must be supplied.",
 )
 @click.option(
     "--map_crs",
@@ -42,7 +40,7 @@ from asp_plot.bundle_adjust import PlotBundleAdjustCameras, ReadBundleAdjustCame
     default="bundle_adjust_cameras_summary.png",
     help="Figure filename. Default: bundle_adjust_cameras_summary.png.",
 )
-def main(directory, bundle_adjust_directory, map_crs, title, save_dir, fig_fn):
+def main(directory, map_crs, title, save_dir, fig_fn):
     """
     Visualize before/after camera positions from a bundle_adjust folder.
 
@@ -55,7 +53,11 @@ def main(directory, bundle_adjust_directory, map_crs, title, save_dir, fig_fn):
     Unlike ``csm_camera_plot``, this does not require the pre-adjustment
     original camera files -- it works directly on the bundle_adjust output.
     """
-    reader = ReadBundleAdjustCameras(directory, bundle_adjust_directory)
+    # The reader takes a root + subdirectory (matching ReadBundleAdjustFiles), but
+    # this tool is self-contained on the BA folder, so accept a single path and
+    # split it into (parent, basename) internally.
+    parent, ba_dir = os.path.split(directory.rstrip(os.sep))
+    reader = ReadBundleAdjustCameras(parent, ba_dir)
     gdf = reader.get_camera_optimization_gdf(
         map_crs=int(map_crs.split(":")[-1]) if map_crs else None
     )

@@ -314,7 +314,7 @@ All CLI tools are in `asp_plot/cli/` and use Click for argument parsing:
 
 **`bundle_adjust_cameras.py`** - Self-contained camera before/after position tool (`bundle_adjust_cameras` command)
 - Wrapper for `ReadBundleAdjustCameras` + `PlotBundleAdjustCameras` in `bundle_adjust.py`
-- Points at a bundle_adjust output folder (`--directory` + `--bundle_adjust_directory`); no original cameras needed
+- Takes a single `--directory` = the bundle_adjust output folder (split internally into the reader's root+subdir); no original cameras needed. `--save_dir` defaults to that same folder
 - Renders the three-panel `summary_plot()` (position-change quiver, center-displacement bars, orientation-change quiver)
 
 **`request_planetary_altimetry.py`** - Planetary altimetry data request tool (`request_planetary_altimetry` command)
