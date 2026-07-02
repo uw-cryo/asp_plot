@@ -15,7 +15,13 @@ from shapely.geometry import Point
 from asp_plot.csm_io import read_positions_rotations_from_file
 from asp_plot.processing_parameters import ProcessingParameters
 from asp_plot.stereopair_metadata_parser import StereopairMetadataParser
-from asp_plot.utils import ColorBar, Plotter, glob_file, run_subprocess_command
+from asp_plot.utils import (
+    ColorBar,
+    Plotter,
+    get_xml_tag,
+    glob_file,
+    run_subprocess_command,
+)
 
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
@@ -694,6 +700,34 @@ def _normalize_camera_id(name):
     return name
 
 
+def _camera_center_from_xml(xml_path):
+    """
+    Return a representative ECEF camera center from a DigitalGlobe XML.
+
+    Reads the ``<EPHEMLIST>`` satellite ephemeris (ECF positions, meters) and
+    returns the mean position -- the sub-satellite point over the collect, used
+    to place the camera on the map and build its local ENU frame. This is the
+    original (pre-adjustment) camera center: DG ``bundle_adjust`` runs store the
+    optimization only as a ``.adjust`` delta, with no ``.adjusted_state.json``.
+
+    Parameters
+    ----------
+    xml_path : str
+        Path to a DigitalGlobe image metadata ``.xml`` file.
+
+    Returns
+    -------
+    numpy.ndarray
+        Length-3 ECEF (EPSG:4978) coordinate in meters.
+    """
+    ephem = np.array(
+        [row.split() for row in get_xml_tag(xml_path, "EPHEMLIST", all=True)],
+        dtype=np.float64,
+    )
+    # Columns are: point_num, X, Y, Z, dX, dY, dZ, covariance...
+    return ephem[:, 1:4].mean(axis=0)
+
+
 class ReadBundleAdjustCameras:
     """
     Read before/after camera geometry from an ASP bundle_adjust folder.
@@ -760,22 +794,79 @@ class ReadBundleAdjustCameras:
         df["camera_id"] = df["image"].apply(_normalize_camera_id)
         return df
 
-    def _find_adjust_file(self, state_path):
+    def _find_state_file(self, adjust_path):
         """
-        Find the ``.adjust`` file matching an ``.adjusted_state.json`` file.
+        Find the ``.adjusted_state.json`` matching a ``.adjust`` file, if any.
 
         Handles both naming conventions seen in ASP output: ``<base>.adjust``
-        (alongside ``<base>.adjusted_state.json``) and
-        ``<base>.adjusted_state.adjust`` (e.g. ASTER jitter runs).
+        alongside ``<base>.adjusted_state.json`` (WorldView/CSM runs) and
+        ``<base>.adjusted_state.adjust`` alongside ``<base>.adjusted_state.json``
+        (e.g. ASTER jitter runs). Returns None for DigitalGlobe runs, which
+        write only the ``.adjust`` delta with no state file.
         """
+        base = adjust_path[: -len(".adjust")]
         candidates = [
-            state_path[: -len(".adjusted_state.json")] + ".adjust",
-            state_path[: -len(".json")] + ".adjust",
+            base + ".adjusted_state.json",  # <base>.adjust
+            base + ".json",  # <base>.adjusted_state.adjust
         ]
         for candidate in candidates:
             if os.path.exists(candidate):
                 return candidate
         return None
+
+    def _index_original_xmls(self, original_cameras_directory=None):
+        """
+        Build a ``{filename stem: path}`` index of original camera XMLs.
+
+        Used to locate the pre-adjustment camera center for DigitalGlobe runs
+        (which have no ``.adjusted_state.json``). When
+        ``original_cameras_directory`` is given, only that directory is searched;
+        otherwise the bundle_adjust directory and its parent are searched (ASP
+        typically writes the ``ba_*`` output as a subdirectory of the folder
+        holding the input ``.xml`` cameras).
+
+        Parameters
+        ----------
+        original_cameras_directory : str or None, optional
+            Directory holding the original ``.xml`` cameras. If None, auto-search
+            the BA directory and its parent.
+
+        Returns
+        -------
+        dict
+            Maps each XML filename stem (basename without ``.xml``) to its path.
+        """
+        if original_cameras_directory:
+            search_dirs = [os.path.expanduser(original_cameras_directory)]
+        else:
+            search_dirs = [
+                self.full_directory,
+                os.path.dirname(self.full_directory.rstrip(os.sep)),
+            ]
+        index = {}
+        for directory in search_dirs:
+            for path in glob.glob(os.path.join(directory, "*.xml")):
+                stem = os.path.basename(path)[: -len(".xml")]
+                index.setdefault(stem, path)
+        return index
+
+    @staticmethod
+    def _match_original_xml(adjust_path, xml_index):
+        """
+        Match a ``.adjust`` file to an original camera XML by filename.
+
+        ASP names DG adjustments ``<prefix>-<camera>.adjust`` where ``<camera>``
+        is the original XML's basename stem (e.g. a CATID like
+        ``10300100D044F700.r100``). The longest XML stem that appears in the
+        ``.adjust`` filename is taken as the match, so distinct CATIDs never
+        cross-match.
+        """
+        adjust_base = os.path.basename(adjust_path)
+        best = None
+        for stem, path in xml_index.items():
+            if stem in adjust_base and (best is None or len(stem) > len(best[0])):
+                best = (stem, path)
+        return best[1] if best else None
 
     @staticmethod
     def read_adjust_file(adjust_path):
@@ -818,9 +909,16 @@ class ReadBundleAdjustCameras:
         positions, _ = read_positions_rotations_from_file(state_path)
         return np.mean(np.array(positions), axis=0)
 
-    def get_camera_optimization_gdf(self, map_crs=None):
+    def get_camera_optimization_gdf(
+        self, map_crs=None, original_cameras_directory=None
+    ):
         """
         Build a per-camera GeoDataFrame of before/after camera changes.
+
+        Discovery is driven by the ``.adjust`` files, which ASP writes for every
+        camera. Each camera's absolute center comes from its
+        ``.adjusted_state.json`` (WorldView/CSM and jitter runs) or, when that is
+        absent (DigitalGlobe runs), from the original camera ``.xml`` ephemeris.
 
         Parameters
         ----------
@@ -829,6 +927,10 @@ class ReadBundleAdjustCameras:
             geometry is returned in geographic coordinates (EPSG:4326). A
             projected CRS is recommended for the position quiver so the
             east/north shift components align with the map axes.
+        original_cameras_directory : str or None, optional
+            Directory holding the original ``.xml`` cameras, used only for
+            DigitalGlobe runs that lack ``.adjusted_state.json``. If None, the
+            BA directory and its parent are searched automatically.
 
         Returns
         -------
@@ -851,36 +953,51 @@ class ReadBundleAdjustCameras:
         Raises
         ------
         ValueError
-            If no ``.adjusted_state.json`` files are found in the directory.
+            If no ``.adjust`` files are found in the directory.
         """
-        state_paths = glob_file(
-            self.full_directory, "*.adjusted_state.json", all_files=True
-        )
-        if state_paths is None:
+        adjust_paths = glob_file(self.full_directory, "*.adjust", all_files=True)
+        if adjust_paths is None:
             raise ValueError(
-                "\n\nNo *.adjusted_state.json files found. This reader needs the "
-                "CSM camera state files written by bundle_adjust (or jitter_solve).\n\n"
+                "\n\nNo *.adjust files found. This reader needs the per-camera "
+                ".adjust files written by bundle_adjust (or jitter_solve).\n\n"
             )
 
         offsets_df = self.get_camera_offsets_df()
+        xml_index = None  # built lazily, only if a DG (state-less) camera appears
 
         rows, centers_ecef = [], []
-        for state_path in sorted(state_paths):
-            adjust_path = self._find_adjust_file(state_path)
-            if adjust_path is None:
-                logger.warning(
-                    f"\n\nNo matching .adjust file for {state_path}. Skipping.\n\n"
-                )
-                continue
+        for adjust_path in sorted(adjust_paths):
+            state_path = self._find_state_file(adjust_path)
 
-            # A corrupt/truncated .adjust or state file should not sink the whole
-            # run; skip that one camera with a warning, like a missing .adjust.
+            # DigitalGlobe runs have no state file; fall back to the original
+            # camera XML for the absolute (pre-adjustment) center.
+            xml_path = None
+            if state_path is None:
+                if xml_index is None:
+                    xml_index = self._index_original_xmls(original_cameras_directory)
+                xml_path = self._match_original_xml(adjust_path, xml_index)
+                if xml_path is None:
+                    logger.warning(
+                        f"\n\nNo .adjusted_state.json or matching original .xml "
+                        f"camera for {adjust_path}. Skipping. (For DigitalGlobe "
+                        "runs, point --original_cameras_directory at the input "
+                        ".xml cameras.)\n\n"
+                    )
+                    continue
+
+            # A corrupt/truncated .adjust, state, or XML file should not sink the
+            # whole run; skip that one camera with a warning.
             try:
                 translation, rotation = self.read_adjust_file(adjust_path)
-                center_ecef = self._representative_center(state_path)
+                if state_path is not None:
+                    center_ecef = self._representative_center(state_path)
+                    camera_id = _normalize_camera_id(state_path)
+                else:
+                    center_ecef = _camera_center_from_xml(xml_path)
+                    camera_id = _normalize_camera_id(xml_path)
             except Exception as e:
                 logger.warning(
-                    f"\n\nCould not parse camera files for {state_path} "
+                    f"\n\nCould not parse camera files for {adjust_path} "
                     f"({type(e).__name__}: {e}). Skipping.\n\n"
                 )
                 continue
@@ -891,7 +1008,6 @@ class ReadBundleAdjustCameras:
                 float(translation @ up),
             )
             roll, pitch, yaw = rotation.as_euler("XYZ", degrees=True)
-            camera_id = _normalize_camera_id(state_path)
 
             row = {
                 "camera_id": camera_id,
@@ -924,9 +1040,9 @@ class ReadBundleAdjustCameras:
 
         if not rows:
             raise ValueError(
-                "\n\nFound *.adjusted_state.json files but no camera could be built "
-                "(missing or unparseable .adjust files). Cannot build the camera "
-                "optimization GeoDataFrame.\n\n"
+                "\n\nFound *.adjust files but no camera could be built (no matching "
+                ".adjusted_state.json or original .xml cameras, or unparseable files). "
+                "Cannot build the camera optimization GeoDataFrame.\n\n"
             )
 
         gdf = gpd.GeoDataFrame(

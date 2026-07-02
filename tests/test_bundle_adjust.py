@@ -160,8 +160,46 @@ class TestBundleAdjustCameras:
         # One camera dropped, the other survives (no exception raised).
         assert len(gdf) == 1
 
-    def test_get_camera_optimization_gdf_raises_without_state(self):
-        # The plain "ba" residual dir has no .adjusted_state.json files.
+    def test_digitalglobe_case_reads_center_from_xml(self, tmp_path):
+        """DG runs have no *.adjusted_state.json; the center comes from the .xml."""
+        import shutil
+        from glob import glob
+
+        ba = tmp_path / "ba"
+        ba.mkdir()
+        src = "tests/test_data/ba_cams"
+        # Copy only the .adjust deltas and the original .xml cameras (no state json),
+        # mimicking a DigitalGlobe bundle_adjust output.
+        for f in glob(f"{src}/*.adjust") + glob(f"{src}/*.xml"):
+            shutil.copy(f, ba)
+
+        reader = ReadBundleAdjustCameras(str(tmp_path), "ba")
+        gdf = reader.get_camera_optimization_gdf(map_crs=32619)
+        assert len(gdf) == 2
+        assert not gdf.offsets_from_asp.any()  # no camera_offsets.txt here
+        # Centers must be real (finite) ECEF-derived points, not NaN.
+        assert gdf.geometry.x.notna().all() and gdf.geometry.y.notna().all()
+
+    def test_digitalglobe_missing_xml_skips(self, tmp_path):
+        """A DG .adjust with no locatable original camera is skipped, not fatal."""
+        import shutil
+        from glob import glob
+
+        ba = tmp_path / "ba"
+        ba.mkdir()
+        src = "tests/test_data/ba_cams"
+        adjusts = sorted(glob(f"{src}/*.adjust"))
+        xmls = sorted(glob(f"{src}/*.xml"))
+        for f in adjusts:  # both deltas
+            shutil.copy(f, ba)
+        shutil.copy(xmls[0], ba)  # only one of two original cameras
+
+        reader = ReadBundleAdjustCameras(str(tmp_path), "ba")
+        gdf = reader.get_camera_optimization_gdf()
+        assert len(gdf) == 1  # the camera without an .xml is skipped
+
+    def test_get_camera_optimization_gdf_raises_without_adjust(self):
+        # The plain "ba" residual dir has no .adjust files.
         reader = ReadBundleAdjustCameras("tests/test_data", "ba")
         with pytest.raises(ValueError):
             reader.get_camera_optimization_gdf()

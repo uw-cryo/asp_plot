@@ -23,6 +23,14 @@ from asp_plot.bundle_adjust import PlotBundleAdjustCameras, ReadBundleAdjustCame
     "geometry is returned in geographic coordinates (EPSG:4326).",
 )
 @click.option(
+    "--original_cameras_directory",
+    prompt=False,
+    default=None,
+    help="Directory holding the original .xml cameras, used only for DigitalGlobe "
+    "runs that lack *.adjusted_state.json. If not supplied, the bundle_adjust "
+    "directory and its parent are searched automatically.",
+)
+@click.option(
     "--title",
     prompt=False,
     default=None,
@@ -40,7 +48,7 @@ from asp_plot.bundle_adjust import PlotBundleAdjustCameras, ReadBundleAdjustCame
     default="bundle_adjust_cameras_summary.png",
     help="Figure filename. Default: bundle_adjust_cameras_summary.png.",
 )
-def main(directory, map_crs, title, save_dir, fig_fn):
+def main(directory, map_crs, original_cameras_directory, title, save_dir, fig_fn):
     """
     Visualize before/after camera positions from a bundle_adjust folder.
 
@@ -59,7 +67,8 @@ def main(directory, map_crs, title, save_dir, fig_fn):
     parent, ba_dir = os.path.split(directory.rstrip(os.sep))
     reader = ReadBundleAdjustCameras(parent, ba_dir)
     gdf = reader.get_camera_optimization_gdf(
-        map_crs=int(map_crs.split(":")[-1]) if map_crs else None
+        map_crs=int(map_crs.split(":")[-1]) if map_crs else None,
+        original_cameras_directory=original_cameras_directory,
     )
     # Default to saving in the bundle_adjust directory so a bare CLI call always
     # writes a figure somewhere sensible (the command does not display a window).
