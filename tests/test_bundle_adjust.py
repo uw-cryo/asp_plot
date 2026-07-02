@@ -140,6 +140,26 @@ class TestBundleAdjustCameras:
         # Fallback horizontal offset equals the translation horizontal magnitude.
         assert np.allclose(gdf.horizontal_offset_m, gdf.t_horizontal)
 
+    def test_malformed_adjust_is_skipped(self, tmp_path):
+        """A corrupt/truncated .adjust skips that camera instead of crashing."""
+        import shutil
+        from glob import glob
+
+        ba = tmp_path / "ba"
+        ba.mkdir()
+        src = "tests/test_data/ba_cams"
+        for f in glob(f"{src}/*.adjusted_state.json") + glob(f"{src}/*.adjust"):
+            shutil.copy(f, ba)
+        # Truncate one .adjust to drop the quaternion line.
+        victim = sorted(glob(f"{ba}/*.adjust"))[0]
+        with open(victim, "w") as fh:
+            fh.write("0.1 0.2 0.3\n")
+
+        reader = ReadBundleAdjustCameras(str(tmp_path), "ba")
+        gdf = reader.get_camera_optimization_gdf()
+        # One camera dropped, the other survives (no exception raised).
+        assert len(gdf) == 1
+
     def test_get_camera_optimization_gdf_raises_without_state(self):
         # The plain "ba" residual dir has no .adjusted_state.json files.
         reader = ReadBundleAdjustCameras("tests/test_data", "ba")

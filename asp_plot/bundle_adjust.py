@@ -873,8 +873,17 @@ class ReadBundleAdjustCameras:
                 )
                 continue
 
-            translation, rotation = self.read_adjust_file(adjust_path)
-            center_ecef = self._representative_center(state_path)
+            # A corrupt/truncated .adjust or state file should not sink the whole
+            # run; skip that one camera with a warning, like a missing .adjust.
+            try:
+                translation, rotation = self.read_adjust_file(adjust_path)
+                center_ecef = self._representative_center(state_path)
+            except Exception as e:
+                logger.warning(
+                    f"\n\nCould not parse camera files for {state_path} "
+                    f"({type(e).__name__}: {e}). Skipping.\n\n"
+                )
+                continue
             east, north, up = _enu_basis(center_ecef)
             t_east, t_north, t_up = (
                 float(translation @ east),
@@ -915,8 +924,9 @@ class ReadBundleAdjustCameras:
 
         if not rows:
             raise ValueError(
-                "\n\nFound *.adjusted_state.json files but no matching .adjust files. "
-                "Cannot build the camera optimization GeoDataFrame.\n\n"
+                "\n\nFound *.adjusted_state.json files but no camera could be built "
+                "(missing or unparseable .adjust files). Cannot build the camera "
+                "optimization GeoDataFrame.\n\n"
             )
 
         gdf = gpd.GeoDataFrame(
