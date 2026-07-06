@@ -54,9 +54,10 @@ def main(directory, map_crs, original_cameras_directory, title, save_dir, fig_fn
 
     Reads the self-contained camera products written by bundle_adjust
     (``*.adjust``, ``*.adjusted_state.json``, and, when present,
-    ``*camera_offsets.txt``) and produces a three-panel summary: a map-view
-    quiver of the horizontal camera-center shift (vertical change as color),
-    per-camera center-displacement bars, and an orientation-change quiver.
+    ``*camera_offsets.txt``) and produces a summary: per-camera bars of the
+    horizontal and vertical camera-center change, above a per-camera satellite
+    cartoon of the roll/pitch/yaw orientation change (labeled with the actual
+    degrees changed).
 
     Unlike ``csm_camera_plot``, this does not require the pre-adjustment
     original camera files -- it works directly on the bundle_adjust output.
