@@ -214,9 +214,8 @@ class TestBundleAdjustCameras:
         gdf = cam_reader.get_camera_optimization_gdf(map_crs=32619)
         plotter = PlotBundleAdjustCameras(gdf, title="Test cameras")
         try:
-            plotter.plot_position_change_quiver()
             plotter.plot_center_offset_bars()
-            plotter.plot_orientation_change_quiver()
+            plotter.plot_orientation_cartoons()
             plotter.summary_plot()
         except Exception as e:
             pytest.fail(f"figure method raised an exception: {str(e)}")

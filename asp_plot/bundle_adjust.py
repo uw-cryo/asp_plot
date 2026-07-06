@@ -1,13 +1,13 @@
 import glob
 import logging
 import os
+import textwrap
 
 import geopandas as gpd
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from matplotlib.cm import ScalarMappable
-from matplotlib.colors import TwoSlopeNorm
+from matplotlib.patches import FancyArrowPatch, Polygon, Rectangle
 from pyproj import Transformer
 from scipy.spatial.transform import Rotation
 from shapely.geometry import Point
@@ -30,6 +30,9 @@ from asp_plot.utils import (
 
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
+
+# Consistent colors for the roll / pitch / yaw orientation-change cartoons.
+_ROLL_COLOR, _PITCH_COLOR, _YAW_COLOR = "#d1495b", "#e6a817", "#30638e"
 
 
 class ReadBundleAdjustFiles:
@@ -1133,14 +1136,14 @@ class PlotBundleAdjustCameras(Plotter):
     Visualize before/after camera position and orientation changes.
 
     Consumes the GeoDataFrame from
-    :meth:`ReadBundleAdjustCameras.get_camera_optimization_gdf` and renders the
-    three complementary views requested in issues #95 and #43:
+    :meth:`ReadBundleAdjustCameras.get_camera_optimization_gdf` and renders two
+    complementary views (issues #95 and #43):
 
-    1. A map-view quiver of the horizontal camera-center shift, with the
-       vertical change encoded as a diverging (RdBu) color.
-    2. Per-camera bars of the horizontal and vertical camera-center change.
-    3. A quiver of the orientation change (yaw/roll as the arrow direction,
-       pitch as color).
+    1. Per-camera bars of the horizontal and vertical camera-center change.
+    2. A per-camera satellite cartoon of the orientation change: a sensor
+       frustum with fixed-length roll/pitch/yaw arrows labeled with the actual
+       degrees changed (the number carries the magnitude, so tiny changes are
+       not visually exaggerated).
 
     Parameters
     ----------
@@ -1155,83 +1158,9 @@ class PlotBundleAdjustCameras(Plotter):
         super().__init__(**kwargs)
         self.gdf = gdf
 
-    def plot_position_change_quiver(
-        self, ax=None, cmap="RdBu", arrow_frac=0.18, save_dir=None, fig_fn=None
+    def plot_center_offset_bars(
+        self, ax=None, save_dir=None, fig_fn=None, index_labels=False
     ):
-        """
-        Map-view quiver of the horizontal camera-center shift.
-
-        Each arrow points in the direction of the horizontal camera-center
-        translation (``t_east``, ``t_north``); its color encodes the vertical
-        change (``t_up``) on a symmetric diverging scale. A reference arrow
-        (quiverkey) shows the true scale in meters.
-
-        Parameters
-        ----------
-        ax : matplotlib.axes.Axes or None, optional
-            Axes to draw on. A new figure is created if None.
-        cmap : str, optional
-            Diverging colormap for the vertical change, default "RdBu".
-        arrow_frac : float, optional
-            Target length of the largest arrow as a fraction of the map width,
-            default 0.18.
-        save_dir, fig_fn : str or None, optional
-            If both are given (and a new figure was created), save the figure.
-        """
-        created = ax is None
-        if created:
-            fig, ax = plt.subplots(figsize=(8, 7))
-
-        gdf = self.gdf
-        x, y = gdf.geometry.x.values, gdf.geometry.y.values
-        vmax = max(float(np.abs(gdf.t_up).max()), 1e-9)
-        norm = TwoSlopeNorm(vmin=-vmax, vcenter=0.0, vmax=vmax)
-
-        max_h = max(float(gdf.t_horizontal.max()), 1e-9)
-        span = max(x.max() - x.min(), y.max() - y.min(), 1.0)
-        scale = max_h / (arrow_frac * span)
-
-        q = ax.quiver(
-            x,
-            y,
-            gdf.t_east,
-            gdf.t_north,
-            gdf.t_up,
-            cmap=cmap,
-            norm=norm,
-            angles="xy",
-            scale_units="xy",
-            scale=scale,
-            width=0.012,
-            edgecolor="k",
-            linewidth=0.4,
-        )
-        ax.quiverkey(
-            q,
-            0.80,
-            0.06,
-            max_h,
-            f"{max_h:.2f} m",
-            labelpos="E",
-            coordinates="axes",
-            fontproperties={"size": 8},
-        )
-        ax.scatter(x, y, c="k", s=6, zorder=3)
-        cbar = plt.colorbar(
-            ScalarMappable(norm=norm, cmap=cmap), ax=ax, extend="both", pad=0.02
-        )
-        cbar.set_label("Vertical change (m, + up)", fontsize=9)
-        ax.set_title("Camera position change (before → after)", fontsize=11)
-        ax.set_xlabel("Easting (m)", fontsize=9)
-        ax.set_ylabel("Northing (m)", fontsize=9)
-        ax.ticklabel_format(style="plain", useOffset=False)
-        ax.margins(0.25)
-
-        if created:
-            self.save(fig, save_dir, fig_fn)
-        return ax
-
-    def plot_center_offset_bars(self, ax=None, save_dir=None, fig_fn=None):
         """
         Per-camera bars of horizontal and vertical camera-center change.
 
@@ -1268,7 +1197,13 @@ class PlotBundleAdjustCameras(Plotter):
             color="#87CEEB",
         )
         ax.set_xticks(xi)
-        ax.set_xticklabels(ids, rotation=30, ha="right", fontsize=7)
+        if index_labels:
+            # Cross-reference to the orientation cartoons by number instead of
+            # crowding the axis with long camera names.
+            ax.set_xticklabels([str(i + 1) for i in xi], fontsize=8)
+            ax.set_xlabel("camera # (see cartoons below)", fontsize=8)
+        else:
+            ax.set_xticklabels(ids, rotation=30, ha="right", fontsize=7)
         ax.set_ylabel("Camera-center change (m)", fontsize=9)
         source = (
             "camera_offsets.txt"
@@ -1283,87 +1218,218 @@ class PlotBundleAdjustCameras(Plotter):
             self.save(fig, save_dir, fig_fn)
         return ax
 
-    def plot_orientation_change_quiver(
-        self, ax=None, cmap="PuOr", save_dir=None, fig_fn=None
-    ):
+    @staticmethod
+    def _draw_satellite(ax, roll, pitch, yaw, name, label_arrows=False, index=None):
         """
-        Quiver of the per-camera orientation change from the ``.adjust`` file.
+        Draw one satellite orientation-change cartoon on ``ax``.
 
-        Following issue #43, the arrow direction encodes yaw (x) and roll (y)
-        change and the color encodes pitch change, all in degrees.
-
-        Parameters
-        ----------
-        ax : matplotlib.axes.Axes or None, optional
-            Axes to draw on. A new figure is created if None.
-        cmap : str, optional
-            Diverging colormap for the pitch change, default "PuOr".
-        save_dir, fig_fn : str or None, optional
-            If both are given (and a new figure was created), save the figure.
+        A nadir-looking sensor frustum with three fixed-length curved arrows
+        (roll, pitch, yaw) and the actual per-axis degree change printed below.
+        The arrow length is constant -- the magnitude lives in the number, so a
+        1e-4 deg change is not visually exaggerated.
         """
-        created = ax is None
-        if created:
-            fig, ax = plt.subplots(figsize=(8, 5))
+        ax.set_xlim(0, 1)
+        ax.set_ylim(-0.42, 1)
+        ax.set_aspect("equal")
+        ax.axis("off")
+        apex = (0.5, 0.66)
 
-        gdf = self.gdf
-        ids = gdf.camera_id.values
-        xi = np.arange(len(ids))
-        pmax = max(float(np.abs(gdf.adj_pitch).max()), 1e-12)
-        norm = TwoSlopeNorm(vmin=-pmax, vcenter=0.0, vmax=pmax)
-        q = ax.quiver(
-            xi,
-            np.zeros(len(xi)),
-            gdf.adj_yaw,
-            gdf.adj_roll,
-            gdf.adj_pitch,
-            cmap=cmap,
-            norm=norm,
-            angles="xy",
+        # Sensor view frustum (camera looking down at a ground patch, drawn in
+        # light perspective so it reads as 3D).
+        ground = [(0.30, 0.24), (0.66, 0.24), (0.74, 0.35), (0.38, 0.35)]
+        ax.add_patch(
+            Polygon(
+                ground,
+                closed=True,
+                facecolor="#dfe7ee",
+                edgecolor="#8aa0b2",
+                lw=1.0,
+                zorder=1,
+            )
         )
-        ax.quiverkey(
-            q,
-            0.72,
-            0.06,
-            float(np.abs(np.hypot(gdf.adj_yaw, gdf.adj_roll)).max()) or 1e-6,
-            "roll/yaw change",
-            labelpos="E",
-            coordinates="axes",
-            fontproperties={"size": 8},
-        )
-        cbar = plt.colorbar(
-            ScalarMappable(norm=norm, cmap=cmap), ax=ax, extend="both", pad=0.02
-        )
-        cbar.set_label("Pitch change (°)", fontsize=9)
-        ax.set_xticks(xi)
-        ax.set_xticklabels(ids, rotation=30, ha="right", fontsize=7)
-        ax.set_ylabel("Roll change (°)", fontsize=9)
-        ax.set_title(
-            "Orientation change\n(arrow: yaw = x, roll = y; color: pitch)", fontsize=11
-        )
-        ax.axhline(0, color="k", lw=0.5)
-        ax.margins(0.25)
+        for gx, gy in ground:
+            ax.plot([apex[0], gx], [apex[1], gy], color="#8aa0b2", lw=0.8, zorder=1)
 
-        if created:
-            self.save(fig, save_dir, fig_fn)
-        return ax
+        # Satellite body + solar panels at the perspective center.
+        ax.add_patch(
+            Rectangle(
+                (apex[0] - 0.05, apex[1] - 0.03),
+                0.10,
+                0.07,
+                facecolor="#3b3b3b",
+                edgecolor="k",
+                lw=0.8,
+                zorder=3,
+            )
+        )
+        for sx in (-0.14, 0.05):
+            ax.add_patch(
+                Rectangle(
+                    (apex[0] + sx, apex[1] - 0.01),
+                    0.09,
+                    0.03,
+                    facecolor="#5b7fb0",
+                    edgecolor="k",
+                    lw=0.5,
+                    zorder=2,
+                )
+            )
 
-    def summary_plot(self, save_dir=None, fig_fn=None):
+        def curved(x0, y0, x1, y1, color, rad):
+            ax.add_patch(
+                FancyArrowPatch(
+                    (x0, y0),
+                    (x1, y1),
+                    connectionstyle=f"arc3,rad={rad}",
+                    arrowstyle="-|>",
+                    mutation_scale=10,
+                    lw=2.0,
+                    color=color,
+                    zorder=4,
+                )
+            )
+
+        curved(0.40, 0.84, 0.60, 0.84, _YAW_COLOR, -0.7)  # yaw: about boresight
+        curved(0.15, 0.56, 0.15, 0.76, _ROLL_COLOR, 0.7)  # roll: about along-track
+        curved(0.85, 0.76, 0.85, 0.56, _PITCH_COLOR, 0.7)  # pitch: about across-track
+        if label_arrows:
+            ax.text(
+                0.5,
+                0.93,
+                "yaw",
+                color=_YAW_COLOR,
+                ha="center",
+                fontsize=7,
+                weight="bold",
+            )
+            ax.text(
+                0.06,
+                0.66,
+                "roll",
+                color=_ROLL_COLOR,
+                ha="center",
+                fontsize=7,
+                weight="bold",
+                rotation=90,
+            )
+            ax.text(
+                0.94,
+                0.66,
+                "pitch",
+                color=_PITCH_COLOR,
+                ha="center",
+                fontsize=7,
+                weight="bold",
+                rotation=-90,
+            )
+
+        ax.text(
+            0.5,
+            0.12,
+            f"R {roll:+.2g}°",
+            color=_ROLL_COLOR,
+            ha="center",
+            fontsize=8,
+            weight="bold",
+        )
+        ax.text(
+            0.5,
+            0.02,
+            f"P {pitch:+.2g}°",
+            color=_PITCH_COLOR,
+            ha="center",
+            fontsize=8,
+            weight="bold",
+        )
+        ax.text(
+            0.5,
+            -0.08,
+            f"Y {yaw:+.2g}°",
+            color=_YAW_COLOR,
+            ha="center",
+            fontsize=8,
+            weight="bold",
+        )
+        label = name if index is None else f"#{index}  {name}"
+        label = "\n".join(textwrap.wrap(label, 22))
+        ax.text(0.5, -0.18, label, ha="center", va="top", fontsize=6, color="#333")
+
+    def _draw_cartoon_grid(self, fig, gs, row_offset, ncol):
+        """Draw the per-camera orientation cartoons into a gridspec block."""
+        gdf = self.gdf.reset_index(drop=True)
+        for i in range(len(gdf)):
+            ax = fig.add_subplot(gs[row_offset + i // ncol, i % ncol])
+            row = gdf.iloc[i]
+            self._draw_satellite(
+                ax,
+                row.adj_roll,
+                row.adj_pitch,
+                row.adj_yaw,
+                row.camera_id,
+                label_arrows=(i == 0),
+                index=i + 1,
+            )
+
+    def plot_orientation_cartoons(self, save_dir=None, fig_fn=None, ncol=5):
         """
-        Combined three-panel summary of camera position and orientation change.
+        Grid of per-camera satellite orientation-change cartoons.
 
-        Draws, left to right, the position-change map quiver, the per-camera
-        center-displacement bars, and the orientation-change quiver.
+        Each camera gets a sensor-frustum cartoon with fixed-length roll/pitch/yaw
+        arrows and the actual degrees changed printed below (see
+        :meth:`_draw_satellite`). The first cartoon labels the arrows; the rest
+        rely on the shared roll/pitch/yaw colors.
 
         Parameters
         ----------
         save_dir, fig_fn : str or None, optional
             If both are given, save the figure.
+        ncol : int, optional
+            Maximum cartoons per row, default 5.
         """
-        fig, axes = plt.subplots(1, 3, figsize=(19, 6))
-        self.plot_position_change_quiver(ax=axes[0])
-        self.plot_center_offset_bars(ax=axes[1])
-        self.plot_orientation_change_quiver(ax=axes[2])
+        n = len(self.gdf)
+        ncol = min(ncol, max(n, 1))
+        nrow = (n + ncol - 1) // ncol
+        fig = plt.figure(figsize=(2.4 * ncol, 2.5 * nrow + 0.6))
+        gs = fig.add_gridspec(nrow, ncol, hspace=0.15, wspace=0.05)
+        self._draw_cartoon_grid(fig, gs, row_offset=0, ncol=ncol)
+        prefix = f"{self.title} — " if self.title else ""
+        fig.suptitle(
+            f"{prefix}Orientation change per camera\n"
+            "(fixed-length arrows; R/P/Y = degrees changed)",
+            fontsize=11,
+        )
+        fig.tight_layout(rect=[0, 0, 1, 0.94])
+        self.save(fig, save_dir, fig_fn, tight_layout=False)
+        return fig
+
+    def summary_plot(self, save_dir=None, fig_fn=None, ncol=5):
+        """
+        Combined summary: center-displacement bars above orientation cartoons.
+
+        Parameters
+        ----------
+        save_dir, fig_fn : str or None, optional
+            If both are given, save the figure.
+        ncol : int, optional
+            Maximum orientation cartoons per row, default 5.
+        """
+        n = len(self.gdf)
+        ncol = min(ncol, max(n, 1))
+        nrow = (n + ncol - 1) // ncol
+        fig = plt.figure(figsize=(max(11, 2.4 * ncol), 3.8 + 2.5 * nrow))
+        # Row 0: bars. Row 1: thin spacer (keeps bar labels off the cartoons).
+        # Rows 2+: cartoon grid.
+        gs = fig.add_gridspec(
+            nrow + 2,
+            ncol,
+            height_ratios=[3.0, 0.35] + [2.4] * nrow,
+            hspace=0.15,
+            wspace=0.05,
+        )
+        self.plot_center_offset_bars(ax=fig.add_subplot(gs[0, :]), index_labels=True)
+        self._draw_cartoon_grid(fig, gs, row_offset=2, ncol=ncol)
         if self.title:
-            fig.suptitle(self.title, size=12)
-        self.save(fig, save_dir, fig_fn)
+            fig.suptitle(self.title, size=13)
+        fig.tight_layout(rect=[0, 0, 1, 0.96 if self.title else 1.0])
+        self.save(fig, save_dir, fig_fn, tight_layout=False)
         return fig
