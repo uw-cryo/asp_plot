@@ -7,7 +7,7 @@ import geopandas as gpd
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from matplotlib.patches import Polygon
+from matplotlib.patches import Polygon, Rectangle
 from pyproj import Transformer
 from scipy.spatial.transform import Rotation
 from shapely.geometry import Point
@@ -1141,10 +1141,11 @@ class PlotBundleAdjustCameras(Plotter):
     complementary views (issues #95 and #43):
 
     1. Per-camera bars of the horizontal and vertical camera-center change.
-    2. A per-camera satellite cartoon of the orientation change: a body-axis
-       triad (roll/pitch/yaw about the along-track/across-track/nadir axes)
-       labeled with the actual degrees changed (the number carries the
-       magnitude, so tiny changes are not visually exaggerated).
+    2. A per-camera satellite cartoon of the orientation change: a nadir-looking
+       satellite with black body-frame X/Y/Z axes overlaid and a colored rotation
+       arc around each (roll about X, pitch about Y, yaw about Z), labeled with
+       the actual degrees changed (the number carries the magnitude, so tiny
+       changes are not visually exaggerated).
 
     Parameters
     ----------
@@ -1220,98 +1221,145 @@ class PlotBundleAdjustCameras(Plotter):
         return ax
 
     @staticmethod
-    def _draw_satellite(ax, roll, pitch, yaw, name, label_arrows=False, index=None):
+    def _draw_satellite(ax, roll, pitch, yaw, name, index=None):
         """
         Draw one satellite orientation-change cartoon on ``ax``.
 
-        A body-axis triad (roll about the along-track axis, pitch about the
-        across-track axis, yaw about the nadir/boresight axis, with the sensor
-        cone drawn along nadir) anchors each rotation to a physical axis. A small
-        curved arrow around each axis shows the rotation sense, and the actual
-        per-axis degree change is printed by its axis. Arrows are fixed size --
-        the magnitude lives in the number, so a 1e-4 deg change is not visually
-        exaggerated.
+        A nadir-looking satellite (body, solar panels, sensor frustum) with the
+        black body-frame X/Y/Z axes overlaid: X = along-track, Y = across-track,
+        Z = nadir/boresight (down the frustum). A colored rotation arc encircles
+        each axis to show the sense of the roll (about X), pitch (about Y), and
+        yaw (about Z) change, and the actual degrees are printed below. The arcs
+        are fixed size -- the magnitude lives in the number, so a 1e-4 deg change
+        is not visually exaggerated.
         """
         ax.set_xlim(0, 1)
-        ax.set_ylim(-0.44, 0.95)
+        ax.set_ylim(-0.42, 1)
         ax.set_aspect("equal")
         ax.axis("off")
+        body = np.array([0.5, 0.64])
 
-        # Body axes in screen coordinates (isometric-ish): roll = along-track
-        # (up-left), pitch = across-track (up-right), yaw = nadir (down).
-        origin = np.array([0.46, 0.52])
-        roll_ax = np.array([-0.30, 0.24])
-        pitch_ax = np.array([0.34, 0.20])
-        yaw_ax = np.array([0.02, -0.40])
-
-        # Sensor cone along the nadir/yaw axis (down-looking imager).
-        ztip = origin + yaw_ax
-        perp = np.array([-yaw_ax[1], yaw_ax[0]])
-        perp = perp / np.linalg.norm(perp)
-        cone = [
-            origin + 0.03 * perp,
-            origin - 0.03 * perp,
-            ztip - 0.12 * perp,
-            ztip + 0.12 * perp,
-        ]
+        # Sensor view frustum (camera looking down at a ground patch).
+        ground = [(0.30, 0.22), (0.66, 0.22), (0.74, 0.33), (0.38, 0.33)]
         ax.add_patch(
             Polygon(
-                cone,
+                ground,
                 closed=True,
                 facecolor="#dfe7ee",
-                edgecolor="#9bb0c1",
-                lw=0.8,
+                edgecolor="#8aa0b2",
+                lw=1.0,
                 zorder=1,
             )
         )
+        for gx, gy in ground:
+            ax.plot([body[0], gx], [body[1], gy], color="#8aa0b2", lw=0.8, zorder=1)
 
-        def axis(vec, color):
-            tip = origin + vec
-            ax.annotate(
-                "",
-                xy=tuple(tip),
-                xytext=tuple(origin),
-                arrowprops=dict(
-                    arrowstyle="-|>", color=color, lw=2.2, shrinkA=0, shrinkB=0
-                ),
+        # Satellite body + solar panels.
+        ax.add_patch(
+            Rectangle(
+                (body[0] - 0.05, body[1] - 0.03),
+                0.10,
+                0.07,
+                facecolor="#3b3b3b",
+                edgecolor="k",
+                lw=0.8,
                 zorder=3,
             )
-            return tip
+        )
+        for sx in (-0.14, 0.05):
+            ax.add_patch(
+                Rectangle(
+                    (body[0] + sx, body[1] - 0.01),
+                    0.09,
+                    0.03,
+                    facecolor="#5b7fb0",
+                    edgecolor="k",
+                    lw=0.5,
+                    zorder=2,
+                )
+            )
 
-        def rot(center, radius, color, a0, a1):
-            t = np.linspace(a0, a1, 24)
-            pts = center + radius * np.column_stack([np.cos(t), 0.55 * np.sin(t)])
-            ax.plot(pts[:, 0], pts[:, 1], color=color, lw=1.6, zorder=4)
+        def rotation_arc(center, direction, color):
+            # Ellipse arc encircling the (screen-projected) axis ``direction``.
+            direction = direction / np.linalg.norm(direction)
+            major = np.array([-direction[1], direction[0]])
+            t = np.linspace(-2.3, 2.1, 40)
+            pts = (
+                center
+                + 0.09 * np.outer(np.cos(t), major)
+                + 0.032 * np.outer(np.sin(t), direction)
+            )
+            ax.plot(pts[:, 0], pts[:, 1], color=color, lw=1.8, zorder=6)
             ax.annotate(
                 "",
                 xy=tuple(pts[-1]),
-                xytext=tuple(pts[-3]),
-                arrowprops=dict(arrowstyle="-|>", color=color, lw=1.6),
-                zorder=4,
+                xytext=tuple(pts[-4]),
+                arrowprops=dict(arrowstyle="-|>", color=color, lw=1.8),
+                zorder=6,
             )
 
-        rtip = axis(roll_ax, _ROLL_COLOR)
-        ptip = axis(pitch_ax, _PITCH_COLOR)
-        axis(yaw_ax, _YAW_COLOR)
-        rot(origin + 0.6 * roll_ax, 0.06, _ROLL_COLOR, 0.3, 2.6)
-        rot(origin + 0.6 * pitch_ax, 0.06, _PITCH_COLOR, 0.6, 2.9)
-        rot(origin + 0.55 * yaw_ax, 0.07, _YAW_COLOR, -0.4, 2.2)
-
-        # Value labels by each axis; the axis name (roll phi / pitch theta /
-        # yaw psi) is spelled out only on the first cartoon.
-        def lab(x, y, word, val, color, ha="center"):
-            txt = f"{word}\n{val:+.2g}°" if label_arrows else f"{val:+.2g}°"
+        # Black body-frame axes with a colored rotation arc around each.
+        for vec, rot_color, label in (
+            (np.array([0.0, -0.34]), _YAW_COLOR, "Z"),  # nadir  -> yaw
+            (np.array([-0.26, 0.20]), _ROLL_COLOR, "X"),  # along  -> roll
+            (np.array([0.26, 0.20]), _PITCH_COLOR, "Y"),  # across -> pitch
+        ):
+            tip = body + vec
+            ax.annotate(
+                "",
+                xy=tuple(tip),
+                xytext=tuple(body),
+                arrowprops=dict(
+                    arrowstyle="-|>", color="#111111", lw=2.2, shrinkA=0, shrinkB=0
+                ),
+                zorder=5,
+            )
+            ltip = body + 1.2 * vec
             ax.text(
-                x, y, txt, color=color, ha=ha, va="center", fontsize=7, weight="bold"
+                ltip[0],
+                ltip[1],
+                label,
+                color="#111111",
+                fontsize=8,
+                weight="bold",
+                ha="center",
+                va="center",
+                zorder=7,
             )
+            rotation_arc(body + 0.55 * vec, vec, rot_color)
 
-        lab(rtip[0] - 0.02, rtip[1] + 0.09, "roll φ", roll, _ROLL_COLOR)
-        lab(ptip[0] + 0.02, ptip[1] + 0.09, "pitch θ", pitch, _PITCH_COLOR)
-        lab(0.72, 0.14, "yaw ψ", yaw, _YAW_COLOR, ha="left")
+        # Per-axis rotation values (color = rotation axis).
+        ax.text(
+            0.5,
+            0.05,
+            f"roll (X) {roll:+.2g}°",
+            color=_ROLL_COLOR,
+            ha="center",
+            fontsize=7.5,
+            weight="bold",
+        )
+        ax.text(
+            0.5,
+            -0.04,
+            f"pitch (Y) {pitch:+.2g}°",
+            color=_PITCH_COLOR,
+            ha="center",
+            fontsize=7.5,
+            weight="bold",
+        )
+        ax.text(
+            0.5,
+            -0.13,
+            f"yaw (Z) {yaw:+.2g}°",
+            color=_YAW_COLOR,
+            ha="center",
+            fontsize=7.5,
+            weight="bold",
+        )
 
         label = name if index is None else f"#{index}  {name}"
         label = "\n".join(textwrap.wrap(label, 22))
-        ax.text(0.5, -0.30, label, ha="center", va="top", fontsize=6, color="#333")
+        ax.text(0.5, -0.26, label, ha="center", va="top", fontsize=6, color="#333")
 
     def _draw_cartoon_grid(self, fig, gs, row_offset, ncol):
         """Draw the per-camera orientation cartoons into a gridspec block."""
@@ -1325,7 +1373,6 @@ class PlotBundleAdjustCameras(Plotter):
                 row.adj_pitch,
                 row.adj_yaw,
                 row.camera_id,
-                label_arrows=(i == 0),
                 index=i + 1,
             )
 
@@ -1333,11 +1380,10 @@ class PlotBundleAdjustCameras(Plotter):
         """
         Grid of per-camera satellite orientation-change cartoons.
 
-        Each camera gets a body-axis triad (roll/pitch/yaw about the
-        along-track/across-track/nadir axes) with the actual degrees changed
-        printed by each axis (see :meth:`_draw_satellite`). The first cartoon
-        spells out the axis names; the rest rely on the shared roll/pitch/yaw
-        colors.
+        Each camera gets a nadir-looking satellite with black body-frame X/Y/Z
+        axes overlaid and a colored rotation arc around each (roll about X, pitch
+        about Y, yaw about Z), with the actual degrees changed printed below (see
+        :meth:`_draw_satellite`).
 
         Parameters
         ----------
