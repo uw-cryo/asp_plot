@@ -152,13 +152,18 @@ def _build_stereo_geometry(ctx: ReportContext) -> List[object]:
     geom_plotter = StereoGeometryPlotter(
         ctx.config.directory, add_basemap=ctx.config.add_basemap
     )
-    geom_plotter.dg_geom_plot(save_dir=ctx.plots_directory, fig_fn=fig_fn)
+    saved = geom_plotter.dg_geom_plot(save_dir=ctx.plots_directory, fig_fn=fig_fn)
+    # Two scenes save exactly fig_fn; more than two save an overview figure
+    # plus one figure per pair, with names derived from fig_fn's stem.
+    if not saved:
+        saved = [fig_fn]
     return [
         ReportSection(
-            title="Stereo Geometry",
-            image_path=ctx.fig_path(fig_fn),
-            caption=captions.STEREO_GEOMETRY,
+            title="Stereo Geometry" if i == 0 else "Stereo Geometry (continued)",
+            image_path=ctx.fig_path(fn),
+            caption=captions.STEREO_GEOMETRY if i == 0 else "",
         )
+        for i, fn in enumerate(saved)
     ]
 
 
