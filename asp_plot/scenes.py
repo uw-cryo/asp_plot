@@ -3,7 +3,7 @@ import os
 
 import matplotlib.pyplot as plt
 
-from asp_plot.utils import Plotter, Raster, detect_vantor_satellite, glob_file
+from asp_plot.utils import Plotter, Raster, detect_satellite_attribution, glob_file
 
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
@@ -25,9 +25,9 @@ class SceneFiles:
         Subdirectory containing stereo outputs.
     full_stereo_directory : str
         Full path to the stereo directory.
-    is_vantor : bool
-        Whether the source imagery is from a Vantor-owned satellite (WorldView
-        family, GeoEye, QuickBird, etc.); gates the "© Vantor" copyright overlay.
+    attribution : str or None
+        Rights-holder of the source imagery ("Vantor", "Airbus DS", ...);
+        gates the copyright overlay on scene panels.
     left_scene_sub_fn, right_scene_sub_fn : str or None
         Paths to the left/right sub-sampled scene files.
     """
@@ -49,7 +49,7 @@ class SceneFiles:
         self.stereo_directory = stereo_directory
         self.full_stereo_directory = os.path.join(self.directory, stereo_directory)
 
-        self.is_vantor = detect_vantor_satellite(self.directory)
+        self.attribution = detect_satellite_attribution(self.directory)
 
         self.left_scene_sub_fn = glob_file(self.full_stereo_directory, "*-L_sub.tif")
         self.right_scene_sub_fn = glob_file(self.full_stereo_directory, "*-R_sub.tif")
@@ -108,7 +108,7 @@ class ScenePlotter(Plotter):
         properties on this plotter.
         """
         self.files = SceneFiles(directory, stereo_directory)
-        super().__init__(is_vantor=self.files.is_vantor, **kwargs)
+        super().__init__(attribution=self.files.attribution, **kwargs)
 
     @property
     def directory(self):

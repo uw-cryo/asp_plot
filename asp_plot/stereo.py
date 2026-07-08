@@ -14,7 +14,13 @@ from asp_plot.selections import (
     pixel_window_to_bbox,
     reproject_bbox,
 )
-from asp_plot.utils import ColorBar, Plotter, Raster, detect_vantor_satellite, glob_file
+from asp_plot.utils import (
+    ColorBar,
+    Plotter,
+    Raster,
+    detect_satellite_attribution,
+    glob_file,
+)
 
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
@@ -38,9 +44,9 @@ class StereoFiles:
         Directory containing stereo processing outputs.
     full_directory : str
         Full path to the stereo directory.
-    is_vantor : bool
-        Whether the source imagery is from a Vantor-owned satellite (WorldView
-        family, GeoEye, QuickBird, etc.); gates the "© Vantor" copyright overlay.
+    attribution : str or None
+        Rights-holder of the source imagery ("Vantor", "Airbus DS", ...);
+        gates the copyright overlay on scene panels.
     reference_dem : str or None
         Path to the reference DEM (supplied or recovered from the stereo log).
     left_image_fn, left_image_sub_fn, right_image_sub_fn : str or None
@@ -93,7 +99,7 @@ class StereoFiles:
         """
         self.directory = os.path.expanduser(directory)
         self.stereo_directory = stereo_directory
-        self.is_vantor = detect_vantor_satellite(self.directory)
+        self.attribution = detect_satellite_attribution(self.directory)
 
         if reference_dem:
             self.reference_dem = os.path.expanduser(reference_dem)
@@ -244,7 +250,7 @@ class StereoPlotter(Plotter):
             dem_fn=dem_fn,
             reference_dem=reference_dem,
         )
-        super().__init__(is_vantor=self.files.is_vantor, **kwargs)
+        super().__init__(attribution=self.files.attribution, **kwargs)
 
     # File discovery lives in StereoFiles; expose the resolved paths/flags as
     # read-only properties so the plotting methods can keep using ``self.<attr>``.

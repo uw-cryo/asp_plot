@@ -17,8 +17,8 @@ class TestSceneFiles:
         assert files.left_scene_sub_fn is not None
         assert files.right_scene_sub_fn is not None
 
-    def test_is_vantor_flag(self, files):
-        assert files.is_vantor is True
+    def test_attribution_flag(self, files):
+        assert files.attribution == "Vantor"
 
 
 class TestScenePlotter:
@@ -30,9 +30,9 @@ class TestScenePlotter:
         )
         return scene_plotter
 
-    def test_is_vantor_detection(self, scene_plotter):
+    def test_attribution_detection(self, scene_plotter):
         """Test that ScenePlotter detects Vantor satellite from test data XMLs."""
-        assert scene_plotter.is_vantor is True
+        assert scene_plotter.attribution == "Vantor"
 
     def test_composes_scene_files(self, scene_plotter):
         """ScenePlotter delegates discovery to a SceneFiles instance."""

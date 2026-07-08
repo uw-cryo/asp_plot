@@ -26,8 +26,8 @@ class TestStereoFiles:
         assert files.match_point_fn is not None
         assert "-disp-" not in files.match_point_fn
 
-    def test_is_vantor_flag(self, files):
-        assert files.is_vantor is True
+    def test_attribution_flag(self, files):
+        assert files.attribution == "Vantor"
 
 
 class TestStereoPlotterComposition:
@@ -49,8 +49,8 @@ class TestStereoPlotterComposition:
         assert stereo_plotter.dem_fn == stereo_plotter.files.dem_fn
         assert stereo_plotter.full_directory == stereo_plotter.files.full_directory
 
-    def test_is_vantor_passed_to_plotter(self, stereo_plotter):
-        assert stereo_plotter.is_vantor == stereo_plotter.files.is_vantor
+    def test_attribution_passed_to_plotter(self, stereo_plotter):
+        assert stereo_plotter.attribution == stereo_plotter.files.attribution
 
 
 class TestStereoPlotter:
@@ -101,9 +101,9 @@ class TestStereoPlotter:
         stereo_plotter.files.intersection_error_fn = None
         return stereo_plotter
 
-    def test_is_vantor_detection(self, stereo_plotter):
-        """Test that StereoPlotter detects Vantor satellite from test data XMLs."""
-        assert stereo_plotter.is_vantor is True
+    def test_attribution_detection(self, stereo_plotter):
+        """Test that StereoPlotter detects Vantor attribution from test data XMLs."""
+        assert stereo_plotter.attribution == "Vantor"
 
     def test_plot_match_points(self, stereo_plotter):
         try:
@@ -163,9 +163,9 @@ class TestStereoPlotterNoMapproj:
         stereo_plotter_no_mapproj.files.intersection_error_fn = None
         return stereo_plotter_no_mapproj
 
-    def test_is_not_vantor(self, stereo_plotter_no_mapproj):
-        """Test that ASTER XMLs are not identified as Vantor/WorldView."""
-        assert stereo_plotter_no_mapproj.is_vantor is False
+    def test_no_attribution_for_aster(self, stereo_plotter_no_mapproj):
+        """Test that ASTER XMLs get no satellite attribution."""
+        assert stereo_plotter_no_mapproj.attribution is None
 
     def test_orthos_false(self, stereo_plotter_no_mapproj):
         """Test that non-mapprojected data is correctly identified."""
