@@ -97,3 +97,37 @@ class TestStereoGeometryPlotterNScene:
         )
         with pytest.raises(ValueError, match="at least two scenes"):
             plotter.dg_geom_plot(save_dir=str(tmp_path), fig_fn="geom.png")
+
+
+class TestStereoGeometryPlotterPleiades:
+    """Pléiades DIMAP inputs: no scan/TDI in labels, no covariance in plots."""
+
+    @pytest.fixture
+    def plotter(self):
+        return StereoGeometryPlotter(
+            directory="tests/test_data/pleiades",
+            add_basemap=False,
+        )
+
+    def test_scene_string_omits_scan_and_tdi(self, plotter):
+        p = plotter.parser.get_pair_dict()
+        scene_string = plotter.get_scene_string(p)
+        assert "ID:" in scene_string and "GSD:" in scene_string
+        # DIMAP has no scan direction or TDI level; the label omits them
+        # instead of printing scan:None / crashing on tdi=%i.
+        assert "scan:" not in scene_string
+        assert "tdi:" not in scene_string
+
+    def test_dg_geom_plot(self, plotter):
+        try:
+            plotter.dg_geom_plot()
+        except Exception as e:
+            pytest.fail(f"figure method raised an exception: {str(e)}")
+
+    def test_satellite_position_orientation_plot_without_covariance(self, plotter):
+        # DIMAP provides no ephemeris/attitude covariance; the plot must fall
+        # back to plain position markers and an annotated covariance panel.
+        try:
+            plotter.satellite_position_orientation_plot()
+        except Exception as e:
+            pytest.fail(f"figure method raised an exception: {str(e)}")

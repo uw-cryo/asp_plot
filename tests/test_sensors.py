@@ -7,6 +7,7 @@ import pytest
 
 from asp_plot.sensors import (
     SENSORS,
+    PleiadesMetadata,
     SensorMetadata,
     WorldViewMetadata,
     resolve_xml_inputs,
@@ -301,3 +302,153 @@ class TestWorldViewSceneGrouping:
         assert all(
             v.endswith("_asp_plot_dg_mosaic.r100.xml") for v in catid_xmls.values()
         )
+
+
+# Trimmed Pléiades Neo DIMAP fixtures (Airbus Marseille sample data; ephemeris
+# and attitude lists truncated to 8 entries). Fore + aft scenes of a tri-stereo
+# (~21.7 deg convergence) plus one RPC sidecar that must be filtered out.
+PLEIADES_DIR = TEST_DATA_DIR / "pleiades"
+DIM_FORE = PLEIADES_DIR / "DIM_PNEO3_202111071029126_PAN_trimmed.XML"
+DIM_AFT = PLEIADES_DIR / "DIM_PNEO3_202111071029456_PAN_trimmed.XML"
+RPC_FORE = PLEIADES_DIR / "RPC_PNEO3_202111071029126_PAN_trimmed.XML"
+
+
+class TestPleiadesMetadata:
+    @pytest.fixture
+    def reader(self):
+        return PleiadesMetadata(directory=str(PLEIADES_DIR))
+
+    def test_is_sensor_metadata(self, reader):
+        assert isinstance(reader, SensorMetadata)
+        assert reader.name == "Pleiades"
+
+    def test_image_list_excludes_rpc(self, reader):
+        # Both DIM product XMLs found; the RPC sidecar (same DIMAP root tag,
+        # METADATA_SUBPROFILE of RPC) is filtered out.
+        assert len(reader.image_list) == 2
+        assert all("DIM_PNEO3" in f for f in reader.image_list)
+
+    def test_missing_xml_raises(self, tmp_path):
+        with pytest.raises(ValueError, match="Missing DIMAP"):
+            PleiadesMetadata(directory=str(tmp_path))
+
+    def test_get_scene_dicts(self, reader):
+        scene_dicts = reader.get_scene_dicts()
+        assert len(scene_dicts) == 2
+        for d in scene_dicts:
+            for key in [
+                "catid",
+                "sensor",
+                "date",
+                "geom",
+                "meansataz",
+                "meansatel",
+                "meanoffnadirviewangle",
+                "meanintrackviewangle",
+                "meancrosstrackviewangle",
+                "meanproductgsd",
+                "meansunaz",
+                "meansunel",
+                "cloudcover",
+            ]:
+                assert key in d
+            assert d["sensor"] == "PNEO3"
+            # DIMAP has no scan direction / TDI level.
+            assert d["scandir"] is None
+            assert d["tdi"] is None
+            assert d["geom"].is_valid
+
+    def test_scene_values_fore(self, reader):
+        d = [s for s in reader.get_scene_dicts() if "202111071029126" in s["catid"]][0]
+        assert d["catid"] == "PNEO3_202111071029126_PAN_SEN"
+        assert d["date"].year == 2021 and d["date"].month == 11
+        # Fore scene of the tri-stereo: ~22 deg incidence -> ~68 deg elevation.
+        assert d["meansatel"] == pytest.approx(68, abs=1)
+        assert d["meanproductgsd"] == pytest.approx(0.33, abs=0.05)
+        assert d["meansunel"] == pytest.approx(29, abs=1)
+        assert d["cloudcover"] == 0.0
+
+    def test_eph_gdf(self, reader):
+        d = reader.get_scene_dicts()[0]
+        eph_gdf = d["eph_gdf"]
+        assert isinstance(eph_gdf.index, pd.DatetimeIndex)
+        assert len(eph_gdf) == 8  # trimmed fixture
+        for col in ["x", "y", "z", "dx", "dy", "dz"]:
+            assert col in eph_gdf.columns
+        # Positions are ECEF meters (satellite altitude ~7000 km radius).
+        radius = np.sqrt(eph_gdf["x"] ** 2 + eph_gdf["y"] ** 2 + eph_gdf["z"] ** 2)
+        assert ((radius > 6.9e6) & (radius < 7.1e6)).all()
+        # DIMAP provides no ephemeris covariance: columns exist but are NaN.
+        for n in ["11", "12", "13", "22", "23", "33"]:
+            assert eph_gdf[f"cov_{n}"].isna().all()
+
+    def test_att_df_scalar_last_quaternions(self, reader):
+        d = reader.get_scene_dicts()[0]
+        att_df = d["att_df"]
+        assert isinstance(att_df.index, pd.DatetimeIndex)
+        assert len(att_df) == 8  # trimmed fixture
+        # Unit quaternions, reordered scalar-last (Airbus Q0 lands in q4).
+        norm = np.sqrt(
+            att_df["q1"] ** 2
+            + att_df["q2"] ** 2
+            + att_df["q3"] ** 2
+            + att_df["q4"] ** 2
+        )
+        assert np.allclose(norm, 1.0, atol=1e-6)
+        for n in ["11", "12", "13", "14", "22", "23", "24", "33", "34", "44"]:
+            assert att_df[f"cov_{n}"].isna().all()
+
+    def test_pair_geometry_matches_bundle_adjust(self):
+        # Convergence angle of the fore/aft pair as measured by ASP
+        # bundle_adjust on the full images is 21.7 deg; the DIMAP-derived
+        # value must agree closely.
+        from asp_plot.stereopair_metadata_parser import StereopairMetadataParser
+
+        parser = StereopairMetadataParser(directory=str(PLEIADES_DIR))
+        p = parser.get_pair_dict()
+        assert p["conv_ang"] == pytest.approx(21.7, abs=0.3)
+        assert p["bh"] == pytest.approx(0.38, abs=0.02)
+        assert p["intersection_area"] > 50
+
+
+class TestPleiadesDetection:
+    def test_detect_pleiades_dir(self):
+        assert PleiadesMetadata.detect(str(PLEIADES_DIR)) is True
+
+    def test_detect_rejects_worldview_dir_shallow(self):
+        # WorldView XMLs are not DIMAP; shallow detection must not match the
+        # top-level test_data dir (the nested pleiades/ fixtures are only
+        # reachable recursively).
+        assert PleiadesMetadata.detect(str(TEST_DATA_DIR), recursive=False) is False
+
+    def test_detect_empty_dir(self, tmp_path):
+        assert PleiadesMetadata.detect(str(tmp_path)) is False
+
+    def test_registry_order_pleiades_first(self):
+        # Pléiades detects strictly on the DIMAP root tag while WorldView
+        # matches any non-ortho XML, so Pléiades must be checked first.
+        assert SENSORS.index(PleiadesMetadata) < SENSORS.index(WorldViewMetadata)
+
+    def test_sensor_for_directory_pleiades(self):
+        reader = sensor_for_directory(str(PLEIADES_DIR))
+        assert isinstance(reader, PleiadesMetadata)
+
+    def test_sensor_for_directory_worldview_top_level_wins(self):
+        # tests/test_data has WorldView XMLs at the top level and DIMAP
+        # fixtures nested in pleiades/: the shallow match must win.
+        reader = sensor_for_directory(str(TEST_DATA_DIR))
+        assert isinstance(reader, WorldViewMetadata)
+
+    def test_sensor_for_inputs_pleiades_files(self):
+        reader = sensor_for_inputs([str(DIM_FORE), str(DIM_AFT)])
+        assert isinstance(reader, PleiadesMetadata)
+        assert len(reader.image_list) == 2
+
+    def test_detect_files_rejects_rpc_only(self):
+        assert PleiadesMetadata.detect_files([str(RPC_FORE)]) is False
+
+    def test_rpc_only_inputs_fall_through_to_worldview_error_path(self):
+        # An RPC sidecar alone is not a camera model for any reader; the
+        # WorldView reader will accept it by name, but content parsing fails
+        # later. Here we only assert Pléiades does not claim it.
+        assert PleiadesMetadata.detect_files([str(RPC_FORE)]) is False
