@@ -158,10 +158,14 @@ class ScenePlotter(Plotter):
         if self.title is None:
             self.title = "Stereo Scenes"
 
-        left_scene = Raster(self.left_scene_sub_fn)
-        transform = left_scene.transform
+        # The sub-sampled scenes may be absent (e.g. a multi-view run keeps
+        # them in its run-pair*/ subdirectories); plot placeholders instead of
+        # crashing so the rest of a report can still be built.
+        left_scene = Raster(self.left_scene_sub_fn) if self.left_scene_sub_fn else None
 
-        if transform is None:
+        if left_scene is None:
+            subtitle = ""
+        elif left_scene.transform is None:
             subtitle = "\nRaw Scenes, No Map-projection"
         else:
             subtitle = "\nMap-projected Scenes"
@@ -170,24 +174,34 @@ class ScenePlotter(Plotter):
         fig.suptitle(f"{self.title}{subtitle}", size=10)
         axa = axa.ravel()
 
-        left_scene_ma = left_scene.read_array()
-        self.plot_array(
-            ax=axa[0],
-            array=left_scene_ma,
-            cmap="gray",
-            add_cbar=False,
-            copyright=True,
-        )
-        axa[0].set_title(f"Left\n{os.path.basename(self.left_scene_sub_fn)}", size=8)
+        if left_scene is not None:
+            self.plot_array(
+                ax=axa[0],
+                array=left_scene.read_array(),
+                cmap="gray",
+                add_cbar=False,
+                copyright=True,
+            )
+            axa[0].set_title(
+                f"Left\n{os.path.basename(self.left_scene_sub_fn)}", size=8
+            )
+        else:
+            self.plot_missing(axa[0])
+            axa[0].set_title("Left", size=8)
 
-        right_scene_ma = Raster(self.right_scene_sub_fn).read_array()
-        self.plot_array(
-            ax=axa[1],
-            array=right_scene_ma,
-            cmap="gray",
-            add_cbar=False,
-            copyright=True,
-        )
-        axa[1].set_title(f"Right\n{os.path.basename(self.right_scene_sub_fn)}", size=8)
+        if self.right_scene_sub_fn:
+            self.plot_array(
+                ax=axa[1],
+                array=Raster(self.right_scene_sub_fn).read_array(),
+                cmap="gray",
+                add_cbar=False,
+                copyright=True,
+            )
+            axa[1].set_title(
+                f"Right\n{os.path.basename(self.right_scene_sub_fn)}", size=8
+            )
+        else:
+            self.plot_missing(axa[1])
+            axa[1].set_title("Right", size=8)
 
         self.save(fig, save_dir, fig_fn)
