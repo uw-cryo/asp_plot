@@ -55,8 +55,10 @@ class StereoFiles:
         Whether the left image is map-projected.
     align_left_fn, align_right_fn : str or None
         Alignment transform text files.
-    match_point_fn : str
-        Match-point file (the non-``-disp-`` one when several exist).
+    match_point_fn : str or None
+        Match-point file (the non-``-disp-`` one when several exist); None when
+        the directory has none at the top level (e.g. a multi-view run, whose
+        match files live in the ``run-pair*/`` subdirectories).
     disparity_sub_fn, disparity_fn : str or None
         Sub-sampled and full disparity map paths.
     dem_gsd : float or None
@@ -132,8 +134,11 @@ class StereoFiles:
 
         # There may be multiple match files if stereo was run with --num-matches-from-disparity.
         # In that case, filter out the match file with `-disp-` in filename.
+        # A multi-view run keeps its match files in the run-pair*/ subdirectories,
+        # so a stereo directory may legitimately have none at the top level.
         match_files = glob_file(self.full_directory, "*.match", all_files=True)
-        self.match_point_fn = [f for f in match_files if "-disp-" not in f][0]
+        non_disp = [f for f in (match_files or []) if "-disp-" not in f]
+        self.match_point_fn = non_disp[0] if non_disp else None
 
         self.disparity_sub_fn = glob_file(self.full_directory, "*-D_sub.tif")
         # We only need the full disparity file to retrieve the GSD for plotting
