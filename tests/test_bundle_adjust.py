@@ -1,9 +1,16 @@
 import geopandas as gpd
 import matplotlib
+import numpy as np
 import pandas as pd
 import pytest
 
-from asp_plot.bundle_adjust import PlotBundleAdjustFiles, ReadBundleAdjustFiles
+from asp_plot.bundle_adjust import (
+    PlotBundleAdjustCameras,
+    PlotBundleAdjustFiles,
+    ReadBundleAdjustCameras,
+    ReadBundleAdjustFiles,
+    _camera_label,
+)
 
 matplotlib.use("Agg")
 
@@ -67,3 +74,148 @@ class TestBundleAdjust:
         )
         assert isinstance(resid_initial, gpd.GeoDataFrame)
         assert isinstance(resid_final, gpd.GeoDataFrame)
+
+
+class TestBundleAdjustCameras:
+    @pytest.fixture
+    def cam_reader(self):
+        # ba_cams holds a stereo pair of CSM cameras with .adjust,
+        # .adjusted_state.json, and a camera_offsets.txt fixture.
+        return ReadBundleAdjustCameras("tests/test_data", "ba_cams")
+
+    def test_camera_label(self):
+        # Only deterministic camera extensions are stripped; the ASP output
+        # prefix (run-, ba_mvs_csm-, ...) is left intact -- no brittle guessing.
+        assert _camera_label("run-out-Band3B.adjusted_state.json") == "run-out-Band3B"
+        assert (
+            _camera_label("ba_mvs_csm-10300100D044F700.r100.adjusted_state.json")
+            == "ba_mvs_csm-10300100D044F700.r100"
+        )
+        assert _camera_label("10300100D044F700.r100.xml") == "10300100D044F700.r100"
+
+    def test_read_adjust_file(self, cam_reader):
+        translation, rotation = cam_reader.read_adjust_file(
+            "tests/test_data/ba_cams/1040010074793300.adjust"
+        )
+        assert translation.shape == (3,)
+        # Nearly-identity adjustment: rotation magnitude should be tiny.
+        assert rotation.magnitude() < 0.01
+
+    def test_get_camera_offsets_df(self, cam_reader):
+        df = cam_reader.get_camera_offsets_df()
+        assert isinstance(df, pd.DataFrame)
+        assert {"image", "horizontal_offset_m", "vertical_offset_m"} <= set(df.columns)
+
+    def test_offsets_associated_by_camera_list_order(self, cam_reader):
+        # Positional association via camera_list.txt: no filename munging.
+        mapping = cam_reader._offsets_by_camera_basename()
+        assert mapping["1040010074793300.adjusted_state.json"][0] == pytest.approx(
+            0.72481032
+        )
+        assert mapping["1040010075633C00.adjusted_state.json"][1] == pytest.approx(
+            0.20482915
+        )
+
+    def test_get_camera_optimization_gdf(self, cam_reader):
+        gdf = cam_reader.get_camera_optimization_gdf(map_crs=32619)
+        assert isinstance(gdf, gpd.GeoDataFrame)
+        assert len(gdf) == 2
+        for col in [
+            "camera_id",
+            "t_east",
+            "t_north",
+            "t_up",
+            "t_horizontal",
+            "adj_roll",
+            "adj_pitch",
+            "adj_yaw",
+            "horizontal_offset_m",
+            "vertical_offset_m",
+            "offsets_from_asp",
+        ]:
+            assert col in gdf.columns
+        # camera_offsets.txt fixture is present, so magnitudes come from ASP.
+        assert gdf.offsets_from_asp.all()
+        assert gdf.crs.to_epsg() == 32619
+
+    def test_optimization_gdf_fallback_without_offsets(self, cam_reader, monkeypatch):
+        """Without ASP offsets, magnitudes fall back to the .adjust translation."""
+        monkeypatch.setattr(cam_reader, "_offsets_by_camera_basename", lambda: None)
+        gdf = cam_reader.get_camera_optimization_gdf(map_crs=32619)
+        assert not gdf.offsets_from_asp.any()
+        # Fallback horizontal offset equals the translation horizontal magnitude.
+        assert np.allclose(gdf.horizontal_offset_m, gdf.t_horizontal)
+
+    def test_malformed_adjust_is_skipped(self, tmp_path):
+        """A corrupt/truncated .adjust skips that camera instead of crashing."""
+        import shutil
+        from glob import glob
+
+        ba = tmp_path / "ba"
+        ba.mkdir()
+        src = "tests/test_data/ba_cams"
+        for f in glob(f"{src}/*.adjusted_state.json") + glob(f"{src}/*.adjust"):
+            shutil.copy(f, ba)
+        # Truncate one .adjust to drop the quaternion line.
+        victim = sorted(glob(f"{ba}/*.adjust"))[0]
+        with open(victim, "w") as fh:
+            fh.write("0.1 0.2 0.3\n")
+
+        reader = ReadBundleAdjustCameras(str(tmp_path), "ba")
+        gdf = reader.get_camera_optimization_gdf()
+        # One camera dropped, the other survives (no exception raised).
+        assert len(gdf) == 1
+
+    def test_digitalglobe_case_reads_center_from_xml(self, tmp_path):
+        """DG runs have no *.adjusted_state.json; the center comes from the .xml."""
+        import shutil
+        from glob import glob
+
+        ba = tmp_path / "ba"
+        ba.mkdir()
+        src = "tests/test_data/ba_cams"
+        # Copy only the .adjust deltas and the original .xml cameras (no state json),
+        # mimicking a DigitalGlobe bundle_adjust output.
+        for f in glob(f"{src}/*.adjust") + glob(f"{src}/*.xml"):
+            shutil.copy(f, ba)
+
+        reader = ReadBundleAdjustCameras(str(tmp_path), "ba")
+        gdf = reader.get_camera_optimization_gdf(map_crs=32619)
+        assert len(gdf) == 2
+        assert not gdf.offsets_from_asp.any()  # no camera_offsets.txt here
+        # Centers must be real (finite) ECEF-derived points, not NaN.
+        assert gdf.geometry.x.notna().all() and gdf.geometry.y.notna().all()
+
+    def test_digitalglobe_missing_xml_skips(self, tmp_path):
+        """A DG .adjust with no locatable original camera is skipped, not fatal."""
+        import shutil
+        from glob import glob
+
+        ba = tmp_path / "ba"
+        ba.mkdir()
+        src = "tests/test_data/ba_cams"
+        adjusts = sorted(glob(f"{src}/*.adjust"))
+        xmls = sorted(glob(f"{src}/*.xml"))
+        for f in adjusts:  # both deltas
+            shutil.copy(f, ba)
+        shutil.copy(xmls[0], ba)  # only one of two original cameras
+
+        reader = ReadBundleAdjustCameras(str(tmp_path), "ba")
+        gdf = reader.get_camera_optimization_gdf()
+        assert len(gdf) == 1  # the camera without an .xml is skipped
+
+    def test_get_camera_optimization_gdf_raises_without_adjust(self):
+        # The plain "ba" residual dir has no .adjust files.
+        reader = ReadBundleAdjustCameras("tests/test_data", "ba")
+        with pytest.raises(ValueError):
+            reader.get_camera_optimization_gdf()
+
+    def test_plot_methods(self, cam_reader):
+        gdf = cam_reader.get_camera_optimization_gdf(map_crs=32619)
+        plotter = PlotBundleAdjustCameras(gdf, title="Test cameras")
+        try:
+            plotter.plot_center_offset_bars()
+            plotter.plot_orientation_cartoons()
+            plotter.summary_plot()
+        except Exception as e:
+            pytest.fail(f"figure method raised an exception: {str(e)}")
