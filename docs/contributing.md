@@ -30,7 +30,7 @@ When you add a new feature, add some test coverage as well. Use `pytest -s` to s
 
 ## Add a feature
 
-New to the codebase? `AGENTS.md` at the repository root is a module-by-module map of the package and its design patterns (registries, composition, the source/plotter splits) — the fastest way to find where your change belongs. It is also the onboarding reference auto-discovered by AI coding agents (Claude Code and others). Keep it in sync when you add or restructure a module.
+New to the codebase? `ARCHITECTURE.md` at the repository root is a module-by-module map of the package and its design patterns (registries, composition, the source/plotter splits) — the fastest way to find where your change belongs. `AGENTS.md` (also at the root) is the lean companion auto-discovered by AI coding agents (Claude Code and others): commands, gotchas, and process. Keep both in sync when you add or restructure a module.
 
 Checkout main and pull to get the latest changes:
 
