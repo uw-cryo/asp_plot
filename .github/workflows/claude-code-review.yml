@@ -1,14 +1,10 @@
 name: Claude Code Review
 
+# Runs once when a draft PR is marked ready for review.
+# For further reviews, mention @claude in a PR comment (see claude.yml).
 on:
   pull_request:
-    types: [opened, synchronize, ready_for_review, reopened]
-    # Optional: Only run on specific file changes
-    # paths:
-    #   - "src/**/*.ts"
-    #   - "src/**/*.tsx"
-    #   - "src/**/*.js"
-    #   - "src/**/*.jsx"
+    types: [ready_for_review]
 
 jobs:
   claude-review:
@@ -41,4 +37,3 @@ jobs:
           prompt: '/code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}'
           # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
           # or https://code.claude.com/docs/en/cli-reference for available options
-
