@@ -46,6 +46,7 @@ sphinx-autobuild docs docs/_build/html --open-browser   # or sphinx-build for a 
 - **ASP's `mapproject` writes no log file**; its command is reconstructed from output GeoTIFF metadata (`mapproject.py`), not parsed from logs like the other tools.
 - **Attribution vs sensor naming is deliberate**: copyright/attribution names the rights-holder (`detect_satellite_attribution()` → `"Vantor"` or `"Airbus DS"`), while readers in `sensors.py` are named for the satellite family (WorldView, Pleiades). Don't reconcile them into one name (#137).
 - **Airbus DIMAP quaternions are scalar-first** (`Q0` = scalar); they are reordered to the scalar-last `q1..q4` layout the roll/pitch/yaw code expects in `PleiadesMetadata.getAtt_df()`. Don't "fix" the reorder.
+- **ASP multiview triangulation of mapprojected images needs `ISISROOT`** (observed with ASP 3.8.0-alpha, non-ISIS `-t pleiades` session): the joint triangulation aborts with an uncatchable `Isis::IException` (`$ISISROOT/IsisPreferences was not found`) that surfaces as a generic "Failed to run"/killed job. Workaround: `export ISISROOT=<ASP install root>` (the release bundles `IsisPreferences` there). Pair runs and raw-image multiview runs are unaffected; full write-up in a PR #155 comment.
 
 ## External Data Sources
 
