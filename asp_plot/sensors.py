@@ -4,10 +4,11 @@ This module isolates the *sensor-specific* work of discovering scene files and
 extracting per-scene metadata from the *sensor-agnostic* stereo-pair geometry
 math in :mod:`asp_plot.stereopair_metadata_parser`.
 
-The goal is flexibility: today only WorldView (and other DigitalGlobe-heritage)
-XML camera files are supported, but adding a new sensor (ASTER, HiRISE, etc.) is
-a matter of writing a new :class:`SensorMetadata` subclass and registering it in
-``SENSORS`` — no changes to the pair-level geometry code are required.
+The goal is flexibility: WorldView (and other DigitalGlobe-heritage) XML camera
+files and Airbus Pléiades / Pléiades Neo DIMAP products are supported, and adding
+a new sensor (ASTER, HiRISE, etc.) is a matter of writing a new
+:class:`SensorMetadata` subclass and registering it in ``SENSORS`` — no changes
+to the pair-level geometry code are required.
 
 Each reader is responsible for turning a directory of camera/metadata files into
 a list of *scene dicts*, one per scene, each containing the sensor-agnostic keys
