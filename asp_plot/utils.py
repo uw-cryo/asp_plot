@@ -4,6 +4,7 @@ import os
 import re
 import subprocess
 import warnings
+import xml.etree.ElementTree as ET
 from datetime import datetime
 
 import contextily as ctx
@@ -182,8 +183,6 @@ def get_xml_tag(xml, tag, all=False):
     >>> satid = get_xml_tag("path/to/file.xml", "SATID")
     >>> ephemeris = get_xml_tag("path/to/file.xml", "EPHEMLIST", all=True)
     """
-    import xml.etree.ElementTree as ET
-
     tree = ET.parse(xml)
     if all:
         elem = tree.findall(".//%s" % tag)
@@ -1311,8 +1310,6 @@ VANTOR_SATID_PREFIXES = ("WV", "GE", "QB", "IK")
 
 def _is_dimap_document(xml_fn):
     """True if the XML file's root tag is ``Dimap_Document`` (Airbus DIMAP)."""
-    import xml.etree.ElementTree as ET
-
     try:
         for _, el in ET.iterparse(xml_fn, events=("start",)):
             return el.tag == "Dimap_Document"
@@ -1395,8 +1392,6 @@ def _dimap_acquisition_datetime(xml_fn):
     (present in Pléiades / Pléiades Neo ``DIM_*.XML`` products; the RPC
     sidecars have no ``Refined_Model`` and return None).
     """
-    import xml.etree.ElementTree as ET
-
     try:
         root = ET.parse(xml_fn).getroot()
     except (ET.ParseError, OSError):
