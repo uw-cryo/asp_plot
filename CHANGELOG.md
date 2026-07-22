@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Airbus Pléiades / Pléiades Neo (DIMAP) support** ([#155](https://github.com/uw-cryo/asp_plot/pull/155)). A new `PleiadesMetadata` sensor reader parses DIMAP v2 product XMLs (`DIM_*.XML`) into the sensor-agnostic scene dicts used by the stereo-geometry tooling — footprints, view/sun angles and GSD from the `Located_Geometric_Values` grid, ECEF ephemeris with per-point times, and attitude quaternions reordered from the Airbus scalar-first `Q0` layout to the scalar-last convention shared with WorldView. `RPC_*.XML` sidecars are filtered out by `METADATA_SUBPROFILE`, and sensor detection is now two-pass (shallow matches beat recursive ones) so WorldView XMLs at a directory top level win over DIMAP files nested in a raw delivery, and vice versa. Pléiades panels carry "© Airbus DS" attribution via the new `detect_satellite_attribution()` — which returns the rights-holder name (`"Vantor"` or `"Airbus DS"`) and replaces the `is_vantor` bool (`detect_vantor_satellite()` remains as a backward-compatible wrapper) — and `get_acquisition_dates()` falls back to the DIMAP refined-model start time when `FIRSTLINETIME` is absent. Validated end-to-end on the free Airbus Pléiades Neo tri-stereo sample over Marseille: executed example notebook (3-scene multi-view stereo) and committed PDF report, wired into the docs.
+- **ASP multi-view stereo runs no longer crash the report** ([#155](https://github.com/uw-cryo/asp_plot/pull/155)). A multi-view run keeps its per-pair match/scene/disparity files in `run-pair*/` subdirectories, which previously crashed `StereoFiles` discovery; those sections now draw "missing files" placeholders while the joint DEM, hillshade, and altimetry sections are fully populated. Rendering the per-pair files is tracked in [#160](https://github.com/uw-cryo/asp_plot/issues/160).
+
+### Changed
+- **Breaking: `StereoGeometryPlotter.dg_geom_plot()` renamed to `stereo_geom_plot()`** ([#155](https://github.com/uw-cryo/asp_plot/pull/155)). The `dg_` (DigitalGlobe) prefix predated multi-sensor support and was wrong for Pléiades; the new name matches the `stereo_geom` CLI and its `*_stereo_geom.png` outputs. No back-compat alias.
+
+### Fixed
+- **Report robustness for N-scene and covariance-free sensors** ([#155](https://github.com/uw-cryo/asp_plot/pull/155)). The stereo-geometry report section emits one PDF section per saved figure (N-scene runs produce an overview plus per-pair figures); long DEM-summary values (e.g. three joined acquisition dates) wrap inside the title-page table instead of overflowing the page; `satellite_position_orientation_plot` generalizes from the two-scene layout to one column per scene; scene labels omit scan direction and TDI when the sensor does not provide them (DIMAP has neither); and the covariance panels annotate "not provided" instead of crashing when a sensor carries no ephemeris/attitude covariance (as DIMAP does not).
+
 ## [1.19.0] - 2026-06-30
 
 ### Added

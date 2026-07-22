@@ -44,7 +44,9 @@ sphinx-autobuild docs docs/_build/html --open-browser   # or sphinx-build for a 
 - **Internet is required** for basemaps (contextily/Esri tiles), ICESat-2 requests (SlideRule), and ESA WorldCover sampling (public AWS S3 COGs). Tests must not depend on the network — basemap fetches are stubbed (#151).
 - **Mars altimetry needs the `*_pts_csv.csv`** (with `PLANET_RAD`), never the `*_topo_csv.csv`: MOLA TOPOGRAPHY is referenced to the oblate areoid while ASP DEMs use the spherical IAU datum — a latitude-dependent offset up to ~10 km that pc_align cannot remove. The loader rejects the topo file with an explanatory error.
 - **ASP's `mapproject` writes no log file**; its command is reconstructed from output GeoTIFF metadata (`mapproject.py`), not parsed from logs like the other tools.
-- **"Vantor" vs "WorldView" naming is deliberate**: Vantor = copyright/attribution (rights-holder), WorldView = sensor/reader identity (`sensors.py`). Don't reconcile them into one name (#137).
+- **Attribution vs sensor naming is deliberate**: copyright/attribution names the rights-holder (`detect_satellite_attribution()` → `"Vantor"` or `"Airbus DS"`), while readers in `sensors.py` are named for the satellite family (WorldView, Pleiades). Don't reconcile them into one name (#137).
+- **Airbus DIMAP quaternions are scalar-first** (`Q0` = scalar); they are reordered to the scalar-last `q1..q4` layout the roll/pitch/yaw code expects in `PleiadesMetadata.getAtt_df()`. Don't "fix" the reorder.
+- **ASP multiview triangulation of mapprojected images needs `ISISROOT`** (observed with ASP 3.8.0-alpha, non-ISIS `-t pleiades` session): the joint triangulation aborts with an uncatchable `Isis::IException` (`$ISISROOT/IsisPreferences was not found`) that surfaces as a generic "Failed to run"/killed job. Workaround: `export ISISROOT=<ASP install root>` (the release bundles `IsisPreferences` there). Pair runs and raw-image multiview runs are unaffected; full write-up in a PR #155 comment.
 
 ## External Data Sources
 
@@ -53,7 +55,7 @@ sphinx-autobuild docs docs/_build/html --open-browser   # or sphinx-build for a 
 
 ## Testing
 
-Tests are in `tests/` with sample data in `tests/test_data/` (synthetic rasters, XML camera files, BA CSVs, ICESat-2 parquet, pc_align outputs, jitter data). Most modules have a matching `tests/test_<module>.py`; `test_imports.py` verifies everything imports. Example notebooks in `notebooks/` are organized by sensor (WorldView, ASTER, LRO_NAC, Mars_MGS, Mars_MRO) — see ARCHITECTURE.md for what each demonstrates.
+Tests are in `tests/` with sample data in `tests/test_data/` (synthetic rasters, XML camera files, BA CSVs, ICESat-2 parquet, pc_align outputs, jitter data). Most modules have a matching `tests/test_<module>.py`; `test_imports.py` verifies everything imports. Example notebooks in `notebooks/` are organized by sensor (WorldView, Pleiades, ASTER, LRO_NAC, Mars_MGS, Mars_MRO) — see ARCHITECTURE.md for what each demonstrates.
 
 ## Versioning and Release Process
 

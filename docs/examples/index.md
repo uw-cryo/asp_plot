@@ -49,6 +49,13 @@ Pair-ranking and DEM-vs-ICESat-2 comparison used to choose the UCSD stereo pair 
 CSM camera model comparison plots after jitter correction for WorldView imagery.
 :::
 
+:::{grid-item-card} Pléiades Neo — Marseille Tri-Stereo
+:link: notebooks/pleiades_neo_marseille_tristereo
+:link-type: doc
+
+Tri-stereo processing of the free Airbus Pléiades Neo sample over Marseille: DIMAP stereo geometry analysis, bundle adjustment, and a three-scene multi-view stereo DEM.
+:::
+
 :::{grid-item-card} ASTER — With Map-projection
 :link: notebooks/aster_with_mapprojection
 :link-type: doc
@@ -110,6 +117,7 @@ notebooks/worldview_spacenet_atlanta_stereo_scene_selection
 notebooks/worldview_spacenet_ucsd_stereo
 notebooks/worldview_spacenet_ucsd_stereo_scene_selection
 notebooks/worldview_uyuni_jitter_plots
+notebooks/pleiades_neo_marseille_tristereo
 notebooks/aster_with_mapprojection
 notebooks/aster_with_bundle_adjust_and_jitter_correction
 notebooks/lunar_recon_orbiter

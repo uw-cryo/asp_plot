@@ -86,7 +86,7 @@ def main(
 
     os.makedirs(output_directory, exist_ok=True)
 
-    saved = plotter.dg_geom_plot(save_dir=output_directory, fig_fn=output_filename)
+    saved = plotter.stereo_geom_plot(save_dir=output_directory, fig_fn=output_filename)
 
     if saved:
         if len(saved) == 1:

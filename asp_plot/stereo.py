@@ -14,7 +14,13 @@ from asp_plot.selections import (
     pixel_window_to_bbox,
     reproject_bbox,
 )
-from asp_plot.utils import ColorBar, Plotter, Raster, detect_vantor_satellite, glob_file
+from asp_plot.utils import (
+    ColorBar,
+    Plotter,
+    Raster,
+    detect_satellite_attribution,
+    glob_file,
+)
 
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
@@ -38,9 +44,9 @@ class StereoFiles:
         Directory containing stereo processing outputs.
     full_directory : str
         Full path to the stereo directory.
-    is_vantor : bool
-        Whether the source imagery is from a Vantor-owned satellite (WorldView
-        family, GeoEye, QuickBird, etc.); gates the "© Vantor" copyright overlay.
+    attribution : str or None
+        Rights-holder of the source imagery ("Vantor", "Airbus DS", ...);
+        gates the copyright overlay on scene panels.
     reference_dem : str or None
         Path to the reference DEM (supplied or recovered from the stereo log).
     left_image_fn, left_image_sub_fn, right_image_sub_fn : str or None
@@ -49,8 +55,10 @@ class StereoFiles:
         Whether the left image is map-projected.
     align_left_fn, align_right_fn : str or None
         Alignment transform text files.
-    match_point_fn : str
-        Match-point file (the non-``-disp-`` one when several exist).
+    match_point_fn : str or None
+        Match-point file (the non-``-disp-`` one when several exist); None when
+        the directory has none at the top level (e.g. a multi-view run, whose
+        match files live in the ``run-pair*/`` subdirectories).
     disparity_sub_fn, disparity_fn : str or None
         Sub-sampled and full disparity map paths.
     dem_gsd : float or None
@@ -93,7 +101,7 @@ class StereoFiles:
         """
         self.directory = os.path.expanduser(directory)
         self.stereo_directory = stereo_directory
-        self.is_vantor = detect_vantor_satellite(self.directory)
+        self.attribution = detect_satellite_attribution(self.directory)
 
         if reference_dem:
             self.reference_dem = os.path.expanduser(reference_dem)
@@ -126,8 +134,11 @@ class StereoFiles:
 
         # There may be multiple match files if stereo was run with --num-matches-from-disparity.
         # In that case, filter out the match file with `-disp-` in filename.
+        # A multi-view run keeps its match files in the run-pair*/ subdirectories,
+        # so a stereo directory may legitimately have none at the top level.
         match_files = glob_file(self.full_directory, "*.match", all_files=True)
-        self.match_point_fn = [f for f in match_files if "-disp-" not in f][0]
+        non_disp = [f for f in (match_files or []) if "-disp-" not in f]
+        self.match_point_fn = non_disp[0] if non_disp else None
 
         self.disparity_sub_fn = glob_file(self.full_directory, "*-D_sub.tif")
         # We only need the full disparity file to retrieve the GSD for plotting
@@ -244,7 +255,7 @@ class StereoPlotter(Plotter):
             dem_fn=dem_fn,
             reference_dem=reference_dem,
         )
-        super().__init__(is_vantor=self.files.is_vantor, **kwargs)
+        super().__init__(attribution=self.files.attribution, **kwargs)
 
     # File discovery lives in StereoFiles; expose the resolved paths/flags as
     # read-only properties so the plotting methods can keep using ``self.<attr>``.
