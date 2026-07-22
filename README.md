@@ -37,7 +37,7 @@ See the [CLI documentation](https://asp-plot.readthedocs.io/en/latest/cli/index.
 
 ## Examples
 
-- [Example reports](https://asp-plot.readthedocs.io/en/latest/examples/reports.html) — PDF reports for WorldView, ASTER, LRO NAC, and Mars sensors
+- [Example reports](https://asp-plot.readthedocs.io/en/latest/examples/reports.html) — PDF reports for WorldView, Pléiades, ASTER, LRO NAC, and Mars sensors
 - [Example notebooks](https://asp-plot.readthedocs.io/en/latest/examples/index.html) — Modular usage by sensor type
 
 ## Contributing

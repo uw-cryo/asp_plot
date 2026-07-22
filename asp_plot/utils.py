@@ -4,6 +4,7 @@ import os
 import re
 import subprocess
 import warnings
+import xml.etree.ElementTree as ET
 from datetime import datetime
 
 import contextily as ctx
@@ -182,8 +183,6 @@ def get_xml_tag(xml, tag, all=False):
     >>> satid = get_xml_tag("path/to/file.xml", "SATID")
     >>> ephemeris = get_xml_tag("path/to/file.xml", "EPHEMLIST", all=True)
     """
-    import xml.etree.ElementTree as ET
-
     tree = ET.parse(xml)
     if all:
         elem = tree.findall(".//%s" % tag)
@@ -1091,7 +1090,7 @@ class Plotter:
         clim_perc=(2, 98),
         lognorm=False,
         title=None,
-        is_vantor=False,
+        attribution=None,
     ):
         """
         Initialize the Plotter.
@@ -1104,16 +1103,17 @@ class Plotter:
             Whether to use logarithmic color normalization, default is False
         title : str, optional
             Plot title, default is None
-        is_vantor : bool, optional
-            Whether the source imagery is from a Vantor-owned satellite (the
-            WorldView family, GeoEye, QuickBird, etc.). When True, ``plot_array``
-            adds a "© Vantor" copyright overlay for panels that request it via
-            ``copyright=True``. Default is False.
+        attribution : str, optional
+            Rights-holder of the source imagery (e.g. ``"Vantor"`` for the
+            WorldView family, ``"Airbus DS"`` for Pléiades), as returned by
+            :func:`detect_satellite_attribution`. When set, ``plot_array`` adds
+            a "© <attribution>" copyright overlay for panels that request it
+            via ``copyright=True``. Default is None (no overlay).
         """
         self.clim_perc = clim_perc
         self.lognorm = lognorm
         self.title = title
-        self.is_vantor = is_vantor
+        self.attribution = attribution
         self.cb = ColorBar(perc_range=self.clim_perc)
 
     def save(self, fig, save_dir=None, fig_fn=None, tight_layout=True, **kwargs):
@@ -1200,9 +1200,9 @@ class Plotter:
         copyright : bool, optional
             Whether to add a satellite-imagery copyright overlay, default is
             False. The overlay is only drawn when this is True *and* the Plotter
-            was created with ``is_vantor=True`` (i.e. the source imagery is from
-            a Vantor-owned satellite). Set on the panels that display the optical
-            scenes.
+            was created with an ``attribution`` (i.e. the source imagery has a
+            recognized rights-holder). Set on the panels that display the
+            optical scenes.
 
         Returns
         -------
@@ -1240,8 +1240,8 @@ class Plotter:
         ax.set_yticks([])
         ax.set_title(self.title)
 
-        if copyright and self.is_vantor:
-            add_copyright_overlay(ax)
+        if copyright and self.attribution:
+            add_copyright_overlay(ax, self.attribution)
 
         return im
 
@@ -1308,20 +1308,68 @@ class Plotter:
 VANTOR_SATID_PREFIXES = ("WV", "GE", "QB", "IK")
 
 
+def _is_dimap_document(xml_fn):
+    """True if the XML file's root tag is ``Dimap_Document`` (Airbus DIMAP)."""
+    try:
+        for _, el in ET.iterparse(xml_fn, events=("start",)):
+            return el.tag == "Dimap_Document"
+    except (ET.ParseError, OSError):
+        return False
+    return False
+
+
+def detect_satellite_attribution(directory):
+    """Return the imagery rights-holder name for XML files in a directory.
+
+    This is an *attribution* check, distinct from sensor/reader identity: it
+    decides which copyright overlay applies (see :func:`add_copyright_overlay`
+    and :class:`Plotter`). It is named for the rights-holder and matches any of
+    that owner's satellites. Sensor *identity* — which reader parses the XML —
+    is a separate concern handled by :mod:`asp_plot.sensors`; the two names
+    intentionally differ and should not be "reconciled" into one.
+
+    Recognized rights-holders:
+
+    - ``"Vantor"`` (formerly Maxar/DigitalGlobe): an XML camera file carries a
+      SATID matching one of :data:`VANTOR_SATID_PREFIXES`.
+    - ``"Airbus DS"``: an Airbus DIMAP document (Pléiades, Pléiades Neo, SPOT;
+      root tag ``Dimap_Document``) is present.
+
+    Parameters
+    ----------
+    directory : str
+        Path to directory containing XML camera model files.
+
+    Returns
+    -------
+    str or None
+        The rights-holder name for the copyright overlay, or None when no
+        attributed imagery is detected.
+    """
+    try:
+        xml_files = glob_file(directory, "*.[Xx][Mm][Ll]", all_files=True)
+    except Exception:
+        return None
+    if not xml_files:
+        return None
+    xml_files = [f for f in xml_files if not re.search(r".*ortho.*\.xml", f)]
+    for xml_file in xml_files:
+        try:
+            satid = get_xml_tag(xml_file, "SATID")
+            if satid.startswith(VANTOR_SATID_PREFIXES):
+                return "Vantor"
+        except (ValueError, Exception):
+            pass
+        if _is_dimap_document(xml_file):
+            return "Airbus DS"
+    return None
+
+
 def detect_vantor_satellite(directory):
     """Check if XML files in directory indicate a Vantor-owned satellite.
 
-    This is an *attribution* check, distinct from sensor/reader identity: it
-    decides whether the "© Vantor" copyright overlay applies (see
-    :func:`add_copyright_overlay` and :class:`Plotter`). It is named for the
-    rights-holder (Vantor, formerly Maxar/DigitalGlobe) and matches *any* Vantor
-    satellite, not just WorldView. Sensor *identity* — which reader parses the
-    XML — is a separate concern handled by the WorldView-named abstraction in
-    :mod:`asp_plot.sensors`; the two names intentionally differ and should not be
-    "reconciled" into one.
-
-    A scene is considered Vantor-owned when an XML camera file carries a SATID
-    matching one of :data:`VANTOR_SATID_PREFIXES`.
+    Thin wrapper around :func:`detect_satellite_attribution` kept for backward
+    compatibility.
 
     Parameters
     ----------
@@ -1334,31 +1382,40 @@ def detect_vantor_satellite(directory):
         True if any XML file contains a Vantor-heritage SATID (e.g. WV01-WV04,
         WVLG, GE01, QB02).
     """
+    return detect_satellite_attribution(directory) == "Vantor"
+
+
+def _dimap_acquisition_datetime(xml_fn):
+    """Acquisition start time of an Airbus DIMAP product XML, or None.
+
+    Reads ``Refined_Model/Time/Time_Range/START`` from a ``Dimap_Document``
+    (present in Pléiades / Pléiades Neo ``DIM_*.XML`` products; the RPC
+    sidecars have no ``Refined_Model`` and return None).
+    """
     try:
-        xml_files = glob_file(directory, "*.[Xx][Mm][Ll]", all_files=True)
-    except Exception:
-        return False
-    if not xml_files:
-        return False
-    xml_files = [f for f in xml_files if not re.search(r".*ortho.*\.xml", f)]
-    for xml_file in xml_files:
-        try:
-            satid = get_xml_tag(xml_file, "SATID")
-            if satid.startswith(VANTOR_SATID_PREFIXES):
-                return True
-        except (ValueError, Exception):
-            continue
-    return False
+        root = ET.parse(xml_fn).getroot()
+    except (ET.ParseError, OSError):
+        return None
+    if root.tag != "Dimap_Document":
+        return None
+    start = root.findtext(".//Refined_Model/Time/Time_Range/START")
+    if not start:
+        return None
+    try:
+        return datetime.fromisoformat(start.replace("Z", "+00:00")).replace(tzinfo=None)
+    except ValueError:
+        return None
 
 
 def get_acquisition_dates(directory, extra_dirs=None):
     """Extract scene acquisition date(s) from metadata in a processing directory.
 
     Looks for WorldView/Maxar-style XML camera files (using the ``FIRSTLINETIME``
-    tag) and ASTER L1A file or directory names (which encode the capture date in
-    the filename: ``AST_L1A_<prodcode><MMDDYYYY><HHMMSS>_...``). Returns a sorted,
-    deduplicated list of date strings. An empty list is returned if nothing is
-    found.
+    tag), Airbus DIMAP product XMLs (acquisition start time from the refined
+    geometric model), and ASTER L1A file or directory names (which encode the
+    capture date in the filename: ``AST_L1A_<prodcode><MMDDYYYY><HHMMSS>_...``).
+    Returns a sorted, deduplicated list of date strings. An empty list is
+    returned if nothing is found.
 
     Parameters
     ----------
@@ -1383,7 +1440,7 @@ def get_acquisition_dates(directory, extra_dirs=None):
             if d and d not in search_dirs:
                 search_dirs.append(d)
 
-    # WorldView/Maxar XMLs: FIRSTLINETIME
+    # WorldView/Maxar XMLs (FIRSTLINETIME) and Airbus DIMAP products
     for d in search_dirs:
         try:
             xml_files = glob_file(d, "*.[Xx][Mm][Ll]", all_files=True)
@@ -1397,7 +1454,9 @@ def get_acquisition_dates(directory, extra_dirs=None):
                 first_line_time = get_xml_tag(xml_file, "FIRSTLINETIME")
                 dt = datetime.strptime(first_line_time, "%Y-%m-%dT%H:%M:%S.%fZ")
             except (ValueError, Exception):
-                continue
+                dt = _dimap_acquisition_datetime(xml_file)
+                if dt is None:
+                    continue
             key = dt.replace(microsecond=0).isoformat()
             dates.setdefault(key, dt.replace(microsecond=0))
 
@@ -1422,13 +1481,16 @@ def get_acquisition_dates(directory, extra_dirs=None):
     return [dt.strftime("%Y-%m-%d %H:%M:%S UTC") for dt in sorted(dates.values())]
 
 
-def add_copyright_overlay(ax):
-    """Add Vantor copyright text overlay to the bottom-right of a matplotlib axes.
+def add_copyright_overlay(ax, attribution="Vantor"):
+    """Add a copyright text overlay to the bottom-right of a matplotlib axes.
 
     Parameters
     ----------
     ax : matplotlib.axes.Axes
         The axes to add the copyright overlay to.
+    attribution : str, optional
+        Rights-holder name to attribute (e.g. ``"Vantor"``, ``"Airbus DS"``),
+        default is ``"Vantor"``.
     """
     from datetime import datetime
 
@@ -1436,7 +1498,7 @@ def add_copyright_overlay(ax):
     ax.text(
         0.98,
         0.02,
-        f"\u00a9 Vantor {year}",
+        f"\u00a9 {attribution} {year}",
         transform=ax.transAxes,
         fontsize=7,
         color="white",

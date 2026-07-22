@@ -8,6 +8,7 @@ so the tests run without ASP, SlideRule, or network access.
 """
 
 import dataclasses
+import os
 
 import numpy as np
 import pandas as pd
@@ -115,6 +116,56 @@ class TestRegistry:
         spec = next(s for s in REPORT_SECTIONS if s.name == "altimetry")
         assert spec.enabled(_ctx(plot_altimetry=True)) is True
         assert spec.enabled(_ctx(plot_altimetry=False)) is False
+
+
+# ---------------------------------------------------------------------------
+# Stereo geometry section fan-out (N-scene runs save several figures)
+# ---------------------------------------------------------------------------
+
+
+class TestStereoGeometryFanOut:
+    """stereo_geom_plot returns the saved figure names: two scenes save
+    exactly fig_fn, N scenes save an overview plus one figure per pair, and
+    each saved figure becomes its own report section."""
+
+    def _build(self, monkeypatch, saved_factory):
+        class _Geom:
+            def __init__(self, *a, **k):
+                pass
+
+            def stereo_geom_plot(self, save_dir=None, fig_fn=None):
+                return saved_factory(fig_fn)
+
+        monkeypatch.setattr(rp, "StereoGeometryPlotter", _Geom)
+        return rp._build_stereo_geometry(_ctx(plots_directory="/tmp/plots"))
+
+    def test_multi_figure_run_fans_out_into_sections(self, monkeypatch):
+        sections = self._build(
+            monkeypatch,
+            lambda fig_fn: [
+                f"{fig_fn[:-4]}_overview.png",
+                f"{fig_fn[:-4]}_pairA.png",
+                f"{fig_fn[:-4]}_pairB.png",
+            ],
+        )
+        assert [s.title for s in sections] == [
+            "Stereo Geometry",
+            "Stereo Geometry (continued)",
+            "Stereo Geometry (continued)",
+        ]
+        # The caption belongs to the first figure only.
+        assert sections[0].caption
+        assert sections[1].caption == "" and sections[2].caption == ""
+        assert [os.path.basename(s.image_path) for s in sections] == [
+            "00_overview.png",
+            "00_pairA.png",
+            "00_pairB.png",
+        ]
+
+    def test_plotter_returning_none_falls_back_to_fig_fn(self, monkeypatch):
+        sections = self._build(monkeypatch, lambda fig_fn: None)
+        assert [s.title for s in sections] == ["Stereo Geometry"]
+        assert os.path.basename(sections[0].image_path) == "00.png"
 
 
 # ---------------------------------------------------------------------------
@@ -249,8 +300,10 @@ def harness(monkeypatch, tmp_path):
         def __init__(self, *a, **k):
             pass
 
-        def dg_geom_plot(self, **kwargs):
-            rec.record("dg_geom_plot", kwargs)
+        def stereo_geom_plot(self, **kwargs):
+            rec.record("stereo_geom_plot", kwargs)
+            # Mirror the real two-scene behavior: exactly fig_fn is saved.
+            return [kwargs["fig_fn"]]
 
     monkeypatch.setattr(rp, "ScenePlotter", _FakeScene)
     monkeypatch.setattr(rp, "StereoGeometryPlotter", _FakeGeom)

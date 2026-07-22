@@ -37,7 +37,7 @@ class StereoGeometryPlotter:
     Examples
     --------
     >>> plotter = StereoGeometryPlotter('/path/to/stereo/directory')
-    >>> plotter.dg_geom_plot(save_dir='/path/to/output', fig_fn='stereo_geom.png')
+    >>> plotter.stereo_geom_plot(save_dir='/path/to/output', fig_fn='stereo_geom.png')
     """
 
     def __init__(self, directory=None, add_basemap=True, inputs=None, **kwargs):
@@ -52,7 +52,7 @@ class StereoGeometryPlotter:
             Whether to add a contextily basemap to the plots, default is True
         inputs : str or os.PathLike or iterable of those, optional
             Explicit files, directories, and/or glob patterns to use instead of
-            a single ``directory`` (e.g. a ``geom_plot *.XML`` call). Takes
+            a single ``directory`` (e.g. a ``stereo_geom *.XML`` call). Takes
             precedence when both are given.
         **kwargs
             Additional keyword arguments passed to StereopairMetadataParser
@@ -86,7 +86,7 @@ class StereoGeometryPlotter:
             Formatted string with scene metadata
         """
         scene_string = (
-            "\nID:%s, GSD:%0.2f, off:%0.1f, az:%0.1f, el:%0.1f, it:%0.1f, ct:%0.1f, scan:%s, tdi:%i"
+            "\nID:%s, GSD:%0.2f, off:%0.1f, az:%0.1f, el:%0.1f, it:%0.1f, ct:%0.1f"
             % (
                 p[key]["catid"],
                 p[key]["meanproductgsd"],
@@ -95,10 +95,14 @@ class StereoGeometryPlotter:
                 (90 - p[key]["meansatel"]),
                 p[key]["meanintrackviewangle"],
                 (p[key]["meancrosstrackviewangle"]),
-                p[key]["scandir"],
-                p[key]["tdi"],
             )
         )
+        # Scan direction and TDI are DigitalGlobe-heritage concepts; sensors
+        # without them (e.g. Pléiades DIMAP) set None and they are omitted.
+        if p[key].get("scandir") is not None:
+            scene_string += ", scan:%s" % p[key]["scandir"]
+        if p[key].get("tdi") is not None:
+            scene_string += ", tdi:%i" % p[key]["tdi"]
         return scene_string
 
     def get_title(self, p):
@@ -440,7 +444,7 @@ class StereoGeometryPlotter:
             save_figure(fig, save_dir, fig_fn)
             plt.close(fig)
 
-    def dg_geom_plot(self, save_dir=None, fig_fn=None):
+    def stereo_geom_plot(self, save_dir=None, fig_fn=None):
         """
         Create stereo geometry visualization(s).
 
@@ -544,10 +548,12 @@ class StereoGeometryPlotter:
         """
         Create a visualization of satellite position and orientation data.
 
-        Generates a 3-row x 2-column figure (one column per scene):
+        Generates a 3-row x N-column figure (one column per scene):
         - Row 0: Map of satellite positions colored by position covariance std
+          (plain positions when the sensor provides no covariance, e.g. DIMAP)
         - Row 1: Roll, pitch, yaw relative to orbital reference frame over time
-        - Row 2: Attitude covariance trace std over time
+        - Row 2: Attitude covariance trace std over time (annotated as not
+          provided when the sensor has no attitude covariance)
 
         Parameters
         ----------
@@ -561,20 +567,16 @@ class StereoGeometryPlotter:
         matplotlib.figure.Figure
             The created figure object (not shown automatically)
         """
-        p = self.parser.get_pair_dict()
+        scenes = self.parser.get_catid_dicts()
+        map_crs = self.parser.get_scenes_centroid_projection(proj_type="tmerc")
 
-        map_crs = self.parser.get_centroid_projection(
-            p["intersection"], proj_type="tmerc"
-        )
+        ncols = len(scenes)
+        fig = plt.figure(figsize=(7 * ncols, 12))
+        G = gridspec.GridSpec(nrows=3, ncols=ncols, hspace=0.35, wspace=0.3)
 
-        fig = plt.figure(figsize=(14, 12))
-        G = gridspec.GridSpec(nrows=3, ncols=2, hspace=0.35, wspace=0.3)
+        c_list = self._scene_colors(ncols)
 
-        catid_keys = ["catid1_dict", "catid2_dict"]
-        c_list = ["blue", "orange"]
-
-        for col, key in enumerate(catid_keys):
-            d = p[key]
+        for col, d in enumerate(scenes):
             eph_gdf = d["eph_gdf"]
             att_df = d["att_df"]
             catid = d["catid"]
@@ -585,13 +587,28 @@ class StereoGeometryPlotter:
                 eph_gdf["cov_11"] + eph_gdf["cov_22"] + eph_gdf["cov_33"]
             )
             eph_gdf_proj = eph_gdf.to_crs(map_crs)
-            sc = ax0.scatter(
-                eph_gdf_proj.geometry.x,
-                eph_gdf_proj.geometry.y,
-                c=pos_cov_std,
-                s=5,
-                cmap="viridis",
-            )
+            # Sensors without ephemeris covariance (e.g. Pléiades DIMAP) get
+            # plain position markers instead of a covariance color scale.
+            if np.isfinite(pos_cov_std).any():
+                sc = ax0.scatter(
+                    eph_gdf_proj.geometry.x,
+                    eph_gdf_proj.geometry.y,
+                    c=pos_cov_std,
+                    s=5,
+                    cmap="viridis",
+                )
+                fig.colorbar(sc, ax=ax0, label="Position std (m)", shrink=0.8)
+                ax0.set_title(f"{catid}\nPosition Covariance", fontsize=9)
+            else:
+                ax0.scatter(
+                    eph_gdf_proj.geometry.x,
+                    eph_gdf_proj.geometry.y,
+                    color=c_list[col],
+                    s=5,
+                )
+                ax0.set_title(
+                    f"{catid}\nPositions (covariance not provided)", fontsize=9
+                )
             fp_gdf = d["fp_gdf"]
             fp_gdf.to_crs(map_crs).plot(
                 ax=ax0, facecolor="none", edgecolor=c_list[col], linewidth=1
@@ -603,8 +620,6 @@ class StereoGeometryPlotter:
                     ctx.add_basemap(ax0, crs=map_crs, attribution=False)
                 except Exception:
                     pass
-            fig.colorbar(sc, ax=ax0, label="Position std (m)", shrink=0.8)
-            ax0.set_title(f"{catid}\nPosition Covariance", fontsize=9)
             ax0.tick_params(labelsize=7)
 
             # Row 1: Roll, pitch, yaw relative to orbital frame
@@ -629,13 +644,30 @@ class StereoGeometryPlotter:
                 + att_df["cov_33"]
                 + att_df["cov_44"]
             )
-            ax2.plot(time_seconds_full, att_cov_std, color=c_list[col], linewidth=0.8)
-            ax2.set_xlabel("Time (s)", fontsize=8)
-            ax2.set_ylabel("Attitude std (trace)", fontsize=8)
+            if np.isfinite(att_cov_std).any():
+                ax2.plot(
+                    time_seconds_full, att_cov_std, color=c_list[col], linewidth=0.8
+                )
+                ax2.set_xlabel("Time (s)", fontsize=8)
+                ax2.set_ylabel("Attitude std (trace)", fontsize=8)
+            else:
+                ax2.text(
+                    0.5,
+                    0.5,
+                    "Attitude covariance\nnot provided",
+                    ha="center",
+                    va="center",
+                    transform=ax2.transAxes,
+                    fontsize=9,
+                    color="gray",
+                )
+                ax2.set_xticks([])
+                ax2.set_yticks([])
             ax2.set_title(f"{catid}\nAttitude Covariance Trace", fontsize=9)
             ax2.tick_params(labelsize=7)
 
-        plt.suptitle(f"{p['pairname']}\nSatellite Position & Orientation", fontsize=11)
+        base = os.path.split(self.parser.directory.rstrip("/\\"))[-1]
+        plt.suptitle(f"{base}\nSatellite Position & Orientation", fontsize=11)
 
         if save_dir and fig_fn:
             save_figure(fig, save_dir, fig_fn)

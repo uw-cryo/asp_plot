@@ -49,6 +49,34 @@ def test_fmt_sig_formatting():
     assert _fmt_sig(float("nan")) == "n/a"
 
 
+def test_metadata_table_wraps_long_values():
+    """Long values (e.g. the joined acquisition dates of a tri-stereo collect)
+    must wrap inside the DEM-summary table instead of overflowing the page."""
+    from asp_plot.report import ASPReportPDF, ReportMetadata, _add_metadata_table
+
+    dates = [
+        "2021-11-07 10:29:11 UTC",
+        "2021-11-07 10:29:28 UTC",
+        "2021-11-07 10:29:44 UTC",
+    ]
+
+    def table_height(acquisition_dates):
+        pdf = ASPReportPDF(report_title="t")
+        pdf.add_page()
+        y0 = pdf.get_y()
+        _add_metadata_table(
+            pdf,
+            ReportMetadata(
+                dem_filename="run-DEM.tif", acquisition_dates=acquisition_dates
+            ),
+        )
+        return pdf.get_y() - y0
+
+    # Three joined dates exceed the value-column width, so their row must be
+    # taller than the single-date row (i.e. the value wrapped onto new lines).
+    assert table_height(dates) > table_height(dates[:1])
+
+
 def test_compile_report_processing_parameters_on_page_two(dummy_image, tmp_path):
     """Processing Parameters should land on page 2, not the last page."""
     out = str(tmp_path / "layout.pdf")

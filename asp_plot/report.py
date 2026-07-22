@@ -569,9 +569,17 @@ def _add_metadata_table(pdf, metadata):
 
     pdf.set_font("Helvetica", "", 9)
     for prop, val in rows:
-        pdf.set_x(table_x)
-        pdf.cell(col_w, 7, prop, border=1)
-        pdf.cell(col_w, 7, str(val), border=1, new_x="LMARGIN", new_y="NEXT")
+        # Render the value with multi_cell so long values (e.g. the joined
+        # acquisition dates of a tri-stereo collect) wrap inside the table
+        # instead of overflowing the page edge, then draw the property cell
+        # at the same height.
+        y0 = pdf.get_y()
+        pdf.set_xy(table_x + col_w, y0)
+        pdf.multi_cell(col_w, 7, str(val), border=1)
+        row_h = max(7, pdf.get_y() - y0)
+        pdf.set_xy(table_x, y0)
+        pdf.cell(col_w, row_h, prop, border=1)
+        pdf.set_y(y0 + row_h)
 
     pdf.ln(4)
 

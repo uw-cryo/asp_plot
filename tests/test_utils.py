@@ -13,6 +13,7 @@ from asp_plot.utils import (
     Raster,
     add_copyright_overlay,
     detect_planetary_body,
+    detect_satellite_attribution,
     detect_vantor_satellite,
     get_acquisition_dates,
     get_planetary_bounds,
@@ -314,29 +315,35 @@ class TestColorBar:
 class TestPlotter:
     """Test the Plotter scaffold (save, plot_missing, copyright path)."""
 
-    def test_is_vantor_default_false(self):
-        assert Plotter().is_vantor is False
+    def test_attribution_default_none(self):
+        assert Plotter().attribution is None
 
     def test_plot_array_copyright_overlay(self):
-        """copyright=True draws the overlay only when is_vantor is True."""
+        """copyright=True draws the overlay only when an attribution is set."""
         data = np.ma.masked_invalid(np.random.rand(10, 10))
 
-        plotter = Plotter(is_vantor=True)
+        plotter = Plotter(attribution="Vantor")
         fig, ax = plt.subplots()
         plotter.plot_array(ax, data, add_cbar=False, copyright=True)
         assert any("Vantor" in t.get_text() for t in ax.texts)
         plt.close(fig)
 
-        plotter = Plotter(is_vantor=False)
+        plotter = Plotter(attribution="Airbus DS")
         fig, ax = plt.subplots()
         plotter.plot_array(ax, data, add_cbar=False, copyright=True)
-        assert not any("Vantor" in t.get_text() for t in ax.texts)
+        assert any("Airbus DS" in t.get_text() for t in ax.texts)
+        plt.close(fig)
+
+        plotter = Plotter()
+        fig, ax = plt.subplots()
+        plotter.plot_array(ax, data, add_cbar=False, copyright=True)
+        assert not ax.texts
         plt.close(fig)
 
     def test_plot_array_no_copyright_by_default(self):
-        """Even an is_vantor plotter adds no overlay unless copyright=True."""
+        """Even an attributed plotter adds no overlay unless copyright=True."""
         data = np.ma.masked_invalid(np.random.rand(10, 10))
-        plotter = Plotter(is_vantor=True)
+        plotter = Plotter(attribution="Vantor")
         fig, ax = plt.subplots()
         plotter.plot_array(ax, data, add_cbar=False)
         assert not any("Vantor" in t.get_text() for t in ax.texts)
@@ -427,10 +434,20 @@ class TestReportDataclasses:
 
 
 class TestGetAcquisitionDates:
-    """Test get_acquisition_dates for WorldView XML and ASTER L1A filenames."""
+    """Test get_acquisition_dates for WorldView XML, Airbus DIMAP, and ASTER
+    L1A filenames."""
 
     def test_empty_directory(self, tmp_path):
         assert get_acquisition_dates(str(tmp_path)) == []
+
+    def test_pleiades_dimap(self):
+        # DIMAP products have no FIRSTLINETIME; the refined-model start time
+        # is used instead. The RPC sidecar in the same directory has no
+        # Refined_Model and must contribute nothing.
+        assert get_acquisition_dates("tests/test_data/pleiades") == [
+            "2021-11-07 10:29:11 UTC",
+            "2021-11-07 10:29:44 UTC",
+        ]
 
     def test_aster_l1a_filename(self, tmp_path):
         # AST_L1A_<3-digit prodcode><MMDDYYYY><HHMMSS>_<...>
@@ -606,6 +623,18 @@ class TestDetectVantorSatellite:
         assert detect_vantor_satellite(str(directory)) is False
 
 
+class TestDetectSatelliteAttribution:
+    def test_worldview_directory_is_vantor(self):
+        assert detect_satellite_attribution("tests/test_data") == "Vantor"
+
+    def test_pleiades_directory_is_airbus(self):
+        """DIMAP documents (Pléiades Neo fixtures) get Airbus DS attribution."""
+        assert detect_satellite_attribution("tests/test_data/pleiades") == "Airbus DS"
+
+    def test_no_attribution(self, tmp_path):
+        assert detect_satellite_attribution(str(tmp_path)) is None
+
+
 class TestAddCopyrightOverlay:
     def test_overlay_added(self):
         """Test that copyright text is added to axes."""
@@ -615,6 +644,12 @@ class TestAddCopyrightOverlay:
         assert len(texts) == 1
         assert "Vantor" in texts[0].get_text()
         assert "\u00a9" in texts[0].get_text()
+        plt.close(fig)
+
+    def test_overlay_custom_attribution(self):
+        fig, ax = plt.subplots()
+        add_copyright_overlay(ax, "Airbus DS")
+        assert "Airbus DS" in ax.texts[0].get_text()
         plt.close(fig)
 
 
