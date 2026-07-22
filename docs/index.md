@@ -60,7 +60,7 @@ Development setup, testing, and releases.
 
 ## Supported Sensors
 
-- **Earth-based**: DigitalGlobe/Maxar WorldView, Pléiades, ASTER
+- **Earth-based**: WorldView, Pléiades, ASTER
 - **Lunar**: Lunar Reconnaissance Orbiter Narrow Angle Camera (LRO NAC)
 - **Mars**: Mars Reconnaissance Orbiter CTX and HiRISE, Mars Global Surveyor MOC
 
