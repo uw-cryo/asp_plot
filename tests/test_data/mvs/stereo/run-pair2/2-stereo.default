@@ -1,0 +1,2 @@
+# ASP stereo configuration copy
+# > stereo_parse -t dg --stereo-algorithm asp_mgm --part-of-multiview-run out-Band3N.tif out-Band3C.tif out-Band3N.xml out-Band3C.xml tests/test_data/mvs/stereo/run-pair2/2

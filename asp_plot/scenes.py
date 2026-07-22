@@ -1,12 +1,36 @@
 import logging
 import os
+from dataclasses import dataclass
+from typing import Optional
 
 import matplotlib.pyplot as plt
 
-from asp_plot.utils import Plotter, Raster, detect_satellite_attribution, glob_file
+from asp_plot.utils import (
+    Plotter,
+    Raster,
+    describe_pair,
+    detect_satellite_attribution,
+    find_pair_directories,
+    glob_file,
+)
 
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class PairSceneFiles:
+    """The left/right sub-sampled scenes of one multi-view pair.
+
+    One entry per ``<prefix>-pairN/`` subdirectory of an ASP multi-view stereo
+    run (see :func:`asp_plot.utils.find_pair_directories`).
+    """
+
+    number: int
+    directory: str
+    left_scene_sub_fn: Optional[str]
+    right_scene_sub_fn: Optional[str]
+    label: str
 
 
 class SceneFiles:
@@ -30,6 +54,10 @@ class SceneFiles:
         gates the copyright overlay on scene panels.
     left_scene_sub_fn, right_scene_sub_fn : str or None
         Paths to the left/right sub-sampled scene files.
+    pairs : list of PairSceneFiles
+        Per-pair scene files of a multi-view run, resolved from the
+        ``<prefix>-pairN/`` subdirectories when the top-level sub-sampled
+        scenes are absent; empty for a standard stereo run.
     """
 
     def __init__(self, directory, stereo_directory):
@@ -43,7 +71,8 @@ class SceneFiles:
         stereo_directory : str
             Subdirectory containing stereo outputs. The left and right
             sub-sampled images are located here (``*-L_sub.tif`` /
-            ``*-R_sub.tif``).
+            ``*-R_sub.tif``), or in ``<prefix>-pairN/`` subdirectories for a
+            multi-view run.
         """
         self.directory = os.path.expanduser(directory)
         self.stereo_directory = stereo_directory
@@ -51,8 +80,31 @@ class SceneFiles:
 
         self.attribution = detect_satellite_attribution(self.directory)
 
-        self.left_scene_sub_fn = glob_file(self.full_stereo_directory, "*-L_sub.tif")
-        self.right_scene_sub_fn = glob_file(self.full_stereo_directory, "*-R_sub.tif")
+        # A multi-view run keeps its sub-sampled scenes in the per-pair
+        # subdirectories instead of the top level of the stereo directory,
+        # so their absence up top is expected (quiet) in that layout.
+        pair_directories = find_pair_directories(self.full_stereo_directory)
+        quiet = bool(pair_directories)
+
+        self.left_scene_sub_fn = glob_file(
+            self.full_stereo_directory, "*-L_sub.tif", quiet=quiet
+        )
+        self.right_scene_sub_fn = glob_file(
+            self.full_stereo_directory, "*-R_sub.tif", quiet=quiet
+        )
+
+        self.pairs = []
+        if not (self.left_scene_sub_fn and self.right_scene_sub_fn):
+            for number, pair_directory in pair_directories:
+                self.pairs.append(
+                    PairSceneFiles(
+                        number=number,
+                        directory=pair_directory,
+                        left_scene_sub_fn=glob_file(pair_directory, "*-L_sub.tif"),
+                        right_scene_sub_fn=glob_file(pair_directory, "*-R_sub.tif"),
+                        label=describe_pair(number, pair_directory),
+                    )
+                )
 
 
 class ScenePlotter(Plotter):
@@ -130,38 +182,15 @@ class ScenePlotter(Plotter):
     def right_scene_sub_fn(self):
         return self.files.right_scene_sub_fn
 
-    def plot_scenes(self, save_dir=None, fig_fn=None):
-        """
-        Plot the left and right images side by side.
+    @property
+    def pairs(self):
+        return self.files.pairs
 
-        Creates a figure with two subplots showing the left and right
-        images from the stereo pair. Map-projection is not assumed.
-        Each image is displayed with its filename above it.
-
-        Parameters
-        ----------
-        save_dir : str or None, optional
-            Directory to save the figure, default is None (don't save)
-        fig_fn : str or None, optional
-            Filename for the saved figure, default is None
-
-        Returns
-        -------
-        None
-            Displays the plot and optionally saves it
-
-        Notes
-        -----
-        If either image file is missing, the corresponding subplot
-        will display a message indicating that required files are missing.
-        """
-        if self.title is None:
-            self.title = "Stereo Scenes"
-
-        # The sub-sampled scenes may be absent (e.g. a multi-view run keeps
-        # them in its run-pair*/ subdirectories); plot placeholders instead of
-        # crashing so the rest of a report can still be built.
-        left_scene = Raster(self.left_scene_sub_fn) if self.left_scene_sub_fn else None
+    def _plot_scene_figure(
+        self, left_fn, right_fn, suptitle, left_label="Left", save_dir=None, fig_fn=None
+    ):
+        """One two-panel left/right scene figure; placeholders when missing."""
+        left_scene = Raster(left_fn) if left_fn else None
 
         if left_scene is None:
             subtitle = ""
@@ -171,7 +200,7 @@ class ScenePlotter(Plotter):
             subtitle = "\nMap-projected Scenes"
 
         fig, axa = plt.subplots(1, 2, figsize=(10, 5), dpi=300)
-        fig.suptitle(f"{self.title}{subtitle}", size=10)
+        fig.suptitle(f"{suptitle}{subtitle}", size=10)
         axa = axa.ravel()
 
         if left_scene is not None:
@@ -182,26 +211,85 @@ class ScenePlotter(Plotter):
                 add_cbar=False,
                 copyright=True,
             )
-            axa[0].set_title(
-                f"Left\n{os.path.basename(self.left_scene_sub_fn)}", size=8
-            )
+            axa[0].set_title(f"{left_label}\n{os.path.basename(left_fn)}", size=8)
         else:
             self.plot_missing(axa[0])
-            axa[0].set_title("Left", size=8)
+            axa[0].set_title(left_label, size=8)
 
-        if self.right_scene_sub_fn:
+        if right_fn:
             self.plot_array(
                 ax=axa[1],
-                array=Raster(self.right_scene_sub_fn).read_array(),
+                array=Raster(right_fn).read_array(),
                 cmap="gray",
                 add_cbar=False,
                 copyright=True,
             )
-            axa[1].set_title(
-                f"Right\n{os.path.basename(self.right_scene_sub_fn)}", size=8
-            )
+            axa[1].set_title(f"Right\n{os.path.basename(right_fn)}", size=8)
         else:
             self.plot_missing(axa[1])
             axa[1].set_title("Right", size=8)
 
         self.save(fig, save_dir, fig_fn)
+
+    def plot_scenes(self, save_dir=None, fig_fn=None):
+        """
+        Plot the left and right images side by side.
+
+        Creates a figure with two subplots showing the left and right
+        images from the stereo pair. Map-projection is not assumed.
+        Each image is displayed with its filename above it.
+
+        For a multi-view run (top-level sub-sampled scenes absent, per-pair
+        products in ``<prefix>-pairN/`` subdirectories), one figure per pair
+        is created instead, named ``<stem>_pairN.png``. The reference (left)
+        image is the same for every pair.
+
+        Parameters
+        ----------
+        save_dir : str or None, optional
+            Directory to save the figure(s), default is None (don't save)
+        fig_fn : str or None, optional
+            Filename for the saved figure, default is None. For a multi-view
+            run this is the stem the per-pair filenames are derived from.
+
+        Returns
+        -------
+        list of str
+            The filename(s) saved (empty if save_dir/fig_fn were not
+            provided).
+
+        Notes
+        -----
+        If either image file is missing, the corresponding subplot
+        will display a message indicating that required files are missing.
+        """
+        if self.title is None:
+            self.title = "Stereo Scenes"
+
+        if self.pairs:
+            stem, ext = os.path.splitext(fig_fn) if fig_fn else ("", ".png")
+            saved = []
+            for pair in self.pairs:
+                pair_fn = f"{stem}_pair{pair.number}{ext}" if fig_fn else None
+                self._plot_scene_figure(
+                    pair.left_scene_sub_fn,
+                    pair.right_scene_sub_fn,
+                    f"{self.title} — {pair.label}",
+                    left_label="Left (reference)",
+                    save_dir=save_dir,
+                    fig_fn=pair_fn,
+                )
+                if save_dir and pair_fn:
+                    saved.append(pair_fn)
+            return saved
+
+        # The sub-sampled scenes may be absent entirely; plot placeholders
+        # instead of crashing so the rest of a report can still be built.
+        self._plot_scene_figure(
+            self.left_scene_sub_fn,
+            self.right_scene_sub_fn,
+            self.title,
+            save_dir=save_dir,
+            fig_fn=fig_fn,
+        )
+        return [fig_fn] if save_dir and fig_fn else []

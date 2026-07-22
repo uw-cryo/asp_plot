@@ -1,5 +1,7 @@
 import logging
 import os
+from dataclasses import dataclass
+from typing import Optional
 
 import matplotlib.gridspec as gridspec
 import matplotlib.pyplot as plt
@@ -18,12 +20,37 @@ from asp_plot.utils import (
     ColorBar,
     Plotter,
     Raster,
+    describe_pair,
     detect_satellite_attribution,
+    find_pair_directories,
     glob_file,
 )
 
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class PairStereoFiles:
+    """The per-pair stereo products of one multi-view pair.
+
+    One entry per ``<prefix>-pairN/`` subdirectory of an ASP multi-view stereo
+    run (see :func:`asp_plot.utils.find_pair_directories`). Field names match
+    the corresponding :class:`StereoFiles` attributes so the plotting helpers
+    can consume either.
+    """
+
+    number: int
+    directory: str
+    label: str
+    left_image_fn: Optional[str]
+    left_image_sub_fn: Optional[str]
+    right_image_sub_fn: Optional[str]
+    align_left_fn: Optional[str]
+    align_right_fn: Optional[str]
+    match_point_fn: Optional[str]
+    disparity_sub_fn: Optional[str]
+    disparity_fn: Optional[str]
 
 
 class StereoFiles:
@@ -61,6 +88,9 @@ class StereoFiles:
         match files live in the ``run-pair*/`` subdirectories).
     disparity_sub_fn, disparity_fn : str or None
         Sub-sampled and full disparity map paths.
+    pairs : list of PairStereoFiles
+        Per-pair products of a multi-view run, resolved from the
+        ``<prefix>-pairN/`` subdirectories; empty for a standard stereo run.
     dem_gsd : float or None
         Ground sample distance of the DEM in meters.
     dem_fn : str
@@ -124,26 +154,55 @@ class StereoFiles:
             print(f"\nReference DEM: {self.reference_dem}\n")
 
         self.full_directory = os.path.join(self.directory, self.stereo_directory)
+
+        # A multi-view run keeps its per-pair products (aligned images, match
+        # files, disparities) in <prefix>-pairN/ subdirectories, so a stereo
+        # directory may legitimately have none of them at the top level
+        # (quiet lookups in that layout).
+        pair_directories = find_pair_directories(self.full_directory)
+        quiet = bool(pair_directories)
+
         self.left_image_fn = glob_file(self.full_directory, "*-L.tif")
         # Set processing flag if the left image is not mapprojected
         self.orthos = False if Raster(self.left_image_fn).transform is None else True
-        self.left_image_sub_fn = glob_file(self.full_directory, "*-L_sub.tif")
-        self.right_image_sub_fn = glob_file(self.full_directory, "*-R_sub.tif")
-        self.align_left_fn = glob_file(self.full_directory, "*-align-L.txt")
-        self.align_right_fn = glob_file(self.full_directory, "*-align-R.txt")
+        self.left_image_sub_fn = glob_file(
+            self.full_directory, "*-L_sub.tif", quiet=quiet
+        )
+        self.right_image_sub_fn = glob_file(
+            self.full_directory, "*-R_sub.tif", quiet=quiet
+        )
+        self.align_left_fn = glob_file(
+            self.full_directory, "*-align-L.txt", quiet=quiet
+        )
+        self.align_right_fn = glob_file(
+            self.full_directory, "*-align-R.txt", quiet=quiet
+        )
 
-        # There may be multiple match files if stereo was run with --num-matches-from-disparity.
-        # In that case, filter out the match file with `-disp-` in filename.
-        # A multi-view run keeps its match files in the run-pair*/ subdirectories,
-        # so a stereo directory may legitimately have none at the top level.
-        match_files = glob_file(self.full_directory, "*.match", all_files=True)
-        non_disp = [f for f in (match_files or []) if "-disp-" not in f]
-        self.match_point_fn = non_disp[0] if non_disp else None
+        self.match_point_fn = self._find_match_file(self.full_directory, quiet=quiet)
 
-        self.disparity_sub_fn = glob_file(self.full_directory, "*-D_sub.tif")
+        self.disparity_sub_fn = glob_file(
+            self.full_directory, "*-D_sub.tif", quiet=quiet
+        )
         # We only need the full disparity file to retrieve the GSD for plotting
         # and rescaling below.
-        self.disparity_fn = glob_file(self.full_directory, "*-D.tif")
+        self.disparity_fn = glob_file(self.full_directory, "*-D.tif", quiet=quiet)
+
+        self.pairs = [
+            PairStereoFiles(
+                number=number,
+                directory=pair_directory,
+                label=describe_pair(number, pair_directory),
+                left_image_fn=glob_file(pair_directory, "*-L.tif"),
+                left_image_sub_fn=glob_file(pair_directory, "*-L_sub.tif"),
+                right_image_sub_fn=glob_file(pair_directory, "*-R_sub.tif"),
+                align_left_fn=glob_file(pair_directory, "*-align-L.txt"),
+                align_right_fn=glob_file(pair_directory, "*-align-R.txt"),
+                match_point_fn=self._find_match_file(pair_directory),
+                disparity_sub_fn=glob_file(pair_directory, "*-D_sub.tif"),
+                disparity_fn=glob_file(pair_directory, "*-D.tif"),
+            )
+            for number, pair_directory in pair_directories
+        ]
 
         self.dem_gsd = dem_gsd
 
@@ -172,6 +231,18 @@ class StereoFiles:
         self.intersection_error_fn = glob_file(
             self.full_directory, "*-IntersectionErr.tif"
         )
+
+    @staticmethod
+    def _find_match_file(directory, quiet=False):
+        """The directory's match file, or None.
+
+        There may be multiple match files if stereo was run with
+        ``--num-matches-from-disparity``; in that case, filter out the match
+        file with ``-disp-`` in the filename.
+        """
+        match_files = glob_file(directory, "*.match", all_files=True, quiet=quiet)
+        non_disp = [f for f in (match_files or []) if "-disp-" not in f]
+        return non_disp[0] if non_disp else None
 
 
 class StereoPlotter(Plotter):
@@ -323,6 +394,10 @@ class StereoPlotter(Plotter):
     def intersection_error_fn(self):
         return self.files.intersection_error_fn
 
+    @property
+    def pairs(self):
+        return self.files.pairs
+
     def read_ip_record(self, match_file):
         """
         Read an interest point record from a binary match file.
@@ -374,13 +449,19 @@ class StereoPlotter(Plotter):
         iprec.extend(desc)
         return iprec
 
-    def get_match_point_df(self):
+    def get_match_point_df(self, match_point_fn=None):
         """
         Convert a binary match file to a DataFrame of match points.
 
         Reads the binary match file produced by ASP stereo processing
         and converts it to a DataFrame containing matched interest points
         from the left and right images.
+
+        Parameters
+        ----------
+        match_point_fn : str or None, optional
+            Match file to read; defaults to the stereo directory's top-level
+            match file (a multi-view pair's match file can be passed instead).
 
         Returns
         -------
@@ -395,14 +476,14 @@ class StereoPlotter(Plotter):
         same base name but '.csv' extension, then reads that CSV file into
         a DataFrame. If the CSV file already exists, it is read directly.
         """
+        if match_point_fn is None:
+            match_point_fn = self.match_point_fn
         out_csv = (
-            os.path.splitext(self.match_point_fn)[0] + ".csv"
-            if self.match_point_fn
-            else None
+            os.path.splitext(match_point_fn)[0] + ".csv" if match_point_fn else None
         )
-        if self.match_point_fn and not os.path.exists(out_csv):
+        if match_point_fn and not os.path.exists(out_csv):
             with (
-                open(self.match_point_fn, "rb") as match_file,
+                open(match_point_fn, "rb") as match_file,
                 open(out_csv, "w") as out,
             ):
                 size1 = np.frombuffer(match_file.read(8), dtype=np.uint64)[0]
@@ -423,60 +504,40 @@ class StereoPlotter(Plotter):
             else None
         )
 
-    def plot_match_points(self, save_dir=None, fig_fn=None):
-        """
-        Plot match points between the left and right images.
-
-        Creates a figure with two subplots showing the left and right
-        subsampled images with match points overlaid as small red circles.
-        For mapprojected scenes, match points are rescaled using the GSD ratio.
-        For non-mapprojected scenes, match points are transformed from original
-        to aligned coordinate space using the alignment matrices, then rescaled
-        to the subsampled image dimensions.
-
-        Parameters
-        ----------
-        save_dir : str or None, optional
-            Directory to save the figure, default is None (don't save)
-        fig_fn : str or None, optional
-            Filename for the saved figure, default is None
-
-        Returns
-        -------
-        None
-            Displays the plot and optionally saves it
-        """
-        match_point_df = self.get_match_point_df()
+    def _plot_match_points_figure(self, files, title, save_dir=None, fig_fn=None):
+        """One two-panel match-point figure for a :class:`StereoFiles` or
+        :class:`PairStereoFiles` (duck-typed) set of products."""
+        match_point_df = self.get_match_point_df(files.match_point_fn)
 
         fig, axa = plt.subplots(1, 2, figsize=(10, 5))
 
         if (
-            self.left_image_sub_fn
-            and self.right_image_sub_fn
+            files.left_image_sub_fn
+            and files.right_image_sub_fn
             and match_point_df is not None
         ):
             if self.orthos:
-                full_gsd = Raster(self.left_image_fn).get_gsd()
-                sub_gsd = Raster(self.left_image_sub_fn).get_gsd()
+                full_gsd = Raster(files.left_image_fn).get_gsd()
+                sub_gsd = Raster(files.left_image_sub_fn).get_gsd()
                 rescale_factor = sub_gsd / full_gsd
                 left_x = match_point_df["x1"] / rescale_factor
                 left_y = match_point_df["y1"] / rescale_factor
                 right_x = match_point_df["x2"] / rescale_factor
                 right_y = match_point_df["y2"] / rescale_factor
             else:
-                if not self.align_left_fn or not self.align_right_fn:
+                if not files.align_left_fn or not files.align_right_fn:
                     raise FileNotFoundError(
                         "Alignment matrix files (run-align-{L,R}.txt) not found. "
                         "These are required to overlay match points on non-mapprojected images."
                     )
 
-                full_width = Raster(self.left_image_fn).ds.width
-                sub_width = Raster(self.left_image_sub_fn).ds.width
+                full_width = Raster(files.left_image_fn).ds.width
+                sub_width = Raster(files.left_image_sub_fn).ds.width
                 rescale_factor = full_width / sub_width
 
                 # Transform match points from original to aligned coordinate space
-                align_L = np.loadtxt(self.align_left_fn)
-                align_R = np.loadtxt(self.align_right_fn)
+                align_L = np.loadtxt(files.align_left_fn)
+                align_R = np.loadtxt(files.align_right_fn)
 
                 n = len(match_point_df)
                 ones = np.ones(n)
@@ -493,8 +554,8 @@ class StereoPlotter(Plotter):
                 right_x = right_aligned[0] / rescale_factor
                 right_y = right_aligned[1] / rescale_factor
 
-            left_image = Raster(self.left_image_sub_fn).read_array()
-            right_image = Raster(self.right_image_sub_fn).read_array()
+            left_image = Raster(files.left_image_sub_fn).read_array()
+            right_image = Raster(files.right_image_sub_fn).read_array()
             self.plot_array(
                 ax=axa[0],
                 array=left_image,
@@ -535,60 +596,69 @@ class StereoPlotter(Plotter):
             self.plot_missing(axa[0])
             self.plot_missing(axa[1])
 
-        fig.suptitle(self.title, size=10)
+        fig.suptitle(title, size=10)
         self.save(fig, save_dir, fig_fn)
 
-    def plot_disparity(
-        self, unit="pixels", remove_bias=True, quiver=True, save_dir=None, fig_fn=None
-    ):
+    def plot_match_points(self, save_dir=None, fig_fn=None):
         """
-        Plot disparity maps from stereo processing.
+        Plot match points between the left and right images.
 
-        Creates a figure with three subplots showing the x and y components
-        of the disparity map and the disparity magnitude, with optional
-        quiver plot overlay.
+        Creates a figure with two subplots showing the left and right
+        subsampled images with match points overlaid as small red circles.
+        For mapprojected scenes, match points are rescaled using the GSD ratio.
+        For non-mapprojected scenes, match points are transformed from original
+        to aligned coordinate space using the alignment matrices, then rescaled
+        to the subsampled image dimensions.
+
+        For a multi-view run, one figure per ``<prefix>-pairN/`` pair is
+        created instead, named ``<stem>_pairN.png``.
 
         Parameters
         ----------
-        unit : str, optional
-            Unit for disparity values, either 'pixels' or 'meters', default is 'pixels'
-        remove_bias : bool, optional
-            Whether to remove the median offset from disparity values, default is True
-        quiver : bool, optional
-            Whether to overlay a quiver plot on the disparity magnitude plot,
-            default is True
         save_dir : str or None, optional
-            Directory to save the figure, default is None (don't save)
+            Directory to save the figure(s), default is None (don't save)
         fig_fn : str or None, optional
-            Filename for the saved figure, default is None
+            Filename for the saved figure, default is None. For a multi-view
+            run this is the stem the per-pair filenames are derived from.
 
         Returns
         -------
-        None
-            Displays the plot and optionally saves it
-
-        Raises
-        ------
-        ValueError
-            If unit is not 'pixels' or 'meters'
-
-        Notes
-        -----
-        The disparity map shows the pixel offset between corresponding points
-        in the left and right images. This can be displayed in pixel units or
-        converted to meters using the image GSD. The quiver plot shows the
-        direction and magnitude of the disparity vectors.
+        list of str
+            The filename(s) saved (empty if save_dir/fig_fn were not
+            provided).
         """
-        if unit not in ["pixels", "meters"]:
-            raise ValueError(
-                "\n\nUnit for disparity plot must be either 'pixels' or 'meters'\n\n"
-            )
+        if self.pairs:
+            stem, ext = os.path.splitext(fig_fn) if fig_fn else ("", ".png")
+            saved = []
+            for pair in self.pairs:
+                pair_fn = f"{stem}_pair{pair.number}{ext}" if fig_fn else None
+                self._plot_match_points_figure(
+                    pair, f"{self.title} — {pair.label}", save_dir, pair_fn
+                )
+                if save_dir and pair_fn:
+                    saved.append(pair_fn)
+            return saved
 
+        self._plot_match_points_figure(self.files, self.title, save_dir, fig_fn)
+        return [fig_fn] if save_dir and fig_fn else []
+
+    def _plot_disparity_figure(
+        self,
+        files,
+        title,
+        unit="pixels",
+        remove_bias=True,
+        quiver=True,
+        save_dir=None,
+        fig_fn=None,
+    ):
+        """One three-panel disparity figure for a :class:`StereoFiles` or
+        :class:`PairStereoFiles` (duck-typed) set of products."""
         fig, axa = plt.subplots(1, 3, figsize=(10, 3), dpi=220)
-        fig.suptitle(self.title, size=10)
+        fig.suptitle(title, size=10)
 
-        if self.disparity_sub_fn and self.disparity_fn:
-            raster = Raster(self.disparity_sub_fn)
+        if files.disparity_sub_fn and files.disparity_fn:
+            raster = Raster(files.disparity_sub_fn)
             dx = raster.read_array(b=1)
             dy = raster.read_array(b=2)
 
@@ -608,7 +678,7 @@ class StereoPlotter(Plotter):
                 )
             if self.orthos:
                 sub_gsd = raster.get_gsd()
-                full_gsd = Raster(self.disparity_fn).get_gsd()
+                full_gsd = Raster(files.disparity_fn).get_gsd()
                 rescale_factor = sub_gsd / full_gsd
                 dx = dx * rescale_factor
                 dy = dy * rescale_factor
@@ -658,6 +728,86 @@ class StereoPlotter(Plotter):
                 self.plot_missing(ax)
 
         self.save(fig, save_dir, fig_fn)
+
+    def plot_disparity(
+        self, unit="pixels", remove_bias=True, quiver=True, save_dir=None, fig_fn=None
+    ):
+        """
+        Plot disparity maps from stereo processing.
+
+        Creates a figure with three subplots showing the x and y components
+        of the disparity map and the disparity magnitude, with optional
+        quiver plot overlay.
+
+        For a multi-view run, one figure per ``<prefix>-pairN/`` pair is
+        created instead, named ``<stem>_pairN.png``.
+
+        Parameters
+        ----------
+        unit : str, optional
+            Unit for disparity values, either 'pixels' or 'meters', default is 'pixels'
+        remove_bias : bool, optional
+            Whether to remove the median offset from disparity values, default is True
+        quiver : bool, optional
+            Whether to overlay a quiver plot on the disparity magnitude plot,
+            default is True
+        save_dir : str or None, optional
+            Directory to save the figure(s), default is None (don't save)
+        fig_fn : str or None, optional
+            Filename for the saved figure, default is None. For a multi-view
+            run this is the stem the per-pair filenames are derived from.
+
+        Returns
+        -------
+        list of str
+            The filename(s) saved (empty if save_dir/fig_fn were not
+            provided).
+
+        Raises
+        ------
+        ValueError
+            If unit is not 'pixels' or 'meters'
+
+        Notes
+        -----
+        The disparity map shows the pixel offset between corresponding points
+        in the left and right images. This can be displayed in pixel units or
+        converted to meters using the image GSD. The quiver plot shows the
+        direction and magnitude of the disparity vectors.
+        """
+        if unit not in ["pixels", "meters"]:
+            raise ValueError(
+                "\n\nUnit for disparity plot must be either 'pixels' or 'meters'\n\n"
+            )
+
+        if self.pairs:
+            stem, ext = os.path.splitext(fig_fn) if fig_fn else ("", ".png")
+            saved = []
+            for pair in self.pairs:
+                pair_fn = f"{stem}_pair{pair.number}{ext}" if fig_fn else None
+                self._plot_disparity_figure(
+                    pair,
+                    f"{self.title} — {pair.label}",
+                    unit=unit,
+                    remove_bias=remove_bias,
+                    quiver=quiver,
+                    save_dir=save_dir,
+                    fig_fn=pair_fn,
+                )
+                if save_dir and pair_fn:
+                    saved.append(pair_fn)
+            return saved
+
+        self._plot_disparity_figure(
+            self.files,
+            self.title,
+            unit=unit,
+            remove_bias=remove_bias,
+            quiver=quiver,
+            save_dir=save_dir,
+            fig_fn=fig_fn,
+        )
+        return [fig_fn] if save_dir and fig_fn else []
 
     def _auto_hillshade_clip_offsets(
         self, ie, subset_size, intersection_error_percentiles

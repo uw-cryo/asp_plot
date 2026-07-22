@@ -273,3 +273,97 @@ class TestStereoFilesMultiViewLayout:
             plotter.plot_dem_results()
         except Exception as e:
             pytest.fail(f"figure method raised an exception: {str(e)}")
+
+
+class TestStereoFilesMultiview:
+    """A multi-view run keeps per-pair products in run-pair*/ subdirectories;
+    StereoFiles resolves them alongside the joint top-level products (#160)."""
+
+    @pytest.fixture
+    def files(self):
+        return StereoFiles(
+            directory="tests/test_data",
+            stereo_directory="mvs/stereo",
+            reference_dem="tests/test_data/ref_dem.tif",
+        )
+
+    def test_top_level_pair_products_absent(self, files):
+        assert files.match_point_fn is None
+        assert files.disparity_sub_fn is None
+        assert files.right_image_sub_fn is None
+
+    def test_joint_products_present(self, files):
+        assert files.dem_fn.endswith("run-DEM.tif")
+        assert files.intersection_error_fn is not None
+        assert files.left_image_fn is not None
+
+    def test_discovers_pairs(self, files):
+        assert [p.number for p in files.pairs] == [1, 2]
+        for pair in files.pairs:
+            assert pair.left_image_fn is not None
+            assert pair.left_image_sub_fn is not None
+            assert pair.right_image_sub_fn is not None
+            assert pair.align_left_fn is not None
+            assert pair.align_right_fn is not None
+            assert pair.match_point_fn is not None
+            assert "-disp-" not in pair.match_point_fn
+            assert pair.disparity_sub_fn is not None
+            assert pair.disparity_fn is not None
+        assert files.pairs[1].label == "Pair 2: out-Band3N.tif ↔ out-Band3C.tif"
+
+    def test_standard_run_has_no_pairs(self):
+        files = StereoFiles(
+            directory="tests/test_data",
+            stereo_directory="stereo",
+            dem_gsd=1,
+            reference_dem="tests/test_data/ref_dem.tif",
+        )
+        assert files.pairs == []
+
+
+class TestStereoPlotterMultiview:
+    """Match points and disparity render one figure per pair (#160)."""
+
+    @pytest.fixture
+    def stereo_plotter(self):
+        return StereoPlotter(
+            directory="tests/test_data",
+            stereo_directory="mvs/stereo",
+            reference_dem="tests/test_data/ref_dem.tif",
+            title="Multiview",
+        )
+
+    def test_plot_match_points_per_pair(self, stereo_plotter, tmp_path):
+        saved = stereo_plotter.plot_match_points(
+            save_dir=str(tmp_path), fig_fn="mp.png"
+        )
+        assert saved == ["mp_pair1.png", "mp_pair2.png"]
+        for fn in saved:
+            assert (tmp_path / fn).exists()
+
+    def test_plot_disparity_per_pair(self, stereo_plotter, tmp_path):
+        saved = stereo_plotter.plot_disparity(save_dir=str(tmp_path), fig_fn="d.png")
+        assert saved == ["d_pair1.png", "d_pair2.png"]
+        for fn in saved:
+            assert (tmp_path / fn).exists()
+
+    def test_get_match_point_df_for_pair(self, stereo_plotter):
+        pair = stereo_plotter.pairs[0]
+        df = stereo_plotter.get_match_point_df(pair.match_point_fn)
+        assert df is not None
+        assert list(df.columns) == ["x1", "y1", "x2", "y2"]
+
+    def test_plot_methods_return_single_figure_for_standard_run(self, tmp_path):
+        plotter = StereoPlotter(
+            directory="tests/test_data",
+            stereo_directory="stereo",
+            dem_gsd=1,
+            reference_dem="tests/test_data/ref_dem.tif",
+            title="Standard",
+        )
+        assert plotter.plot_match_points(save_dir=str(tmp_path), fig_fn="mp.png") == [
+            "mp.png"
+        ]
+        assert plotter.plot_disparity(save_dir=str(tmp_path), fig_fn="d.png") == [
+            "d.png"
+        ]

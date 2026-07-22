@@ -26,7 +26,8 @@ The package is organized by functionality, with each module focused on a specifi
   - `_load_and_diff_rasters_da()`: Private static method returning xarray DataArray for raster differencing; used internally by both `load_and_diff_rasters()` (converts to numpy) and `compute_difference()` (uses `.rio.to_raster()` for saving)
 - `Plotter`: Base class for all plotting classes with common matplotlib setup. The scaffold added in #129 centralizes the boilerplate that was copy-pasted across plot methods: `save(fig, save_dir, fig_fn, ...)` (the `tight_layout()` + conditional-save tail), `plot_missing(ax, message)` (the "required files are missing" placeholder), and `plot_array(..., copyright=True)` which draws the rights-holder overlay from `self.attribution` (a string like `"Vantor"` or `"Airbus DS"`, or None) so the check no longer threads through every call site
 - `ColorBar`: Handles colorbar creation and formatting. `get_norm(clim=...)` takes an explicit clim so callers (e.g. `plot_geodataframe`) keep clim local instead of mutating `self.cb.clim`
-- File utilities: `glob_file()`, `save_figure()`, `show_existing_figure()`
+- File utilities: `glob_file()` (with `quiet=` for lookups whose absence is an expected layout), `save_figure()`, `show_existing_figure()`
+- Multi-view layout helpers (issue #160): `find_pair_directories()` finds the `<prefix>-pairN/` subdirectories an ASP multi-view run keeps its per-pair products in; `get_pair_images()` recovers a pair's left/right image names from its `N-stereo.default` config copy (the `N-info.txt` lists *all* images of the joint run, so it is deliberately not used); `describe_pair()` builds the `"Pair N: <left> ↔ <right>"` label used on per-pair figures
 - Coordinate utilities: `get_utm_epsg()` for determining UTM EPSG from lon/lat, `get_planetary_bounds()` for DEM bounds in planetocentric 0-360 lon/lat
 - Planetary body detection: `detect_planetary_body(dem_fn)` returns `"earth"`, `"moon"`, or `"mars"` by inspecting CRS WKT DATUM/ELLIPSOID fields
 - Subprocess utilities: `run_subprocess_command()`
@@ -60,6 +61,7 @@ The package is organized by functionality, with each module focused on a specifi
 - `run_report(config)`: importable/callable from notebooks and tests with no Click context; returns the written PDF path
 - A declarative section registry (`REPORT_SECTIONS`) of `ReportSpec`s replaces the old inline plot-and-append wall: each spec pairs an `enabled(ctx)` predicate with a `build(ctx)` function returning the sections to append. `--plot_geometry` / `--plot_altimetry` / `--pc_align` gating are predicates; figure numbering comes from a per-run counter on the shared `ReportContext`, so section order and numbering are data, not source-line position. The alignment "Page B/C/D" follow-ups are one spec emitting several sections
 - Section builders: `_build_input_scenes`, `_build_stereo_geometry`, `_build_match_points`, `_build_bundle_adjust`, `_build_disparity`, `_build_dem_results`, `_build_detailed_hillshade`, `_build_altimetry` (→ `_build_altimetry_earth` / `_build_altimetry_planetary`)
+- `_numbered_sections()`: shared helper turning a plotter's saved-filename list into one `ReportSection` per figure (first gets the caption, continuations are titled "... (continued)") — used by the scenes/geometry/match/disparity builders, whose plotters save one figure per pair on multi-view runs (issue #160)
 
 **`report_captions.py`** - Caption + description text for the report sections (issue #128)
 - All section captions and the Earth/planetary alignment descriptions as module constants / small builder functions, moved out of the CLI as a data module (verified byte-identical to the pre-refactor strings via AST comparison)
@@ -99,6 +101,7 @@ The package is organized by functionality, with each module focused on a specifi
 - Supports both map-projected and raw (non-georeferenced) imagery
 - Detects map-projection status via `Raster.transform` check
 - For non-mapprojected scenes: match points are overlaid on images using alignment transform matrices (`run-align-{L,R}.txt` loaded via `np.loadtxt`), and disparity plots use pixel-unit scalebar instead of GSD-based
+- **Multi-view aware** (issue #160): `StereoFiles` resolves each `<prefix>-pairN/` subdirectory into a `PairStereoFiles` (field names mirror the top-level attributes so the per-figure helpers consume either, duck-typed); `plot_match_points()` / `plot_disparity()` render one figure per pair (`<stem>_pairN.png`) and return the saved filename list — `[fig_fn]` for a standard run — mirroring the `stereo_geom_plot()` N-scene contract
 - Detects the imagery rights-holder via the `attribution` attribute (`detect_satellite_attribution`); adds the copyright overlay to optical imagery in `plot_match_points()` and `plot_detailed_hillshade()`
 - `plot_detailed_hillshade()` auto-selects three subset clips from intersection-error variance (low/medium/high) via `_auto_hillshade_clip_offsets()`. Accepts `clip_windows` (DEM-CRS bboxes) + `clip_windows_crs` to pin/replay clips for run-to-run comparison (issue #121); records the boxes it drew on `self.detailed_hillshade_clips`. Out-of-bounds pinned boxes warn and fall back to auto.
 - Key methods: `plot_dem_results()`, `plot_disparity()`, `plot_match_points()`, `plot_detailed_hillshade()`
@@ -181,7 +184,8 @@ The package is organized by functionality, with each module focused on a specifi
 - Automatically detects and indicates whether scenes are map-projected or raw
 - Displays filenames rather than sensor-specific metadata
 - Detects the imagery rights-holder via the `attribution` attribute (`detect_satellite_attribution`); adds the copyright overlay to scene images in `plot_scenes()`
-- Key method: `plot_scenes()` (formerly `plot_orthos()` prior to v1.2.0)
+- Key method: `plot_scenes()` (formerly `plot_orthos()` prior to v1.2.0); returns the saved filename list
+- **Multi-view aware** (issue #160): when the top-level sub-sampled scenes are absent, `SceneFiles` resolves per-pair `PairSceneFiles` from the `<prefix>-pairN/` subdirectories and `plot_scenes()` renders one figure per pair ("Left (reference)" panel labeling); the "missing files" placeholder remains the fallback
 - Used in comprehensive reports to show source imagery
 
 **`gallery.py`** - `GalleryPlotter` class (inherits from `Plotter`)

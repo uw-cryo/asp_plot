@@ -12,10 +12,13 @@ from asp_plot.utils import (
     Plotter,
     Raster,
     add_copyright_overlay,
+    describe_pair,
     detect_planetary_body,
     detect_satellite_attribution,
     detect_vantor_satellite,
+    find_pair_directories,
     get_acquisition_dates,
+    get_pair_images,
     get_planetary_bounds,
     get_utm_epsg,
 )
@@ -807,3 +810,26 @@ class TestGetPlanetaryBounds:
         assert bounds["minlat"] < bounds["maxlat"]
         assert 0 <= bounds["westernlon"] <= 360
         assert 0 <= bounds["easternlon"] <= 360
+
+
+class TestPairDiscovery:
+    """Multi-view run-pair*/ layout discovery (issue #160)."""
+
+    def test_find_pair_directories(self):
+        pairs = find_pair_directories("tests/test_data/mvs/stereo")
+        assert [number for number, _ in pairs] == [1, 2]
+        assert all(directory.endswith(f"run-pair{n}") for n, directory in pairs)
+
+    def test_find_pair_directories_standard_run(self):
+        assert find_pair_directories("tests/test_data/stereo") == []
+
+    def test_get_pair_images(self):
+        images = get_pair_images("tests/test_data/mvs/stereo/run-pair1")
+        assert images == ("out-Band3N.tif", "out-Band3B.tif")
+
+    def test_describe_pair(self):
+        label = describe_pair(2, "tests/test_data/mvs/stereo/run-pair2")
+        assert label == "Pair 2: out-Band3N.tif ↔ out-Band3C.tif"
+
+    def test_describe_pair_without_config(self, tmp_path):
+        assert describe_pair(3, str(tmp_path)) == "Pair 3"

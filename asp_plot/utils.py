@@ -31,7 +31,7 @@ def nmad(a, c=1.4826):
     return np.nanmedian(np.fabs(a - np.nanmedian(a))) * c
 
 
-def glob_file(directory, *patterns, all_files=False, recursive=False):
+def glob_file(directory, *patterns, all_files=False, recursive=False, quiet=False):
     """
     Find files matching pattern(s) in a directory.
 
@@ -51,6 +51,10 @@ def glob_file(directory, *patterns, all_files=False, recursive=False):
     recursive : bool, optional
         If True, enable recursive globbing so a ``**`` in a pattern matches this
         directory and all subdirectories. Default is False.
+    quiet : bool, optional
+        If True, skip the no-match warning — for lookups where absence is an
+        expected layout (e.g. top-level products of a multi-view stereo run).
+        Default is False.
 
     Returns
     -------
@@ -73,10 +77,96 @@ def glob_file(directory, *patterns, all_files=False, recursive=False):
                 return files
             else:
                 return files[0]
-    logger.warning(
-        f"Could not find {patterns} in {directory}. Some plots may be missing."
-    )
+    if not quiet:
+        logger.warning(
+            f"Could not find {patterns} in {directory}. Some plots may be missing."
+        )
     return None
+
+
+def find_pair_directories(directory):
+    """
+    Find the per-pair subdirectories of an ASP multi-view stereo run.
+
+    An ASP multi-view run keeps its per-pair intermediate products (aligned
+    images, match files, disparities) in ``<prefix>-pairN/`` subdirectories of
+    the stereo directory, with only the joint products (PC/DEM/IntersectionErr)
+    at the top level. Files inside pair ``N`` are prefixed ``N-`` (e.g.
+    ``run-pair1/1-L_sub.tif``).
+
+    Parameters
+    ----------
+    directory : str
+        Stereo directory to search in.
+
+    Returns
+    -------
+    list of tuple
+        ``(pair_number, pair_directory)`` tuples sorted by pair number; empty
+        for a standard (two-image) stereo run.
+    """
+    directory = os.path.expanduser(directory)
+    pairs = []
+    for path in glob.glob(os.path.join(directory, "*-pair*")):
+        if not os.path.isdir(path):
+            continue
+        match = re.search(r"-pair(\d+)$", os.path.basename(path))
+        if match:
+            pairs.append((int(match.group(1)), path))
+    return sorted(pairs)
+
+
+def get_pair_images(pair_directory):
+    """
+    Recover the left/right image filenames of one multi-view pair.
+
+    Parses the ``N-stereo.default`` configuration copy that ASP writes into
+    each ``<prefix>-pairN/`` subdirectory: its ``# > stereo_parse ...`` line
+    records the sub-run's full command, whose first two ``.tif`` arguments are
+    the pair's left (reference) and right images. The ``N-info.txt`` file is
+    *not* used because it lists all images of the joint run, not the pair's.
+
+    Parameters
+    ----------
+    pair_directory : str
+        One ``<prefix>-pairN/`` subdirectory of a multi-view stereo run.
+
+    Returns
+    -------
+    tuple of str or None
+        ``(left_image, right_image)`` basenames, or None if they could not be
+        recovered.
+    """
+    config_fn = glob_file(pair_directory, "*-stereo.default")
+    if not config_fn:
+        return None
+    with open(config_fn) as f:
+        for line in f:
+            if "stereo_parse" not in line:
+                continue
+            images = [
+                os.path.basename(token)
+                for token in line.split()
+                if token.lower().endswith((".tif", ".ntf", ".img", ".cub"))
+            ]
+            if len(images) >= 2:
+                return images[0], images[1]
+    return None
+
+
+def describe_pair(pair_number, pair_directory):
+    """
+    Human-readable label for one multi-view pair.
+
+    Returns ``"Pair N: <left> <-> <right>"`` when the pair's images can be
+    recovered from its ``N-stereo.default`` (see :func:`get_pair_images`),
+    else just ``"Pair N"``. The reference (left) image is the same for every
+    pair of an ASP multi-view run.
+    """
+    images = get_pair_images(pair_directory)
+    if images:
+        return f"Pair {pair_number}: {images[0]} ↔ {images[1]}"
+    return f"Pair {pair_number}"
 
 
 def show_existing_figure(filename):

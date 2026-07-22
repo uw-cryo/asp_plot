@@ -41,6 +41,7 @@ class TestGalleryPlotter:
             "tests/test_data", pattern="**/*-DEM.tif"
         )
         assert gallery.raster_list == [
+            "tests/test_data/mvs/stereo/run-DEM.tif",
             "tests/test_data/no_mapproj/stereo/run-DEM.tif",
             "tests/test_data/stereo/date_time_left_right_1m-DEM.tif",
         ]
