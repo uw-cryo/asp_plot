@@ -249,8 +249,8 @@ def harness(monkeypatch, tmp_path):
         def __init__(self, *a, **k):
             pass
 
-        def dg_geom_plot(self, **kwargs):
-            rec.record("dg_geom_plot", kwargs)
+        def stereo_geom_plot(self, **kwargs):
+            rec.record("stereo_geom_plot", kwargs)
 
     monkeypatch.setattr(rp, "ScenePlotter", _FakeScene)
     monkeypatch.setattr(rp, "StereoGeometryPlotter", _FakeGeom)

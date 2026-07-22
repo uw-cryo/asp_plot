@@ -37,7 +37,7 @@ class StereoGeometryPlotter:
     Examples
     --------
     >>> plotter = StereoGeometryPlotter('/path/to/stereo/directory')
-    >>> plotter.dg_geom_plot(save_dir='/path/to/output', fig_fn='stereo_geom.png')
+    >>> plotter.stereo_geom_plot(save_dir='/path/to/output', fig_fn='stereo_geom.png')
     """
 
     def __init__(self, directory=None, add_basemap=True, inputs=None, **kwargs):
@@ -52,7 +52,7 @@ class StereoGeometryPlotter:
             Whether to add a contextily basemap to the plots, default is True
         inputs : str or os.PathLike or iterable of those, optional
             Explicit files, directories, and/or glob patterns to use instead of
-            a single ``directory`` (e.g. a ``geom_plot *.XML`` call). Takes
+            a single ``directory`` (e.g. a ``stereo_geom *.XML`` call). Takes
             precedence when both are given.
         **kwargs
             Additional keyword arguments passed to StereopairMetadataParser
@@ -444,7 +444,7 @@ class StereoGeometryPlotter:
             save_figure(fig, save_dir, fig_fn)
             plt.close(fig)
 
-    def dg_geom_plot(self, save_dir=None, fig_fn=None):
+    def stereo_geom_plot(self, save_dir=None, fig_fn=None):
         """
         Create stereo geometry visualization(s).
 

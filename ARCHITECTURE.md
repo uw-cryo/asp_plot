@@ -172,7 +172,7 @@ The package is organized by functionality, with each module focused on a specifi
 **`stereo_geometry.py`** - `StereoGeometryPlotter` class
 - **Composes** a `StereopairMetadataParser` via `self.parser` rather than subclassing it (issue #25); imports `estim_satellite_orientation` from `csm_io` directly
 - Visualizes stereo acquisition geometry from XML metadata
-- `dg_geom_plot()`: Creates skyplot (satellite viewing angles) and map view (footprints)
+- `stereo_geom_plot()`: Creates skyplot (satellite viewing angles) and map view (footprints)
 - `satellite_position_orientation_plot()`: Creates a 3-row × N-column figure (one column per scene) showing position covariance, roll/pitch/yaw orientation, and attitude covariance. Sensors without covariance data (e.g. Pléiades DIMAP) get plain position markers and an annotated "not provided" panel; scene labels omit scan/TDI when the sensor has none
 
 **`scenes.py`** - `ScenePlotter` class (inherits from `Plotter`)
@@ -243,7 +243,7 @@ All CLI tools are in `asp_plot/cli/` and use Click for argument parsing:
 - Creates skyplot and map view from XML camera files
 - Supports multiple XMLs with automatic mosaicking
 - Accepts positional `INPUTS` (any mix of XML files, directories, and globs — e.g. `stereo_geom *.XML`); falls back to `--directory` when no positional inputs are given. Both paths funnel into the same plotter (`inputs=` vs `directory=`)
-- **N-scene output** (issue #73): two scenes → one `<name>_stereo_geom.png` (unchanged). More than two → one color-coded overview figure (`_overview.png`) plus one figure per pair (`_<catidA>_<catidB>.png`, or `_pairN.png` if a CATID is missing), each with full pairwise stats. `dg_geom_plot()` dispatches on scene count and returns the list of saved filenames; `StereoGeometryPlotter` adds `_render_pair`/`_render_overview`. Map views keep the full (autoscaled) extent so all satellite ephemeris tracks are visible (off-nadir scenes have tracks tens to hundreds of km from the footprints), with tracks drawn on top of the semi-transparent footprints; `_add_basemap_safe` falls back to a coarse zoom so the wide-extent basemap fetch doesn't fail on contextily's negative auto-zoom
+- **N-scene output** (issue #73): two scenes → one `<name>_stereo_geom.png` (unchanged). More than two → one color-coded overview figure (`_overview.png`) plus one figure per pair (`_<catidA>_<catidB>.png`, or `_pairN.png` if a CATID is missing), each with full pairwise stats. `stereo_geom_plot()` dispatches on scene count and returns the list of saved filenames; `StereoGeometryPlotter` adds `_render_pair`/`_render_overview`. Map views keep the full (autoscaled) extent so all satellite ephemeris tracks are visible (off-nadir scenes have tracks tens to hundreds of km from the footprints), with tracks drawn on top of the semi-transparent footprints; `_add_basemap_safe` falls back to a coarse zoom so the wide-extent basemap fetch doesn't fail on contextily's negative auto-zoom
 
 **`gallery.py`** - DEM gallery tool (`gallery` command)
 - Wrapper for `GalleryPlotter`; lays out many DEMs as a grid sharing one color scale
