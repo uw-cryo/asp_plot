@@ -44,3 +44,26 @@ class TestScenePlotter:
             scene_plotter.plot_scenes()
         except Exception as e:
             pytest.fail(f"figure method raised an exception: {str(e)}")
+
+
+class TestScenePlotterMissingScenes:
+    """A multi-view stereo directory keeps its sub-sampled scenes in run-pair*/
+    subdirectories, so the top level has none: plot_scenes must draw "missing"
+    placeholders instead of crashing (#160 tracks per-pair rendering)."""
+
+    @pytest.fixture
+    def scene_plotter(self):
+        return ScenePlotter(
+            directory="tests/test_data",
+            stereo_directory="does_not_exist",
+        )
+
+    def test_scene_files_are_none(self, scene_plotter):
+        assert scene_plotter.left_scene_sub_fn is None
+        assert scene_plotter.right_scene_sub_fn is None
+
+    def test_plot_scenes_placeholder(self, scene_plotter):
+        try:
+            scene_plotter.plot_scenes()
+        except Exception as e:
+            pytest.fail(f"figure method raised an exception: {str(e)}")

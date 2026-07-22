@@ -434,10 +434,20 @@ class TestReportDataclasses:
 
 
 class TestGetAcquisitionDates:
-    """Test get_acquisition_dates for WorldView XML and ASTER L1A filenames."""
+    """Test get_acquisition_dates for WorldView XML, Airbus DIMAP, and ASTER
+    L1A filenames."""
 
     def test_empty_directory(self, tmp_path):
         assert get_acquisition_dates(str(tmp_path)) == []
+
+    def test_pleiades_dimap(self):
+        # DIMAP products have no FIRSTLINETIME; the refined-model start time
+        # is used instead. The RPC sidecar in the same directory has no
+        # Refined_Model and must contribute nothing.
+        assert get_acquisition_dates("tests/test_data/pleiades") == [
+            "2021-11-07 10:29:11 UTC",
+            "2021-11-07 10:29:44 UTC",
+        ]
 
     def test_aster_l1a_filename(self, tmp_path):
         # AST_L1A_<3-digit prodcode><MMDDYYYY><HHMMSS>_<...>

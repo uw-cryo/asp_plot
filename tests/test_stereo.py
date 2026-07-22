@@ -213,3 +213,63 @@ class TestStereoPlotterNoMapproj:
             stereo_plotter_no_mapproj_no_intersection_error.plot_detailed_hillshade()
         except Exception as e:
             pytest.fail(f"figure method raised an exception: {str(e)}")
+
+
+class TestStereoFilesMultiViewLayout:
+    """ASP multi-view runs keep match files, sub-sampled scenes, and disparity
+    in run-pair*/ subdirectories; the top level has only the joint products
+    (L.tif, PC, DEM, IntersectionErr). StereoFiles must tolerate that layout
+    and the plotters must fall back to "missing" placeholders (#160 tracks
+    rendering the per-pair files)."""
+
+    @pytest.fixture
+    def mvs_directory(self, tmp_path):
+        import shutil
+        from pathlib import Path
+
+        src = Path("tests/test_data/stereo")
+        dst = tmp_path / "stereo"
+        shutil.copytree(src, dst)
+        # Strip the per-pair files a multi-view run keeps in run-pair*/:
+        # match files, sub-sampled scenes, disparity, and the match CSV.
+        for pattern in ["*.match", "*_sub.tif", "*-D.tif", "*-L__R.csv"]:
+            for f in dst.glob(pattern):
+                f.unlink()
+        return str(tmp_path)
+
+    @pytest.fixture
+    def plotter(self, mvs_directory):
+        return StereoPlotter(
+            directory=mvs_directory,
+            stereo_directory="stereo",
+            dem_gsd=1,
+            reference_dem="tests/test_data/ref_dem.tif",
+            title="MVS Results",
+        )
+
+    def test_files_tolerate_missing_pairwise_products(self, plotter):
+        assert plotter.files.match_point_fn is None
+        assert plotter.files.disparity_sub_fn is None
+        assert plotter.files.left_image_sub_fn is None
+        assert plotter.files.right_image_sub_fn is None
+        # The joint products are still discovered.
+        assert plotter.files.dem_fn is not None
+        assert plotter.files.intersection_error_fn is not None
+
+    def test_plot_match_points_placeholder(self, plotter):
+        try:
+            plotter.plot_match_points()
+        except Exception as e:
+            pytest.fail(f"figure method raised an exception: {str(e)}")
+
+    def test_plot_disparity_placeholder(self, plotter):
+        try:
+            plotter.plot_disparity()
+        except Exception as e:
+            pytest.fail(f"figure method raised an exception: {str(e)}")
+
+    def test_plot_dem_results_still_works(self, plotter):
+        try:
+            plotter.plot_dem_results()
+        except Exception as e:
+            pytest.fail(f"figure method raised an exception: {str(e)}")

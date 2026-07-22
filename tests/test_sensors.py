@@ -398,6 +398,25 @@ class TestPleiadesMetadata:
         for n in ["11", "12", "13", "14", "22", "23", "24", "33", "34", "44"]:
             assert att_df[f"cov_{n}"].isna().all()
 
+    def test_att_df_reorder_pinned_to_raw_fixture_values(self, reader):
+        # Pin the scalar-first -> scalar-last reorder against the raw XML:
+        # Airbus Q0 (the scalar part) must land in q4, and Q1..Q3 in q1..q3.
+        # Guards the reorder against being "fixed" to a pass-through (the
+        # ordering matches ASP's own reader, which maps Q0 to the scalar w).
+        import xml.etree.ElementTree as ET
+
+        first_quat = (
+            ET.parse(DIM_FORE)
+            .getroot()
+            .find(".//Refined_Model/Attitudes/Quaternion_List/Quaternion")
+        )
+        d = [s for s in reader.get_scene_dicts() if "202111071029126" in s["catid"]][0]
+        row = d["att_df"].iloc[0]
+        assert row["q1"] == float(first_quat.findtext("Q1"))
+        assert row["q2"] == float(first_quat.findtext("Q2"))
+        assert row["q3"] == float(first_quat.findtext("Q3"))
+        assert row["q4"] == float(first_quat.findtext("Q0"))
+
     def test_pair_geometry_matches_bundle_adjust(self):
         # Convergence angle of the fore/aft pair as measured by ASP
         # bundle_adjust on the full images is 21.7 deg; the DIMAP-derived
@@ -447,8 +466,13 @@ class TestPleiadesDetection:
     def test_detect_files_rejects_rpc_only(self):
         assert PleiadesMetadata.detect_files([str(RPC_FORE)]) is False
 
-    def test_rpc_only_inputs_fall_through_to_worldview_error_path(self):
-        # An RPC sidecar alone is not a camera model for any reader; the
-        # WorldView reader will accept it by name, but content parsing fails
-        # later. Here we only assert Pléiades does not claim it.
-        assert PleiadesMetadata.detect_files([str(RPC_FORE)]) is False
+    def test_rpc_only_inputs_fall_through_to_worldview(self):
+        # An RPC sidecar alone is not a camera model for any reader: Pléiades
+        # rejects it (METADATA_SUBPROFILE is RPC, not PRODUCT), so it falls
+        # through to the WorldView reader, which accepts any non-ortho XML by
+        # name and only fails later at content parsing (tightening this is
+        # tracked in #162).
+        reader = sensor_for_inputs([str(RPC_FORE)])
+        assert isinstance(reader, WorldViewMetadata)
+        with pytest.raises(ValueError, match="CATID"):
+            reader.get_scene_dicts()
