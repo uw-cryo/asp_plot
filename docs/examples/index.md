@@ -53,7 +53,7 @@ CSM camera model comparison plots after jitter correction for WorldView imagery.
 :link: notebooks/pleiades_neo_marseille_tristereo
 :link-type: doc
 
-Tri-stereo processing of the free Airbus Pléiades Neo sample over Marseille, including DIMAP stereo geometry analysis, pairwise and multi-view stereo, and a DEM comparison.
+Tri-stereo processing of the free Airbus Pléiades Neo sample over Marseille: DIMAP stereo geometry analysis, bundle adjustment, and a three-scene multi-view stereo DEM.
 :::
 
 :::{grid-item-card} ASTER — With Map-projection
