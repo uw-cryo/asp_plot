@@ -39,8 +39,14 @@ suppress_warnings = ["autoapi"]
 # -- Theme -------------------------------------------------------------------
 html_theme = "sphinx_book_theme"
 html_theme_options = {
+    "announcement": (
+        "Found a problem with the package or docs? Please report it "
+        '<a href="https://github.com/uw-cryo/asp_plot/issues/new?template=problem-report.yml" '
+        'target="_blank" rel="noopener noreferrer">here</a>.'
+    ),
     "repository_url": "https://github.com/uw-cryo/asp_plot",
     "use_repository_button": True,
+    "use_issues_button": True,
     "use_edit_page_button": True,
     "repository_branch": "main",
     "path_to_docs": "docs",

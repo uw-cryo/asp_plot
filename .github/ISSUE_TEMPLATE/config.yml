@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Questions about ASP itself
+    url: https://groups.google.com/g/ames-stereo-pipeline-support
+    about: The upstream ASP support forum, read by the ASP developers.
