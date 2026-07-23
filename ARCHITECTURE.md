@@ -186,7 +186,7 @@ The package is organized by functionality, with each module focused on a specifi
 - Displays filenames rather than sensor-specific metadata
 - Detects the imagery rights-holder via the `attribution` attribute (`detect_satellite_attribution`); adds the copyright overlay to scene images in `plot_scenes()`
 - Key method: `plot_scenes()` (formerly `plot_orthos()` prior to v1.2.0); returns the saved filename list
-- **Multi-view aware** (issue #160): when the top-level sub-sampled scenes are absent, `SceneFiles` resolves per-pair `PairSceneFiles` from the `<prefix>-pairN/` subdirectories and `plot_scenes()` renders one figure per pair ("Left (reference)" panel labeling); the "missing files" placeholder remains the fallback
+- **Multi-view aware** (issue #160): when `<prefix>-pairN/` subdirectories are present, `SceneFiles` resolves per-pair `PairSceneFiles` from them (pairs win over any stale top-level sub-sampled scenes, matching `StereoFiles`) and `plot_scenes()` renders one figure per pair ("Left (reference)" panel labeling); the "missing files" placeholder remains the fallback
 - Used in comprehensive reports to show source imagery
 
 **`gallery.py`** - `GalleryPlotter` class (inherits from `Plotter`)

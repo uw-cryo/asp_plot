@@ -41,17 +41,22 @@ def camera_files_from_stereo_run(processing_directory, stereo_directory):
     -------
     list of str or None
         Resolved metadata file paths in command order (deduplicated), or None
-        if there is no parseable log, the command names no metadata files
-        (e.g. CSM ``.json`` cameras), or a named file cannot be found —
-        callers should then fall back to directory-based discovery.
+        if there is no parseable log, the command names fewer than two
+        metadata files (e.g. CSM ``.json`` cameras), or a named file cannot
+        be found — callers should then fall back to directory-based
+        discovery.
     """
     if not processing_directory or not stereo_directory:
         return None
     processing_directory = os.path.expanduser(processing_directory)
+    # Newest log first: a rerun into the same stereo directory must scope to
+    # the current run's cameras, and ASP log names embed no year to sort on.
     log_fns = sorted(
         glob.glob(
             os.path.join(processing_directory, stereo_directory, "*log-stereo*.txt")
-        )
+        ),
+        key=os.path.getmtime,
+        reverse=True,
     )
     for log_fn in log_fns:
         try:
@@ -83,7 +88,13 @@ def camera_files_from_stereo_run(processing_directory, stereo_directory):
                 )
                 return None
             resolved.append(os.path.abspath(path))
-        return list(dict.fromkeys(resolved))
+        resolved = list(dict.fromkeys(resolved))
+        # Geometry needs a pair: a single resolved camera (e.g. a mixed
+        # .xml/.json-camera command) must fall back rather than crash
+        # stereo_geom_plot's at-least-two-scenes requirement.
+        if len(resolved) < 2:
+            return None
+        return resolved
     return None
 
 

@@ -833,3 +833,17 @@ class TestPairDiscovery:
 
     def test_describe_pair_without_config(self, tmp_path):
         assert describe_pair(3, str(tmp_path)) == "Pair 3"
+
+    def test_get_pair_images_without_stereo_parse_line(self, tmp_path):
+        (tmp_path / "1-stereo.default").write_text(
+            "# ASP stereo configuration copy\nalignment-method affineepipolar\n"
+        )
+        assert get_pair_images(str(tmp_path)) is None
+
+    def test_get_pair_images_jp2(self, tmp_path):
+        # Airbus primary deliveries are often JP2.
+        (tmp_path / "1-stereo.default").write_text(
+            "# > stereo_parse -t pleiades --part-of-multiview-run "
+            "IMG_left.JP2 IMG_right.JP2 left.XML right.XML out/run-pair1/1\n"
+        )
+        assert get_pair_images(str(tmp_path)) == ("IMG_left.JP2", "IMG_right.JP2")

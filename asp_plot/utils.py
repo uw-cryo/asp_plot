@@ -147,7 +147,7 @@ def get_pair_images(pair_directory):
             images = [
                 os.path.basename(token)
                 for token in line.split()
-                if token.lower().endswith((".tif", ".ntf", ".img", ".cub"))
+                if token.lower().endswith((".tif", ".ntf", ".img", ".cub", ".jp2"))
             ]
             if len(images) >= 2:
                 return images[0], images[1]

@@ -512,7 +512,8 @@ class StereoPlotter(Plotter):
         fig, axa = plt.subplots(1, 2, figsize=(10, 5))
 
         if (
-            files.left_image_sub_fn
+            files.left_image_fn
+            and files.left_image_sub_fn
             and files.right_image_sub_fn
             and match_point_df is not None
         ):

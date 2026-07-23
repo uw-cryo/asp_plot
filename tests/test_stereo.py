@@ -353,6 +353,26 @@ class TestStereoPlotterMultiview:
         assert df is not None
         assert list(df.columns) == ["x1", "y1", "x2", "y2"]
 
+    def test_missing_pair_products_draw_match_point_placeholders(
+        self, stereo_plotter, tmp_path
+    ):
+        # A pair with pieces missing (e.g. a deleted full-res N-L.tif, or no
+        # match file) must fall back to the placeholder figure, not crash:
+        # unlike StereoFiles, PairStereoFiles can carry left_image_fn=None.
+        stereo_plotter.files.pairs[0].left_image_fn = None
+        stereo_plotter.files.pairs[1].match_point_fn = None
+        saved = stereo_plotter.plot_match_points(
+            save_dir=str(tmp_path), fig_fn="mp.png"
+        )
+        assert saved == ["mp_pair1.png", "mp_pair2.png"]
+        for fn in saved:
+            assert (tmp_path / fn).exists()
+
+    def test_missing_pair_disparity_draws_placeholders(self, stereo_plotter, tmp_path):
+        stereo_plotter.files.pairs[0].disparity_sub_fn = None
+        saved = stereo_plotter.plot_disparity(save_dir=str(tmp_path), fig_fn="d.png")
+        assert saved == ["d_pair1.png", "d_pair2.png"]
+
     def test_plot_methods_return_single_figure_for_standard_run(self, tmp_path):
         plotter = StereoPlotter(
             directory="tests/test_data",

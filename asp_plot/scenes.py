@@ -56,8 +56,8 @@ class SceneFiles:
         Paths to the left/right sub-sampled scene files.
     pairs : list of PairSceneFiles
         Per-pair scene files of a multi-view run, resolved from the
-        ``<prefix>-pairN/`` subdirectories when the top-level sub-sampled
-        scenes are absent; empty for a standard stereo run.
+        ``<prefix>-pairN/`` subdirectories when present; empty for a
+        standard stereo run.
     """
 
     def __init__(self, directory, stereo_directory):
@@ -93,18 +93,19 @@ class SceneFiles:
             self.full_stereo_directory, "*-R_sub.tif", quiet=quiet
         )
 
-        self.pairs = []
-        if not (self.left_scene_sub_fn and self.right_scene_sub_fn):
-            for number, pair_directory in pair_directories:
-                self.pairs.append(
-                    PairSceneFiles(
-                        number=number,
-                        directory=pair_directory,
-                        left_scene_sub_fn=glob_file(pair_directory, "*-L_sub.tif"),
-                        right_scene_sub_fn=glob_file(pair_directory, "*-R_sub.tif"),
-                        label=describe_pair(number, pair_directory),
-                    )
-                )
+        # The presence of <prefix>-pairN/ subdirectories is the multi-view
+        # marker (matching StereoFiles): pairs win over any stale top-level
+        # sub-sampled scenes left behind by an earlier two-image run.
+        self.pairs = [
+            PairSceneFiles(
+                number=number,
+                directory=pair_directory,
+                left_scene_sub_fn=glob_file(pair_directory, "*-L_sub.tif"),
+                right_scene_sub_fn=glob_file(pair_directory, "*-R_sub.tif"),
+                label=describe_pair(number, pair_directory),
+            )
+            for number, pair_directory in pair_directories
+        ]
 
 
 class ScenePlotter(Plotter):
@@ -239,10 +240,10 @@ class ScenePlotter(Plotter):
         images from the stereo pair. Map-projection is not assumed.
         Each image is displayed with its filename above it.
 
-        For a multi-view run (top-level sub-sampled scenes absent, per-pair
-        products in ``<prefix>-pairN/`` subdirectories), one figure per pair
-        is created instead, named ``<stem>_pairN.png``. The reference (left)
-        image is the same for every pair.
+        For a multi-view run (per-pair products in ``<prefix>-pairN/``
+        subdirectories), one figure per pair is created instead, named
+        ``<stem>_pairN.png``. The reference (left) image is the same for
+        every pair.
 
         Parameters
         ----------

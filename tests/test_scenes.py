@@ -1,3 +1,5 @@
+import shutil
+
 import matplotlib
 import pytest
 
@@ -103,3 +105,20 @@ class TestScenePlotterMultiview:
         saved = plotter.plot_scenes(save_dir=str(tmp_path), fig_fn="scenes.png")
         assert saved == ["scenes.png"]
         assert (tmp_path / "scenes.png").exists()
+
+    def test_pairs_win_over_stale_top_level_scenes(self, tmp_path):
+        # Stale *-L_sub.tif/*-R_sub.tif left behind by an earlier two-image
+        # run must not suppress per-pair rendering: the run-pair*/ layout is
+        # the multi-view marker, matching StereoFiles.
+        stereo_dir = tmp_path / "stereo"
+        shutil.copytree("tests/test_data/mvs/stereo", stereo_dir)
+        shutil.copy(
+            stereo_dir / "run-pair1" / "1-L_sub.tif", stereo_dir / "run-L_sub.tif"
+        )
+        shutil.copy(
+            stereo_dir / "run-pair1" / "1-R_sub.tif", stereo_dir / "run-R_sub.tif"
+        )
+        plotter = ScenePlotter(directory=str(tmp_path), stereo_directory="stereo")
+        assert [p.number for p in plotter.pairs] == [1, 2]
+        saved = plotter.plot_scenes(save_dir=str(tmp_path), fig_fn="scenes.png")
+        assert saved == ["scenes_pair1.png", "scenes_pair2.png"]
