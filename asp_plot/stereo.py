@@ -528,7 +528,7 @@ class StereoPlotter(Plotter):
             else:
                 if not files.align_left_fn or not files.align_right_fn:
                     raise FileNotFoundError(
-                        "Alignment matrix files (run-align-{L,R}.txt) not found. "
+                        "Alignment matrix files (*-align-{L,R}.txt) not found. "
                         "These are required to overlay match points on non-mapprojected images."
                     )
 
