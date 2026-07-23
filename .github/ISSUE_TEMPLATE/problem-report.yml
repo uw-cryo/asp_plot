@@ -1,0 +1,44 @@
+name: Problem report
+description: Something in asp_plot is broken, wrong, or unclear
+body:
+  - type: input
+    id: location
+    attributes:
+      label: Where did you hit this?
+      description: A docs page URL, a CLI command, an example notebook, or a module/function.
+      placeholder: e.g. `asp_plot --directory ...`, or the stereo_geom example notebook
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what happened instead. Paste the full command and error output as text where possible.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: asp_plot version
+      description: From `python -c "import asp_plot; print(asp_plot.__version__)"`.
+      placeholder: e.g. 1.1.0
+    validations:
+      required: false
+  - type: dropdown
+    id: install
+    attributes:
+      label: How did you install asp_plot?
+      options:
+        - conda-forge
+        - pip (PyPI)
+        - From source (git)
+        - Just reading the docs
+    validations:
+      required: false
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: Screenshots, log files, links, ASP version.
+    validations:
+      required: false
