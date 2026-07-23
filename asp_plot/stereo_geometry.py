@@ -1,3 +1,4 @@
+import glob
 import logging
 import os
 
@@ -6,12 +7,84 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.spatial.transform import Rotation as R
 
+from asp_plot.asp_log import AspLog
 from asp_plot.csm_io import estim_satellite_orientation
 from asp_plot.stereopair_metadata_parser import StereopairMetadataParser
 from asp_plot.utils import save_figure
 
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
+
+
+def camera_files_from_stereo_run(processing_directory, stereo_directory):
+    """
+    Recover the camera metadata files named in a stereo run's command.
+
+    Parses the run's ``*log-stereo*.txt`` command line for camera metadata
+    tokens (``.xml``/``.XML``: WorldView camera files, Pléiades DIMAPs) so the
+    stereo geometry can be scoped to the scenes the run actually used rather
+    than every metadata file in the processing directory — the two differ when
+    a directory holds scenes for several runs (e.g. multi-view subsets).
+    Relative tokens are resolved against ``processing_directory`` (ASP logs
+    record the command as typed, and asp_plot reports are anchored there),
+    falling back to the token's basename in that directory.
+
+    Parameters
+    ----------
+    processing_directory : str
+        ASP processing directory the report is anchored to.
+    stereo_directory : str
+        Stereo subdirectory (relative to ``processing_directory``) containing
+        the ``*log-stereo*.txt`` files.
+
+    Returns
+    -------
+    list of str or None
+        Resolved metadata file paths in command order (deduplicated), or None
+        if there is no parseable log, the command names no metadata files
+        (e.g. CSM ``.json`` cameras), or a named file cannot be found —
+        callers should then fall back to directory-based discovery.
+    """
+    if not processing_directory or not stereo_directory:
+        return None
+    processing_directory = os.path.expanduser(processing_directory)
+    log_fns = sorted(
+        glob.glob(
+            os.path.join(processing_directory, stereo_directory, "*log-stereo*.txt")
+        )
+    )
+    for log_fn in log_fns:
+        try:
+            command = AspLog(log_fn).command
+        except Exception:
+            continue
+        if not command:
+            continue
+        tokens = [t for t in command.split() if t.lower().endswith(".xml")]
+        if not tokens:
+            continue
+        resolved = []
+        for token in tokens:
+            candidates = [
+                (
+                    token
+                    if os.path.isabs(token)
+                    else os.path.join(processing_directory, token)
+                ),
+                os.path.join(processing_directory, os.path.basename(token)),
+            ]
+            path = next((c for c in candidates if os.path.isfile(c)), None)
+            if path is None:
+                logger.warning(
+                    "Camera file %s from the stereo command in %s not found; "
+                    "falling back to directory-based scene discovery.",
+                    token,
+                    log_fn,
+                )
+                return None
+            resolved.append(os.path.abspath(path))
+        return list(dict.fromkeys(resolved))
+    return None
 
 
 class StereoGeometryPlotter:

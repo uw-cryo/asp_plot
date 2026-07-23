@@ -40,7 +40,7 @@ from asp_plot.selections import (
     write_selections_yaml,
 )
 from asp_plot.stereo import StereoPlotter
-from asp_plot.stereo_geometry import StereoGeometryPlotter
+from asp_plot.stereo_geometry import StereoGeometryPlotter, camera_files_from_stereo_run
 from asp_plot.utils import Raster, detect_planetary_body, get_acquisition_dates
 
 
@@ -161,10 +161,26 @@ def _build_input_scenes(ctx: ReportContext) -> List[object]:
 
 
 def _build_stereo_geometry(ctx: ReportContext) -> List[object]:
+    cfg = ctx.config
     fig_fn = ctx.next_fig_fn()
-    geom_plotter = StereoGeometryPlotter(
-        ctx.config.directory, add_basemap=ctx.config.add_basemap
-    )
+    # Scope the geometry to the scenes the stereo command actually used
+    # (recovered from the run's log): a processing directory can hold camera
+    # files for more scenes than one run consumed (e.g. multi-view subsets).
+    camera_files = camera_files_from_stereo_run(cfg.directory, cfg.stereo_directory)
+    geom_plotter = None
+    if camera_files:
+        try:
+            geom_plotter = StereoGeometryPlotter(
+                cfg.directory, add_basemap=cfg.add_basemap, inputs=camera_files
+            )
+        except ValueError as e:
+            print(
+                f"\nCould not build stereo geometry from the stereo command's "
+                f"camera files ({e}); falling back to directory-based scene "
+                f"discovery.\n"
+            )
+    if geom_plotter is None:
+        geom_plotter = StereoGeometryPlotter(cfg.directory, add_basemap=cfg.add_basemap)
     saved = geom_plotter.stereo_geom_plot(save_dir=ctx.plots_directory, fig_fn=fig_fn)
     # Two scenes save exactly fig_fn; more than two save an overview figure
     # plus one figure per pair, with names derived from fig_fn's stem.

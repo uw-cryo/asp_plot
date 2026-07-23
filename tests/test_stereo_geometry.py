@@ -1,10 +1,82 @@
+import os
+
 import matplotlib
 import pytest
 
-from asp_plot.stereo_geometry import StereoGeometryPlotter
+from asp_plot.stereo_geometry import StereoGeometryPlotter, camera_files_from_stereo_run
 from asp_plot.stereopair_metadata_parser import StereopairMetadataParser
 
 matplotlib.use("Agg")
+
+
+class TestCameraFilesFromStereoRun:
+    LOG_TEMPLATE = (
+        "ASP 3.8.0-alpha\n"
+        "Build ID: 39e4f4a\n"
+        "Build date: 2026-06-26\n"
+        "\n"
+        "{command}\n"
+        "\n"
+        "uname -a\n"
+        "Darwin test\n"
+    )
+
+    def _make_run(self, tmp_path, command, cameras=("left.xml", "right.xml")):
+        for camera in cameras:
+            (tmp_path / camera).write_text("<xml/>")
+        stereo_dir = tmp_path / "stereo"
+        stereo_dir.mkdir()
+        (stereo_dir / "run-log-stereo_tri-01-01-0000-1.txt").write_text(
+            self.LOG_TEMPLATE.format(command=command)
+        )
+        return tmp_path
+
+    def test_resolves_command_cameras(self, tmp_path):
+        directory = self._make_run(
+            tmp_path,
+            "stereo_tri --threads 8 left.tif right.tif "
+            "left.xml right.xml stereo/run",
+        )
+        files = camera_files_from_stereo_run(str(directory), "stereo")
+        assert [os.path.basename(f) for f in files] == ["left.xml", "right.xml"]
+        assert all(os.path.isfile(f) for f in files)
+
+    def test_basename_fallback_for_stale_paths(self, tmp_path):
+        # Command recorded with paths that no longer exist; the basenames
+        # are still present in the processing directory.
+        directory = self._make_run(
+            tmp_path,
+            "stereo_tri left.tif right.tif "
+            "/old/path/left.xml /old/path/right.xml stereo/run",
+        )
+        files = camera_files_from_stereo_run(str(directory), "stereo")
+        assert [os.path.basename(f) for f in files] == ["left.xml", "right.xml"]
+
+    def test_missing_camera_returns_none(self, tmp_path):
+        directory = self._make_run(
+            tmp_path,
+            "stereo_tri left.tif right.tif left.xml gone.xml stereo/run",
+        )
+        assert camera_files_from_stereo_run(str(directory), "stereo") is None
+
+    def test_non_xml_cameras_return_none(self, tmp_path):
+        # CSM runs pass .json camera states; there is nothing to scope to.
+        directory = self._make_run(
+            tmp_path,
+            "stereo_tri left.tif right.tif "
+            "ba/left.adjusted_state.json ba/right.adjusted_state.json stereo/run",
+        )
+        assert camera_files_from_stereo_run(str(directory), "stereo") is None
+
+    def test_no_logs_returns_none(self, tmp_path):
+        (tmp_path / "stereo").mkdir()
+        assert camera_files_from_stereo_run(str(tmp_path), "stereo") is None
+        assert camera_files_from_stereo_run(None, "stereo") is None
+        assert camera_files_from_stereo_run(str(tmp_path), None) is None
+
+    def test_real_fixture_csm_cameras_return_none(self):
+        # The committed stereo fixture's command uses CSM .json cameras.
+        assert camera_files_from_stereo_run("tests/test_data", "stereo") is None
 
 
 class TestStereoGeometryPlotter:
