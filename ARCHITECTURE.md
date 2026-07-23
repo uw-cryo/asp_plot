@@ -175,7 +175,7 @@ The package is organized by functionality, with each module focused on a specifi
 **`stereo_geometry.py`** - `StereoGeometryPlotter` class
 - **Composes** a `StereopairMetadataParser` via `self.parser` rather than subclassing it (issue #25); imports `estim_satellite_orientation` from `csm_io` directly
 - Visualizes stereo acquisition geometry from XML metadata
-- `camera_files_from_stereo_run()`: recovers the camera metadata files named in a stereo run's command (parsed from `*log-stereo*.txt` via `AspLog`) so the report's geometry section covers only the run's scenes, not every camera file in the directory; returns None (→ directory fallback) for CSM `.json` cameras or unresolvable paths
+- `camera_files_from_stereo_run()`: recovers the camera metadata files named in a stereo run's command (parsed from the newest `*log-stereo*.txt` via `AspLog`, so a rerun into the same directory wins) so the report's geometry section covers only the run's scenes, not every camera file in the directory; returns None (→ directory fallback) when fewer than two cameras resolve (CSM `.json` cameras, unresolvable paths)
 - `stereo_geom_plot()`: Creates skyplot (satellite viewing angles) and map view (footprints)
 - `satellite_position_orientation_plot()`: Creates a 3-row × N-column figure (one column per scene) showing position covariance, roll/pitch/yaw orientation, and attitude covariance. Sensors without covariance data (e.g. Pléiades DIMAP) get plain position markers and an annotated "not provided" panel; scene labels omit scan/TDI when the sensor has none
 
