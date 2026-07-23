@@ -40,7 +40,7 @@ from asp_plot.selections import (
     write_selections_yaml,
 )
 from asp_plot.stereo import StereoPlotter
-from asp_plot.stereo_geometry import StereoGeometryPlotter
+from asp_plot.stereo_geometry import StereoGeometryPlotter, camera_files_from_stereo_run
 from asp_plot.utils import Raster, detect_planetary_body, get_acquisition_dates
 
 
@@ -131,53 +131,73 @@ class ReportSpec:
 # ---------------------------------------------------------------------------
 
 
+def _numbered_sections(saved: List[str], ctx: ReportContext, title: str, caption: str):
+    """One :class:`ReportSection` per saved figure, titling continuations.
+
+    A multi-view run's scene/match/disparity plotters save one figure per
+    pair (names derived from the requested figure filename's stem) and return
+    the list; a standard run returns a single-element list.
+    """
+    return [
+        ReportSection(
+            title=title if i == 0 else f"{title} (continued)",
+            image_path=ctx.fig_path(fn),
+            caption=caption if i == 0 else "",
+        )
+        for i, fn in enumerate(saved)
+    ]
+
+
 def _build_input_scenes(ctx: ReportContext) -> List[object]:
     cfg = ctx.config
     fig_fn = ctx.next_fig_fn()
     scene_plotter = ScenePlotter(
         cfg.directory, cfg.stereo_directory, title="Input Scenes"
     )
-    scene_plotter.plot_scenes(save_dir=ctx.plots_directory, fig_fn=fig_fn)
-    return [
-        ReportSection(
-            title="Input Scenes",
-            image_path=ctx.fig_path(fig_fn),
-            caption=captions.INPUT_SCENES,
-        )
-    ]
+    saved = scene_plotter.plot_scenes(save_dir=ctx.plots_directory, fig_fn=fig_fn)
+    return _numbered_sections(
+        saved or [fig_fn], ctx, "Input Scenes", captions.INPUT_SCENES
+    )
 
 
 def _build_stereo_geometry(ctx: ReportContext) -> List[object]:
+    cfg = ctx.config
     fig_fn = ctx.next_fig_fn()
-    geom_plotter = StereoGeometryPlotter(
-        ctx.config.directory, add_basemap=ctx.config.add_basemap
-    )
+    # Scope the geometry to the scenes the stereo command actually used
+    # (recovered from the run's log): a processing directory can hold camera
+    # files for more scenes than one run consumed (e.g. multi-view subsets).
+    camera_files = camera_files_from_stereo_run(cfg.directory, cfg.stereo_directory)
+    geom_plotter = None
+    if camera_files:
+        try:
+            geom_plotter = StereoGeometryPlotter(
+                cfg.directory, add_basemap=cfg.add_basemap, inputs=camera_files
+            )
+        except ValueError as e:
+            print(
+                f"\nCould not build stereo geometry from the stereo command's "
+                f"camera files ({e}); falling back to directory-based scene "
+                f"discovery.\n"
+            )
+    if geom_plotter is None:
+        geom_plotter = StereoGeometryPlotter(cfg.directory, add_basemap=cfg.add_basemap)
     saved = geom_plotter.stereo_geom_plot(save_dir=ctx.plots_directory, fig_fn=fig_fn)
     # Two scenes save exactly fig_fn; more than two save an overview figure
     # plus one figure per pair, with names derived from fig_fn's stem.
-    if not saved:
-        saved = [fig_fn]
-    return [
-        ReportSection(
-            title="Stereo Geometry" if i == 0 else "Stereo Geometry (continued)",
-            image_path=ctx.fig_path(fn),
-            caption=captions.STEREO_GEOMETRY if i == 0 else "",
-        )
-        for i, fn in enumerate(saved)
-    ]
+    return _numbered_sections(
+        saved or [fig_fn], ctx, "Stereo Geometry", captions.STEREO_GEOMETRY
+    )
 
 
 def _build_match_points(ctx: ReportContext) -> List[object]:
     fig_fn = ctx.next_fig_fn()
     ctx.stereo_plotter.title = "Stereo Match Points"
-    ctx.stereo_plotter.plot_match_points(save_dir=ctx.plots_directory, fig_fn=fig_fn)
-    return [
-        ReportSection(
-            title="Match Points",
-            image_path=ctx.fig_path(fig_fn),
-            caption=captions.MATCH_POINTS,
-        )
-    ]
+    saved = ctx.stereo_plotter.plot_match_points(
+        save_dir=ctx.plots_directory, fig_fn=fig_fn
+    )
+    return _numbered_sections(
+        saved or [fig_fn], ctx, "Match Points", captions.MATCH_POINTS
+    )
 
 
 def _build_bundle_adjust(ctx: ReportContext) -> List[object]:
@@ -304,16 +324,10 @@ def _build_bundle_adjust(ctx: ReportContext) -> List[object]:
 def _build_disparity(ctx: ReportContext) -> List[object]:
     fig_fn = ctx.next_fig_fn()
     ctx.stereo_plotter.title = "Disparity (pixels)"
-    ctx.stereo_plotter.plot_disparity(
+    saved = ctx.stereo_plotter.plot_disparity(
         unit="pixels", quiver=True, save_dir=ctx.plots_directory, fig_fn=fig_fn
     )
-    return [
-        ReportSection(
-            title="Disparity",
-            image_path=ctx.fig_path(fig_fn),
-            caption=captions.DISPARITY,
-        )
-    ]
+    return _numbered_sections(saved or [fig_fn], ctx, "Disparity", captions.DISPARITY)
 
 
 def _build_dem_results(ctx: ReportContext) -> List[object]:

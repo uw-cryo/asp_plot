@@ -40,7 +40,7 @@ sphinx-autobuild docs docs/_build/html --open-browser   # or sphinx-build for a 
 
 ## Gotchas
 
-- **ASP tools must be on PATH** for the workflows that wrap them: `stereo`/`parallel_stereo`, `bundle_adjust`, `point2dem`, `pc_align`, `geodiff`, `dg_mosaic` (called via `run_subprocess_command()`).
+- **ASP tools must be on PATH** for the workflows that wrap them: `stereo`/`parallel_stereo`, `bundle_adjust`, `point2dem`, `pc_align`, `geodiff`, `dg_mosaic` (called via `run_subprocess_command()`). **Append** the ASP bin directory to PATH rather than prepending: the ASP release bundles its own `python`, which would shadow your environment's interpreter and break imports.
 - **Internet is required** for basemaps (contextily/Esri tiles), ICESat-2 requests (SlideRule), and ESA WorldCover sampling (public AWS S3 COGs). Tests must not depend on the network — basemap fetches are stubbed (#151).
 - **Mars altimetry needs the `*_pts_csv.csv`** (with `PLANET_RAD`), never the `*_topo_csv.csv`: MOLA TOPOGRAPHY is referenced to the oblate areoid while ASP DEMs use the spherical IAU datum — a latitude-dependent offset up to ~10 km that pc_align cannot remove. The loader rejects the topo file with an explanatory error.
 - **ASP's `mapproject` writes no log file**; its command is reconstructed from output GeoTIFF metadata (`mapproject.py`), not parsed from logs like the other tools.
@@ -55,7 +55,7 @@ sphinx-autobuild docs docs/_build/html --open-browser   # or sphinx-build for a 
 
 ## Testing
 
-Tests are in `tests/` with sample data in `tests/test_data/` (synthetic rasters, XML camera files, BA CSVs, ICESat-2 parquet, pc_align outputs, jitter data). Most modules have a matching `tests/test_<module>.py`; `test_imports.py` verifies everything imports. Example notebooks in `notebooks/` are organized by sensor (WorldView, Pleiades, ASTER, LRO_NAC, Mars_MGS, Mars_MRO) — see ARCHITECTURE.md for what each demonstrates.
+Tests are in `tests/` with sample data in `tests/test_data/` (synthetic rasters, XML camera files, BA CSVs, ICESat-2 parquet, pc_align outputs, jitter data). Most modules have a matching `tests/test_<module>.py`; `test_imports.py` verifies everything imports. Some fixture derivatives (e.g. match-point CSVs next to `.match` files) are gitignored and regenerate during test runs — untracked files appearing under `tests/test_data/` after `pytest` are expected, don't commit them. Example notebooks in `notebooks/` are organized by sensor (WorldView, Pleiades, ASTER, LRO_NAC, Mars_MGS, Mars_MRO) — see ARCHITECTURE.md for what each demonstrates.
 
 ## Versioning and Release Process
 

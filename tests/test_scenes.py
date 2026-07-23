@@ -1,3 +1,5 @@
+import shutil
+
 import matplotlib
 import pytest
 
@@ -67,3 +69,56 @@ class TestScenePlotterMissingScenes:
             scene_plotter.plot_scenes()
         except Exception as e:
             pytest.fail(f"figure method raised an exception: {str(e)}")
+
+
+class TestScenePlotterMultiview:
+    """A multi-view run's scenes are rendered one figure per run-pair*/ pair
+    (issue #160)."""
+
+    @pytest.fixture
+    def scene_plotter(self):
+        return ScenePlotter(
+            directory="tests/test_data",
+            stereo_directory="mvs/stereo",
+            title="Input Scenes",
+        )
+
+    def test_top_level_scenes_absent(self, scene_plotter):
+        assert scene_plotter.left_scene_sub_fn is None
+        assert scene_plotter.right_scene_sub_fn is None
+
+    def test_discovers_pairs(self, scene_plotter):
+        pairs = scene_plotter.pairs
+        assert [p.number for p in pairs] == [1, 2]
+        assert all(p.left_scene_sub_fn is not None for p in pairs)
+        assert all(p.right_scene_sub_fn is not None for p in pairs)
+        assert pairs[0].label == "Pair 1: out-Band3N.tif ↔ out-Band3B.tif"
+
+    def test_plot_scenes_per_pair(self, scene_plotter, tmp_path):
+        saved = scene_plotter.plot_scenes(save_dir=str(tmp_path), fig_fn="scenes.png")
+        assert saved == ["scenes_pair1.png", "scenes_pair2.png"]
+        for fn in saved:
+            assert (tmp_path / fn).exists()
+
+    def test_plot_scenes_returns_single_figure_for_standard_run(self, tmp_path):
+        plotter = ScenePlotter(directory="tests/test_data", stereo_directory="stereo")
+        saved = plotter.plot_scenes(save_dir=str(tmp_path), fig_fn="scenes.png")
+        assert saved == ["scenes.png"]
+        assert (tmp_path / "scenes.png").exists()
+
+    def test_pairs_win_over_stale_top_level_scenes(self, tmp_path):
+        # Stale *-L_sub.tif/*-R_sub.tif left behind by an earlier two-image
+        # run must not suppress per-pair rendering: the run-pair*/ layout is
+        # the multi-view marker, matching StereoFiles.
+        stereo_dir = tmp_path / "stereo"
+        shutil.copytree("tests/test_data/mvs/stereo", stereo_dir)
+        shutil.copy(
+            stereo_dir / "run-pair1" / "1-L_sub.tif", stereo_dir / "run-L_sub.tif"
+        )
+        shutil.copy(
+            stereo_dir / "run-pair1" / "1-R_sub.tif", stereo_dir / "run-R_sub.tif"
+        )
+        plotter = ScenePlotter(directory=str(tmp_path), stereo_directory="stereo")
+        assert [p.number for p in plotter.pairs] == [1, 2]
+        saved = plotter.plot_scenes(save_dir=str(tmp_path), fig_fn="scenes.png")
+        assert saved == ["scenes_pair1.png", "scenes_pair2.png"]

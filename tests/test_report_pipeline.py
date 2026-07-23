@@ -168,6 +168,47 @@ class TestStereoGeometryFanOut:
         assert os.path.basename(sections[0].image_path) == "00.png"
 
 
+class TestStereoGeometryScoping:
+    """The geometry section is scoped to the cameras named in the stereo
+    command when they can be recovered from the run's log, falling back to
+    directory-based discovery otherwise."""
+
+    def _build(self, monkeypatch, camera_files, fail_on_inputs=False):
+        constructed = []
+
+        class _Geom:
+            def __init__(self, directory=None, add_basemap=True, inputs=None):
+                if fail_on_inputs and inputs is not None:
+                    raise ValueError("no matching sensor")
+                constructed.append({"directory": directory, "inputs": inputs})
+
+            def stereo_geom_plot(self, save_dir=None, fig_fn=None):
+                return [fig_fn]
+
+        monkeypatch.setattr(rp, "StereoGeometryPlotter", _Geom)
+        monkeypatch.setattr(
+            rp, "camera_files_from_stereo_run", lambda d, s: camera_files
+        )
+        rp._build_stereo_geometry(_ctx(plots_directory="/tmp/plots"))
+        return constructed
+
+    def test_scopes_to_recovered_cameras(self, monkeypatch):
+        constructed = self._build(monkeypatch, ["left.xml", "right.xml"])
+        assert constructed == [
+            {"directory": ReportConfig().directory, "inputs": ["left.xml", "right.xml"]}
+        ]
+
+    def test_falls_back_when_unrecoverable(self, monkeypatch):
+        constructed = self._build(monkeypatch, None)
+        assert constructed == [{"directory": ReportConfig().directory, "inputs": None}]
+
+    def test_falls_back_when_sensor_detection_fails(self, monkeypatch):
+        constructed = self._build(
+            monkeypatch, ["left.xml", "right.xml"], fail_on_inputs=True
+        )
+        assert constructed == [{"directory": ReportConfig().directory, "inputs": None}]
+
+
 # ---------------------------------------------------------------------------
 # --plot_icesat deprecation alias
 # ---------------------------------------------------------------------------
