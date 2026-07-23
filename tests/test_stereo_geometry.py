@@ -1,10 +1,118 @@
+import os
+
 import matplotlib
 import pytest
 
-from asp_plot.stereo_geometry import StereoGeometryPlotter
+from asp_plot.stereo_geometry import StereoGeometryPlotter, camera_files_from_stereo_run
 from asp_plot.stereopair_metadata_parser import StereopairMetadataParser
 
 matplotlib.use("Agg")
+
+
+class TestCameraFilesFromStereoRun:
+    LOG_TEMPLATE = (
+        "ASP 3.8.0-alpha\n"
+        "Build ID: 39e4f4a\n"
+        "Build date: 2026-06-26\n"
+        "\n"
+        "{command}\n"
+        "\n"
+        "uname -a\n"
+        "Darwin test\n"
+    )
+
+    def _make_run(self, tmp_path, command, cameras=("left.xml", "right.xml")):
+        for camera in cameras:
+            (tmp_path / camera).write_text("<xml/>")
+        stereo_dir = tmp_path / "stereo"
+        stereo_dir.mkdir()
+        (stereo_dir / "run-log-stereo_tri-01-01-0000-1.txt").write_text(
+            self.LOG_TEMPLATE.format(command=command)
+        )
+        return tmp_path
+
+    def test_resolves_command_cameras(self, tmp_path):
+        directory = self._make_run(
+            tmp_path,
+            "stereo_tri --threads 8 left.tif right.tif "
+            "left.xml right.xml stereo/run",
+        )
+        files = camera_files_from_stereo_run(str(directory), "stereo")
+        assert [os.path.basename(f) for f in files] == ["left.xml", "right.xml"]
+        assert all(os.path.isfile(f) for f in files)
+
+    def test_basename_fallback_for_stale_paths(self, tmp_path):
+        # Command recorded with paths that no longer exist; the basenames
+        # are still present in the processing directory.
+        directory = self._make_run(
+            tmp_path,
+            "stereo_tri left.tif right.tif "
+            "/old/path/left.xml /old/path/right.xml stereo/run",
+        )
+        files = camera_files_from_stereo_run(str(directory), "stereo")
+        assert [os.path.basename(f) for f in files] == ["left.xml", "right.xml"]
+
+    def test_missing_camera_returns_none(self, tmp_path):
+        directory = self._make_run(
+            tmp_path,
+            "stereo_tri left.tif right.tif left.xml gone.xml stereo/run",
+        )
+        assert camera_files_from_stereo_run(str(directory), "stereo") is None
+
+    def test_non_xml_cameras_return_none(self, tmp_path):
+        # CSM runs pass .json camera states; there is nothing to scope to.
+        directory = self._make_run(
+            tmp_path,
+            "stereo_tri left.tif right.tif "
+            "ba/left.adjusted_state.json ba/right.adjusted_state.json stereo/run",
+        )
+        assert camera_files_from_stereo_run(str(directory), "stereo") is None
+
+    def test_no_logs_returns_none(self, tmp_path):
+        (tmp_path / "stereo").mkdir()
+        assert camera_files_from_stereo_run(str(tmp_path), "stereo") is None
+        assert camera_files_from_stereo_run(None, "stereo") is None
+        assert camera_files_from_stereo_run(str(tmp_path), None) is None
+
+    def test_newest_log_wins(self, tmp_path):
+        # A rerun into the same stereo directory must scope to the current
+        # run's cameras: the newest log wins, not the alphabetically-first
+        # (ASP log names embed no year to sort on).
+        directory = self._make_run(
+            tmp_path,
+            "stereo_tri old_l.tif old_r.tif old_left.xml old_right.xml stereo/run",
+            cameras=("old_left.xml", "old_right.xml", "left.xml", "right.xml"),
+        )
+        old_log = directory / "stereo" / "run-log-stereo_tri-01-01-0000-1.txt"
+        new_log = directory / "stereo" / "run-log-stereo_tri-12-31-2359-9.txt"
+        new_log.write_text(
+            self.LOG_TEMPLATE.format(
+                command="stereo_tri left.tif right.tif left.xml right.xml stereo/run"
+            )
+        )
+        os.utime(old_log, (1000, 1000))
+        os.utime(new_log, (2000, 2000))
+        files = camera_files_from_stereo_run(str(directory), "stereo")
+        assert [os.path.basename(f) for f in files] == ["left.xml", "right.xml"]
+
+    def test_fewer_than_two_cameras_returns_none(self, tmp_path):
+        # A mixed .xml/.json-camera command resolves a single metadata file;
+        # geometry needs a pair, so the caller must fall back.
+        directory = self._make_run(
+            tmp_path,
+            "stereo_tri left.tif right.tif "
+            "left.xml ba/right.adjusted_state.json stereo/run",
+            cameras=("left.xml",),
+        )
+        assert camera_files_from_stereo_run(str(directory), "stereo") is None
+
+    def test_real_fixture_csm_cameras_return_none(self):
+        # The committed stereo fixture's command uses CSM .json cameras.
+        assert camera_files_from_stereo_run("tests/test_data", "stereo") is None
+
+    def test_mvs_fixture_missing_cameras_return_none(self):
+        # The mvs fixture's log names camera XMLs that are not on disk.
+        assert camera_files_from_stereo_run("tests/test_data", "mvs/stereo") is None
 
 
 class TestStereoGeometryPlotter:
