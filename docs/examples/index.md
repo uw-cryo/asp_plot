@@ -7,25 +7,18 @@ Examples of modular usage of `asp_plot`, organized by sensor type. Each notebook
 ::::{grid} 1
 :gutter: 3
 
-:::{grid-item-card} WorldView — SpaceNet Atlanta
-:link: notebooks/worldview_spacenet_atlanta_stereo
+:::{grid-item-card} WorldView — SpaceNet Atlanta (Multi-View Stereo)
+:link: notebooks/worldview_spacenet_atlanta_mvs
 :link-type: doc
 
-Stereo processing of publicly available SpaceNet Atlanta WorldView-2 data.
-:::
-
-:::{grid-item-card} WorldView — SpaceNet Atlanta (No Mapprojection)
-:link: notebooks/worldview_spacenet_atlanta_stereo_without_mapprojection
-:link-type: doc
-
-Same Atlanta stereopair as the main notebook but processed without the mapprojection step (`--alignment-method affineepipolar`), with a side-by-side ICESat-2 histogram comparison.
+Three-scene same-pass multi-view stereo of publicly available SpaceNet Atlanta WorldView-2 data, compared against the three pairwise runs merged with `dem_mosaic`.
 :::
 
 :::{grid-item-card} WorldView — SpaceNet Atlanta (Scene Selection)
 :link: notebooks/worldview_spacenet_atlanta_stereo_scene_selection
 :link-type: doc
 
-Pair-ranking and DEM-vs-ICESat-2 comparison used to choose the Atlanta stereo pair processed in the companion notebook.
+Pair-ranking and DEM-vs-ICESat-2 comparison used to choose the Atlanta scenes processed in the companion multi-view notebook.
 :::
 
 :::{grid-item-card} WorldView — SpaceNet UCSD
@@ -111,8 +104,7 @@ Mars Reconnaissance Orbiter High Resolution Imaging Science Experiment processin
 :maxdepth: 1
 :hidden:
 
-notebooks/worldview_spacenet_atlanta_stereo
-notebooks/worldview_spacenet_atlanta_stereo_without_mapprojection
+notebooks/worldview_spacenet_atlanta_mvs
 notebooks/worldview_spacenet_atlanta_stereo_scene_selection
 notebooks/worldview_spacenet_ucsd_stereo
 notebooks/worldview_spacenet_ucsd_stereo_scene_selection
