@@ -8,6 +8,7 @@ build:
     pre_build:
       - mkdir -p docs/examples/notebooks
       - cp notebooks/WorldView/*.ipynb docs/examples/notebooks/
+      - cp notebooks/Pleiades/*.ipynb docs/examples/notebooks/
       - cp notebooks/ASTER/*.ipynb docs/examples/notebooks/
       - cp notebooks/LRO_NAC/*.ipynb docs/examples/notebooks/
       - cp notebooks/Mars_MGS/*.ipynb docs/examples/notebooks/
