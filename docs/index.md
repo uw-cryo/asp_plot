@@ -84,7 +84,7 @@ expansion roadmap.
 | SPOT 5 | `spot5` | DIMAP v1 | 🧪 Implemented from the ASP reader spec, not yet validated with real data — reports welcome ([open an issue](https://github.com/uw-cryo/asp_plot/issues/new)) |
 | ALOS PRISM | `prism` | DIMAP-like (`ALOS`) | 🧪 Implemented from the ASP reader spec, not yet validated with real data — reports welcome ([open an issue](https://github.com/uw-cryo/asp_plot/issues/new)) |
 | ASTER | `aster` | `gen_aster` XML | ✅ Supported (geometry derived from look vectors; no attitude, sun angles, or timestamps exist) |
-| Cartosat-1, Deimos, and other RPC-only products | `rpc` | RPC coefficients only | 🚧 Planned, derived geometry ([#177](https://github.com/uw-cryo/asp_plot/issues/177)); no trajectory/attitude metadata exists |
+| Cartosat-1, Deimos, and other RPC-only products | `rpc` | RPC coefficients in the image or a `*_RPC.TXT` sidecar | ✅ Supported (geometry derived from the RPCs and validated against vendor-reported view angles, GSD and footprints; no timestamps, attitude, sun angles, or along/across-track split exist) |
 | Planetary (LRO NAC, CTX, HiRISE, MOC, ...) | `csm` / ISIS | CSM model state (JSON) | Handled by the CSM camera modules (`csm_camera_plot`), not the sensor readers |
 
 Sensors report attitude either as quaternions (WorldView, DIMAP v2), as
@@ -96,15 +96,26 @@ Handbook navigation frame, which is *not* the same axis convention as the
 computed ones. DIMAP v1 also reports no satellite azimuth, so the skyplot and
 the pair convergence angle are unavailable for SPOT 5 and ALOS PRISM.
 
-ASTER is the one reader that *derives* its geometry instead of parsing it:
-`gen_aster` camera files record only satellite positions and per-pixel look
-vectors, so the footprint, view angles and ground sample distance are computed
-by intersecting those look rays with the WGS84 ellipsoid. That gives a full
-skyplot and convergence angle (the derivation reproduces ASTER's published
-27.6° backward pointing and ~0.6 base-to-height ratio), but no attitude panel,
-no sun angles, and no timestamps — the acquisition date is recovered from a
-neighbouring `AST_L1A_*` granule name when one is present, and is then shared by
-both bands of the pair.
+Two readers *derive* their geometry instead of parsing it. ASTER's `gen_aster`
+camera files record only satellite positions and per-pixel look vectors, so the
+footprint, view angles and ground sample distance are computed by intersecting
+those look rays with the WGS84 ellipsoid. That gives a full skyplot and
+convergence angle (the derivation reproduces ASTER's published 27.6° backward
+pointing and ~0.6 base-to-height ratio), but no attitude panel, no sun angles,
+and no timestamps — the acquisition date is recovered from a neighbouring
+`AST_L1A_*` granule name when one is present, and is then shared by both bands
+of the pair.
+
+RPC-only products go one step further: there is no camera *file* at all, only
+rational polynomial coefficients inside the image (or a `*_RPC.TXT` sidecar,
+including Cartosat-1's `*_RPC_ORG.TXT` variant). Projecting a pixel to the
+ground at two heights traces its look ray, which yields the footprint, satellite
+azimuth/elevation, and — by intersecting the look rays from opposite ends of an
+image line — the satellite position and off-nadir angle. Point `stereo_geom` at
+the images themselves rather than at XMLs. Attitude, timestamps (unless the
+image header records one), sun angles and the along/across-track split of the
+off-nadir angle do not exist for these products and are reported as not
+provided.
 
 ## What it does
 
