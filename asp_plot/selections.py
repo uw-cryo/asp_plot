@@ -1,5 +1,5 @@
 """
-Reproducible "figure selections" for asp_plot reports.
+Reproducible "figure selections" for asp_report reports.
 
 When re-processing the same scene with different ASP parameters, the diagnostic
 figures silently change *what they show* between runs: a fresh ICESat-2 request

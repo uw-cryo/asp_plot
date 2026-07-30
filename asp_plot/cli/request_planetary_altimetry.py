@@ -42,7 +42,7 @@ def main(dem, email, channels):
     Example:
       request_planetary_altimetry --dem stereo/output-DEM.tif --email user@example.com
       # ... wait for email, download and unzip ...
-      asp_plot --directory ./ --altimetry_csv /path/to/*_topo_csv.csv
+      asp_report --directory ./ --altimetry_csv /path/to/*_topo_csv.csv
     """
     from asp_plot.altimetry import GDS_BASE_URL, gds_query_async
 
@@ -53,7 +53,7 @@ def main(dem, email, channels):
         click.echo(
             "\nThis DEM is an Earth DEM. ICESat-2 altimetry is fetched "
             "automatically by asp_plot — no separate request needed.\n"
-            "Run: asp_plot --directory <dir> --plot_altimetry True\n"
+            "Run: asp_report --directory <dir> --plot_altimetry True\n"
         )
         sys.exit(0)
 
@@ -124,7 +124,7 @@ def main(dem, email, channels):
     click.echo(
         "\nYou will receive an email when the data is ready. "
         "Download and unzip the result, then pass the *_topo_csv.csv to asp_plot:\n"
-        "  asp_plot --directory <dir> --altimetry_csv <*_topo_csv.csv>\n"
+        "  asp_report --directory <dir> --altimetry_csv <*_topo_csv.csv>\n"
     )
 
 

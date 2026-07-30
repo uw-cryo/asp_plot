@@ -15,7 +15,7 @@ build:
   number: 0
   script: {{ PYTHON }} -m pip install . -vv --no-deps --no-build-isolation
   entry_points:
-    - asp_plot = asp_plot.cli.asp_plot:main
+    - asp_report = asp_plot.cli.asp_report:main
     - csm_camera_plot = asp_plot.cli.csm_camera_plot:main
     - stereo_geom = asp_plot.cli.stereo_geom:main
 
@@ -47,7 +47,7 @@ test:
   imports:
     - asp_plot
   commands:
-    - asp_plot --help
+    - asp_report --help
     - csm_camera_plot --help
     - stereo_geom --help
 

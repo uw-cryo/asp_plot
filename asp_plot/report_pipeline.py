@@ -1,7 +1,7 @@
-"""Declarative report pipeline for the ``asp_plot`` CLI.
+"""Declarative report pipeline for the ``asp_report`` CLI.
 
 This module decouples the report-generation pipeline from Click. The CLI
-(:mod:`asp_plot.cli.asp_plot`) parses options, packs them into a
+(:mod:`asp_plot.cli.asp_report`) parses options, packs them into a
 :class:`ReportConfig`, and calls :func:`run_report` -- which is importable and
 callable from notebooks and tests without any Click context.
 
@@ -70,7 +70,7 @@ class ReportConfig:
     reuse_selections: Optional[str] = None
     report_filename: Optional[str] = None
     report_title: Optional[str] = None
-    # Reconstructed "asp_plot --flag ..." string recorded in the report. The
+    # Reconstructed "asp_report --flag ..." string recorded in the report. The
     # CLI builds this from the Click context; non-CLI callers may leave it None.
     report_command: Optional[str] = None
 
@@ -316,7 +316,7 @@ def _build_bundle_adjust(ctx: ReportContext) -> List[object]:
 
     except ValueError:
         print(
-            f"\n\nNo bundle adjustment files found in directory {os.path.join(cfg.directory, cfg.bundle_adjust_directory):}. If you want bundle adjustment plots, make sure you run the tool and supply the correct directory to asp_plot.\n\n"
+            f"\n\nNo bundle adjustment files found in directory {os.path.join(cfg.directory, cfg.bundle_adjust_directory):}. If you want bundle adjustment plots, make sure you run the tool and supply the correct directory to asp_report.\n\n"
         )
     return sections
 
@@ -632,7 +632,7 @@ def _build_altimetry_planetary(ctx: ReportContext, body: str):
             f"  1. Run: request_planetary_altimetry --dem {asp_dem} --email <your_email>\n"
             f"  2. Wait for the email with a download link\n"
             f"  3. Download and unzip the result\n"
-            f"  4. Re-run asp_plot with: --altimetry_csv <path_to_pts_csv.csv>\n"
+            f"  4. Re-run asp_report with: --altimetry_csv <path_to_pts_csv.csv>\n"
             f"\nSkipping {instrument} altimetry plots.\n"
             f"{'='*60}\n"
         )
@@ -825,7 +825,7 @@ def _setup_context(config: ReportConfig) -> ReportContext:
     report_filename = config.report_filename
     if report_filename is None:
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-        report_filename = f"asp_plot_report_{report_title}_{timestamp}.pdf"
+        report_filename = f"asp_report_{report_title}_{timestamp}.pdf"
 
     # If report_filename is an absolute or relative path, use it directly;
     # otherwise save alongside the processed DEM in the stereo directory.

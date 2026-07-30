@@ -5,8 +5,8 @@
 ::::{grid} 1
 :gutter: 3
 
-:::{grid-item-card} asp_plot
-:link: asp_plot
+:::{grid-item-card} asp_report
+:link: asp_report
 :link-type: doc
 
 Generate comprehensive PDF reports of ASP stereo processing results.
@@ -46,7 +46,7 @@ Lay out many DEMs as a grid of thumbnails sharing one color scale, for QA'ing a 
 :maxdepth: 1
 :hidden:
 
-asp_plot
+asp_report
 stereo_geom
 csm_camera_plot
 request_planetary_altimetry

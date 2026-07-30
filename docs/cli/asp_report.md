@@ -1,4 +1,4 @@
-# asp_plot
+# asp_report
 
 The main CLI tool generates a comprehensive PDF report of ASP processing results.
 
@@ -15,7 +15,7 @@ During the `stereo` or `parallel_stereo` steps, add this flag to retain the file
 At its simplest, run from the ASP processing directory:
 
 ```bash
-asp_plot --directory ./ \
+asp_report --directory ./ \
          --stereo_directory stereo
 ```
 
@@ -24,7 +24,7 @@ This requires only the directory where ASP processing was done (`--directory`) a
 ## With bundle adjustment and reference DEM
 
 ```bash
-asp_plot --directory ./ \
+asp_report --directory ./ \
          --bundle_adjust_directory ba \
          --stereo_directory stereo \
          --reference_dem ref_dem.tif
@@ -35,7 +35,7 @@ asp_plot --directory ./ \
 If you don't have internet access, disable basemap and altimetry fetching:
 
 ```bash
-asp_plot --directory ./ \
+asp_report --directory ./ \
          --stereo_directory stereo \
          --add_basemap False \
          --plot_altimetry False
@@ -52,7 +52,7 @@ For planetary DEMs, altimetry data must be requested separately using [`request_
 request_planetary_altimetry --dem stereo/output-DEM.tif --email user@example.com
 
 # Step 2: After downloading and unzipping the result
-asp_plot --directory ./ \
+asp_report --directory ./ \
          --stereo_directory stereo \
          --altimetry_csv /path/to/MolaPEDR_*_topo_csv.csv \
          --add_basemap False \
@@ -88,17 +88,17 @@ For areas with known temporal surface change (e.g. ice sheets, glaciers), consid
 
 When you re-process the same scene with different ASP parameters, several diagnostic figures normally change *what they show* between runs: a fresh ICESat-2 request returns a slightly different point set, the "best" profile track flips, the best/worst agreement segments move, and the detailed-hillshade clip boxes are re-selected from the re-processed intersection-error raster. That makes a true before/after comparison impossible.
 
-Every `asp_plot` run now writes a small YAML sidecar next to the report — `<report_stem>_figure_selections.yml` — recording each of these selections: the ICESat-2 request settings and parquet cache locations, the chosen profile track (`rgt`/`cycle`/`spot`), the best/worst segment extents, and the detailed-hillshade clip boxes (as DEM-CRS bounding boxes).
+Every `asp_report` run now writes a small YAML sidecar next to the report — `<report_stem>_figure_selections.yml` — recording each of these selections: the ICESat-2 request settings and parquet cache locations, the chosen profile track (`rgt`/`cycle`/`spot`), the best/worst segment extents, and the detailed-hillshade clip boxes (as DEM-CRS bounding boxes).
 
 To make a second run reproduce the first run's figures exactly, pass that file back in:
 
 ```bash
 # Run A (e.g. mapprojected stereo) — writes report + *_figure_selections.yml
-asp_plot --directory my_scene/ --stereo_directory stereo_mapproj/ \
+asp_report --directory my_scene/ --stereo_directory stereo_mapproj/ \
     --report_filename report_mapproj.pdf
 
 # Run B (e.g. no-mapprojection variant) — reuses A's track, segments, points, and clips
-asp_plot --directory my_scene/ --stereo_directory stereo_no_mapproj/ \
+asp_report --directory my_scene/ --stereo_directory stereo_no_mapproj/ \
     --reuse_selections my_scene/stereo_mapproj/report_mapproj_figure_selections.yml \
     --report_filename report_no_mapproj.pdf
 ```
@@ -141,7 +141,7 @@ icesat2:                       # omitted for planetary (LOLA/MOLA) DEMs
 ## Full options
 
 ```
-Usage: asp_plot [OPTIONS]
+Usage: asp_report [OPTIONS]
 
   Generate a comprehensive report of ASP processing results.
 

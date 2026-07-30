@@ -26,7 +26,7 @@ def camera_files_from_stereo_run(processing_directory, stereo_directory):
     than every metadata file in the processing directory — the two differ when
     a directory holds scenes for several runs (e.g. multi-view subsets).
     Relative tokens are resolved against ``processing_directory`` (ASP logs
-    record the command as typed, and asp_plot reports are anchored there),
+    record the command as typed, and asp_report reports are anchored there),
     falling back to the token's basename in that directory.
 
     Parameters

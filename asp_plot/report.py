@@ -172,7 +172,7 @@ def compile_report(
     report_metadata : ReportMetadata, optional
         DEM metadata for the title page summary table. Default is None.
     report_command : str, optional
-        The asp_plot CLI command used to generate this report. Default is None.
+        The asp_report CLI command used to generate this report. Default is None.
 
     Returns
     -------
@@ -457,7 +457,7 @@ def _add_processing_parameters_page(pdf, params, report_command):
     params : dict
         Processing parameters dictionary from ProcessingParameters.from_log_files().
     report_command : str or None
-        The asp_plot CLI command used to generate this report.
+        The asp_report CLI command used to generate this report.
     """
     pdf.add_page()
     pdf.set_font("Helvetica", "B", 16)

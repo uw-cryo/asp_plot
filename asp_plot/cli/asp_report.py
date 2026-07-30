@@ -4,7 +4,7 @@ from asp_plot.report_pipeline import ReportConfig, run_report
 
 
 def _reconstruct_command():
-    """Rebuild the ``asp_plot --flag ...`` invocation for the report record.
+    """Rebuild the ``asp_report --flag ...`` invocation for the report record.
 
     Only options whose value differs from the Click default are emitted, so the
     recorded command mirrors what the user actually typed.
@@ -12,7 +12,7 @@ def _reconstruct_command():
     import shlex
 
     click_ctx = click.get_current_context()
-    cmd_parts = ["asp_plot"]
+    cmd_parts = ["asp_report"]
     for param in click_ctx.command.params:
         val = click_ctx.params.get(param.name)
         if val is not None and val != param.default:
