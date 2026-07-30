@@ -58,6 +58,15 @@ Development setup, testing, and releases.
 
 ::::
 
+## What it does
+
+- Stereo DEM processing visualization (hillshades, disparity maps, match points)
+- Bundle adjustment analysis (residual maps, histograms)
+- CSM camera model comparisons (position/orientation differences)
+- ICESat-2 ATL06-SR altimetry comparisons (Earth-based only), with optional automatic `pc_align` refinement and a before/after alignment report
+- Stereo geometry visualization from satellite camera metadata
+- Comprehensive PDF report generation
+
 ## Supported Sensors
 
 `asp_plot` reads the same satellite camera metadata the Stereo Pipeline itself
@@ -70,34 +79,7 @@ does, so a pair ASP can process is a pair `asp_plot` can plot the geometry of:
 - **Mars**: Mars Reconnaissance Orbiter CTX and HiRISE, Mars Global Surveyor MOC
 
 Planetary sensors are handled through their CSM model states
-(`csm_camera_plot`) rather than the camera-metadata readers. The one gap is
-ASP's `pinhole`/`opticalbar` sessions — historical aerial and declassified film
-imagery, which carry no satellite geometry to plot.
-
-Reports work for **any** ASP processing directory regardless: when a sensor's
-camera metadata is not supported, the stereo geometry section is skipped and
-everything else still renders.
-
-Two of these sensors have no geometry to parse — ASTER camera files record only
-look vectors, and RPC-only products are nothing but a camera model — so theirs
-is *derived* instead, and validated against published or vendor-reported
-geometry. For RPC-only products, point `stereo_geom` at the images themselves
-rather than at XMLs, since that is where the camera model lives.
-
-A few readers are written from ASP's reader spec rather than validated against a
-real delivery: SPOT 6/7, PeruSat-1, SPOT 5, ALOS PRISM, and Pléiades 1A/1B
-attitude. Each warns once when it parses a scene. If you have data for one, a
-[report](https://github.com/uw-cryo/asp_plot/issues/new) is very welcome — it is
-what turns a spec-only reader into a validated one.
-
-## What it does
-
-- Stereo DEM processing visualization (hillshades, disparity maps, match points)
-- Bundle adjustment analysis (residual maps, histograms)
-- CSM camera model comparisons (position/orientation differences)
-- ICESat-2 ATL06-SR altimetry comparisons (Earth-based only), with optional automatic `pc_align` refinement and a before/after alignment report
-- Stereo geometry visualization from satellite XML metadata
-- Comprehensive PDF report generation
+(`csm_camera_plot`) rather than the camera-metadata readers.
 
 ```{toctree}
 :maxdepth: 2
