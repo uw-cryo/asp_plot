@@ -84,7 +84,7 @@ expansion roadmap.
 | SPOT 5 | `spot5` | DIMAP v1 | 🚧 Planned ([#168](https://github.com/uw-cryo/asp_plot/issues/168)) |
 | ALOS PRISM | `prism` | DIMAP-like (`ALOS`) | 🚧 Planned ([#168](https://github.com/uw-cryo/asp_plot/issues/168)) |
 | ASTER | `aster` | `gen_aster` XML | 🚧 Planned, derived geometry ([#175](https://github.com/uw-cryo/asp_plot/issues/175)) |
-| Cartosat-1, Deimos, and other RPC-only products | `rpc` | RPC coefficients only | ➖ No trajectory/attitude metadata exists to plot |
+| Cartosat-1, Deimos, and other RPC-only products | `rpc` | RPC coefficients only | 🚧 Planned, derived geometry ([#177](https://github.com/uw-cryo/asp_plot/issues/177)); no trajectory/attitude metadata exists |
 | Planetary (LRO NAC, CTX, HiRISE, MOC, ...) | `csm` / ISIS | CSM model state (JSON) | Handled by the CSM camera modules (`csm_camera_plot`), not the sensor readers |
 
 ## What it does
