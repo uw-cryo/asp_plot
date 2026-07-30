@@ -5,7 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.0.0] - 2026-07-29
+
+A major version because two names changed. Neither has a back-compat alias, and both are one-line fixes at the call site:
+
+- **The CLI**: `asp_plot` → `asp_report` ([#165](https://github.com/uw-cryo/asp_plot/issues/165)). Flags are unchanged, so replacing the command name in your scripts and notebook cells is the whole upgrade.
+- **A method**: `StereoGeometryPlotter.dg_geom_plot()` → `stereo_geom_plot()` ([#155](https://github.com/uw-cryo/asp_plot/pull/155)).
+
+Everything else here is additive: Airbus Pléiades/Pléiades Neo (DIMAP) support and ASP multi-view stereo handling, including per-pair scenes/match-points/disparity rendering. The package is still `asp_plot` (`pip install asp-plot`, `import asp_plot`), and the other four CLIs — `stereo_geom`, `csm_camera_plot`, `request_planetary_altimetry`, `gallery` — keep their names.
 
 ### Added
 - **Multi-view runs render per-pair scenes, match points, and disparity** ([#160](https://github.com/uw-cryo/asp_plot/issues/160)). An ASP multi-view run keeps its per-pair intermediate products in `run-pair*/` subdirectories (only the joint PC/DEM/IntersectionErr are at the top level), so the Input Scenes, Match Points, and Disparity report sections were "missing files" placeholders after #155. `SceneFiles` / `StereoFiles` now detect the layout (`find_pair_directories()`) and resolve each pair's `N-L_sub.tif`/`N-R_sub.tif`, match file, alignment matrices, and `N-D_sub.tif`/`N-D.tif`; `plot_scenes()`, `plot_match_points()`, and `plot_disparity()` render one figure per pair, labeled `Pair N: <reference> ↔ <image>` (image names recovered from the pair's `N-stereo.default` config copy), and return the saved filename list the way `stereo_geom_plot()` does for N-scene runs. The report registry emits one section per figure ("... (continued)"), and the placeholder behavior remains the fallback for genuinely missing files. The Marseille multi-view example report and notebook are regenerated with the per-pair figures. Validated against 3-scene (Pléiades Neo tri-stereo) and 3/5-scene WorldView-2 same-pass multi-view runs (SpaceNet Atlanta, [#159](https://github.com/uw-cryo/asp_plot/issues/159)).
