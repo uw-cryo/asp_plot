@@ -239,3 +239,16 @@ class TestStereoGeometryPlotterPleiades:
             plotter.satellite_position_orientation_plot()
         except Exception as e:
             pytest.fail(f"figure method raised an exception: {str(e)}")
+
+
+class TestTitleDegradation:
+    """Titles render "N/A" for metadata a sensor does not provide."""
+
+    def test_get_title_with_missing_dates(self):
+        plotter = StereoGeometryPlotter(directory="tests/test_data", add_basemap=False)
+        p = plotter.parser.get_pair_dict()
+        p["cdate"] = None
+        p["dt"] = None
+        title = plotter.get_title(p)
+        assert "Center datetime: N/A" in title
+        assert "Time offset: N/A" in title

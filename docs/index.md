@@ -64,6 +64,29 @@ Development setup, testing, and releases.
 - **Lunar**: Lunar Reconnaissance Orbiter Narrow Angle Camera (LRO NAC)
 - **Mars**: Mars Reconnaissance Orbiter CTX and HiRISE, Mars Global Surveyor MOC
 
+### Stereo-geometry metadata support
+
+PDF reports work for any ASP processing directory — when a sensor's camera
+metadata is not supported, the stereo geometry section is skipped gracefully
+and everything else still renders. The table below is specifically about the
+camera-metadata readers behind the stereo geometry plots (`stereo_geom` and
+the report's Stereo Geometry section); see
+[uw-cryo/asp_plot#168](https://github.com/uw-cryo/asp_plot/issues/168) for the
+expansion roadmap.
+
+| Sensor | ASP session | Camera metadata format | Status |
+|---|---|---|---|
+| WorldView / GeoEye / QuickBird / IKONOS | `dg` | DigitalGlobe XML | ✅ Supported (validated with real data) |
+| Pléiades Neo | `pleiades` | DIMAP v2 (`PNEO_SENSOR`) | ✅ Supported (validated with real data) |
+| Pléiades 1A/1B | `pleiades` | DIMAP v2 (`PHR_SENSOR`) | ⚠️ Supported except attitude ([#161](https://github.com/uw-cryo/asp_plot/issues/161)) |
+| SPOT 6/7 | `pleiades` | DIMAP v2 (`S6_SENSOR`/`S7_SENSOR`) | 🚧 Planned ([#168](https://github.com/uw-cryo/asp_plot/issues/168)) |
+| PeruSat-1 | `perusat` | DIMAP v2 (`PER1_SENSOR`) | 🚧 Planned ([#168](https://github.com/uw-cryo/asp_plot/issues/168)) |
+| SPOT 5 | `spot5` | DIMAP v1 | 🚧 Planned ([#168](https://github.com/uw-cryo/asp_plot/issues/168)) |
+| ALOS PRISM | `prism` | DIMAP-like (`ALOS`) | 🚧 Planned ([#168](https://github.com/uw-cryo/asp_plot/issues/168)) |
+| ASTER | `aster` | `gen_aster` XML | 🚧 Planned, derived geometry ([#175](https://github.com/uw-cryo/asp_plot/issues/175)) |
+| Cartosat-1, Deimos, and other RPC-only products | `rpc` | RPC coefficients only | 🚧 Planned, derived geometry ([#177](https://github.com/uw-cryo/asp_plot/issues/177)); no trajectory/attitude metadata exists |
+| Planetary (LRO NAC, CTX, HiRISE, MOC, ...) | `csm` / ISIS | CSM model state (JSON) | Handled by the CSM camera modules (`csm_camera_plot`), not the sensor readers |
+
 ## What it does
 
 - Stereo DEM processing visualization (hillshades, disparity maps, match points)

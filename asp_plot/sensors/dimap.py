@@ -1,5 +1,6 @@
 """Metadata reader for Airbus DIMAP v2 camera files (Pléiades / Pléiades Neo)."""
 
+import logging
 import os
 import xml.etree.ElementTree as ET
 from datetime import datetime
@@ -9,8 +10,24 @@ import numpy as np
 import pandas as pd
 from shapely import Polygon
 
-from asp_plot.sensors.base import SensorMetadata, _common_base
-from asp_plot.utils import glob_file
+from asp_plot.sensors.base import SensorMetadata, _common_base, fill_scene_defaults
+
+logging.basicConfig(level=logging.WARNING)
+logger = logging.getLogger(__name__)
+
+# DIMAP METADATA_PROFILE values this reader supports. ASP's single DIMAP
+# reader (PleiadesXML.cc) also handles S6_SENSOR/S7_SENSOR (SPOT 6/7), and
+# PeruSat-1 uses the same layout under PER1_SENSOR (PeruSatXML.cc) — those
+# profiles are planned in the #168 expansion but not yet claimed, so a
+# delivery from one of them gets an explicit "unsupported profile" warning
+# instead of a wrong parse (PHR 1A/1B polynomial attitude, #161) or a
+# confusing fall-through.
+SUPPORTED_DIMAP_PROFILES = ("PHR_SENSOR", "PNEO_SENSOR")
+
+# Unsupported-profile warnings already emitted, keyed by absolute path:
+# detection can inspect the same file several times (shallow and recursive
+# passes, then reader construction), and the hint is only useful once.
+_warned_unsupported_profiles = set()
 
 
 class PleiadesMetadata(SensorMetadata):
@@ -22,7 +39,9 @@ class PleiadesMetadata(SensorMetadata):
     WorldView there is no tile mosaicking step. The sidecar ``RPC_*.XML`` files
     share the DIMAP root but carry no ephemeris, attitude, or acquisition-angle
     information, so discovery keeps only files whose ``METADATA_SUBPROFILE`` is
-    ``PRODUCT``.
+    ``PRODUCT`` and whose ``METADATA_PROFILE`` is one of
+    ``SUPPORTED_DIMAP_PROFILES`` (products from other DIMAP profiles are
+    skipped with an explanatory warning; see #168 for the planned expansion).
 
     Notes
     -----
@@ -68,7 +87,7 @@ class PleiadesMetadata(SensorMetadata):
             raise ValueError("Provide either a directory or an image_list.")
 
         if image_list is not None:
-            self.image_list = self._filter_dimap_products(image_list)
+            self.image_list = self._filter_camera_xmls(image_list)
             self.directory = (
                 os.path.expanduser(directory)
                 if directory
@@ -85,65 +104,67 @@ class PleiadesMetadata(SensorMetadata):
             )
 
     @staticmethod
-    def _is_dimap_product(xml_fn):
-        """True if ``xml_fn`` is a DIMAP *product* metadata file.
+    def _dimap_profiles(xml_fn):
+        """Return ``(profile, subprofile)`` of a DIMAP XML, or None.
 
-        A camera scene's metadata is the DIMAP file whose
-        ``METADATA_SUBPROFILE`` is ``PRODUCT`` (the ``DIM_*.XML``). The RPC
-        sidecars (subprofile ``RPC``) and any non-DIMAP XML are rejected. Uses
-        ``iterparse`` and stops at the subprofile tag near the top of the file,
-        so detection stays cheap even though DIM files run to several MB.
+        Reads ``Metadata_Identification/METADATA_PROFILE`` and
+        ``METADATA_SUBPROFILE`` with ``iterparse``, stopping as soon as both
+        are seen (they sit near the top of the file), so inspection stays
+        cheap even though DIM files run to several MB. Returns None for
+        non-DIMAP or unparseable XML.
         """
         try:
+            profile = subprofile = None
             root_seen = False
             for event, el in ET.iterparse(xml_fn, events=("start", "end")):
                 if not root_seen:
                     if el.tag != "Dimap_Document":
-                        return False
+                        return None
                     root_seen = True
-                elif event == "end" and el.tag == "METADATA_SUBPROFILE":
-                    return (el.text or "").strip() == "PRODUCT"
-            return False
+                elif event == "end":
+                    if el.tag == "METADATA_PROFILE":
+                        profile = (el.text or "").strip()
+                    elif el.tag == "METADATA_SUBPROFILE":
+                        subprofile = (el.text or "").strip()
+                    if profile is not None and subprofile is not None:
+                        return (profile, subprofile)
+            return (profile, subprofile) if root_seen else None
         except (ET.ParseError, OSError):
-            return False
+            return None
 
     @classmethod
-    def _filter_dimap_products(cls, image_list):
-        """Keep only DIMAP product XMLs (drops RPC/LUT/index files)."""
-        return sorted(f for f in (image_list or []) if cls._is_dimap_product(f))
+    def _is_camera_file(cls, path):
+        """True if ``path`` is a DIMAP *product* file of a supported profile.
 
-    @classmethod
-    def _discover_xmls(cls, directory, recursive=True):
-        """Glob DIMAP product XML files in ``directory``.
-
-        Same shallow-first strategy as the WorldView reader: a flat processing
-        directory keeps its camera XMLs at the top level, and only when none
-        are found there does discovery recurse into subdirectories (e.g. a raw
-        Airbus delivery with ``IMG_01_PNEO3_PAN/DIM_PNEO3_*.XML`` several
-        levels deep).
+        A camera scene's metadata is the DIMAP file whose
+        ``METADATA_SUBPROFILE`` is ``PRODUCT`` (the ``DIM_*.XML``); the RPC
+        sidecars (subprofile ``RPC``) and any non-DIMAP XML are rejected
+        silently. A product whose ``METADATA_PROFILE`` is *not* in
+        ``SUPPORTED_DIMAP_PROFILES`` (e.g. SPOT 6/7's ``S6_SENSOR``,
+        PeruSat-1's ``PER1_SENSOR``) is also rejected, but with a one-time
+        warning naming the profile, so the user learns why the file was
+        skipped instead of hitting a generic "no supported sensor" error.
         """
-        found = cls._filter_dimap_products(
-            glob_file(directory, "*.[Xx][Mm][Ll]", all_files=True)
-        )
-        if not found and recursive:
-            found = cls._filter_dimap_products(
-                glob_file(
-                    directory, "**/*.[Xx][Mm][Ll]", all_files=True, recursive=True
+        profiles = cls._dimap_profiles(path)
+        if profiles is None:
+            return False
+        profile, subprofile = profiles
+        if subprofile != "PRODUCT":
+            return False
+        if profile not in SUPPORTED_DIMAP_PROFILES:
+            key = os.path.abspath(path)
+            if key not in _warned_unsupported_profiles:
+                _warned_unsupported_profiles.add(key)
+                logger.warning(
+                    "DIMAP product with unsupported METADATA_PROFILE '%s' "
+                    "skipped: %s (supported: %s; broader DIMAP-family support "
+                    "is tracked in uw-cryo/asp_plot#168)",
+                    profile,
+                    path,
+                    ", ".join(SUPPORTED_DIMAP_PROFILES),
                 )
-            )
-        return found
-
-    @classmethod
-    def detect(cls, directory, recursive=True):
-        """Return True if DIMAP product XML files are present."""
-        return bool(
-            cls._discover_xmls(os.path.expanduser(directory), recursive=recursive)
-        )
-
-    @classmethod
-    def detect_files(cls, image_list):
-        """Return True if any file in ``image_list`` is a DIMAP product XML."""
-        return bool(cls._filter_dimap_products(image_list))
+            return False
+        return True
 
     def get_scene_dicts(self):
         """Return one sensor-agnostic scene dict per DIMAP product XML."""
@@ -237,7 +258,7 @@ class PleiadesMetadata(SensorMetadata):
                 crs="EPSG:4326",
             )
 
-        return d
+        return fill_scene_defaults(d)
 
     @staticmethod
     def _dimap_times(elements):
