@@ -67,6 +67,8 @@ Follow semantic versioning. To release:
 
 The rest is automated: `release.yml` detects the version bump, creates a GitHub Release + tag, and publishes to PyPI via OIDC trusted publishing; conda-forge's autotick bot then opens a feedstock PR. PyPI trusted publishing and the conda-forge feedstock are already configured (reference recipe in `conda-forge-recipe/meta.yaml`).
 
+**The autotick bot only bumps `version` and `sha256` — it never syncs dependencies or entry points.** So whenever you add/remove a runtime dependency in `pyproject.toml` or add/rename a `[project.scripts]` entry point, the feedstock's `recipe/meta.yaml` must be edited by hand in the same release (`requirements: run:` and `build: entry_points:` + the matching `test: commands:`). Otherwise the conda build *succeeds* and then fails its own test phase, conda-build moves the package to `broken/`, and **nothing is uploaded** — PyPI advances while conda-forge silently stalls on the last good version. This is not hypothetical: adding `pyyaml` in v1.16.0 (#121) went unmirrored and stalled conda-forge at 1.15.1 for five releases (1.16.0 → 1.19.0), with a red ✗ on the feedstock's default branch the whole time. After releasing, check <https://anaconda.org/conda-forge/asp-plot> actually advanced rather than assuming the bot handled it.
+
 ## Common File Patterns
 
 ASP output files follow specific naming patterns (find them with the `glob_file()` utility):
