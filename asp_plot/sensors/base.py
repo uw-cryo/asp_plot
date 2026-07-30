@@ -24,6 +24,12 @@ Readers call :func:`fill_scene_defaults` so a format that lacks a field
 degrades to the documented "not provided" value instead of omitting the key,
 and consumers rely on one convention (None/NaN render as omitted/"nan"/"N/A")
 rather than per-key accidents (issue #163).
+
+Two small geodesy helpers live here as well (:func:`_ecef_to_lonlat`,
+:func:`_lonlat_to_ecef` and :func:`_enu_basis`), because the two
+derived-geometry readers — :mod:`asp_plot.sensors.aster` and
+:mod:`asp_plot.sensors.rpc` — both need to express a look direction in the
+local east/north/up frame at a ground point.
 """
 
 import os
@@ -31,6 +37,7 @@ import re
 from abc import ABC, abstractmethod
 
 import numpy as np
+from pyproj import Transformer
 
 from asp_plot.utils import glob_file
 
@@ -40,6 +47,91 @@ from asp_plot.utils import glob_file
 # DigitalGlobe-heritage delivery. Matched against the file basename,
 # case-insensitively.
 _NON_CAMERA_XML_RE = re.compile(r"ortho|readme", re.IGNORECASE)
+
+#: Raster extensions searched when a reader's "camera file" is the image
+#: itself rather than a sidecar XML (RPC-only products, issue #177). Matched
+#: case-insensitively against the file extension.
+IMAGE_EXTENSIONS = (".ntf", ".nitf", ".tif", ".tiff", ".jp2")
+
+_ECEF_TO_LONLAT = None
+_LONLAT_TO_ECEF = None
+
+
+def _ecef_to_lonlat(xyz):
+    """Convert ECEF coordinates to (lon, lat) degrees.
+
+    Parameters
+    ----------
+    xyz : numpy.ndarray
+        Array of shape ``(..., 3)`` of ECEF x, y, z in metres.
+
+    Returns
+    -------
+    tuple of numpy.ndarray
+        Longitude and latitude in degrees, each shaped like ``xyz[..., 0]``.
+    """
+    global _ECEF_TO_LONLAT
+    if _ECEF_TO_LONLAT is None:
+        _ECEF_TO_LONLAT = Transformer.from_crs("EPSG:4978", "EPSG:4326", always_xy=True)
+    xyz = np.asarray(xyz, dtype=float)
+    shape = xyz.shape[:-1]
+    flat = xyz.reshape(-1, 3)
+    lon, lat, _ = _ECEF_TO_LONLAT.transform(flat[:, 0], flat[:, 1], flat[:, 2])
+    return np.asarray(lon).reshape(shape), np.asarray(lat).reshape(shape)
+
+
+def _ecef_height(xyz):
+    """Geodetic height (m) above the WGS84 ellipsoid of an ECEF position."""
+    global _ECEF_TO_LONLAT
+    if _ECEF_TO_LONLAT is None:
+        _ECEF_TO_LONLAT = Transformer.from_crs("EPSG:4978", "EPSG:4326", always_xy=True)
+    x, y, z = np.asarray(xyz, dtype=float)
+    return float(_ECEF_TO_LONLAT.transform(x, y, z)[2])
+
+
+def _lonlat_to_ecef(lon, lat, height):
+    """Convert geodetic (lon, lat, height) to ECEF x, y, z in metres.
+
+    Parameters
+    ----------
+    lon, lat : array_like
+        Geodetic longitude and latitude in degrees.
+    height : array_like
+        Height above the WGS84 ellipsoid in metres.
+
+    Returns
+    -------
+    numpy.ndarray
+        ECEF coordinates, shape ``(..., 3)``.
+    """
+    global _LONLAT_TO_ECEF
+    if _LONLAT_TO_ECEF is None:
+        _LONLAT_TO_ECEF = Transformer.from_crs("EPSG:4326", "EPSG:4978", always_xy=True)
+    x, y, z = _LONLAT_TO_ECEF.transform(lon, lat, height)
+    return np.stack([np.asarray(x), np.asarray(y), np.asarray(z)], axis=-1)
+
+
+def _enu_basis(lon, lat):
+    """Return the local east/north/up unit vectors at a geodetic position.
+
+    Parameters
+    ----------
+    lon, lat : float
+        Geodetic longitude and latitude in degrees.
+
+    Returns
+    -------
+    tuple of numpy.ndarray
+        The east, north and up unit vectors, in ECEF.
+    """
+    lon, lat = np.radians(lon), np.radians(lat)
+    east = np.array([-np.sin(lon), np.cos(lon), 0.0])
+    north = np.array(
+        [-np.sin(lat) * np.cos(lon), -np.sin(lat) * np.sin(lon), np.cos(lat)]
+    )
+    up = np.array([np.cos(lat) * np.cos(lon), np.cos(lat) * np.sin(lon), np.sin(lat)])
+    return east, north, up
+
 
 #: Optional scene-dict fields and their "not provided" values. The NaN
 #: defaults are floats so downstream ``%0.1f``-style formatting renders "nan"
@@ -74,8 +166,13 @@ def fill_scene_defaults(scene_dict):
 def _glob_xmls(directory, recursive=False):
     """Glob ``*.xml``/``*.XML`` in ``directory`` (one level, or recursively)."""
     pattern = "**/*.[Xx][Mm][Ll]" if recursive else "*.[Xx][Mm][Ll]"
-    # glob_file returns None (not []) when nothing matches.
-    return glob_file(directory, pattern, all_files=True, recursive=recursive) or []
+    # glob_file returns None (not []) when nothing matches. quiet: every
+    # reader probes every directory during detection, so "no XMLs here" is a
+    # normal answer, not a missing-plot warning.
+    return (
+        glob_file(directory, pattern, all_files=True, recursive=recursive, quiet=True)
+        or []
+    )
 
 
 def list_candidate_xmls(directory, recursive=True):
@@ -113,6 +210,45 @@ def _name_filter(image_list):
     )
 
 
+def _glob_images(directory, recursive=False):
+    """Glob raster files with an :data:`IMAGE_EXTENSIONS` extension.
+
+    One ``*`` glob filtered by extension rather than one glob per extension:
+    :func:`asp_plot.utils.glob_file` returns the first *pattern* that matches
+    rather than the union of all of them.
+    """
+    pattern = "**/*" if recursive else "*"
+    found = (
+        glob_file(directory, pattern, all_files=True, recursive=recursive, quiet=True)
+        or []
+    )
+    return sorted(
+        f
+        for f in found
+        if os.path.splitext(f)[1].lower() in IMAGE_EXTENSIONS and os.path.isfile(f)
+    )
+
+
+def list_candidate_images(directory, recursive=True):
+    """List candidate camera *images* in ``directory``, by extension only.
+
+    The image counterpart of :func:`list_candidate_xmls`, for products whose
+    camera model is embedded in the image rather than delivered as a sidecar
+    XML (RPC-only products, issue #177). Shallow-first with a recursive
+    fallback for the same reason: a flat delivery or an ASP processing
+    directory keeps its images at the top level.
+
+    No content check is applied here — deciding whether an image actually
+    carries RPCs is the reader's job (see
+    :meth:`SensorMetadata._is_camera_file`), and it costs a raster header read
+    per file.
+    """
+    found = _glob_images(directory)
+    if not found and recursive:
+        found = _glob_images(directory, recursive=True)
+    return found
+
+
 class SensorMetadata(ABC):
     """Abstract base class for a single sensor's metadata reader.
 
@@ -129,11 +265,18 @@ class SensorMetadata(ABC):
     ----------
     name : str
         Human-readable sensor name (e.g. ``"WorldView"``).
+    fallback : bool
+        Whether this reader is a last-resort match, tried only after every
+        other reader has failed at *every* search depth. Set on readers that
+        claim files a more specific reader's delivery also contains — the
+        RPC reader claims images, and every WorldView or Pléiades delivery
+        ships images next to its camera XMLs (issue #177).
     directory : str
         Path to the directory containing the sensor's metadata files.
     """
 
     name = "sensor"
+    fallback = False
 
     def __init__(self, directory):
         """
@@ -158,23 +301,27 @@ class SensorMetadata(ABC):
         raise NotImplementedError
 
     @classmethod
-    def _filter_camera_xmls(cls, image_list):
+    def _filter_camera_files(cls, image_list):
         """Keep only the files this sensor's content check claims, sorted."""
         return sorted(f for f in (image_list or []) if cls._is_camera_file(f))
 
     @classmethod
-    def _discover_xmls(cls, directory, recursive=True):
-        """Discover this sensor's camera XMLs in ``directory``.
+    def _discover_camera_files(cls, directory, recursive=True):
+        """Discover this sensor's camera files in ``directory``.
 
         Shallow-first with a recursive fallback, mirroring
         :func:`list_candidate_xmls` but filtered by the sensor's own
         :meth:`_is_camera_file` content check: a flat processing directory
         keeps its camera XMLs at the top level, and only when none are found
         there does discovery descend into nested deliveries.
+
+        Every reader in the package but one searches ``*.xml``; the RPC reader
+        overrides this to search images instead (issue #177), which is why the
+        method is named for camera *files* rather than XMLs.
         """
-        found = cls._filter_camera_xmls(_glob_xmls(directory))
+        found = cls._filter_camera_files(_glob_xmls(directory))
         if not found and recursive:
-            found = cls._filter_camera_xmls(_glob_xmls(directory, recursive=True))
+            found = cls._filter_camera_files(_glob_xmls(directory, recursive=True))
         return found
 
     @classmethod
@@ -198,7 +345,9 @@ class SensorMetadata(ABC):
             Whether this sensor's metadata files are present.
         """
         return bool(
-            cls._discover_xmls(os.path.expanduser(directory), recursive=recursive)
+            cls._discover_camera_files(
+                os.path.expanduser(directory), recursive=recursive
+            )
         )
 
     @classmethod
@@ -218,7 +367,7 @@ class SensorMetadata(ABC):
         bool
             Whether this sensor's metadata files are present in the list.
         """
-        return bool(cls._filter_camera_xmls(image_list))
+        return bool(cls._filter_camera_files(image_list))
 
     @abstractmethod
     def get_scene_dicts(self):
@@ -268,12 +417,12 @@ def resolve_input_files(sensor_cls, directory, image_list):
         raise ValueError("Provide either a directory or an image_list.")
 
     if image_list is not None:
-        files = sensor_cls._filter_camera_xmls(image_list)
+        files = sensor_cls._filter_camera_files(image_list)
         base = os.path.expanduser(directory) if directory else _common_base(files)
         return base, files
 
     base = os.path.expanduser(directory)
-    return base, sensor_cls._discover_xmls(base)
+    return base, sensor_cls._discover_camera_files(base)
 
 
 def _common_base(paths):

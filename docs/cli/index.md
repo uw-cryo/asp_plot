@@ -16,7 +16,7 @@ Generate comprehensive PDF reports of ASP stereo processing results.
 :link: stereo_geom
 :link-type: doc
 
-Visualize stereo acquisition geometry from satellite XML camera files.
+Visualize stereo acquisition geometry from satellite camera metadata.
 :::
 
 :::{grid-item-card} csm_camera_plot

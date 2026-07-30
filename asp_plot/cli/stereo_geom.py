@@ -11,7 +11,8 @@ from asp_plot.stereo_geometry import StereoGeometryPlotter
     "--directory",
     default=None,
     help=(
-        "Directory containing XML files for stereo geometry analysis. "
+        "Directory containing camera metadata files (XMLs, or images carrying "
+        "RPCs) for stereo geometry analysis. "
         "Used when no positional INPUTS are given. Default: current directory."
     ),
 )
@@ -49,16 +50,20 @@ def main(
 
     The sensor is detected from the files themselves: WorldView (and other
     DigitalGlobe-heritage) XML, Airbus DIMAP v2 (Pléiades 1A/1B and Neo,
-    SPOT 6/7, PeruSat-1), DIMAP v1 (SPOT 5, ALOS PRISM), and ASTER
-    (ASP gen_aster camera XML).
+    SPOT 6/7, PeruSat-1), DIMAP v1 (SPOT 5, ALOS PRISM), ASTER
+    (ASP gen_aster camera XML), and RPC-only products such as Cartosat-1 and
+    Deimos, whose camera model lives in the image itself.
 
     This tool creates a skyplot and map visualization of the satellite positions
-    and ground footprints. INPUTS may be any mix of XML files, directories, and
-    glob patterns and need not follow a fixed directory structure, e.g.:
+    and ground footprints. INPUTS may be any mix of camera metadata files,
+    images carrying RPCs, directories, and glob patterns, and need not follow a
+    fixed directory structure, e.g.:
 
         stereo_geom *.XML
 
         stereo_geom scene1.xml scene2.xml
+
+        stereo_geom fore.tif aft.tif
 
         stereo_geom my_delivery_dir/
 
@@ -78,7 +83,7 @@ def main(
         )
         source_desc = base_directory
 
-    print(f"\nProcessing stereo geometry for XML files in {source_desc}\n")
+    print(f"\nProcessing stereo geometry for camera metadata in {source_desc}\n")
 
     # Derive default output directory/filename from the base directory.
     dir_name = os.path.split(base_directory.rstrip("/\\"))[-1]
