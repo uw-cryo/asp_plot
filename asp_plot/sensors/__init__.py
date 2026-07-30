@@ -1,0 +1,189 @@
+"""Sensor-specific metadata readers for stereo scenes.
+
+This package isolates the *sensor-specific* work of discovering scene files and
+extracting per-scene metadata from the *sensor-agnostic* stereo-pair geometry
+math in :mod:`asp_plot.stereopair_metadata_parser`.
+
+The goal is flexibility: WorldView (and other DigitalGlobe-heritage) XML camera
+files and Airbus Pléiades / Pléiades Neo DIMAP products are supported, and adding
+a new sensor is a matter of writing a new :class:`SensorMetadata` subclass in its
+own module and registering it in ``SENSORS`` — no changes to the pair-level
+geometry code are required.
+
+Each reader is responsible for turning a directory of camera/metadata files into
+a list of *scene dicts*, one per scene, each containing the sensor-agnostic keys
+the geometry code consumes:
+
+``xml_fn``, ``catid``, ``sensor``, ``date``, ``scandir``, ``tdi``, ``geom``
+(a Shapely polygon footprint in EPSG:4326), the mean view-angle/GSD/sun
+attributes (``meansataz``, ``meansatel``, ``meanoffnadirviewangle``,
+``meanintrackviewangle``, ``meancrosstrackviewangle``, ``meanproductgsd``,
+``meansunaz``, ``meansunel``, ``cloudcover``), and — when ``geteph`` is True —
+``eph_gdf`` (ephemeris GeoDataFrame in EPSG:4978), ``att_df`` (attitude
+DataFrame), and ``fp_gdf`` (footprint GeoDataFrame in EPSG:4326).
+
+Layout: :mod:`asp_plot.sensors.base` holds the :class:`SensorMetadata` ABC and
+shared helpers; each sensor family lives in its own module
+(:mod:`asp_plot.sensors.worldview`, :mod:`asp_plot.sensors.dimap`); this
+``__init__`` holds the ``SENSORS`` registry and the detection entry points, and
+re-exports every public name so ``from asp_plot.sensors import ...`` is stable
+across the package split.
+"""
+
+import glob
+import logging
+import os
+
+from asp_plot.sensors.base import SensorMetadata, _common_base
+from asp_plot.sensors.dimap import PleiadesMetadata
+from asp_plot.sensors.worldview import WorldViewMetadata
+
+logging.basicConfig(level=logging.WARNING)
+logger = logging.getLogger(__name__)
+
+__all__ = [
+    "SENSORS",
+    "SensorMetadata",
+    "WorldViewMetadata",
+    "PleiadesMetadata",
+    "resolve_xml_inputs",
+    "sensor_for_directory",
+    "sensor_for_inputs",
+]
+
+# Registry of available sensor readers, in detection-priority order. The
+# Pléiades reader detects strictly on the DIMAP root tag, while the WorldView
+# reader matches any non-ortho XML, so Pléiades must be checked first.
+SENSORS = [PleiadesMetadata, WorldViewMetadata]
+
+
+def resolve_xml_inputs(inputs, recursive=True):
+    """Expand files, directories, and glob patterns into XML file paths.
+
+    Lets a user point the tools at messy inputs without a fixed directory
+    structure — e.g. ``geom_plot *.XML`` (already expanded by the shell),
+    ``geom_plot scene1.xml scene2.xml``, ``geom_plot delivery_dir/``, or a mix.
+
+    Each item of ``inputs`` may be:
+
+    - a path to an XML file (included directly),
+    - a directory (searched with :meth:`WorldViewMetadata._discover_xmls`, which
+      is shallow-first and falls back to a recursive search), or
+    - a glob pattern (expanded with :func:`glob.glob`).
+
+    Results are de-duplicated (by absolute path) and returned sorted. Note that
+    sensor-specific filtering of non-camera XMLs (``README.XML``, ortho
+    products) is applied by the reader, not here.
+
+    Parameters
+    ----------
+    inputs : str or os.PathLike or iterable of those
+        One or more files, directories, and/or glob patterns.
+    recursive : bool, optional
+        Passed through to directory discovery and ``**`` glob expansion.
+        Default True.
+
+    Returns
+    -------
+    list of str
+        Sorted, de-duplicated XML file paths.
+    """
+    if isinstance(inputs, (str, os.PathLike)):
+        inputs = [inputs]
+
+    collected = []
+    for item in inputs:
+        item = os.path.expanduser(str(item))
+        if os.path.isdir(item):
+            collected.extend(
+                WorldViewMetadata._discover_xmls(item, recursive=recursive)
+            )
+        elif glob.has_magic(item):
+            collected.extend(glob.glob(item, recursive=recursive))
+        elif os.path.isfile(item):
+            collected.append(item)
+        else:
+            logger.warning("Input does not exist, skipping: %s", item)
+
+    seen = set()
+    unique = []
+    for path in collected:
+        key = os.path.abspath(path)
+        if key not in seen:
+            seen.add(key)
+            unique.append(path)
+    return sorted(unique)
+
+
+def sensor_for_inputs(inputs):
+    """Detect and instantiate the appropriate sensor reader for explicit inputs.
+
+    The file-list counterpart of :func:`sensor_for_directory`. Resolves
+    ``inputs`` (files, directories, and/or globs) into a list of XML files,
+    then returns an instance of the first registered reader whose
+    :meth:`SensorMetadata.detect_files` matches.
+
+    Parameters
+    ----------
+    inputs : str or os.PathLike or iterable of those
+        One or more files, directories, and/or glob patterns.
+
+    Returns
+    -------
+    SensorMetadata
+        An initialized reader for the detected sensor.
+
+    Raises
+    ------
+    ValueError
+        If no XML files are found, or no registered sensor reader matches them.
+    """
+    image_list = resolve_xml_inputs(inputs)
+    if not image_list:
+        raise ValueError(
+            "\n\nNo XML files found for the given input(s). "
+            "Provide camera XML files, a directory, or a glob pattern.\n\n"
+        )
+    base = _common_base(image_list)
+    for sensor_cls in SENSORS:
+        if sensor_cls.detect_files(image_list):
+            return sensor_cls(directory=base, image_list=image_list)
+    raise ValueError(
+        "\n\nNo supported sensor metadata files found among the given input(s). "
+        f"Supported sensors: {', '.join(s.name for s in SENSORS)}.\n\n"
+    )
+
+
+def sensor_for_directory(directory):
+    """Detect and instantiate the appropriate sensor reader for a directory.
+
+    Iterates the ``SENSORS`` registry and returns an instance of the first
+    reader whose :meth:`SensorMetadata.detect` matches the directory contents.
+
+    Parameters
+    ----------
+    directory : str
+        Path to directory containing camera/metadata files.
+
+    Returns
+    -------
+    SensorMetadata
+        An initialized reader for the detected sensor.
+
+    Raises
+    ------
+    ValueError
+        If no registered sensor reader matches the directory contents.
+    """
+    directory = os.path.expanduser(directory)
+    # Two passes, mirroring the readers' shallow-first discovery: a sensor
+    # whose metadata sits at the directory's top level wins over one that only
+    # matches somewhere inside a nested delivery, regardless of registry order.
+    for recursive in (False, True):
+        for sensor_cls in SENSORS:
+            if sensor_cls.detect(directory, recursive=recursive):
+                return sensor_cls(directory)
+    raise ValueError(
+        "\n\nNo supported sensor metadata files found in directory. "
+        f"Supported sensors: {', '.join(s.name for s in SENSORS)}.\n\n"
+    )
