@@ -34,7 +34,7 @@ import glob
 import logging
 import os
 
-from asp_plot.sensors.base import SensorMetadata, _common_base
+from asp_plot.sensors.base import SensorMetadata, _common_base, list_candidate_xmls
 from asp_plot.sensors.dimap import PleiadesMetadata
 from asp_plot.sensors.worldview import WorldViewMetadata
 
@@ -67,13 +67,15 @@ def resolve_xml_inputs(inputs, recursive=True):
     Each item of ``inputs`` may be:
 
     - a path to an XML file (included directly),
-    - a directory (searched with :meth:`WorldViewMetadata._discover_xmls`, which
-      is shallow-first and falls back to a recursive search), or
+    - a directory (searched with the sensor-neutral
+      :func:`asp_plot.sensors.base.list_candidate_xmls`, which is
+      shallow-first and falls back to a recursive search), or
     - a glob pattern (expanded with :func:`glob.glob`).
 
-    Results are de-duplicated (by absolute path) and returned sorted. Note that
-    sensor-specific filtering of non-camera XMLs (``README.XML``, ortho
-    products) is applied by the reader, not here.
+    Results are de-duplicated (by absolute path) and returned sorted. Directory
+    inputs get only the generic basename filter (``README.XML``, ortho
+    products); the sensor-specific *content* checks are applied by the
+    readers, not here.
 
     Parameters
     ----------
@@ -95,9 +97,7 @@ def resolve_xml_inputs(inputs, recursive=True):
     for item in inputs:
         item = os.path.expanduser(str(item))
         if os.path.isdir(item):
-            collected.extend(
-                WorldViewMetadata._discover_xmls(item, recursive=recursive)
-            )
+            collected.extend(list_candidate_xmls(item, recursive=recursive))
         elif glob.has_magic(item):
             collected.extend(glob.glob(item, recursive=recursive))
         elif os.path.isfile(item):
