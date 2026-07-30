@@ -83,18 +83,28 @@ expansion roadmap.
 | PeruSat-1 | `perusat` | DIMAP v2 (`PER1_SENSOR`) | 🧪 Implemented from the ASP reader spec, not yet validated with real data — reports welcome ([#168](https://github.com/uw-cryo/asp_plot/issues/168)) |
 | SPOT 5 | `spot5` | DIMAP v1 | 🧪 Implemented from the ASP reader spec, not yet validated with real data — reports welcome ([#179](https://github.com/uw-cryo/asp_plot/issues/179)) |
 | ALOS PRISM | `prism` | DIMAP-like (`ALOS`) | 🧪 Implemented from the ASP reader spec, not yet validated with real data — reports welcome ([#179](https://github.com/uw-cryo/asp_plot/issues/179)) |
-| ASTER | `aster` | `gen_aster` XML | 🚧 Planned, derived geometry ([#175](https://github.com/uw-cryo/asp_plot/issues/175)) |
+| ASTER | `aster` | `gen_aster` XML | ✅ Supported (geometry derived from look vectors; no attitude, sun angles, or timestamps exist) |
 | Cartosat-1, Deimos, and other RPC-only products | `rpc` | RPC coefficients only | 🚧 Planned, derived geometry ([#177](https://github.com/uw-cryo/asp_plot/issues/177)); no trajectory/attitude metadata exists |
 | Planetary (LRO NAC, CTX, HiRISE, MOC, ...) | `csm` / ISIS | CSM model state (JSON) | Handled by the CSM camera modules (`csm_camera_plot`), not the sensor readers |
 
-Sensors report attitude either as quaternions (WorldView, DIMAP v2) or as
-roll/pitch/yaw angles (DIMAP v1). For the first group the orientation plot
-shows roll/pitch/yaw computed relative to the orbital frame; for the second it
-shows the vendor's angles as delivered, and the panel title names the frame
-they are defined in — SPOT 5's are in the SPOT Geometry Handbook navigation
-frame, which is *not* the same axis convention as the computed ones. DIMAP v1
-also reports no satellite azimuth, so the skyplot and the pair convergence
-angle are unavailable for SPOT 5 and ALOS PRISM.
+Sensors report attitude either as quaternions (WorldView, DIMAP v2), as
+roll/pitch/yaw angles (DIMAP v1), or not at all (ASTER). For the first group the
+orientation plot shows roll/pitch/yaw computed relative to the orbital frame;
+for the second it shows the vendor's angles as delivered, and the panel title
+names the frame they are defined in — SPOT 5's are in the SPOT Geometry
+Handbook navigation frame, which is *not* the same axis convention as the
+computed ones. DIMAP v1 also reports no satellite azimuth, so the skyplot and
+the pair convergence angle are unavailable for SPOT 5 and ALOS PRISM.
+
+ASTER is the one reader that *derives* its geometry instead of parsing it:
+`gen_aster` camera files record only satellite positions and per-pixel look
+vectors, so the footprint, view angles and ground sample distance are computed
+by intersecting those look rays with the WGS84 ellipsoid. That gives a full
+skyplot and convergence angle (the derivation reproduces ASTER's published
+27.6° backward pointing and ~0.6 base-to-height ratio), but no attitude panel,
+no sun angles, and no timestamps — the acquisition date is recovered from a
+neighbouring `AST_L1A_*` granule name when one is present, and is then shared by
+both bands of the pair.
 
 ## What it does
 

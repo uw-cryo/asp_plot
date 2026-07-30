@@ -1,13 +1,16 @@
 import re
 import shutil
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
+import geopandas as gpd
 import numpy as np
 import pandas as pd
 import pytest
 
 from asp_plot.sensors import (
     SENSORS,
+    AsterMetadata,
     PleiadesMetadata,
     PrismMetadata,
     SensorMetadata,
@@ -17,6 +20,7 @@ from asp_plot.sensors import (
 from asp_plot.sensors import dimap as dimap_module
 from asp_plot.sensors import dimap_v1 as dimap_v1_module
 from asp_plot.sensors import resolve_xml_inputs, sensor_for_directory, sensor_for_inputs
+from asp_plot.sensors.aster import _ray_ellipsoid_intersection
 from asp_plot.sensors.dimap import SUPPORTED_DIMAP_PROFILES
 
 # The two committed single-scene WorldView camera XMLs at the top level of
@@ -529,13 +533,12 @@ class TestWorldViewContentDetection:
         with pytest.raises(ValueError, match="No supported sensor metadata"):
             sensor_for_directory(str(tmp_path))
 
-    def test_aster_dir_not_claimed(self, tmp_path):
+    def test_aster_dir_not_claimed_by_worldview(self, tmp_path):
         # A directory holding only gen_aster camera XMLs must not be claimed
-        # by the WorldView reader.
+        # by the WorldView reader -- it goes to the ASTER reader (#175).
         shutil.copy(ASTER_CAM, tmp_path / "out-Band3N.xml")
         assert WorldViewMetadata.detect(str(tmp_path)) is False
-        with pytest.raises(ValueError, match="No supported sensor metadata"):
-            sensor_for_directory(str(tmp_path))
+        assert isinstance(sensor_for_directory(str(tmp_path)), AsterMetadata)
 
     def test_explicit_image_list_content_filtered(self, tmp_path):
         # Content filtering also applies to explicit inputs, not only
@@ -995,6 +998,216 @@ class TestDimapV1SpecOnlyWarning:
         with caplog.at_level("WARNING"):
             PrismMetadata(image_list=[str(PRISM_FORWARD)]).get_scene_dicts()
         assert "PRISM metadata support" in caplog.text
+
+
+# Real gen_aster camera XMLs for an ASTER 3N/3B pair over Mount Rainier, the
+# same files the stereo tests use as an ASP processing directory.
+ASTER_DIR = TEST_DATA_DIR / "no_mapproj"
+ASTER_3N = ASTER_DIR / "out-Band3N.xml"
+ASTER_3B = ASTER_DIR / "out-Band3B.xml"
+
+
+class TestAsterMetadata:
+    """ASTER geometry derived from gen_aster look vectors (#175).
+
+    Nothing here is parsed from a summary block -- the camera file has none --
+    so the assertions pin the derivation against ASTER's published instrument
+    geometry (27.6 deg backward telescope, 15 m VNIR GSD, B:H ~0.6) and
+    against the camera file's own RPC bounding box.
+    """
+
+    @pytest.fixture
+    def reader(self):
+        return AsterMetadata(directory=str(ASTER_DIR))
+
+    @pytest.fixture
+    def scenes(self, reader):
+        return {d["catid"]: d for d in reader.get_scene_dicts()}
+
+    def test_detection(self, reader):
+        assert AsterMetadata._is_camera_file(str(ASTER_3N)) is True
+        assert AsterMetadata._is_camera_file(str(ASTER_3B)) is True
+        assert isinstance(sensor_for_directory(str(ASTER_DIR)), AsterMetadata)
+        assert len(reader.image_list) == 2
+
+    def test_other_sensors_do_not_claim_it(self):
+        # gen_aster shares the <isd> root with DigitalGlobe camera files; the
+        # lattice blocks are what separate them, in both directions.
+        assert WorldViewMetadata._is_camera_file(str(ASTER_3N)) is False
+        assert PleiadesMetadata._is_camera_file(str(ASTER_3N)) is False
+        assert Spot5Metadata._is_camera_file(str(ASTER_3N)) is False
+
+    def test_does_not_claim_other_sensors_files(self):
+        assert AsterMetadata._is_camera_file(str(CAM_A)) is False
+        assert AsterMetadata._is_camera_file(str(DIM_FORE)) is False
+
+    def test_rejects_unparseable_file(self, tmp_path):
+        f = tmp_path / "broken.xml"
+        f.write_text("<isd><LATTICE_POINT>")
+        assert AsterMetadata._is_camera_file(str(f)) is False
+
+    def test_missing_files_raises(self, tmp_path):
+        with pytest.raises(ValueError, match="Missing ASTER gen_aster"):
+            AsterMetadata(directory=str(tmp_path))
+
+    def test_scene_identity(self, scenes):
+        assert set(scenes) == {"out-Band3N", "out-Band3B"}
+        for d in scenes.values():
+            # SATID is identical for both bands, so the file stem is what
+            # distinguishes the two scenes of the pair.
+            assert d["sensor"] == "ASTER_L1A_VNIR_Band3"
+            assert d["geom"].is_valid
+
+    def test_dateless_without_a_granule_name(self, scenes):
+        # No AST_L1A_* granule beside these fixtures: the scene is dateless
+        # rather than guessing, and the pair renders "N/A" (#163).
+        assert all(d["date"] is None for d in scenes.values())
+
+    def test_date_from_neighbouring_granule_name(self, tmp_path):
+        shutil.copy(ASTER_3N, tmp_path / "out-Band3N.xml")
+        (tmp_path / "AST_L1A_00308312021191723_20210901120000_1234.zip").touch()
+        d = AsterMetadata(directory=str(tmp_path)).get_scene_dicts()[0]
+        assert d["date"].strftime("%Y-%m-%dT%H:%M:%S") == "2021-08-31T19:17:23"
+
+    def test_backward_band_pointing_matches_published_geometry(self, scenes):
+        # ASTER's band 3B telescope looks 27.6 deg backward along-track; the
+        # sign convention here is positive-forward, so it must come out
+        # negative. This is the single strongest check that the derived
+        # spacecraft frame (nadir, velocity) is right.
+        assert scenes["out-Band3B"]["meanintrackviewangle"] == pytest.approx(
+            -27.6, abs=0.1
+        )
+        assert scenes["out-Band3N"]["meanintrackviewangle"] == pytest.approx(0, abs=0.5)
+        # Both bands are one pass of one instrument, so they share the
+        # cross-track pointing (here ~8.6 deg off-nadir to starboard).
+        assert scenes["out-Band3B"]["meancrosstrackviewangle"] == pytest.approx(
+            scenes["out-Band3N"]["meancrosstrackviewangle"], abs=0.3
+        )
+        # ...which is the whole of the nadir band's off-nadir angle.
+        assert scenes["out-Band3N"]["meanoffnadirviewangle"] == pytest.approx(
+            abs(scenes["out-Band3N"]["meancrosstrackviewangle"]), abs=0.1
+        )
+
+    def test_ground_azimuth_elevation(self, scenes):
+        for d in scenes.values():
+            assert 0 <= d["meansataz"] < 360
+            assert 0 < d["meansatel"] <= 90
+        # The nadir band is seen from much closer to overhead than the
+        # backward-looking one.
+        assert scenes["out-Band3N"]["meansatel"] > scenes["out-Band3B"]["meansatel"]
+
+    def test_gsd_is_the_vnir_15m(self, scenes):
+        for d in scenes.values():
+            assert d["meanproductgsd"] == pytest.approx(15.0, abs=0.5)
+
+    def test_unavailable_summary_fields_degrade(self, scenes):
+        # gen_aster records no sun geometry, cloud cover, scan direction or
+        # TDI: those take the documented "not provided" values (#163).
+        for d in scenes.values():
+            assert np.isnan(d["meansunaz"]) and np.isnan(d["meansunel"])
+            assert np.isnan(d["cloudcover"])
+            assert d["scandir"] is None and d["tdi"] is None
+
+    def test_footprint_matches_the_cameras_own_rpc_box(self, scenes):
+        # Independent cross-check of the ray-ellipsoid intersection: the RPC
+        # block in the same file was fit to the same lattice, so its
+        # lat/lon offset +/- scale box must contain the derived footprint.
+        for catid, d in scenes.items():
+            root = ET.parse(d["xml_fn"]).getroot()
+
+            def box(tag):
+                offset = float(root.findtext(f".//{tag}OFFSET"))
+                scale = float(root.findtext(f".//{tag}SCALE"))
+                return offset - scale, offset + scale
+
+            lon_min, lat_min, lon_max, lat_max = d["geom"].bounds
+            box_lon, box_lat = box("LONG"), box("LAT")
+            assert box_lon[0] - 0.01 <= lon_min and lon_max <= box_lon[1] + 0.01
+            assert box_lat[0] - 0.01 <= lat_min and lat_max <= box_lat[1] + 0.01
+            # ...and is not wildly smaller than it either, which would mean
+            # the footprint collapsed rather than merely being conservative.
+            assert (lon_max - lon_min) > 0.7 * (box_lon[1] - box_lon[0])
+            assert (lat_max - lat_min) > 0.7 * (box_lat[1] - box_lat[0])
+
+    def test_footprint_traces_the_image_not_the_lattice_extent(self, scenes):
+        # The lattice overshoots the image by a few hundred lines at each end;
+        # tracing the image border instead keeps the nadir footprint near its
+        # nominal 4100 x 4200 px at 15 m rather than ~14% larger.
+        area = (
+            gpd.GeoDataFrame(geometry=[scenes["out-Band3N"]["geom"]], crs="EPSG:4326")
+            .to_crs("+proj=ortho +lat_0=47 +lon_0=-121.85")
+            .area.iloc[0]
+            / 1e6
+        )
+        assert area == pytest.approx(4100 * 4200 * 15.0**2 / 1e6, rel=0.07)
+
+    def test_eph_gdf_is_positions_only_indexed_by_line(self, scenes):
+        eph_gdf = scenes["out-Band3N"]["eph_gdf"]
+        # No timestamps exist anywhere in a gen_aster file, so the trajectory
+        # is indexed by image line instead of time.
+        assert eph_gdf.index.name == "line"
+        assert not isinstance(eph_gdf.index, pd.DatetimeIndex)
+        assert eph_gdf.crs.to_string() == "EPSG:4978"
+        radius = np.sqrt(eph_gdf["x"] ** 2 + eph_gdf["y"] ** 2 + eph_gdf["z"] ** 2)
+        assert ((radius > 7.0e6) & (radius < 7.15e6)).all()  # ~705 km altitude
+        # Velocities and covariances are not provided.
+        for name in ["dx", "dy", "dz", "cov_11", "cov_22", "cov_33"]:
+            assert eph_gdf[name].isna().all()
+
+    def test_att_df_is_none(self, scenes):
+        # ASTER camera files record no attitude at all -- the key is present
+        # with the documented "not provided" value rather than omitted.
+        for d in scenes.values():
+            assert "att_df" in d
+            assert d["att_df"] is None
+
+    def test_pair_geometry_reproduces_aster_stereo(self, reader):
+        from asp_plot.stereopair_metadata_parser import StereopairMetadataParser
+
+        p = StereopairMetadataParser(directory=str(ASTER_DIR)).get_pair_dict()
+        # ASTER's nadir/backward pair: ~31 deg convergence seen from the
+        # ground for the 27.6 deg backward pointing, B:H ~0.6.
+        assert p["conv_ang"] == pytest.approx(31.0, abs=1.0)
+        assert p["bh"] == pytest.approx(0.6, abs=0.06)
+        # The wider backward scene fully contains the nadir one.
+        assert p["intersection_area_perc"][1] == pytest.approx(100.0, abs=0.5)
+        # Dateless pairs still produce a pair dict (#163).
+        assert p["cdate"] is None and p["dt"] is None
+
+    def test_malformed_lattice_raises(self, tmp_path):
+        text = ASTER_3N.read_text().replace("<SAT_POS>", "<SAT_POS>\n0 0 0", 1)
+        f = tmp_path / "bad.xml"
+        f.write_text(text)
+        with pytest.raises(ValueError, match="SAT_POS has .* positions"):
+            AsterMetadata(image_list=[str(f)]).get_scene_dicts()
+
+    def test_missing_block_raises(self, tmp_path):
+        text = re.sub(
+            r"<WORLD_SIGHT_VECTOR>.*?</WORLD_SIGHT_VECTOR>",
+            "",
+            ASTER_3N.read_text(),
+            flags=re.S,
+        )
+        f = tmp_path / "no_vectors.xml"
+        f.write_text(text)
+        # Still detected (LATTICE_POINT/SIGHT_VECTOR/SAT_POS are present), so
+        # the failure must be an explanatory parse error, not a KeyError.
+        with pytest.raises(ValueError, match="no <WORLD_SIGHT_VECTOR> block"):
+            AsterMetadata(image_list=[str(f)]).get_scene_dicts()
+
+    def test_rays_that_miss_the_earth_raise(self):
+        # Guards the silent-garbage cases: a ray that misses the ellipsoid
+        # entirely...
+        with pytest.raises(ValueError, match="do not intersect"):
+            _ray_ellipsoid_intersection(
+                np.array([7.0e6, 0.0, 0.0]), np.array([0.0, 0.0, 1.0])
+            )
+        # ...and one pointing away from it, whose line still crosses the
+        # ellipsoid behind the satellite.
+        with pytest.raises(ValueError, match="do not intersect"):
+            _ray_ellipsoid_intersection(
+                np.array([7.0e6, 0.0, 0.0]), np.array([1.0, 0.0, 0.0])
+            )
 
 
 class TestWorldViewSceneDictDegradation:
