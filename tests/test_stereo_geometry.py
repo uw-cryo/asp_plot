@@ -285,6 +285,47 @@ class TestStereoGeometryPlotterDimapV1:
         assert any("not provided by this sensor" in t for t in texts)
 
 
+class TestStereoGeometryPlotterAster:
+    """ASTER inputs (#175): derived geometry, and no attitude at all."""
+
+    @pytest.fixture
+    def plotter(self):
+        return StereoGeometryPlotter(
+            directory="tests/test_data/no_mapproj", add_basemap=False
+        )
+
+    def test_stereo_geom_plot(self, plotter):
+        try:
+            plotter.stereo_geom_plot()
+        except Exception as e:
+            pytest.fail(f"figure method raised an exception: {str(e)}")
+
+    def test_satellite_position_orientation_plot(self, plotter):
+        # The orientation and covariance rows have nothing to draw; the figure
+        # must still render rather than raising on a None att_df.
+        try:
+            plotter.satellite_position_orientation_plot()
+        except Exception as e:
+            pytest.fail(f"figure method raised an exception: {str(e)}")
+
+    def test_missing_attitude_annotated(self, plotter):
+        plotter.satellite_position_orientation_plot()
+        fig = plt.gcf()
+        texts = [t.get_text() for ax in fig.axes for t in ax.texts]
+        plt.close(fig)
+        assert any("Attitude\nnot provided" in t for t in texts)
+        assert any("Attitude covariance\nnot provided" in t for t in texts)
+
+    def test_skyplot_is_populated(self, plotter):
+        # Unlike DIMAP v1, ASTER's view angles are derived rather than absent,
+        # so the skyplot must not carry the "not provided" annotation.
+        fig, ax = plt.subplots(subplot_kw={"projection": "polar"})
+        plotter.skyplot(ax, plotter.parser.get_pair_dict())
+        texts = [t.get_text() for t in ax.texts]
+        plt.close(fig)
+        assert not any("not provided by this sensor" in t for t in texts)
+
+
 class TestOrientationSeriesDispatch:
     """_orientation_series picks the path from att_df's columns."""
 

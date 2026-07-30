@@ -6,10 +6,15 @@ math in :mod:`asp_plot.stereopair_metadata_parser`.
 
 The goal is flexibility: WorldView (and other DigitalGlobe-heritage) XML camera
 files, the Airbus DIMAP v2 family (Pléiades 1A/1B and Neo, SPOT 6/7, PeruSat-1),
-and the DIMAP v1 family (SPOT 5, ALOS PRISM) are supported, and adding a new
-sensor is a matter of writing a new :class:`SensorMetadata` subclass in its own
-module and registering it in ``SENSORS`` — no changes to the pair-level geometry
-code are required.
+the DIMAP v1 family (SPOT 5, ALOS PRISM), and ASTER ``gen_aster`` camera files
+are supported, and adding a new sensor is a matter of writing a new
+:class:`SensorMetadata` subclass in its own module and registering it in
+``SENSORS`` — no changes to the pair-level geometry code are required.
+
+Most readers *parse* metadata a vendor wrote down; :mod:`asp_plot.sensors.aster`
+instead *derives* its scene dict (footprint, view angles, GSD, trajectory) from
+look vectors and satellite positions, because ASTER camera files record no
+summary geometry at all. Both kinds fill the same schema.
 
 Each reader is responsible for turning a directory of camera/metadata files into
 a list of *scene dicts*, one per scene, each containing the sensor-agnostic keys
@@ -27,12 +32,17 @@ DataFrame), and ``fp_gdf`` (footprint GeoDataFrame in EPSG:4326).
 quaternions (``q1..q4``, scalar-last) or the vendor's own roll/pitch/yaw
 (``roll``/``pitch``/``yaw`` in degrees, with ``attrs["rpy_frame"]`` naming the
 frame they are defined in). Both carry NaN-filled ``cov_*`` columns when the
-format has no covariance. Consumers dispatch on which columns are present.
+format has no covariance. Consumers dispatch on which columns are present, and
+must tolerate ``att_df`` being None: a sensor whose camera files record no
+attitude at all (ASTER) reports it that way rather than inventing one.
+
+``eph_gdf`` is time-indexed for every sensor that timestamps its trajectory;
+ASTER, which timestamps nothing, indexes it by image line number instead.
 
 Layout: :mod:`asp_plot.sensors.base` holds the :class:`SensorMetadata` ABC and
 shared helpers; each sensor family lives in its own module
 (:mod:`asp_plot.sensors.worldview`, :mod:`asp_plot.sensors.dimap`,
-:mod:`asp_plot.sensors.dimap_v1`); this
+:mod:`asp_plot.sensors.dimap_v1`, :mod:`asp_plot.sensors.aster`); this
 ``__init__`` holds the ``SENSORS`` registry and the detection entry points, and
 re-exports every public name so ``from asp_plot.sensors import ...`` is stable
 across the package split.
@@ -42,6 +52,7 @@ import glob
 import logging
 import os
 
+from asp_plot.sensors.aster import AsterMetadata
 from asp_plot.sensors.base import SensorMetadata, _common_base, list_candidate_xmls
 from asp_plot.sensors.dimap import PleiadesMetadata
 from asp_plot.sensors.dimap_v1 import PrismMetadata, Spot5Metadata
@@ -57,16 +68,23 @@ __all__ = [
     "PleiadesMetadata",
     "Spot5Metadata",
     "PrismMetadata",
+    "AsterMetadata",
     "resolve_xml_inputs",
     "sensor_for_directory",
     "sensor_for_inputs",
 ]
 
 # Registry of available sensor readers, in detection-priority order. The DIMAP
-# readers identify strictly (root tag plus profile/mission tags) while the
-# WorldView reader claims any XML carrying the DG camera blocks, so WorldView
-# is checked last.
-SENSORS = [PleiadesMetadata, Spot5Metadata, PrismMetadata, WorldViewMetadata]
+# and ASTER readers identify strictly (root tag plus profile/mission tags, or
+# the gen_aster lattice blocks) while the WorldView reader claims any XML
+# carrying the DG camera blocks, so WorldView is checked last.
+SENSORS = [
+    PleiadesMetadata,
+    Spot5Metadata,
+    PrismMetadata,
+    AsterMetadata,
+    WorldViewMetadata,
+]
 
 
 def resolve_xml_inputs(inputs, recursive=True):

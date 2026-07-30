@@ -195,7 +195,7 @@ class DimapV1Metadata(SensorMetadata):
         logger.warning(
             "%s metadata support is implemented from the ASP reader spec "
             "but not yet validated against real data — please report issues "
-            "at https://github.com/uw-cryo/asp_plot/issues/179",
+            "at https://github.com/uw-cryo/asp_plot/issues/new",
             cls.name,
         )
 
@@ -237,7 +237,7 @@ class DimapV1Metadata(SensorMetadata):
             logger.warning(
                 "Dataset_Frame has %d corner vertices, expected 4 — the scene "
                 "footprint is built from all of them. Please report this "
-                "product at https://github.com/uw-cryo/asp_plot/issues/179",
+                "product at https://github.com/uw-cryo/asp_plot/issues/new",
                 len(corners),
             )
         return Polygon(corners)
