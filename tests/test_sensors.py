@@ -9,10 +9,13 @@ import pytest
 from asp_plot.sensors import (
     SENSORS,
     PleiadesMetadata,
+    PrismMetadata,
     SensorMetadata,
+    Spot5Metadata,
     WorldViewMetadata,
 )
 from asp_plot.sensors import dimap as dimap_module
+from asp_plot.sensors import dimap_v1 as dimap_v1_module
 from asp_plot.sensors import resolve_xml_inputs, sensor_for_directory, sensor_for_inputs
 from asp_plot.sensors.dimap import SUPPORTED_DIMAP_PROFILES
 
@@ -737,6 +740,261 @@ class TestDimapSpecOnlyProfileWarning:
         assert d["sensor"] == "SPOT6"
         assert "S6_SENSOR" in caplog.text
         assert len(d["att_df"]) == 8
+
+
+# Synthetic DIMAP v1 fixtures (#179): a SPOT 5 across-track pair and an ALOS
+# PRISM forward/backward pair, both written from ASP's reader spec
+# (SPOT_XML.cc, PRISM_XML.cc) since no real delivery is available. Regenerate
+# with tests/test_data/dimap_v1_synthetic/make_fixtures.py.
+DIMAP_V1_DIR = TEST_DATA_DIR / "dimap_v1_synthetic"
+SPOT5_DIR = DIMAP_V1_DIR / "spot5"
+PRISM_DIR = DIMAP_V1_DIR / "prism"
+SPOT5_EAST = SPOT5_DIR / "SPOT5_HRG1_SCENE_1A_east_synthetic.XML"
+PRISM_FORWARD = PRISM_DIR / "PRISM_ALOS_forward_synthetic.XML"
+
+
+class TestSpot5Metadata:
+    """SPOT 5 DIMAP v1 reader (#179), mirroring ASP's SPOT_XML.cc."""
+
+    @pytest.fixture
+    def scene(self):
+        return Spot5Metadata(image_list=[str(SPOT5_EAST)]).get_scene_dicts()[0]
+
+    def test_detection(self):
+        assert Spot5Metadata._is_camera_file(str(SPOT5_EAST)) is True
+        assert Spot5Metadata.detect(str(SPOT5_DIR)) is True
+        assert isinstance(sensor_for_directory(str(SPOT5_DIR)), Spot5Metadata)
+
+    def test_other_sensors_do_not_claim_it(self):
+        # DIMAP v1 shares the Dimap_Document root tag with the v2 products the
+        # Pléiades reader handles; the Metadata_Id header is what separates
+        # them, and neither reader may claim the other's files.
+        assert PleiadesMetadata._is_camera_file(str(SPOT5_EAST)) is False
+        assert PrismMetadata._is_camera_file(str(SPOT5_EAST)) is False
+        assert WorldViewMetadata._is_camera_file(str(SPOT5_EAST)) is False
+
+    def test_scene_identity(self, scene):
+        assert scene["sensor"] == "SPOT5"
+        # DATASET_NAME is a human-readable string; scene ids reach figure
+        # filenames, so whitespace is collapsed.
+        assert scene["catid"] == "SPOT5_HRG1_SCENE_1A_EAST_SYNTHETIC"
+        assert " " not in scene["catid"]
+        # The scene center time (what ASP reads), not IMAGING_TIME.
+        assert scene["date"].strftime("%Y-%m-%dT%H:%M:%S") == "2008-03-04T12:31:03"
+        assert scene["geom"].is_valid
+        assert len(scene["geom"].exterior.coords) == 5  # 4 corners, closed
+
+    def test_summary_fields_from_scene_source(self, scene):
+        assert scene["meansatel"] == pytest.approx(90 - 15.021, abs=0.01)
+        assert scene["meanoffnadirviewangle"] == pytest.approx(13.427)
+        assert scene["meanproductgsd"] == pytest.approx(2.5)
+        assert scene["meansunaz"] == pytest.approx(151.882)
+        assert scene["meansunel"] == pytest.approx(42.316)
+        # DIMAP v1 reports no satellite azimuth and no cloud cover: those
+        # degrade to NaN rather than being omitted or guessed (#163).
+        assert np.isnan(scene["meansataz"])
+        assert np.isnan(scene["cloudcover"])
+        assert scene["scandir"] is None and scene["tdi"] is None
+
+    def test_eph_gdf(self, scene):
+        eph_gdf = scene["eph_gdf"]
+        assert isinstance(eph_gdf.index, pd.DatetimeIndex)
+        assert len(eph_gdf) == 5
+        radius = np.sqrt(eph_gdf["x"] ** 2 + eph_gdf["y"] ** 2 + eph_gdf["z"] ** 2)
+        assert ((radius > 7.15e6) & (radius < 7.25e6)).all()  # ~822 km altitude
+        for n in ["11", "12", "13", "22", "23", "33"]:
+            assert eph_gdf[f"cov_{n}"].isna().all()
+
+    def test_att_df_is_roll_pitch_yaw_in_degrees(self, scene):
+        att_df = scene["att_df"]
+        assert isinstance(att_df.index, pd.DatetimeIndex)
+        assert list(att_df.columns[:3]) == ["roll", "pitch", "yaw"]
+        assert "q1" not in att_df.columns
+        assert att_df.attrs["rpy_frame"] == "SPOT Geometry Handbook navigation frame"
+        for n in ["11", "12", "13", "14", "22", "23", "24", "33", "34", "44"]:
+            assert att_df[f"cov_{n}"].isna().all()
+
+    def test_att_df_pinned_to_raw_fixture_values(self):
+        # Pin both the unit conversion (the file stores radians; ASP feeds the
+        # values straight to sin/cos) and the tag-to-column mapping: the file
+        # lists YAW, PITCH, ROLL in that order, so a positional read would
+        # silently swap roll and yaw.
+        import math
+        import xml.etree.ElementTree as ET
+
+        first = (
+            ET.parse(SPOT5_EAST)
+            .getroot()
+            .find(".//Corrected_Attitudes/Corrected_Attitude/Angles")
+        )
+        row = (
+            Spot5Metadata(image_list=[str(SPOT5_EAST)])
+            .get_scene_dicts()[0]["att_df"]
+            .iloc[0]
+        )
+        for column, tag in (("roll", "ROLL"), ("pitch", "PITCH"), ("yaw", "YAW")):
+            assert row[column] == pytest.approx(
+                math.degrees(float(first.findtext(tag))), rel=1e-12
+            )
+        # Sanity check on the fixture itself: an off-nadir acquisition.
+        assert row["roll"] == pytest.approx(15.0, abs=0.01)
+
+    def test_center_element_is_not_a_corner(self, tmp_path):
+        # Some DIMAP v1 products add a scene-center block with the same
+        # FRAME_LON/FRAME_LAT children as the corners. Selecting by the
+        # Vertex tag skips it, so the footprint stays a quadrilateral.
+        text = SPOT5_EAST.read_text().replace(
+            "    <SCENE_ORIENTATION>",
+            "    <Center>\n"
+            "      <FRAME_LON>26.816671</FRAME_LON>\n"
+            "      <FRAME_LAT>43.098818</FRAME_LAT>\n"
+            "      <FRAME_ROW>6000</FRAME_ROW>\n"
+            "      <FRAME_COL>6000</FRAME_COL>\n"
+            "    </Center>\n"
+            "    <SCENE_ORIENTATION>",
+        )
+        f = tmp_path / "with_center.XML"
+        f.write_text(text)
+        geom = Spot5Metadata(image_list=[str(f)]).get_scene_dicts()[0]["geom"]
+        assert len(geom.exterior.coords) == 5  # 4 corners, closed
+
+    def test_unexpected_corner_count_warns(self, tmp_path, caplog):
+        # Neither reader is validated against a real delivery, so a product
+        # that yields something other than four corners must say so rather
+        # than silently produce a differently-shaped footprint.
+        text = SPOT5_EAST.read_text().replace(
+            "    <SCENE_ORIENTATION>",
+            "    <Vertex>\n"
+            "      <FRAME_LON>26.9</FRAME_LON>\n"
+            "      <FRAME_LAT>43.2</FRAME_LAT>\n"
+            "    </Vertex>\n"
+            "    <SCENE_ORIENTATION>",
+        )
+        f = tmp_path / "five_corners.XML"
+        f.write_text(text)
+        with caplog.at_level("WARNING"):
+            Spot5Metadata(image_list=[str(f)]).get_scene_dicts()
+        assert "5 corner vertices, expected 4" in caplog.text
+
+    def test_missing_attitude_raises(self, tmp_path):
+        text = SPOT5_EAST.read_text()
+        text = re.sub(r"<Angles>.*?</Angles>", "", text, flags=re.DOTALL)
+        f = tmp_path / "no_attitude.XML"
+        f.write_text(text)
+        with pytest.raises(ValueError, match="No attitude found"):
+            Spot5Metadata(image_list=[str(f)]).get_scene_dicts()
+
+    def test_other_spot_missions_are_skipped(self, tmp_path, caplog):
+        # Only SPOT 5 is an ASP stereo session; a SPOT 4 scene is rejected
+        # with a warning naming it rather than parsed as if it were SPOT 5.
+        text = SPOT5_EAST.read_text().replace(
+            "<MISSION_INDEX>5</MISSION_INDEX>", "<MISSION_INDEX>4</MISSION_INDEX>"
+        )
+        f = tmp_path / "SPOT4.XML"
+        f.write_text(text)
+        with caplog.at_level("WARNING"):
+            assert Spot5Metadata._is_camera_file(str(f)) is False
+        assert "SPOT 4 scene skipped" in caplog.text
+
+    def test_pair_geometry(self):
+        from asp_plot.stereopair_metadata_parser import StereopairMetadataParser
+
+        p = StereopairMetadataParser(directory=str(SPOT5_DIR)).get_pair_dict()
+        assert p["intersection_area"] > 100
+        # Without a satellite azimuth there is no convergence angle to
+        # compute; it degrades to NaN instead of raising (#163).
+        assert np.isnan(p["conv_ang"])
+
+
+class TestPrismMetadata:
+    """ALOS PRISM reader (#179), mirroring ASP's PRISM_XML.cc."""
+
+    @pytest.fixture
+    def scene(self):
+        return PrismMetadata(image_list=[str(PRISM_FORWARD)]).get_scene_dicts()[0]
+
+    def test_detection(self):
+        assert PrismMetadata._is_camera_file(str(PRISM_FORWARD)) is True
+        assert isinstance(sensor_for_directory(str(PRISM_DIR)), PrismMetadata)
+        # Gated on METADATA_PROFILE == "ALOS", exactly as ASP is.
+        assert Spot5Metadata._is_camera_file(str(PRISM_FORWARD)) is False
+        assert PleiadesMetadata._is_camera_file(str(PRISM_FORWARD)) is False
+
+    def test_scene_identity(self, scene):
+        # INSTRUMENT carries the view, which is what distinguishes the scenes
+        # of a triplet.
+        assert scene["sensor"] == "ALOS-PRISM_FORWARD"
+        assert scene["catid"] == "ALPSMF_SYNTHETIC_FORWARD"
+        assert scene["date"].strftime("%Y-%m-%dT%H:%M:%S") == "2007-05-19T01:23:45"
+        assert scene["geom"].is_valid
+
+    def test_att_df_degrees_as_delivered(self, scene):
+        att_df = scene["att_df"]
+        assert list(att_df.columns[:3]) == ["roll", "pitch", "yaw"]
+        # PRISM angles are already in degrees (ASP's rollPitchYaw converts
+        # them to radians), so they pass through unchanged.
+        assert att_df["roll"].iloc[0] == pytest.approx(0.0521)
+        assert att_df["pitch"].iloc[0] == pytest.approx(-0.0312)
+        assert att_df["yaw"].iloc[0] == pytest.approx(0.1187)
+        # Same orbital frame and Euler convention as the quaternion sensors'
+        # computed angles, so the label says so.
+        assert att_df.attrs["rpy_frame"] == "orbital frame (along, across, down)"
+
+    def test_eph_gdf(self, scene):
+        eph_gdf = scene["eph_gdf"]
+        assert len(eph_gdf) == 6
+        radius = np.sqrt(eph_gdf["x"] ** 2 + eph_gdf["y"] ** 2 + eph_gdf["z"] ** 2)
+        assert ((radius > 7.02e6) & (radius < 7.12e6)).all()  # ~692 km altitude
+        assert eph_gdf.crs.to_epsg() == 4978
+
+    def test_summary_fields_degrade(self, scene):
+        assert scene["meansunaz"] == pytest.approx(134.712)
+        for key in [
+            "meansataz",
+            "meansatel",
+            "meanoffnadirviewangle",
+            "meanproductgsd",
+            "cloudcover",
+        ]:
+            assert np.isnan(scene[key])
+
+    def test_missing_ephemeris_raises(self, tmp_path):
+        text = re.sub(
+            r"<Ephemeris>.*?</Ephemeris>",
+            "",
+            PRISM_FORWARD.read_text(),
+            flags=re.DOTALL,
+        )
+        f = tmp_path / "no_ephemeris.XML"
+        f.write_text(text)
+        with pytest.raises(ValueError, match="No ephemeris found"):
+            PrismMetadata(image_list=[str(f)]).get_scene_dicts()
+
+
+class TestDimapV1SpecOnlyWarning:
+    """Both DIMAP v1 readers warn once that they are unvalidated (#179)."""
+
+    @pytest.fixture(autouse=True)
+    def _reset_warned(self, monkeypatch):
+        monkeypatch.setattr(dimap_v1_module, "_warned_spec_only", set())
+
+    def test_warns_once_per_reader(self, caplog):
+        reader = Spot5Metadata(image_list=[str(SPOT5_EAST)])
+        with caplog.at_level("WARNING"):
+            reader.get_scene_dicts()
+        assert "SPOT5 metadata support" in caplog.text
+        assert "issues/179" in caplog.text
+        caplog.clear()
+        with caplog.at_level("WARNING"):
+            reader.get_scene_dicts()
+        assert "ASP reader spec" not in caplog.text
+
+    def test_each_reader_warns_for_itself(self, caplog):
+        Spot5Metadata(image_list=[str(SPOT5_EAST)]).get_scene_dicts()
+        caplog.clear()
+        with caplog.at_level("WARNING"):
+            PrismMetadata(image_list=[str(PRISM_FORWARD)]).get_scene_dicts()
+        assert "PRISM metadata support" in caplog.text
 
 
 class TestWorldViewSceneDictDegradation:

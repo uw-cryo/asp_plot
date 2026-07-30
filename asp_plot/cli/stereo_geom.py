@@ -45,7 +45,11 @@ def main(
     output_filename,
 ):
     """
-    Generate stereo geometry plots for WorldView XML files.
+    Generate stereo geometry plots from satellite camera metadata files.
+
+    The sensor is detected from the files themselves: WorldView (and other
+    DigitalGlobe-heritage) XML, Airbus DIMAP v2 (Pléiades 1A/1B and Neo,
+    SPOT 6/7, PeruSat-1), and DIMAP v1 (SPOT 5, ALOS PRISM).
 
     This tool creates a skyplot and map visualization of the satellite positions
     and ground footprints. INPUTS may be any mix of XML files, directories, and

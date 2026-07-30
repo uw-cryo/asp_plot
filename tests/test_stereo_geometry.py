@@ -1,7 +1,9 @@
 import os
 
 import matplotlib
+import numpy as np
 import pytest
+from matplotlib import pyplot as plt
 
 from asp_plot.stereo_geometry import StereoGeometryPlotter, camera_files_from_stereo_run
 from asp_plot.stereopair_metadata_parser import StereopairMetadataParser
@@ -239,6 +241,79 @@ class TestStereoGeometryPlotterPleiades:
             plotter.satellite_position_orientation_plot()
         except Exception as e:
             pytest.fail(f"figure method raised an exception: {str(e)}")
+
+
+class TestStereoGeometryPlotterDimapV1:
+    """DIMAP v1 inputs (#179): vendor roll/pitch/yaw instead of quaternions."""
+
+    @pytest.fixture(params=["spot5", "prism"])
+    def plotter(self, request):
+        return StereoGeometryPlotter(
+            directory=f"tests/test_data/dimap_v1_synthetic/{request.param}",
+            add_basemap=False,
+        )
+
+    def test_stereo_geom_plot(self, plotter):
+        try:
+            plotter.stereo_geom_plot()
+        except Exception as e:
+            pytest.fail(f"figure method raised an exception: {str(e)}")
+
+    def test_satellite_position_orientation_plot(self, plotter):
+        try:
+            plotter.satellite_position_orientation_plot()
+        except Exception as e:
+            pytest.fail(f"figure method raised an exception: {str(e)}")
+
+    def test_orientation_series_uses_delivered_angles(self, plotter):
+        d = plotter.parser.get_catid_dicts()[0]
+        att_df = d["att_df"]
+        time_seconds, rpy, frame = plotter._orientation_series(d["eph_gdf"], att_df)
+        # Vendor angles are plotted as delivered: every sample, unmodified,
+        # labeled with the frame the reader recorded.
+        assert len(time_seconds) == len(att_df)
+        assert rpy.shape == (len(att_df), 3)
+        assert np.allclose(rpy, att_df[["roll", "pitch", "yaw"]].to_numpy())
+        assert frame == att_df.attrs["rpy_frame"]
+
+    def test_missing_sataz_annotated_on_skyplot(self, plotter):
+        # An empty skyplot (no satellite azimuth in DIMAP v1) must say why.
+        fig, ax = plt.subplots(subplot_kw={"projection": "polar"})
+        plotter.skyplot(ax, plotter.parser.get_pair_dict())
+        texts = [t.get_text() for t in ax.texts]
+        plt.close(fig)
+        assert any("not provided by this sensor" in t for t in texts)
+
+
+class TestOrientationSeriesDispatch:
+    """_orientation_series picks the path from att_df's columns."""
+
+    @pytest.fixture
+    def plotter(self):
+        return StereoGeometryPlotter(directory="tests/test_data", add_basemap=False)
+
+    def test_quaternion_attitude_is_computed_against_orbital_frame(self, plotter):
+        d = plotter.parser.get_catid_dicts()[0]
+        time_seconds, rpy, frame = plotter._orientation_series(
+            d["eph_gdf"], d["att_df"]
+        )
+        n = min(len(d["eph_gdf"]), len(d["att_df"]))
+        assert rpy.shape == (n, 3)
+        assert len(time_seconds) == n
+        assert frame == "orbital frame"
+
+    def test_skyplot_not_annotated_when_angles_present(self, plotter):
+        fig, ax = plt.subplots(subplot_kw={"projection": "polar"})
+        plotter.skyplot(ax, plotter.parser.get_pair_dict())
+        texts = [t.get_text() for t in ax.texts]
+        plt.close(fig)
+        assert not any("not provided by this sensor" in t for t in texts)
+
+    def test_attitude_without_either_shape_raises(self, plotter):
+        d = plotter.parser.get_catid_dicts()[0]
+        att_df = d["att_df"].drop(columns=["q1", "q2", "q3", "q4"])
+        with pytest.raises(ValueError, match="neither quaternions"):
+            plotter._orientation_series(d["eph_gdf"], att_df)
 
 
 class TestTitleDegradation:

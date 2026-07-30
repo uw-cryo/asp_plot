@@ -242,6 +242,29 @@ class StereoGeometryPlotter:
         title += self.get_scene_string(p, "catid2_dict")
         return title
 
+    @staticmethod
+    def _annotate_missing_view_angles(ax, azimuths):
+        """Note on a skyplot that the sensor reports no satellite azimuth.
+
+        DIMAP v1 (SPOT 5, ALOS PRISM) carries incidence and sun angles but no
+        satellite azimuth, so the scene markers — and the convergence angle
+        derived from them — are NaN and nothing is drawn. Without a note an
+        empty skyplot reads as a bug rather than as missing metadata, the same
+        reasoning behind the "covariance not provided" panels.
+        """
+        if np.isfinite(azimuths).any():
+            return
+        ax.text(
+            0.5,
+            -0.14,
+            "Satellite azimuth/elevation\nnot provided by this sensor's metadata",
+            ha="center",
+            va="top",
+            transform=ax.transAxes,
+            fontsize=7,
+            color="gray",
+        )
+
     def skyplot(self, ax, p, title=True, tight_layout=True):
         """
         Create a polar plot showing satellite viewing geometry.
@@ -307,6 +330,10 @@ class StereoGeometryPlotter:
         )
 
         ax.legend(loc="lower left", fontsize="small")
+
+        self._annotate_missing_view_angles(
+            ax, [p["catid1_dict"]["meansataz"], p["catid2_dict"]["meansataz"]]
+        )
 
         ax.set_rmin(0)
         ax.set_rmax(50)
@@ -451,6 +478,7 @@ class StereoGeometryPlotter:
                 **plot_kw,
             )
         ax.legend(loc="lower left", fontsize="small")
+        self._annotate_missing_view_angles(ax, [d["meansataz"] for d in scenes])
         ax.set_rmin(0)
         ax.set_rmax(50)
 
@@ -594,6 +622,55 @@ class StereoGeometryPlotter:
 
         return saved
 
+    @classmethod
+    def _orientation_series(cls, eph_gdf, att_df):
+        """Return the roll/pitch/yaw curves to plot, however the sensor reports them.
+
+        Sensors provide attitude in one of two shapes (see the
+        :mod:`asp_plot.sensors` package docstring): quaternions, from which
+        roll/pitch/yaw relative to the orbital frame are computed here, or the
+        vendor's own tabulated roll/pitch/yaw (SPOT 5, ALOS PRISM), which are
+        plotted as delivered. The angles of the two shapes are not necessarily
+        in the same frame, so the frame is returned alongside them for the plot
+        label rather than assumed.
+
+        Parameters
+        ----------
+        eph_gdf : geopandas.GeoDataFrame
+            Ephemeris GeoDataFrame with x, y, z columns in ECEF
+        att_df : pandas.DataFrame
+            Attitude DataFrame with either ``q1..q4`` or ``roll``/``pitch``/``yaw``
+
+        Returns
+        -------
+        tuple of (numpy.ndarray, numpy.ndarray, str)
+            Seconds since the first attitude sample, an ``(N, 3)`` array of
+            roll/pitch/yaw in degrees, and the name of the frame they are in.
+
+        Raises
+        ------
+        ValueError
+            If ``att_df`` carries neither shape.
+        """
+        columns = set(att_df.columns)
+        if {"q1", "q2", "q3", "q4"}.issubset(columns):
+            # Truncated to the shorter of the two tables: the orbital
+            # reference frame is estimated from the ephemeris positions.
+            n = min(len(eph_gdf), len(att_df))
+            rpy = cls._compute_roll_pitch_yaw(eph_gdf, att_df)
+            index = att_df.index[:n]
+            frame = "orbital frame"
+        elif {"roll", "pitch", "yaw"}.issubset(columns):
+            rpy = att_df[["roll", "pitch", "yaw"]].to_numpy()
+            index = att_df.index
+            frame = att_df.attrs.get("rpy_frame", "vendor-reported")
+        else:
+            raise ValueError(
+                "Attitude DataFrame has neither quaternions (q1..q4) nor "
+                f"roll/pitch/yaw columns: {sorted(columns)}"
+            )
+        return (index - index[0]).total_seconds(), rpy, frame
+
     @staticmethod
     def _compute_roll_pitch_yaw(eph_gdf, att_df):
         """
@@ -638,7 +715,10 @@ class StereoGeometryPlotter:
         Generates a 3-row x N-column figure (one column per scene):
         - Row 0: Map of satellite positions colored by position covariance std
           (plain positions when the sensor provides no covariance, e.g. DIMAP)
-        - Row 1: Roll, pitch, yaw relative to orbital reference frame over time
+        - Row 1: Roll, pitch, yaw over time — computed relative to the orbital
+          reference frame for sensors reporting quaternions, or as delivered
+          for sensors reporting angles directly (the frame is named in the
+          panel title)
         - Row 2: Attitude covariance trace std over time (annotated as not
           provided when the sensor has no attitude covariance)
 
@@ -709,17 +789,16 @@ class StereoGeometryPlotter:
                     pass
             ax0.tick_params(labelsize=7)
 
-            # Row 1: Roll, pitch, yaw relative to orbital frame
+            # Row 1: Roll, pitch, yaw, either computed from quaternions or
+            # taken as delivered (the title names which frame they are in)
             ax1 = fig.add_subplot(G[1, col])
-            n = min(len(eph_gdf), len(att_df))
-            time_seconds = (att_df.index[:n] - att_df.index[0]).total_seconds()
-            rpy = self._compute_roll_pitch_yaw(eph_gdf, att_df)
+            time_seconds, rpy, frame = self._orientation_series(eph_gdf, att_df)
             for i, label in enumerate(["Roll", "Pitch", "Yaw"]):
                 ax1.plot(time_seconds, rpy[:, i], label=label, linewidth=0.8)
             ax1.set_xlabel("Time (s)", fontsize=8)
             ax1.set_ylabel("Angle (deg)", fontsize=8)
             ax1.legend(fontsize=7, loc="best")
-            ax1.set_title(f"{catid}\nRoll / Pitch / Yaw", fontsize=9)
+            ax1.set_title(f"{catid}\nRoll / Pitch / Yaw ({frame})", fontsize=9)
             ax1.tick_params(labelsize=7)
 
             # Row 2: Attitude covariance trace std over time
