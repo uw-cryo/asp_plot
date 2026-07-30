@@ -1497,6 +1497,40 @@ def _dimap_acquisition_datetime(xml_fn):
         return None
 
 
+#: ASTER L1A granule names encode the capture time:
+#: ``AST_L1A_<3-digit production code><MM><DD><YYYY><HH><MM><SS>_...``. This is
+#: the only place an ASTER acquisition time is recorded — ASP's ``gen_aster``
+#: camera XMLs carry no timestamps at all (see :mod:`asp_plot.sensors.aster`).
+ASTER_L1A_NAME_RE = re.compile(
+    r"AST_L1A_\d{3}(\d{2})(\d{2})(\d{4})(\d{2})(\d{2})(\d{2})"
+)
+
+
+def aster_datetime_from_name(name):
+    """Return the acquisition datetime encoded in an ASTER L1A name, or None.
+
+    Parameters
+    ----------
+    name : str
+        A file or directory name that may be (or contain) an ``AST_L1A_*``
+        granule name.
+
+    Returns
+    -------
+    datetime.datetime or None
+        The encoded capture time, or None if ``name`` carries no granule name
+        or encodes an impossible date.
+    """
+    match = ASTER_L1A_NAME_RE.search(name)
+    if not match:
+        return None
+    month, day, year, hour, minute, second = (int(x) for x in match.groups())
+    try:
+        return datetime(year, month, day, hour, minute, second)
+    except ValueError:
+        return None
+
+
 def get_acquisition_dates(directory, extra_dirs=None):
     """Extract scene acquisition date(s) from metadata in a processing directory.
 
@@ -1550,23 +1584,15 @@ def get_acquisition_dates(directory, extra_dirs=None):
             key = dt.replace(microsecond=0).isoformat()
             dates.setdefault(key, dt.replace(microsecond=0))
 
-    # ASTER L1A: capture date encoded in filename
-    # Pattern: AST_L1A_<3-digit production code><MM><DD><YYYY><HH><MM><SS>_...
-    aster_re = re.compile(r"AST_L1A_\d{3}(\d{2})(\d{2})(\d{4})(\d{2})(\d{2})(\d{2})")
+    # ASTER L1A: capture date encoded in the granule file/directory name
     skip_dirs = {"tmp_asp_report_plots", ".git", "__pycache__"}
     for root, dirnames, filenames in os.walk(directory):
         dirnames[:] = [d for d in dirnames if d not in skip_dirs]
         for name in list(dirnames) + list(filenames):
-            m = aster_re.search(name)
-            if not m:
+            dt = aster_datetime_from_name(name)
+            if dt is None:
                 continue
-            mo, day, yr, hh, mi, ss = (int(x) for x in m.groups())
-            try:
-                dt = datetime(yr, mo, day, hh, mi, ss)
-            except ValueError:
-                continue
-            key = dt.isoformat()
-            dates.setdefault(key, dt)
+            dates.setdefault(dt.isoformat(), dt)
 
     return [dt.strftime("%Y-%m-%d %H:%M:%S UTC") for dt in sorted(dates.values())]
 

@@ -243,6 +243,27 @@ class StereoGeometryPlotter:
         return title
 
     @staticmethod
+    def _annotate_not_provided(ax, message):
+        """Replace an empty panel with a centered "not provided" note.
+
+        Used wherever a sensor simply does not record the quantity a panel
+        exists to show (attitude, attitude covariance): an empty pair of axes
+        reads as a bug, a labeled one reads as missing metadata.
+        """
+        ax.text(
+            0.5,
+            0.5,
+            message,
+            ha="center",
+            va="center",
+            transform=ax.transAxes,
+            fontsize=9,
+            color="gray",
+        )
+        ax.set_xticks([])
+        ax.set_yticks([])
+
+    @staticmethod
     def _annotate_missing_view_angles(ax, azimuths):
         """Note on a skyplot that the sensor reports no satellite azimuth.
 
@@ -718,7 +739,8 @@ class StereoGeometryPlotter:
         - Row 1: Roll, pitch, yaw over time — computed relative to the orbital
           reference frame for sensors reporting quaternions, or as delivered
           for sensors reporting angles directly (the frame is named in the
-          panel title)
+          panel title); annotated as not provided for sensors reporting no
+          attitude at all (ASTER)
         - Row 2: Attitude covariance trace std over time (annotated as not
           provided when the sensor has no attitude covariance)
 
@@ -745,7 +767,8 @@ class StereoGeometryPlotter:
 
         for col, d in enumerate(scenes):
             eph_gdf = d["eph_gdf"]
-            att_df = d["att_df"]
+            # None for sensors whose camera files carry no attitude (ASTER).
+            att_df = d.get("att_df")
             catid = d["catid"]
 
             # Row 0: Position map colored by position covariance std
@@ -792,43 +815,42 @@ class StereoGeometryPlotter:
             # Row 1: Roll, pitch, yaw, either computed from quaternions or
             # taken as delivered (the title names which frame they are in)
             ax1 = fig.add_subplot(G[1, col])
-            time_seconds, rpy, frame = self._orientation_series(eph_gdf, att_df)
-            for i, label in enumerate(["Roll", "Pitch", "Yaw"]):
-                ax1.plot(time_seconds, rpy[:, i], label=label, linewidth=0.8)
-            ax1.set_xlabel("Time (s)", fontsize=8)
-            ax1.set_ylabel("Angle (deg)", fontsize=8)
-            ax1.legend(fontsize=7, loc="best")
-            ax1.set_title(f"{catid}\nRoll / Pitch / Yaw ({frame})", fontsize=9)
+            if att_df is None:
+                # ASTER camera files record no attitude at all, so there is
+                # nothing to plot or to name a frame for.
+                self._annotate_not_provided(ax1, "Attitude\nnot provided")
+                ax1.set_title(f"{catid}\nRoll / Pitch / Yaw", fontsize=9)
+            else:
+                time_seconds, rpy, frame = self._orientation_series(eph_gdf, att_df)
+                for i, label in enumerate(["Roll", "Pitch", "Yaw"]):
+                    ax1.plot(time_seconds, rpy[:, i], label=label, linewidth=0.8)
+                ax1.set_xlabel("Time (s)", fontsize=8)
+                ax1.set_ylabel("Angle (deg)", fontsize=8)
+                ax1.legend(fontsize=7, loc="best")
+                ax1.set_title(f"{catid}\nRoll / Pitch / Yaw ({frame})", fontsize=9)
             ax1.tick_params(labelsize=7)
 
             # Row 2: Attitude covariance trace std over time
             ax2 = fig.add_subplot(G[2, col])
-            time_seconds_full = (att_df.index - att_df.index[0]).total_seconds()
-            att_cov_std = np.sqrt(
-                att_df["cov_11"]
-                + att_df["cov_22"]
-                + att_df["cov_33"]
-                + att_df["cov_44"]
+            att_cov_std = (
+                None
+                if att_df is None
+                else np.sqrt(
+                    att_df["cov_11"]
+                    + att_df["cov_22"]
+                    + att_df["cov_33"]
+                    + att_df["cov_44"]
+                )
             )
-            if np.isfinite(att_cov_std).any():
+            if att_cov_std is not None and np.isfinite(att_cov_std).any():
+                time_seconds_full = (att_df.index - att_df.index[0]).total_seconds()
                 ax2.plot(
                     time_seconds_full, att_cov_std, color=c_list[col], linewidth=0.8
                 )
                 ax2.set_xlabel("Time (s)", fontsize=8)
                 ax2.set_ylabel("Attitude std (trace)", fontsize=8)
             else:
-                ax2.text(
-                    0.5,
-                    0.5,
-                    "Attitude covariance\nnot provided",
-                    ha="center",
-                    va="center",
-                    transform=ax2.transAxes,
-                    fontsize=9,
-                    color="gray",
-                )
-                ax2.set_xticks([])
-                ax2.set_yticks([])
+                self._annotate_not_provided(ax2, "Attitude covariance\nnot provided")
             ax2.set_title(f"{catid}\nAttitude Covariance Trace", fontsize=9)
             ax2.tick_params(labelsize=7)
 

@@ -227,7 +227,7 @@ class PleiadesMetadata(SensorMetadata):
                 "DIMAP profile '%s' support is implemented from the ASP "
                 "reader spec but not yet validated against real data — "
                 "please report issues at "
-                "https://github.com/uw-cryo/asp_plot/issues/168",
+                "https://github.com/uw-cryo/asp_plot/issues/new",
                 profile,
             )
 
