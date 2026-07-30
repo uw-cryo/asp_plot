@@ -223,8 +223,11 @@ class StereoGeometryPlotter:
         area_str = f"{area:0.2f}" if area is not None else "N/A"
 
         title = p["pairname"]
-        title += "\nCenter datetime: %s" % p["cdate"]
-        title += "\nTime offset: %s" % str(p["dt"])
+        # cdate/dt are None when a sensor's metadata carries no timestamps.
+        title += "\nCenter datetime: %s" % (
+            p["cdate"] if p["cdate"] is not None else "N/A"
+        )
+        title += "\nTime offset: %s" % (p["dt"] if p["dt"] is not None else "N/A")
         title += (
             "\nConv. angle: %0.2f, B:H ratio: %0.2f, BIE: %0.2f, Assym Angle: %s, Int. area: %s km2"
             % (

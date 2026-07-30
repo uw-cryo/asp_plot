@@ -305,3 +305,51 @@ class TestStereoGeometryCalculations:
 
         # The two should differ significantly at 60N
         assert abs(asym_correct - asym_buggy) > 1.0
+
+
+class TestNonOverlapAndMissingDateFallbacks:
+    """Pair-level helpers degrade instead of crashing (#163 consumer side)."""
+
+    # Exactly two scenes at different locations: the pair builds but has no
+    # intersection, exercising the union fallbacks.
+    NON_OVERLAP_SCENES = [
+        "tests/test_data/10300100D0772D00.r100.xml",
+        "tests/test_data/tiled_xmls/10200100A1865800.r100.xml",
+    ]
+
+    @pytest.fixture
+    def parser_no_overlap(self):
+        return StereopairMetadataParser(inputs=self.NON_OVERLAP_SCENES)
+
+    def test_pair_has_no_intersection(self, parser_no_overlap):
+        assert parser_no_overlap.get_pair_dict()["intersection"] is None
+
+    def test_get_pair_utm_epsg_falls_back_to_union(self, parser_no_overlap):
+        # Previously crashed with AttributeError on None.centroid; now uses
+        # the footprint-union centroid like get_pair_map_projection does.
+        epsg = parser_no_overlap.get_pair_utm_epsg()
+        assert isinstance(epsg, int)
+
+    def test_get_intersection_bounds_falls_back_to_union(self, parser_no_overlap):
+        bounds = parser_no_overlap.get_intersection_bounds()
+        assert bounds == parser_no_overlap.get_scene_bounds()
+
+    def test_get_intersection_bounds_fallback_reprojects(self, parser_no_overlap):
+        epsg = parser_no_overlap.get_pair_utm_epsg()
+        bounds = parser_no_overlap.get_intersection_bounds(epsg=epsg)
+        assert len(bounds) == 4
+        # UTM coordinates, not degrees.
+        assert abs(bounds[0]) > 180
+
+    def test_pair_dict_tolerates_missing_dates(self):
+        # A sensor without timestamps in its metadata reports date=None; the
+        # pair must build with cdate/dt as None rather than raising.
+        parser = StereopairMetadataParser(directory="tests/test_data")
+        d1, d2 = parser.get_catid_dicts()
+        d1, d2 = dict(d1), dict(d2)
+        d1["date"] = None
+        p = parser.pair_dict(d1, d2, "dateless")
+        assert p["cdate"] is None
+        assert p["dt"] is None
+        # The rest of the pair geometry is unaffected.
+        assert 0 < p["conv_ang"] < 90

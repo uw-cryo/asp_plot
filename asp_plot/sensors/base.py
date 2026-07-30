@@ -1,11 +1,116 @@
 """Abstract base class and shared helpers for sensor metadata readers.
 
-See the :mod:`asp_plot.sensors` package docstring for the sensor-agnostic
-scene-dict schema that concrete readers produce.
+See the :mod:`asp_plot.sensors` package docstring for an overview. This module
+defines the two contracts every reader participates in:
+
+**File detection** is content-based: each reader supplies a
+:meth:`SensorMetadata._is_camera_file` predicate that inspects a candidate
+file (cheaply, e.g. with ``iterparse`` stopping early) and claims only files
+its sensor format actually produced. Discovery, filtering, ``detect``, and
+``detect_files`` are implemented here once, on top of that predicate, so a
+reader never claims another sensor's files just because they end in ``.xml``
+(issue #162).
+
+**The scene-dict schema** splits into a required core and optional blocks:
+
+- *identity core* (required, a reader must raise if it cannot fill these):
+  ``xml_fn``, ``catid``, ``sensor``, ``date``, ``geom``
+- *summary block* (optional): the mean view-angle/GSD/sun fields and
+  ``cloudcover`` default to NaN; ``scandir`` and ``tdi`` default to None
+- *trajectory block* (optional, when ``geteph`` is True): ``eph_gdf``,
+  ``att_df``, ``fp_gdf``
+
+Readers call :func:`fill_scene_defaults` so a format that lacks a field
+degrades to the documented "not provided" value instead of omitting the key,
+and consumers rely on one convention (None/NaN render as omitted/"nan"/"N/A")
+rather than per-key accidents (issue #163).
 """
 
 import os
+import re
 from abc import ABC, abstractmethod
+
+import numpy as np
+
+from asp_plot.utils import glob_file
+
+# XML files that are delivered alongside camera models but are *not* camera
+# models themselves and are excluded by name before any content check: ortho
+# products (``*ortho*.xml``) and the ``README.XML`` that ships in every
+# DigitalGlobe-heritage delivery. Matched against the file basename,
+# case-insensitively.
+_NON_CAMERA_XML_RE = re.compile(r"ortho|readme", re.IGNORECASE)
+
+#: Optional scene-dict fields and their "not provided" values. The NaN
+#: defaults are floats so downstream ``%0.1f``-style formatting renders "nan"
+#: instead of raising; the None defaults are omitted from scene strings.
+OPTIONAL_SCENE_FIELDS = {
+    "scandir": None,
+    "tdi": None,
+    "meansataz": np.nan,
+    "meansatel": np.nan,
+    "meanoffnadirviewangle": np.nan,
+    "meanintrackviewangle": np.nan,
+    "meancrosstrackviewangle": np.nan,
+    "meanproductgsd": np.nan,
+    "meansunaz": np.nan,
+    "meansunel": np.nan,
+    "cloudcover": np.nan,
+}
+
+
+def fill_scene_defaults(scene_dict):
+    """Fill missing optional scene-dict fields with "not provided" values.
+
+    Mutates and returns ``scene_dict``. Fields already present (even as
+    None/NaN) are left alone; the required identity-core fields are not
+    checked here — a reader that cannot fill those must raise instead.
+    """
+    for key, default in OPTIONAL_SCENE_FIELDS.items():
+        scene_dict.setdefault(key, default)
+    return scene_dict
+
+
+def _glob_xmls(directory, recursive=False):
+    """Glob ``*.xml``/``*.XML`` in ``directory`` (one level, or recursively)."""
+    pattern = "**/*.[Xx][Mm][Ll]" if recursive else "*.[Xx][Mm][Ll]"
+    # glob_file returns None (not []) when nothing matches.
+    return glob_file(directory, pattern, all_files=True, recursive=recursive) or []
+
+
+def list_candidate_xmls(directory, recursive=True):
+    """List camera-*candidate* XMLs in ``directory``, name-filtered only.
+
+    Searches the top level of ``directory`` first: a flat delivery or an ASP
+    processing directory keeps its camera XMLs there, so those take precedence
+    and unrelated XMLs in subdirectories are not pulled in. Only when the top
+    level has no candidate XML does it fall back to a recursive search, because
+    some satellite deliveries nest the camera XML several subdirectories deep
+    (e.g. ``.../<order>/DVD_VOL_1/<order>/<scene>_PAN/<scene>.XML``).
+
+    Non-camera XMLs (``*ortho*.xml``, ``README.XML``) are excluded by
+    basename; no sensor-specific content check is applied — that is the
+    readers' job (see :meth:`SensorMetadata._is_camera_file`). Used by
+    :func:`asp_plot.sensors.resolve_xml_inputs` to expand directory inputs
+    for *any* sensor.
+    """
+    found = _name_filter(_glob_xmls(directory))
+    if not found and recursive:
+        found = _name_filter(_glob_xmls(directory, recursive=True))
+    return found
+
+
+def _name_filter(image_list):
+    """Drop non-camera XMLs (ortho products, README.XML, ...) by basename.
+
+    Matched against the basename so a parent directory named e.g.
+    ``ortho_run/`` does not exclude otherwise-valid scenes.
+    """
+    return sorted(
+        f
+        for f in (image_list or [])
+        if not _NON_CAMERA_XML_RE.search(os.path.basename(f))
+    )
 
 
 class SensorMetadata(ABC):
@@ -16,8 +121,9 @@ class SensorMetadata(ABC):
     for the schema) that the stereo-pair geometry code can consume without
     knowing which sensor produced them.
 
-    Subclasses must implement :meth:`detect` (so the sensor can be chosen
-    automatically) and :meth:`get_scene_dicts`.
+    Subclasses must implement :meth:`_is_camera_file` (the content check that
+    decides which files the sensor claims; discovery and detection are built
+    on it here) and :meth:`get_scene_dicts`.
 
     Attributes
     ----------
@@ -40,6 +146,38 @@ class SensorMetadata(ABC):
 
     @classmethod
     @abstractmethod
+    def _is_camera_file(cls, path):
+        """Return True if ``path`` is a camera/metadata file of this sensor.
+
+        The per-sensor content check behind discovery and detection. Must be
+        cheap (many files may be inspected during a recursive delivery scan —
+        e.g. ``iterparse`` stopping at the first identifying tags) and must
+        reject other sensors' files, so unrecognized inputs produce a clean
+        "no supported sensor found" error instead of a deep parse failure.
+        """
+        raise NotImplementedError
+
+    @classmethod
+    def _filter_camera_xmls(cls, image_list):
+        """Keep only the files this sensor's content check claims, sorted."""
+        return sorted(f for f in (image_list or []) if cls._is_camera_file(f))
+
+    @classmethod
+    def _discover_xmls(cls, directory, recursive=True):
+        """Discover this sensor's camera XMLs in ``directory``.
+
+        Shallow-first with a recursive fallback, mirroring
+        :func:`list_candidate_xmls` but filtered by the sensor's own
+        :meth:`_is_camera_file` content check: a flat processing directory
+        keeps its camera XMLs at the top level, and only when none are found
+        there does discovery descend into nested deliveries.
+        """
+        found = cls._filter_camera_xmls(_glob_xmls(directory))
+        if not found and recursive:
+            found = cls._filter_camera_xmls(_glob_xmls(directory, recursive=True))
+        return found
+
+    @classmethod
     def detect(cls, directory, recursive=True):
         """Return True if this reader can handle the files in ``directory``.
 
@@ -59,10 +197,11 @@ class SensorMetadata(ABC):
         bool
             Whether this sensor's metadata files are present.
         """
-        raise NotImplementedError
+        return bool(
+            cls._discover_xmls(os.path.expanduser(directory), recursive=recursive)
+        )
 
     @classmethod
-    @abstractmethod
     def detect_files(cls, image_list):
         """Return True if this reader can handle the files in ``image_list``.
 
@@ -79,7 +218,7 @@ class SensorMetadata(ABC):
         bool
             Whether this sensor's metadata files are present in the list.
         """
-        raise NotImplementedError
+        return bool(cls._filter_camera_xmls(image_list))
 
     @abstractmethod
     def get_scene_dicts(self):

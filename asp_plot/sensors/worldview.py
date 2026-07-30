@@ -11,11 +11,31 @@ import numpy as np
 import pandas as pd
 from shapely import union_all, wkt
 
-from asp_plot.sensors.base import SensorMetadata, _common_base
-from asp_plot.utils import get_xml_tag, glob_file, run_subprocess_command
+from asp_plot.sensors.base import (
+    _NON_CAMERA_XML_RE,
+    SensorMetadata,
+    _common_base,
+    fill_scene_defaults,
+)
+from asp_plot.utils import get_xml_tag, run_subprocess_command
 
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
+
+
+def _tag_or_none(xml, tag):
+    """Read an XML tag, returning None instead of raising when it is absent.
+
+    Used for the optional scene-dict fields: ``dg_mosaic`` can strip image
+    tags, and Multi (multispectral) products carry per-band TDI rather than a
+    single ``TDILEVEL``, so a missing tag must degrade to "not provided"
+    rather than crash the whole scene dict (issue #163; ASP wraps the same
+    reads in try/catch in ``RPC_XML.cc``).
+    """
+    try:
+        return get_xml_tag(xml, tag)
+    except ValueError:
+        return None
 
 
 class WorldViewMetadata(SensorMetadata):
@@ -91,107 +111,45 @@ class WorldViewMetadata(SensorMetadata):
                 "\n\nMissing XML camera files. Cannot extract metadata without these.\n\n"
             )
 
-    # XML files that are delivered alongside the camera models but are *not*
-    # camera models themselves and must be ignored. Matched against the file
-    # basename, case-insensitively: ortho products (``*ortho*.xml``) and the
-    # ``README.XML`` that ships in every DigitalGlobe-heritage delivery.
-    _NON_CAMERA_XML_RE = re.compile(r"ortho|readme", re.IGNORECASE)
-
-    @staticmethod
-    def _filter_camera_xmls(image_list):
-        """Drop non-camera XMLs (ortho products, README.XML, ...) by basename.
-
-        Matched against the basename so a parent directory named e.g.
-        ``ortho_run/`` does not exclude otherwise-valid scenes.
-        """
-        return sorted(
-            file
-            for file in (image_list or [])
-            if not WorldViewMetadata._NON_CAMERA_XML_RE.search(os.path.basename(file))
-        )
-
-    @staticmethod
-    def _discover_xmls(directory, recursive=True):
-        """Glob camera-model XML files in ``directory``.
-
-        Searches the top level of ``directory`` first: a flat delivery or an ASP
-        processing directory keeps its camera XMLs there, so those take
-        precedence and unrelated XMLs in subdirectories are not pulled in. Only
-        when the top level has no camera XML does it fall back to a recursive
-        search, because some satellite deliveries nest the camera XML several
-        subdirectories deep (e.g. ``.../<order>/DVD_VOL_1/<order>/<scene>_PAN/
-        <scene>.XML``) alongside ``README.XML`` files that must be ignored. This
-        lets a user point at such a delivery without flattening it first, while
-        leaving the behavior of flat directories unchanged.
-
-        Parameters
-        ----------
-        directory : str
-            Path to directory to search.
-        recursive : bool, optional
-            If True (default), fall back to a recursive search when the top
-            level holds no camera XML. If False, only the top level is searched.
-
-        Returns
-        -------
-        list
-            Sorted list of XML file paths, excluding non-camera XMLs such as
-            ``*ortho*.xml`` and ``README.XML``.
-        """
-        # glob_file returns None (not []) when nothing matches.
-        found = WorldViewMetadata._filter_camera_xmls(
-            glob_file(directory, "*.[Xx][Mm][Ll]", all_files=True)
-        )
-        if not found and recursive:
-            found = WorldViewMetadata._filter_camera_xmls(
-                glob_file(
-                    directory, "**/*.[Xx][Mm][Ll]", all_files=True, recursive=True
-                )
-            )
-        return found
+    # The DG blocks a file must carry to be claimed as a WorldView camera XML.
+    # ASP itself requires GEO/EPH/ATT/IMD to all parse before calling a file a
+    # DG camera (``RPC_XML.cc`` read_xml); asp_plot reads IMD (summary tags),
+    # EPH, and ATT, so those three are required here. ``dg_mosaic`` outputs
+    # (``*.r100.xml``) retain all of them.
+    _REQUIRED_DG_BLOCKS = frozenset(["IMD", "EPH", "ATT"])
 
     @classmethod
-    def detect(cls, directory, recursive=True):
-        """Return True if non-ortho XML camera files are present.
+    def _is_camera_file(cls, path):
+        """True if ``path`` is a DigitalGlobe-heritage camera XML.
 
-        Parameters
-        ----------
-        directory : str
-            Path to directory to inspect.
-        recursive : bool, optional
-            If True (default), fall back to searching subdirectories when the
-            top level has no camera XML.
+        Content check (issue #162): the root element must be ``<isd>`` and the
+        ``IMD``/``EPH``/``ATT`` blocks must be present. A name filter excludes
+        ``README.XML``/``*ortho*.xml`` decoys before any parsing. Note the
+        root tag alone is not sufficient — ASP's ``gen_aster`` camera XMLs
+        also use an ``<isd>`` root but carry none of the DG blocks.
 
-        Returns
-        -------
-        bool
-            Whether WorldView XML camera files were found.
+        Uses ``iterparse`` and returns as soon as all required blocks have
+        been seen (they open near the top of the file, before the large
+        ``GEO``/``RPB`` sections), so detection stays cheap during recursive
+        delivery scans.
         """
-        return bool(
-            cls._discover_xmls(os.path.expanduser(directory), recursive=recursive)
-        )
-
-    @classmethod
-    def detect_files(cls, image_list):
-        """Return True if any file in ``image_list`` is a camera XML.
-
-        The file-list counterpart of :meth:`detect`, used to choose a reader
-        for an explicit list of inputs (see
-        :func:`asp_plot.sensors.sensor_for_inputs`). A file is a camera XML if
-        it survives the non-camera basename filter (so ``README.XML`` /
-        ``*ortho*.xml`` alone do not match).
-
-        Parameters
-        ----------
-        image_list : list of str
-            Candidate XML file paths.
-
-        Returns
-        -------
-        bool
-            Whether any camera XML files are present.
-        """
-        return bool(cls._filter_camera_xmls(image_list))
+        if _NON_CAMERA_XML_RE.search(os.path.basename(path)):
+            return False
+        try:
+            remaining = set(cls._REQUIRED_DG_BLOCKS)
+            root_seen = False
+            for _, el in ET.iterparse(path, events=("start",)):
+                if not root_seen:
+                    if el.tag != "isd":
+                        return False
+                    root_seen = True
+                elif el.tag in remaining:
+                    remaining.discard(el.tag)
+                    if not remaining:
+                        return True
+            return False
+        except (ET.ParseError, OSError):
+            return False
 
     def get_scene_dicts(self):
         """
@@ -374,6 +332,12 @@ class WorldViewMetadata(SensorMetadata):
         The dictionary includes satellite ID, acquisition date, scan direction,
         TDI level, geometry information, and various mean angles and parameters.
         If geteph is True, also includes ephemeris and footprint GeoDataFrames.
+
+        The identity core (catid, sensor, date, geom) is read strictly — a
+        camera XML without those is an error. The summary fields degrade to
+        "not provided" (None/NaN) when their tags are absent (issue #163):
+        ``dg_mosaic`` can strip image tags, and Multi products carry per-band
+        TDI instead of a single ``TDILEVEL``.
         """
 
         def list_average(list):
@@ -395,11 +359,14 @@ class WorldViewMetadata(SensorMetadata):
 
         for tag, lst in attributes.items():
             if tag != "geom":
-                lst.append(get_xml_tag(xml, tag))
+                # Optional summary tags: a missing tag lands as None and drops
+                # out of list_average, leaving NaN ("not provided").
+                lst.append(_tag_or_none(xml, tag))
             else:
                 # This returns a Shapely Polygon geometry
                 lst.append(self.xml2poly(xml))
 
+        tdi = _tag_or_none(xml, "TDILEVEL")
         d = {
             "xml_fn": xml,
             "catid": catid,
@@ -407,8 +374,8 @@ class WorldViewMetadata(SensorMetadata):
             "date": datetime.strptime(
                 get_xml_tag(xml, "FIRSTLINETIME"), "%Y-%m-%dT%H:%M:%S.%fZ"
             ),
-            "scandir": get_xml_tag(xml, "SCANDIRECTION"),
-            "tdi": int(get_xml_tag(xml, "TDILEVEL")),
+            "scandir": _tag_or_none(xml, "SCANDIRECTION"),
+            "tdi": int(tdi) if tdi is not None else None,
             "geom": union_all(attributes["geom"]),
         }
 
@@ -427,7 +394,7 @@ class WorldViewMetadata(SensorMetadata):
             if tag != "geom":
                 d[tag.lower()] = list_average(lst)
 
-        return d
+        return fill_scene_defaults(d)
 
     def getEphem(self, xml):
         """

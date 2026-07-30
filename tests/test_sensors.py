@@ -1,3 +1,4 @@
+import re
 import shutil
 from pathlib import Path
 
@@ -265,12 +266,25 @@ class TestWorldViewSceneGrouping:
         # ... and no dg_mosaic output was produced.
         assert not list(tmp_path.glob("*_asp_plot_dg_mosaic*"))
 
+    @staticmethod
+    def _scene_without_catid(src, dst):
+        """Copy ``src`` to ``dst`` with every CATID tag removed.
+
+        The result still passes the DG content check (root ``<isd>`` with
+        IMD/EPH/ATT blocks) so it exercises the later CATID-grouping skip
+        path rather than being dropped at discovery.
+        """
+        text = re.sub(r"<CATID>[^<]*</CATID>", "", Path(src).read_text())
+        Path(dst).write_text(text)
+
     def test_skips_xml_without_catid(self, tmp_path, caplog):
         shutil.copy(CAM_A, tmp_path / "a.xml")
         shutil.copy(CAM_B, tmp_path / "b.xml")
-        # A non-camera XML whose name does not match readme/ortho, so it passes
-        # discovery and must be skipped by the content (CATID) check.
-        (tmp_path / "sidecar.xml").write_text("<metadata><note>hi</note></metadata>")
+        # A DG-shaped XML without a CATID passes the content check at
+        # discovery and must be skipped by the CATID grouping. (A plain
+        # non-camera sidecar XML no longer reaches this point at all — the
+        # #162 content check drops it at discovery.)
+        self._scene_without_catid(CAM_A, tmp_path / "sidecar.xml")
 
         reader = WorldViewMetadata(directory=str(tmp_path))
         with caplog.at_level("WARNING"):
@@ -280,7 +294,7 @@ class TestWorldViewSceneGrouping:
         assert "without a CATID" in caplog.text
 
     def test_all_xmls_without_catid_raises(self, tmp_path):
-        (tmp_path / "sidecar.xml").write_text("<metadata/>")
+        self._scene_without_catid(CAM_A, tmp_path / "sidecar.xml")
         reader = WorldViewMetadata(directory=str(tmp_path))
         with pytest.raises(ValueError, match="No XML camera files with a CATID"):
             reader.get_catid_xmls()
@@ -466,13 +480,157 @@ class TestPleiadesDetection:
     def test_detect_files_rejects_rpc_only(self):
         assert PleiadesMetadata.detect_files([str(RPC_FORE)]) is False
 
-    def test_rpc_only_inputs_fall_through_to_worldview(self):
+    def test_rpc_only_inputs_rejected_cleanly(self):
         # An RPC sidecar alone is not a camera model for any reader: Pléiades
-        # rejects it (METADATA_SUBPROFILE is RPC, not PRODUCT), so it falls
-        # through to the WorldView reader, which accepts any non-ortho XML by
-        # name and only fails later at content parsing (tightening this is
-        # tracked in #162).
-        reader = sensor_for_inputs([str(RPC_FORE)])
-        assert isinstance(reader, WorldViewMetadata)
-        with pytest.raises(ValueError, match="CATID"):
+        # rejects it (METADATA_SUBPROFILE is RPC, not PRODUCT) and the
+        # WorldView content check rejects it too (DIMAP root, no DG blocks),
+        # so the user gets the clean "no supported sensor" error instead of a
+        # confusing parse failure deep in the WorldView reader (#162).
+        with pytest.raises(ValueError, match="No supported sensor metadata"):
+            sensor_for_inputs([str(RPC_FORE)])
+
+
+# ASP gen_aster camera XML: shares the <isd> root with DigitalGlobe XMLs but
+# carries none of the IMD/EPH/ATT blocks — the canonical "same container,
+# different sensor" case the WorldView content check must reject (#162).
+ASTER_CAM = TEST_DATA_DIR / "no_mapproj" / "out-Band3N.xml"
+
+
+class TestWorldViewContentDetection:
+    """#162: WorldView claims files by content (isd root + DG blocks), not name."""
+
+    def test_accepts_real_camera_xmls(self):
+        assert WorldViewMetadata._is_camera_file(str(CAM_A)) is True
+        assert WorldViewMetadata._is_camera_file(str(CAM_B)) is True
+
+    def test_rejects_arbitrary_xml(self, tmp_path):
+        f = tmp_path / "unrelated.xml"
+        f.write_text("<metadata><note>hi</note></metadata>")
+        assert WorldViewMetadata._is_camera_file(str(f)) is False
+
+    def test_rejects_isd_root_without_dg_blocks(self):
+        # gen_aster output: <isd> root but LATTICE_POINT/SIGHT_VECTOR content.
+        assert WorldViewMetadata._is_camera_file(str(ASTER_CAM)) is False
+
+    def test_rejects_dimap_xml(self):
+        assert WorldViewMetadata._is_camera_file(str(DIM_FORE)) is False
+        assert WorldViewMetadata._is_camera_file(str(RPC_FORE)) is False
+
+    def test_rejects_unparseable_file(self, tmp_path):
+        f = tmp_path / "broken.xml"
+        f.write_text("<isd><IMD>")
+        assert WorldViewMetadata._is_camera_file(str(f)) is False
+
+    def test_unrelated_xml_dir_raises_clean_error(self, tmp_path):
+        (tmp_path / "unrelated.xml").write_text("<metadata/>")
+        with pytest.raises(ValueError, match="No supported sensor metadata"):
+            sensor_for_directory(str(tmp_path))
+
+    def test_aster_dir_not_claimed(self, tmp_path):
+        # A directory holding only gen_aster camera XMLs must not be claimed
+        # by the WorldView reader.
+        shutil.copy(ASTER_CAM, tmp_path / "out-Band3N.xml")
+        assert WorldViewMetadata.detect(str(tmp_path)) is False
+        with pytest.raises(ValueError, match="No supported sensor metadata"):
+            sensor_for_directory(str(tmp_path))
+
+    def test_explicit_image_list_content_filtered(self, tmp_path):
+        # Content filtering also applies to explicit inputs, not only
+        # directory discovery.
+        f = tmp_path / "unrelated.xml"
+        f.write_text("<metadata/>")
+        reader = WorldViewMetadata(image_list=[str(CAM_A), str(f)])
+        assert reader.image_list == [str(CAM_A)]
+
+
+class TestDimapProfileGating:
+    """Products from unsupported DIMAP profiles are skipped with a warning."""
+
+    @staticmethod
+    def _dimap_with_profile(dst, profile, subprofile="PRODUCT"):
+        dst.write_text(
+            "<Dimap_Document>"
+            "<Metadata_Identification>"
+            f"<METADATA_PROFILE>{profile}</METADATA_PROFILE>"
+            f"<METADATA_SUBPROFILE>{subprofile}</METADATA_SUBPROFILE>"
+            "</Metadata_Identification>"
+            "</Dimap_Document>"
+        )
+
+    def test_supported_profiles_accepted(self, tmp_path):
+        for profile in ("PHR_SENSOR", "PNEO_SENSOR"):
+            f = tmp_path / f"DIM_{profile}.XML"
+            self._dimap_with_profile(f, profile)
+            assert PleiadesMetadata._is_camera_file(str(f)) is True
+
+    def test_unsupported_profile_rejected_with_warning(self, tmp_path, caplog):
+        f = tmp_path / "DIM_SPOT6.XML"
+        self._dimap_with_profile(f, "S6_SENSOR")
+        with caplog.at_level("WARNING"):
+            assert PleiadesMetadata._is_camera_file(str(f)) is False
+        assert "S6_SENSOR" in caplog.text
+        assert "#168" in caplog.text
+
+    def test_unsupported_profile_warns_once(self, tmp_path, caplog):
+        f = tmp_path / "DIM_PERUSAT.XML"
+        self._dimap_with_profile(f, "PER1_SENSOR")
+        with caplog.at_level("WARNING"):
+            PleiadesMetadata._is_camera_file(str(f))
+            caplog.clear()
+            PleiadesMetadata._is_camera_file(str(f))
+        assert "PER1_SENSOR" not in caplog.text
+
+    def test_rpc_subprofile_rejected_silently(self, tmp_path, caplog):
+        f = tmp_path / "RPC_PNEO.XML"
+        self._dimap_with_profile(f, "PNEO_SENSOR", subprofile="RPC")
+        with caplog.at_level("WARNING"):
+            assert PleiadesMetadata._is_camera_file(str(f)) is False
+        assert "unsupported" not in caplog.text
+
+    def test_real_pneo_fixture_still_accepted(self):
+        assert PleiadesMetadata._is_camera_file(str(DIM_FORE)) is True
+
+
+class TestWorldViewSceneDictDegradation:
+    """#163: optional tags degrade to "not provided" instead of crashing."""
+
+    @staticmethod
+    def _strip_tags(src, dst, tags):
+        text = Path(src).read_text()
+        for tag in tags:
+            text = re.sub(rf"<{tag}>[^<]*</{tag}>", "", text)
+        Path(dst).write_text(text)
+
+    @pytest.fixture
+    def stripped_reader(self, tmp_path):
+        # dg_mosaic can strip image tags; Multi products carry per-band TDI.
+        self._strip_tags(
+            CAM_A,
+            tmp_path / "stripped.xml",
+            ["TDILEVEL", "SCANDIRECTION", "CLOUDCOVER", "MEANSUNAZ"],
+        )
+        shutil.copy(CAM_B, tmp_path / "b.xml")
+        return WorldViewMetadata(directory=str(tmp_path))
+
+    def test_missing_optional_tags_degrade(self, stripped_reader):
+        d = next(
+            d
+            for d in stripped_reader.get_scene_dicts()
+            if d["catid"] == "10300100D0772D00"
+        )
+        assert d["tdi"] is None
+        assert d["scandir"] is None
+        assert np.isnan(d["cloudcover"])
+        assert np.isnan(d["meansunaz"])
+        # Untouched fields still parse.
+        assert not np.isnan(d["meansataz"])
+        assert d["sensor"] == "WV02"
+
+    def test_identity_core_still_strict(self, tmp_path):
+        # A camera XML without the identity core (here: FIRSTLINETIME) is an
+        # error, not a degraded scene.
+        self._strip_tags(CAM_A, tmp_path / "no_date.xml", ["FIRSTLINETIME"])
+        shutil.copy(CAM_B, tmp_path / "b.xml")
+        reader = WorldViewMetadata(directory=str(tmp_path))
+        with pytest.raises(ValueError, match="FIRSTLINETIME"):
             reader.get_scene_dicts()

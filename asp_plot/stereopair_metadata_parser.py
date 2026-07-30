@@ -373,12 +373,17 @@ class StereopairMetadataParser:
 
         self.get_pair_intersection(p)
 
-        cdate = center_date([p["catid1_dict"]["date"], p["catid2_dict"]["date"]])
-        p["cdate"] = cdate
+        # A sensor without timestamps in its camera metadata reports
+        # date=None; the pair then has no center date or time offset rather
+        # than crashing (consumers render None as "N/A").
         dt1 = p["catid1_dict"]["date"]
         dt2 = p["catid2_dict"]["date"]
-        dt = abs(dt1 - dt2)
-        p["dt"] = dt
+        if dt1 is not None and dt2 is not None:
+            p["cdate"] = center_date([dt1, dt2])
+            p["dt"] = abs(dt1 - dt2)
+        else:
+            p["cdate"] = None
+            p["dt"] = None
 
         p["conv_ang"] = get_convergence_angle(
             p["catid1_dict"]["meansataz"],
@@ -528,7 +533,9 @@ class StereopairMetadataParser:
         Get the UTM EPSG code for the stereo pair's intersection area.
 
         Uses the centroid of the pair intersection footprint to determine
-        the appropriate UTM zone.
+        the appropriate UTM zone. When the footprints do not overlap
+        (``intersection`` is None), falls back to the centroid of the two
+        footprints' union, mirroring :meth:`get_pair_map_projection`.
 
         Returns
         -------
@@ -536,7 +543,10 @@ class StereopairMetadataParser:
             UTM EPSG code (e.g., 32616 for UTM Zone 16N)
         """
         pair = self.get_pair_dict()
-        centroid = pair["intersection"].centroid
+        geom = pair["intersection"]
+        if geom is None:
+            geom = union_all([pair["catid1_dict"]["geom"], pair["catid2_dict"]["geom"]])
+        centroid = geom.centroid
         return get_utm_epsg(centroid.x, centroid.y)
 
     def get_intersection_bounds(self, epsg=None):
@@ -544,7 +554,9 @@ class StereopairMetadataParser:
         Get the bounding box of the stereo pair intersection area.
 
         Returns the intersection of both image footprints as a bounding box,
-        optionally reprojected to a given CRS.
+        optionally reprojected to a given CRS. When the footprints do not
+        overlap (``intersection`` is None), falls back to the bounding box of
+        the two footprints' union so callers still get usable bounds.
 
         Parameters
         ----------
@@ -559,6 +571,10 @@ class StereopairMetadataParser:
         """
         pair = self.get_pair_dict()
         intersection = pair["intersection"]
+        if intersection is None:
+            intersection = union_all(
+                [pair["catid1_dict"]["geom"], pair["catid2_dict"]["geom"]]
+            )
         if epsg is not None:
             intersection = (
                 gpd.GeoDataFrame(geometry=[intersection], crs="EPSG:4326")
