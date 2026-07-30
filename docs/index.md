@@ -79,10 +79,10 @@ expansion roadmap.
 | WorldView / GeoEye / QuickBird / IKONOS | `dg` | DigitalGlobe XML | ✅ Supported (validated with real data) |
 | Pléiades Neo | `pleiades` | DIMAP v2 (`PNEO_SENSOR`) | ✅ Supported (validated with real data) |
 | Pléiades 1A/1B | `pleiades` | DIMAP v2 (`PHR_SENSOR`) | ✅ Supported (polynomial attitude implemented from the ASP reader spec) |
-| SPOT 6/7 | `pleiades` | DIMAP v2 (`S6_SENSOR`/`S7_SENSOR`) | 🧪 Implemented from the ASP reader spec, not yet validated with real data — reports welcome ([#168](https://github.com/uw-cryo/asp_plot/issues/168)) |
-| PeruSat-1 | `perusat` | DIMAP v2 (`PER1_SENSOR`) | 🧪 Implemented from the ASP reader spec, not yet validated with real data — reports welcome ([#168](https://github.com/uw-cryo/asp_plot/issues/168)) |
-| SPOT 5 | `spot5` | DIMAP v1 | 🧪 Implemented from the ASP reader spec, not yet validated with real data — reports welcome ([#179](https://github.com/uw-cryo/asp_plot/issues/179)) |
-| ALOS PRISM | `prism` | DIMAP-like (`ALOS`) | 🧪 Implemented from the ASP reader spec, not yet validated with real data — reports welcome ([#179](https://github.com/uw-cryo/asp_plot/issues/179)) |
+| SPOT 6/7 | `pleiades` | DIMAP v2 (`S6_SENSOR`/`S7_SENSOR`) | 🧪 Implemented from the ASP reader spec, not yet validated with real data — reports welcome ([open an issue](https://github.com/uw-cryo/asp_plot/issues/new)) |
+| PeruSat-1 | `perusat` | DIMAP v2 (`PER1_SENSOR`) | 🧪 Implemented from the ASP reader spec, not yet validated with real data — reports welcome ([open an issue](https://github.com/uw-cryo/asp_plot/issues/new)) |
+| SPOT 5 | `spot5` | DIMAP v1 | 🧪 Implemented from the ASP reader spec, not yet validated with real data — reports welcome ([open an issue](https://github.com/uw-cryo/asp_plot/issues/new)) |
+| ALOS PRISM | `prism` | DIMAP-like (`ALOS`) | 🧪 Implemented from the ASP reader spec, not yet validated with real data — reports welcome ([open an issue](https://github.com/uw-cryo/asp_plot/issues/new)) |
 | ASTER | `aster` | `gen_aster` XML | ✅ Supported (geometry derived from look vectors; no attitude, sun angles, or timestamps exist) |
 | Cartosat-1, Deimos, and other RPC-only products | `rpc` | RPC coefficients only | 🚧 Planned, derived geometry ([#177](https://github.com/uw-cryo/asp_plot/issues/177)); no trajectory/attitude metadata exists |
 | Planetary (LRO NAC, CTX, HiRISE, MOC, ...) | `csm` / ISIS | CSM model state (JSON) | Handled by the CSM camera modules (`csm_camera_plot`), not the sensor readers |

@@ -1,3 +1,4 @@
+import random
 import re
 import shutil
 import xml.etree.ElementTree as ET
@@ -713,7 +714,7 @@ class TestDimapSpecOnlyProfileWarning:
             reader.get_scene_dicts()
         assert "PER1_SENSOR" in caplog.text
         assert "ASP reader spec" in caplog.text
-        assert "issues/168" in caplog.text
+        assert "issues/new" in caplog.text
         caplog.clear()
         with caplog.at_level("WARNING"):
             reader.get_scene_dicts()
@@ -986,7 +987,7 @@ class TestDimapV1SpecOnlyWarning:
         with caplog.at_level("WARNING"):
             reader.get_scene_dicts()
         assert "SPOT5 metadata support" in caplog.text
-        assert "issues/179" in caplog.text
+        assert "issues/new" in caplog.text
         caplog.clear()
         with caplog.at_level("WARNING"):
             reader.get_scene_dicts()
@@ -1193,6 +1194,23 @@ class TestAsterMetadata:
         # Still detected (LATTICE_POINT/SIGHT_VECTOR/SAT_POS are present), so
         # the failure must be an explanatory parse error, not a KeyError.
         with pytest.raises(ValueError, match="no <WORLD_SIGHT_VECTOR> block"):
+            AsterMetadata(image_list=[str(f)]).get_scene_dicts()
+
+    def test_scrambled_lattice_blocks_raise(self, tmp_path):
+        # Nothing in the file states that WORLD_SIGHT_VECTOR rows are ordered
+        # to match LATTICE_POINT rows; the block lengths still agree when they
+        # are not. A scrambled ground lattice self-intersects when the image
+        # border is traced around it, which is what catches it.
+        src = ASTER_3N.read_text()
+        block = re.search(
+            r"<WORLD_SIGHT_VECTOR>(.*?)</WORLD_SIGHT_VECTOR>", src, re.S
+        ).group(1)
+        lines = [ln for ln in block.splitlines() if ln.strip()]
+        random.Random(0).shuffle(lines)
+
+        f = tmp_path / "scrambled.xml"
+        f.write_text(src.replace(block, "\n" + "\n".join(lines) + "\n", 1))
+        with pytest.raises(ValueError, match="ground lattice is scrambled"):
             AsterMetadata(image_list=[str(f)]).get_scene_dicts()
 
     def test_rays_that_miss_the_earth_raise(self):

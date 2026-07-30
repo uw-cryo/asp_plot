@@ -350,7 +350,22 @@ class _AsterLattice:
             ]
         )
         lon, lat = _ecef_to_lonlat(self._interp(border))
-        return Polygon(zip(lon, lat))
+        polygon = Polygon(zip(lon, lat))
+        # The block lengths are checked on parse, but nothing in the file states
+        # that WORLD_SIGHT_VECTOR rows are listed in the same order as
+        # LATTICE_POINT rows -- that is an implicit trust in gen_aster's write
+        # order. A mismatch scrambles the ground lattice, and tracing a border
+        # around scrambled points self-intersects, so validity is the cheap
+        # ordering check the file itself cannot provide.
+        if not polygon.is_valid:
+            raise ValueError(
+                "Derived scene footprint is not a simple polygon, which means "
+                "the ground lattice is scrambled: LATTICE_POINT, "
+                "WORLD_SIGHT_VECTOR and SAT_POS are not listed in "
+                "corresponding order. Please report this product at "
+                "https://github.com/uw-cryo/asp_plot/issues/new"
+            )
+        return polygon
 
     def view_angles(self):
         """Satellite view geometry at the scene center.
@@ -387,9 +402,15 @@ class _AsterLattice:
         az = np.degrees(np.arctan2(to_sat @ east, to_sat @ north)) % 360.0
         el = np.degrees(np.arcsin(np.clip(to_sat @ up, -1.0, 1.0)))
 
-        # Spacecraft-based off-nadir decomposition. The velocity direction is
-        # differenced from the neighbouring lattice-row positions (the camera
-        # file carries positions only), then orthogonalized against nadir.
+        # Spacecraft-based off-nadir decomposition. The camera file carries
+        # positions but no velocities, so the along-track direction is
+        # differenced across the whole arc and then orthogonalized against
+        # nadir. Endpoints rather than the rows straddling the evaluation
+        # point on purpose: the arc spans ~90 km of a nearly straight orbital
+        # track, so the long baseline averages out the per-sample noise that a
+        # single ~6.7 km step would carry straight into the angle. The
+        # trade-off is that this direction is a whole-scene average, which is
+        # why it is only used at the scene center.
         sat_lon, sat_lat = _ecef_to_lonlat(sat)
         _, _, sat_up = _enu_basis(float(sat_lon), float(sat_lat))
         down = -sat_up
