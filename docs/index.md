@@ -78,9 +78,9 @@ expansion roadmap.
 |---|---|---|---|
 | WorldView / GeoEye / QuickBird / IKONOS | `dg` | DigitalGlobe XML | ✅ Supported (validated with real data) |
 | Pléiades Neo | `pleiades` | DIMAP v2 (`PNEO_SENSOR`) | ✅ Supported (validated with real data) |
-| Pléiades 1A/1B | `pleiades` | DIMAP v2 (`PHR_SENSOR`) | ⚠️ Supported except attitude ([#161](https://github.com/uw-cryo/asp_plot/issues/161)) |
-| SPOT 6/7 | `pleiades` | DIMAP v2 (`S6_SENSOR`/`S7_SENSOR`) | 🚧 Planned ([#168](https://github.com/uw-cryo/asp_plot/issues/168)) |
-| PeruSat-1 | `perusat` | DIMAP v2 (`PER1_SENSOR`) | 🚧 Planned ([#168](https://github.com/uw-cryo/asp_plot/issues/168)) |
+| Pléiades 1A/1B | `pleiades` | DIMAP v2 (`PHR_SENSOR`) | ✅ Supported (polynomial attitude implemented from the ASP reader spec) |
+| SPOT 6/7 | `pleiades` | DIMAP v2 (`S6_SENSOR`/`S7_SENSOR`) | 🧪 Implemented from the ASP reader spec, not yet validated with real data — reports welcome ([#168](https://github.com/uw-cryo/asp_plot/issues/168)) |
+| PeruSat-1 | `perusat` | DIMAP v2 (`PER1_SENSOR`) | 🧪 Implemented from the ASP reader spec, not yet validated with real data — reports welcome ([#168](https://github.com/uw-cryo/asp_plot/issues/168)) |
 | SPOT 5 | `spot5` | DIMAP v1 | 🚧 Planned ([#168](https://github.com/uw-cryo/asp_plot/issues/168)) |
 | ALOS PRISM | `prism` | DIMAP-like (`ALOS`) | 🚧 Planned ([#168](https://github.com/uw-cryo/asp_plot/issues/168)) |
 | ASTER | `aster` | `gen_aster` XML | 🚧 Planned, derived geometry ([#175](https://github.com/uw-cryo/asp_plot/issues/175)) |

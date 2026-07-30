@@ -1,4 +1,10 @@
-"""Metadata reader for Airbus DIMAP v2 camera files (Pléiades / Pléiades Neo)."""
+"""Metadata reader for Airbus-family DIMAP v2 camera files.
+
+Covers the sensors that share the DIMAP v2 primary-product layout: Pléiades
+1A/1B, Pléiades Neo, SPOT 6/7, and PeruSat-1. ASP parses these with a single
+reader too (PleiadesXML.cc; PeruSatXML.cc duplicates the same layout), which
+is the reference implementation this module mirrors.
+"""
 
 import logging
 import os
@@ -15,33 +21,48 @@ from asp_plot.sensors.base import SensorMetadata, _common_base, fill_scene_defau
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
-# DIMAP METADATA_PROFILE values this reader supports. ASP's single DIMAP
-# reader (PleiadesXML.cc) also handles S6_SENSOR/S7_SENSOR (SPOT 6/7), and
-# PeruSat-1 uses the same layout under PER1_SENSOR (PeruSatXML.cc) — those
-# profiles are planned in the #168 expansion but not yet claimed, so a
-# delivery from one of them gets an explicit "unsupported profile" warning
-# instead of a wrong parse (PHR 1A/1B polynomial attitude, #161) or a
-# confusing fall-through.
-SUPPORTED_DIMAP_PROFILES = ("PHR_SENSOR", "PNEO_SENSOR")
+# DIMAP METADATA_PROFILE values this reader supports, matching ASP's own
+# coverage of the layout: Pléiades 1A/1B (PHR), Pléiades Neo (PNEO), and
+# SPOT 6/7 via PleiadesXML.cc, PeruSat-1 via PeruSatXML.cc. Any other DIMAP
+# product profile gets an explicit "unsupported profile" warning instead of
+# a wrong parse or a confusing fall-through.
+SUPPORTED_DIMAP_PROFILES = (
+    "PHR_SENSOR",
+    "PNEO_SENSOR",
+    "S6_SENSOR",
+    "S7_SENSOR",
+    "PER1_SENSOR",
+)
 
-# Unsupported-profile warnings already emitted, keyed by absolute path:
-# detection can inspect the same file several times (shallow and recursive
-# passes, then reader construction), and the hint is only useful once.
-_warned_unsupported_profiles = set()
+# Profiles implemented from the ASP reader spec (PleiadesXML.cc /
+# PeruSatXML.cc) but not yet validated against a real delivery (#168):
+# parsing one emits a one-time informational warning asking for reports.
+SPEC_ONLY_DIMAP_PROFILES = ("S6_SENSOR", "S7_SENSOR", "PER1_SENSOR")
+
+# The two warning caches below key differently on purpose — don't reconcile
+# them. An unsupported profile means "this file was skipped", so the user
+# needs to hear it once per *file* (and detection inspects the same file
+# several times: shallow pass, recursive pass, then reader construction).
+# A spec-only profile means "this reader branch is unvalidated", which is a
+# property of the *profile*, so repeating it per file would be noise.
+_warned_unsupported_profiles = set()  # keyed by absolute path
+_warned_spec_only_profiles = set()  # keyed by METADATA_PROFILE
 
 
 class PleiadesMetadata(SensorMetadata):
-    """Metadata reader for Airbus Pléiades / Pléiades Neo DIMAP camera files.
+    """Metadata reader for Airbus-family DIMAP v2 camera files.
 
     Parses DIMAP v2 primary-product metadata (``DIM_*.XML``, root tag
-    ``Dimap_Document``) as delivered with Pléiades 1A/1B and Pléiades Neo
-    SEN(sor) products. Each scene is delivered as a single DIM XML, so unlike
-    WorldView there is no tile mosaicking step. The sidecar ``RPC_*.XML`` files
-    share the DIMAP root but carry no ephemeris, attitude, or acquisition-angle
-    information, so discovery keeps only files whose ``METADATA_SUBPROFILE`` is
-    ``PRODUCT`` and whose ``METADATA_PROFILE`` is one of
-    ``SUPPORTED_DIMAP_PROFILES`` (products from other DIMAP profiles are
-    skipped with an explanatory warning; see #168 for the planned expansion).
+    ``Dimap_Document``) as delivered with Pléiades 1A/1B, Pléiades Neo,
+    SPOT 6/7, and PeruSat-1 SEN(sor) products. Each scene is delivered as a
+    single DIM XML, so unlike WorldView there is no tile mosaicking step. The
+    sidecar ``RPC_*.XML`` files share the DIMAP root but carry no ephemeris,
+    attitude, or acquisition-angle information, so discovery keeps only files
+    whose ``METADATA_SUBPROFILE`` is ``PRODUCT`` and whose
+    ``METADATA_PROFILE`` is one of ``SUPPORTED_DIMAP_PROFILES`` (products
+    from other DIMAP profiles are skipped with an explanatory warning).
+    Profiles in ``SPEC_ONLY_DIMAP_PROFILES`` are implemented from ASP's
+    reader spec but not yet validated against real deliveries (#168).
 
     Notes
     -----
@@ -49,11 +70,17 @@ class PleiadesMetadata(SensorMetadata):
       reordered to the scalar-last ``q1..q4`` layout shared with WorldView, as
       consumed by the roll/pitch/yaw computation in
       :meth:`asp_plot.stereo_geometry.StereoGeometryPlotter._compute_roll_pitch_yaw`.
+    - Attitude comes in two shapes: tabulated quaternion samples
+      (``Quaternion_List``; Pléiades Neo, SPOT 6/7, PeruSat-1) or one degree-3
+      polynomial per quaternion component (``Polynomial_Quaternions``;
+      Pléiades 1A/1B), which is evaluated at the ephemeris timestamps so both
+      shapes yield the same tabulated ``att_df`` downstream.
     - DIMAP reports no ephemeris/attitude covariance and no scan direction or
       TDI level: the ``cov_*`` columns are filled with NaN and ``scandir`` /
       ``tdi`` are None. Consumers treat those as "not provided".
-    - The mean view/sun angles and GSD are averaged over the nine
-      ``Located_Geometric_Values`` blocks (corners, edge midpoints, center).
+    - The mean view/sun angles and GSD are averaged over the
+      ``Located_Geometric_Values`` blocks — nine for Pléiades/SPOT (corners,
+      edge midpoints, center), a single center block for PeruSat-1.
       ``meansatel`` is derived as 90° minus the mean target incidence angle,
       matching the WorldView ``MEANSATEL`` convention.
     """
@@ -140,8 +167,7 @@ class PleiadesMetadata(SensorMetadata):
         ``METADATA_SUBPROFILE`` is ``PRODUCT`` (the ``DIM_*.XML``); the RPC
         sidecars (subprofile ``RPC``) and any non-DIMAP XML are rejected
         silently. A product whose ``METADATA_PROFILE`` is *not* in
-        ``SUPPORTED_DIMAP_PROFILES`` (e.g. SPOT 6/7's ``S6_SENSOR``,
-        PeruSat-1's ``PER1_SENSOR``) is also rejected, but with a one-time
+        ``SUPPORTED_DIMAP_PROFILES`` is also rejected, but with a one-time
         warning naming the profile, so the user learns why the file was
         skipped instead of hitting a generic "no supported sensor" error.
         """
@@ -188,6 +214,20 @@ class PleiadesMetadata(SensorMetadata):
         """
         root = ET.parse(xml).getroot()
 
+        profile = root.findtext(".//Metadata_Identification/METADATA_PROFILE")
+        if (
+            profile in SPEC_ONLY_DIMAP_PROFILES
+            and profile not in _warned_spec_only_profiles
+        ):
+            _warned_spec_only_profiles.add(profile)
+            logger.warning(
+                "DIMAP profile '%s' support is implemented from the ASP "
+                "reader spec but not yet validated against real data — "
+                "please report issues at "
+                "https://github.com/uw-cryo/asp_plot/issues/168",
+                profile,
+            )
+
         lgvs = root.findall(".//Geometric_Data/Use_Area/Located_Geometric_Values")
 
         def lgv_mean(path):
@@ -201,7 +241,9 @@ class PleiadesMetadata(SensorMetadata):
         start = root.findtext(".//Refined_Model/Time/Time_Range/START")
         date = datetime.fromisoformat(start.replace("Z", "+00:00")).replace(tzinfo=None)
 
-        mission = root.findtext(".//Strip_Source/MISSION") or "Pleiades"
+        mission = root.findtext(".//Strip_Source/MISSION") or (
+            profile or "DIMAP"
+        ).replace("_SENSOR", "")
         mission_index = root.findtext(".//Strip_Source/MISSION_INDEX") or ""
 
         verts = root.findall(".//Dataset_Extent/Vertex")
@@ -305,6 +347,12 @@ class PleiadesMetadata(SensorMetadata):
         """
         Create an attitude DataFrame from a parsed DIMAP document.
 
+        Pléiades Neo, SPOT 6/7, and PeruSat-1 products tabulate quaternion
+        samples in a ``Quaternion_List``; Pléiades 1A/1B products instead
+        provide one polynomial per quaternion component
+        (``Polynomial_Quaternions``), which is evaluated at the ephemeris
+        timestamps so both shapes come out as the same tabulated DataFrame.
+
         Parameters
         ----------
         root : xml.etree.ElementTree.Element
@@ -318,12 +366,81 @@ class PleiadesMetadata(SensorMetadata):
             ``cov_*`` columns (DIMAP provides no attitude covariance).
         """
         quats = root.findall(".//Refined_Model/Attitudes/Quaternion_List/Quaternion")
-        q = np.array(
-            [[float(qq.findtext(k)) for k in ("Q1", "Q2", "Q3", "Q0")] for qq in quats]
-        )
+        if quats:
+            q = np.array(
+                [
+                    [float(qq.findtext(k)) for k in ("Q1", "Q2", "Q3", "Q0")]
+                    for qq in quats
+                ]
+            )
+            times = self._dimap_times(quats)
+        else:
+            q, times = self._evaluate_polynomial_quaternions(root)
         att_df = pd.DataFrame(q, columns=["q1", "q2", "q3", "q4"])
         for n in ["11", "12", "13", "14", "22", "23", "24", "33", "34", "44"]:
             att_df[f"cov_{n}"] = np.nan
-        att_df["time"] = self._dimap_times(quats)
+        att_df["time"] = times
         att_df.set_index("time", inplace=True)
         return att_df
+
+    @classmethod
+    def _evaluate_polynomial_quaternions(cls, root):
+        """Evaluate Pléiades 1A/1B polynomial attitude at ephemeris times.
+
+        1A/1B products express each quaternion component ``Q0..Q3`` as a
+        degree-3 polynomial with ascending-power ``COEFFICIENTS``, evaluated
+        at the scaled time ``(t - (midnight + OFFSET)) / SCALE``, where
+        ``OFFSET`` is in seconds after midnight of the acquisition start date
+        (#161). This mirrors ASP's reader (``read_attitudes_1A1B`` in
+        PleiadesXML.cc and ``get_camera_pose_at_time`` in
+        LinescanPleiadesModel.cc). Sampling at the ephemeris timestamps keeps
+        the attitude table aligned with the ephemeris; the evaluated
+        quaternions are normalized, since polynomial output is not unit-norm
+        by construction.
+
+        Parameters
+        ----------
+        root : xml.etree.ElementTree.Element
+            Parsed ``Dimap_Document`` root element.
+
+        Returns
+        -------
+        tuple of (numpy.ndarray, pandas.DatetimeIndex)
+            ``(N, 4)`` array of scalar-last unit quaternions ``q1..q4`` and
+            the ``N`` ephemeris timestamps they were evaluated at.
+        """
+        poly = root.find(".//Refined_Model/Attitudes/Polynomial_Quaternions")
+        if poly is None:
+            raise ValueError(
+                "No attitude found under Refined_Model/Attitudes: expected "
+                "a Quaternion_List (Pléiades Neo, SPOT 6/7, PeruSat-1) or "
+                "Polynomial_Quaternions (Pléiades 1A/1B)."
+            )
+
+        offset = float(poly.findtext("OFFSET"))
+        scale = float(poly.findtext("SCALE"))
+        # Coefficients per component, scalar first as on disk (Q0 = w).
+        coeffs = []
+        for tag in ("Q0", "Q1", "Q2", "Q3"):
+            comp = poly.find(tag)
+            degree = int(comp.findtext("DEGREE"))
+            if degree != 3:
+                raise ValueError(
+                    f"Expecting the degree of the quaternion polynomial to "
+                    f"be 3, got {degree} for {tag}."
+                )
+            coeffs.append([float(v) for v in comp.findtext("COEFFICIENTS").split()])
+
+        points = root.findall(".//Refined_Model/Ephemeris/Point_List/Point")
+        times = cls._dimap_times(points)
+        start = root.findtext(".//Refined_Model/Time/Time_Range/START")
+        midnight = pd.Timestamp(start.replace("Z", "")).normalize()
+        seconds_since_midnight = (times - midnight).total_seconds().to_numpy()
+        scaled_t = (seconds_since_midnight - offset) / scale
+
+        # polyval over an ascending-power coefficient matrix: one column per
+        # component (w, x, y, z), evaluated at every scaled timestamp.
+        wxyz = np.polynomial.polynomial.polyval(scaled_t, np.array(coeffs).T)
+        q = np.column_stack([wxyz[1], wxyz[2], wxyz[3], wxyz[0]])
+        q /= np.linalg.norm(q, axis=1, keepdims=True)
+        return q, times
