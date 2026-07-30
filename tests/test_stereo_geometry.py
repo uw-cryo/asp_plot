@@ -63,12 +63,26 @@ class TestCameraFilesFromStereoRun:
 
     def test_non_xml_cameras_return_none(self, tmp_path):
         # CSM runs pass .json camera states; there is nothing to scope to.
+        # The images exist here, so this also pins that naming a camera model
+        # of *some* kind rules out the RPC-only path below.
         directory = self._make_run(
             tmp_path,
             "stereo_tri left.tif right.tif "
             "ba/left.adjusted_state.json ba/right.adjusted_state.json stereo/run",
+            cameras=("left.tif", "right.tif"),
         )
         assert camera_files_from_stereo_run(str(directory), "stereo") is None
+
+    def test_resolves_images_for_an_rpc_only_run(self, tmp_path):
+        # An RPC-only run (-t rpc) names no camera files at all: its cameras
+        # are its images (#177).
+        directory = self._make_run(
+            tmp_path,
+            "stereo_tri -t rpc left.tif right.tif stereo/run",
+            cameras=("left.tif", "right.tif"),
+        )
+        files = camera_files_from_stereo_run(str(directory), "stereo")
+        assert [os.path.basename(f) for f in files] == ["left.tif", "right.tif"]
 
     def test_no_logs_returns_none(self, tmp_path):
         (tmp_path / "stereo").mkdir()
@@ -324,6 +338,54 @@ class TestStereoGeometryPlotterAster:
         texts = [t.get_text() for t in ax.texts]
         plt.close(fig)
         assert not any("not provided by this sensor" in t for t in texts)
+
+
+class TestStereoGeometryPlotterWithoutPositions:
+    """RPC-only inputs (#177): no attitude *and* no satellite positions.
+
+    An RPC-only product whose look rays do not converge leaves ``eph_gdf`` out
+    of the scene dict entirely, which is one step past ASTER's "no attitude":
+    the position panel and both map plots have to survive it.
+    """
+
+    @pytest.fixture
+    def plotter(self):
+        plotter = StereoGeometryPlotter(
+            directory="tests/test_data/no_mapproj", add_basemap=False
+        )
+        real_get_catid_dicts = plotter.parser.get_catid_dicts
+
+        def without_eph(*args, **kwargs):
+            scenes = real_get_catid_dicts(*args, **kwargs)
+            for d in scenes:
+                d.pop("eph_gdf", None)
+            return scenes
+
+        plotter.parser.get_catid_dicts = without_eph
+        return plotter
+
+    def test_stereo_geom_plot(self, plotter):
+        try:
+            plotter.stereo_geom_plot()
+        except Exception as e:
+            pytest.fail(f"figure method raised an exception: {str(e)}")
+
+    def test_missing_positions_annotated(self, plotter):
+        plotter.satellite_position_orientation_plot()
+        fig = plt.gcf()
+        titles = [ax.get_title() for ax in fig.axes]
+        plt.close(fig)
+        assert any("Positions not provided" in t for t in titles)
+
+    def test_pair_map_still_labels_every_scene(self, plotter):
+        # The scene label normally rides on the satellite track; without one it
+        # has to move to the footprint, or the legend loses the scene.
+        p = plotter.parser.get_pair_dict()
+        fig, ax = plt.subplots()
+        plotter.map_plot(ax, p, title=False, tight_layout=False)
+        labels = [t.get_text() for t in ax.get_legend().get_texts()]
+        plt.close(fig)
+        assert set(labels) == {p["catid1_dict"]["catid"], p["catid2_dict"]["catid"]}
 
 
 class TestOrientationSeriesDispatch:

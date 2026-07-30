@@ -5,15 +5,23 @@ import os
 import matplotlib.gridspec as gridspec
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.patches import Patch
 from scipy.spatial.transform import Rotation as R
 
 from asp_plot.asp_log import AspLog
 from asp_plot.csm_io import estim_satellite_orientation
+from asp_plot.sensors.base import IMAGE_EXTENSIONS
 from asp_plot.stereopair_metadata_parser import StereopairMetadataParser
 from asp_plot.utils import save_figure
 
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
+
+# Camera-model extensions other than ``.xml`` that ASP accepts on a stereo
+# command line. Their presence means the run *has* camera files, so the
+# RPC-only path (where the images are the cameras) does not apply — even
+# though this package has no reader for them.
+_NON_XML_CAMERA_EXTENSIONS = (".json", ".tsai", ".cub", ".cahv", ".cahvor", ".adjust")
 
 
 def camera_files_from_stereo_run(processing_directory, stereo_directory):
@@ -21,7 +29,9 @@ def camera_files_from_stereo_run(processing_directory, stereo_directory):
     Recover the camera metadata files named in a stereo run's command.
 
     Parses the run's ``*log-stereo*.txt`` command line for camera metadata
-    tokens (``.xml``/``.XML``: WorldView camera files, Pléiades DIMAPs) so the
+    tokens (``.xml``/``.XML``: WorldView camera files, Pléiades DIMAPs; the
+    image tokens themselves for an RPC-only run, which names no camera
+    files) so the
     stereo geometry can be scoped to the scenes the run actually used rather
     than every metadata file in the processing directory — the two differ when
     a directory holds scenes for several runs (e.g. multi-view subsets).
@@ -65,7 +75,24 @@ def camera_files_from_stereo_run(processing_directory, stereo_directory):
             continue
         if not command:
             continue
-        tokens = [t for t in command.split() if t.lower().endswith(".xml")]
+        command_tokens = command.split()
+        tokens = [t for t in command_tokens if t.lower().endswith(".xml")]
+        if not tokens and not any(
+            os.path.splitext(t)[1].lower() in _NON_XML_CAMERA_EXTENSIONS
+            for t in command_tokens
+        ):
+            # An RPC-only run (``-t rpc``) names no camera files at all: its
+            # cameras *are* its images. Reached only when the command names no
+            # camera model of any kind, so a CSM run's .json cameras still
+            # mean "nothing to scope to" rather than falling through to its
+            # images. The extra tokens a mapprojected run adds (the reference
+            # DEM, the mapprojected copies) carry no RPCs and are dropped by
+            # the reader's content check.
+            tokens = [
+                t
+                for t in command_tokens
+                if os.path.splitext(t)[1].lower() in IMAGE_EXTENSIONS
+            ]
         if not tokens:
             continue
         resolved = []
@@ -403,24 +430,31 @@ class StereoGeometryPlotter:
         poly_kw = {"alpha": 0.5, "edgecolor": "k", "linewidth": 0.5}
         eph_kw = {"markersize": 2}
 
-        eph1_gdf = p["catid1_dict"]["eph_gdf"]
-        eph2_gdf = p["catid2_dict"]["eph_gdf"]
+        # Absent for sensors with no recoverable satellite track (RPC-only
+        # products); the footprints still carry the map.
+        eph1_gdf = p["catid1_dict"].get("eph_gdf")
+        eph2_gdf = p["catid2_dict"].get("eph_gdf")
         fp1_gdf = p["catid1_dict"]["fp_gdf"]
         fp2_gdf = p["catid2_dict"]["fp_gdf"]
 
         c_list = ["blue", "orange"]
-        fp1_gdf.to_crs(map_crs).plot(ax=ax, color=c_list[0], **poly_kw)
-        fp2_gdf.to_crs(map_crs).plot(ax=ax, color=c_list[1], **poly_kw)
-        eph1_gdf.to_crs(map_crs).plot(
-            ax=ax, label=p["catid1_dict"]["catid"], color=c_list[0], **eph_kw
-        )
-        eph2_gdf.to_crs(map_crs).plot(
-            ax=ax, label=p["catid2_dict"]["catid"], color=c_list[1], **eph_kw
-        )
-
         start_kw = {"markersize": 5, "facecolor": "w", "edgecolor": "k"}
-        eph1_gdf.iloc[0:2].to_crs(map_crs).plot(ax=ax, **start_kw)
-        eph2_gdf.iloc[0:2].to_crs(map_crs).plot(ax=ax, **start_kw)
+        proxies = []
+        for fp_gdf, eph_gdf, key, color in (
+            (fp1_gdf, eph1_gdf, "catid1_dict", c_list[0]),
+            (fp2_gdf, eph2_gdf, "catid2_dict", c_list[1]),
+        ):
+            fp_gdf.to_crs(map_crs).plot(ax=ax, color=color, **poly_kw)
+            if eph_gdf is None:
+                # The scene's legend entry normally rides on its satellite
+                # track; with no track it has to come from the footprint, and
+                # matplotlib's legend cannot handle a polygon collection.
+                proxies.append(self._footprint_proxy(p[key]["catid"], color, poly_kw))
+                continue
+            eph_gdf.to_crs(map_crs).plot(
+                ax=ax, label=p[key]["catid"], color=color, **eph_kw
+            )
+            eph_gdf.iloc[0:2].to_crs(map_crs).plot(ax=ax, **start_kw)
 
         # Keep the full (autoscaled) extent so both satellite tracks are visible --
         # the tracks matter more than zooming in on the footprints, and off-nadir
@@ -429,11 +463,33 @@ class StereoGeometryPlotter:
         if self.add_basemap:
             self._add_basemap_safe(ax, map_crs)
 
-        ax.legend(loc="best", prop={"size": 6})
+        self._legend_with_proxies(ax, proxies)
         if title:
             ax.set_title(self.get_title(p), fontsize=7.5)
         if tight_layout:
             plt.tight_layout()
+
+    @staticmethod
+    def _footprint_proxy(label, color, poly_kw):
+        """A legend handle standing in for a scene's footprint polygon.
+
+        Needed because matplotlib's legend cannot use the ``PatchCollection``
+        geopandas draws polygons with, so a scene with no satellite track has
+        no legend entry of its own.
+        """
+        return Patch(
+            facecolor=color,
+            edgecolor=poly_kw.get("edgecolor", "k"),
+            alpha=poly_kw.get("alpha"),
+            linewidth=poly_kw.get("linewidth", 0.5),
+            label=label,
+        )
+
+    @staticmethod
+    def _legend_with_proxies(ax, proxies):
+        """Draw the legend, adding footprint proxies for track-less scenes."""
+        handles, _ = ax.get_legend_handles_labels()
+        ax.legend(handles=handles + proxies, loc="best", prop={"size": 6})
 
     @staticmethod
     def _scene_colors(n):
@@ -519,11 +575,19 @@ class StereoGeometryPlotter:
         colors = self._scene_colors(len(scenes))
 
         # Footprints on the bottom...
+        proxies = []
         for d, color in zip(scenes, colors):
             d["fp_gdf"].to_crs(map_crs).plot(ax=ax, color=color, **poly_kw)
-        # ...then every satellite track and its start marker on top.
+            if d.get("eph_gdf") is None:
+                proxies.append(
+                    self._footprint_proxy(d.get("catid", "?"), color, poly_kw)
+                )
+        # ...then every satellite track and its start marker on top. The track
+        # is absent for sensors with no recoverable positions (RPC-only).
         for d, color in zip(scenes, colors):
-            eph_gdf = d["eph_gdf"]
+            eph_gdf = d.get("eph_gdf")
+            if eph_gdf is None:
+                continue
             eph_gdf.to_crs(map_crs).plot(
                 ax=ax, label=d.get("catid", "?"), color=color, **eph_kw
             )
@@ -532,7 +596,7 @@ class StereoGeometryPlotter:
         if self.add_basemap:
             self._add_basemap_safe(ax, map_crs)
 
-        ax.legend(loc="best", prop={"size": 6})
+        self._legend_with_proxies(ax, proxies)
 
     @staticmethod
     def _add_basemap_safe(ax, map_crs):
@@ -735,7 +799,9 @@ class StereoGeometryPlotter:
 
         Generates a 3-row x N-column figure (one column per scene):
         - Row 0: Map of satellite positions colored by position covariance std
-          (plain positions when the sensor provides no covariance, e.g. DIMAP)
+          (plain positions when the sensor provides no covariance, e.g. DIMAP;
+          footprint only, titled "not provided", when no positions can be had
+          at all — RPC-only products)
         - Row 1: Roll, pitch, yaw over time — computed relative to the orbital
           reference frame for sensors reporting quaternions, or as delivered
           for sensors reporting angles directly (the frame is named in the
@@ -766,39 +832,45 @@ class StereoGeometryPlotter:
         c_list = self._scene_colors(ncols)
 
         for col, d in enumerate(scenes):
-            eph_gdf = d["eph_gdf"]
-            # None for sensors whose camera files carry no attitude (ASTER).
+            # Absent for sensors with no recoverable satellite positions
+            # (RPC-only products); None for those with no attitude (ASTER).
+            eph_gdf = d.get("eph_gdf")
             att_df = d.get("att_df")
             catid = d["catid"]
 
             # Row 0: Position map colored by position covariance std
             ax0 = fig.add_subplot(G[0, col])
-            pos_cov_std = np.sqrt(
-                eph_gdf["cov_11"] + eph_gdf["cov_22"] + eph_gdf["cov_33"]
-            )
-            eph_gdf_proj = eph_gdf.to_crs(map_crs)
-            # Sensors without ephemeris covariance (e.g. Pléiades DIMAP) get
-            # plain position markers instead of a covariance color scale.
-            if np.isfinite(pos_cov_std).any():
-                sc = ax0.scatter(
-                    eph_gdf_proj.geometry.x,
-                    eph_gdf_proj.geometry.y,
-                    c=pos_cov_std,
-                    s=5,
-                    cmap="viridis",
-                )
-                fig.colorbar(sc, ax=ax0, label="Position std (m)", shrink=0.8)
-                ax0.set_title(f"{catid}\nPosition Covariance", fontsize=9)
+            if eph_gdf is None:
+                # Not an empty panel -- the footprint below still draws, so the
+                # title carries the note rather than text over the map.
+                ax0.set_title(f"{catid}\nPositions not provided", fontsize=9)
             else:
-                ax0.scatter(
-                    eph_gdf_proj.geometry.x,
-                    eph_gdf_proj.geometry.y,
-                    color=c_list[col],
-                    s=5,
+                pos_cov_std = np.sqrt(
+                    eph_gdf["cov_11"] + eph_gdf["cov_22"] + eph_gdf["cov_33"]
                 )
-                ax0.set_title(
-                    f"{catid}\nPositions (covariance not provided)", fontsize=9
-                )
+                eph_gdf_proj = eph_gdf.to_crs(map_crs)
+                # Sensors without ephemeris covariance (e.g. Pléiades DIMAP) get
+                # plain position markers instead of a covariance color scale.
+                if np.isfinite(pos_cov_std).any():
+                    sc = ax0.scatter(
+                        eph_gdf_proj.geometry.x,
+                        eph_gdf_proj.geometry.y,
+                        c=pos_cov_std,
+                        s=5,
+                        cmap="viridis",
+                    )
+                    fig.colorbar(sc, ax=ax0, label="Position std (m)", shrink=0.8)
+                    ax0.set_title(f"{catid}\nPosition Covariance", fontsize=9)
+                else:
+                    ax0.scatter(
+                        eph_gdf_proj.geometry.x,
+                        eph_gdf_proj.geometry.y,
+                        color=c_list[col],
+                        s=5,
+                    )
+                    ax0.set_title(
+                        f"{catid}\nPositions (covariance not provided)", fontsize=9
+                    )
             fp_gdf = d["fp_gdf"]
             fp_gdf.to_crs(map_crs).plot(
                 ax=ax0, facecolor="none", edgecolor=c_list[col], linewidth=1

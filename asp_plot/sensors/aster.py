@@ -48,12 +48,13 @@ import xml.etree.ElementTree as ET
 import geopandas as gpd
 import numpy as np
 import pandas as pd
-from pyproj import Transformer
 from scipy.interpolate import RegularGridInterpolator
 from shapely import Polygon
 
 from asp_plot.sensors.base import (
     SensorMetadata,
+    _ecef_to_lonlat,
+    _enu_basis,
     fill_scene_defaults,
     resolve_input_files,
 )
@@ -76,53 +77,6 @@ _ASTER_TAGS = ("LATTICE_POINT", "SIGHT_VECTOR", "SAT_POS")
 # of a pushbroom is gently curved, so a handful of points per edge captures it
 # far better than four corners at no meaningful cost.
 _FOOTPRINT_EDGE_SAMPLES = 11
-
-_ECEF_TO_LONLAT = None
-
-
-def _ecef_to_lonlat(xyz):
-    """Convert ECEF coordinates to (lon, lat) degrees.
-
-    Parameters
-    ----------
-    xyz : numpy.ndarray
-        Array of shape ``(..., 3)`` of ECEF x, y, z in metres.
-
-    Returns
-    -------
-    tuple of numpy.ndarray
-        Longitude and latitude in degrees, each shaped like ``xyz[..., 0]``.
-    """
-    global _ECEF_TO_LONLAT
-    if _ECEF_TO_LONLAT is None:
-        _ECEF_TO_LONLAT = Transformer.from_crs("EPSG:4978", "EPSG:4326", always_xy=True)
-    xyz = np.asarray(xyz, dtype=float)
-    shape = xyz.shape[:-1]
-    flat = xyz.reshape(-1, 3)
-    lon, lat, _ = _ECEF_TO_LONLAT.transform(flat[:, 0], flat[:, 1], flat[:, 2])
-    return np.asarray(lon).reshape(shape), np.asarray(lat).reshape(shape)
-
-
-def _enu_basis(lon, lat):
-    """Return the local east/north/up unit vectors at a geodetic position.
-
-    Parameters
-    ----------
-    lon, lat : float
-        Geodetic longitude and latitude in degrees.
-
-    Returns
-    -------
-    tuple of numpy.ndarray
-        The east, north and up unit vectors, in ECEF.
-    """
-    lon, lat = np.radians(lon), np.radians(lat)
-    east = np.array([-np.sin(lon), np.cos(lon), 0.0])
-    north = np.array(
-        [-np.sin(lat) * np.cos(lon), -np.sin(lat) * np.sin(lon), np.cos(lat)]
-    )
-    up = np.array([np.cos(lat) * np.cos(lon), np.cos(lat) * np.sin(lon), np.sin(lat)])
-    return east, north, up
 
 
 def _ray_ellipsoid_intersection(origins, directions):
