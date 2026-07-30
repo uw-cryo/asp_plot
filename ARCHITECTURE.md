@@ -42,7 +42,7 @@ The package is organized by functionality, with each module focused on a specifi
 - `pixel_window_to_bbox()` / `bbox_to_pixel_offset()`: convert a detailed-hillshade clip between a DEM-CRS map bbox and a top-left pixel offset. `bbox_to_pixel_offset` uses `rowcol(..., op=round)` (round-to-nearest, **not** floor) so a replayed clip doesn't drift by a pixel from floating-point error
 - `reproject_bbox(bbox, src_crs, dst_crs)`: reprojects a clip bbox between CRSs (via `rasterio.warp.transform_bounds`) so clip reuse works across stereo variants in different projections (e.g. MOC non-mapproj Stereographic vs mapproj Sinusoidal). `plot_detailed_hillshade(clip_windows_crs=...)` passes the manifest's `dem_crs`; reprojection is a no-op when CRSs match
 - Deliberately imports nothing from `report.py` / `fpdf`, so it is safe to use from notebooks
-- The `asp_plot` CLI always writes `<report_stem>_figure_selections.yml` next to the report; `--reuse_selections PATH` replays a prior run's choices
+- The `asp_report` CLI always writes `<report_stem>_figure_selections.yml` next to the report; `--reuse_selections PATH` replays a prior run's choices
 
 **`report.py`** - PDF report generation using fpdf2
 - `ReportSection`: Dataclass representing a report figure (title, image path, caption)
@@ -56,7 +56,7 @@ The package is organized by functionality, with each module focused on a specifi
 - Page order: title + DEM summary → Processing Parameters → diagnostic figures → (if `--pc_align` ran) alignment report page + aligned-DEM figures.
 - `report.py` is fed declaratively by `report_pipeline.py`; it was **not** rewritten in #128.
 
-**`report_pipeline.py`** - Declarative report pipeline behind the `asp_plot` CLI (issue #128)
+**`report_pipeline.py`** - Declarative report pipeline behind the `asp_report` CLI (issue #128)
 - `ReportConfig`: dataclass packing the ~18 CLI options into one Click-free object (field names/defaults mirror the options one-for-one, guarded by a test)
 - `run_report(config)`: importable/callable from notebooks and tests with no Click context; returns the written PDF path
 - A declarative section registry (`REPORT_SECTIONS`) of `ReportSpec`s replaces the old inline plot-and-append wall: each spec pairs an `enabled(ctx)` predicate with a `build(ctx)` function returning the sections to append. `--plot_geometry` / `--plot_altimetry` / `--pc_align` gating are predicates; figure numbering comes from a per-run counter on the shared `ReportContext`, so section order and numbering are data, not source-line position. The alignment "Page B/C/D" follow-ups are one spec emitting several sections
@@ -197,13 +197,13 @@ The package is organized by functionality, with each module focused on a specifi
 - Per-panel titles use the full filename, auto-shrunk to fit the panel by *measuring* rendered text width with an Agg renderer (`_fit_titles()`); falls back to a character-count heuristic (`_fit_title_fontsize()`) if measurement fails
 - Output detail is read at ~`GALLERY_TARGET_PX` (1200) px/panel and save dpi is matched to it for crisp zoom, then dpi is capped to a pixel budget so the PNG stays under `max_filesize_mb` (default 10) regardless of raster count
 - Key method: `plot_gallery()`; static helper `_grid_shape(n, aspect)` picks the most square-in-display grid
-- Not wired into the main `asp_plot` PDF report (standalone class + `gallery` CLI)
+- Not wired into the main `asp_report` PDF report (standalone class + `gallery` CLI)
 
 ## CLI Tools
 
 All CLI tools are in `asp_plot/cli/` and use Click for argument parsing:
 
-**`asp_plot.py`** - Main CLI tool (`asp_plot` command)
+**`asp_report.py`** - Main CLI tool (`asp_report` command)
 - Generates comprehensive PDF reports of ASP processing
 - A **thin Click wrapper** (issue #128): parses the ~18 options into a `ReportConfig` and calls `report_pipeline.run_report(config)`. All orchestration lives in `report_pipeline.py` (see the module structure section); the CLI file itself is now just option definitions + the `ReportConfig` build
 - Accepts directories for stereo and bundle_adjust outputs
@@ -225,7 +225,7 @@ All CLI tools are in `asp_plot/cli/` and use Click for argument parsing:
 - `--plot_geometry`: Plot stereo geometry (default: True; disable for planetary missions)
 - `--subset_km`: Hillshade subset size in km (default: 1.0)
 - `--atl06sr_time_range`: Time range for ICESat-2 ATL06-SR requests. `"all"` (default) for full mission, `"auto"` for scene metadata ±1 year, `"START,END"` for a custom range, or a single date (buffered by ±1 year).
-- `--reuse_selections`: Path to a `*_figure_selections.yml` from a prior run. Replays that run's ICESat-2 points (parquet), profile track, best/worst segments, and detailed-hillshade clips so re-processing runs (e.g. mapproj vs non-mapproj) are directly comparable (issue #121). Every run always writes `<report_stem>_figure_selections.yml` next to the report (the `regenerate_reports.sh` paired variants use this to reuse each other). Generated sidecars are gitignored (they hardcode absolute local paths); a sanitized example is in `docs/cli/asp_plot.md`.
+- `--reuse_selections`: Path to a `*_figure_selections.yml` from a prior run. Replays that run's ICESat-2 points (parquet), profile track, best/worst segments, and detailed-hillshade clips so re-processing runs (e.g. mapproj vs non-mapproj) are directly comparable (issue #121). Every run always writes `<report_stem>_figure_selections.yml` next to the report (the `regenerate_reports.sh` paired variants use this to reuse each other). Generated sidecars are gitignored (they hardcode absolute local paths); a sanitized example is in `docs/cli/asp_report.md`.
 - `--report_filename`: PDF report filename or path. A bare filename saves in the stereo directory; a path (e.g. `reports/report.pdf`) is used as-is
 - `--report_title`: Custom report title (default: directory name)
 
@@ -241,7 +241,7 @@ All CLI tools are in `asp_plot/cli/` and use Click for argument parsing:
 - `--email`: Email for notification when query finishes (required)
 - `--channels`: LOLA detector channels (Moon only, default `tffff` = channel 1 only)
 - Saves request metadata as `altimetry_request_info.yml` alongside the DEM
-- Workflow: submit query → receive email → download/unzip → pass `*_pts_csv.csv` (Mars) or `*_topo_simple_csv.csv`/`*_pts_csv.csv` (Moon) to `asp_plot --altimetry_csv`
+- Workflow: submit query → receive email → download/unzip → pass `*_pts_csv.csv` (Mars) or `*_topo_simple_csv.csv`/`*_pts_csv.csv` (Moon) to `asp_report --altimetry_csv`
 
 **`stereo_geom.py`** - Stereo geometry visualization tool (`stereo_geom` command)
 - Wrapper for `StereoGeometryPlotter`
@@ -274,7 +274,7 @@ docs/
   conf.py                     # Sphinx configuration
   index.md                    # Landing page with sphinx-design cards
   installation.md             # conda/pip/source install
-  cli/                        # CLI tool docs (asp_plot, stereo_geom, csm_camera_plot, request_planetary_altimetry, gallery)
+  cli/                        # CLI tool docs (asp_report, stereo_geom, csm_camera_plot, request_planetary_altimetry, gallery)
   examples/
     index.md                  # Notebook gallery with cards by sensor
     reports.md                # PDF reports embedded as iframes
@@ -295,7 +295,7 @@ docs/
 - **`html_extra_path`** is used to serve `notebooks/figures/` at the correct relative path for notebook `<img src>` references.
 - **`docs/` is excluded from sdist** in `pyproject.toml` so docs never ship in the PyPI/conda package.
 - **Changelog** uses `{include} ../CHANGELOG.md` so there's one source of truth.
-- **Selective notebook exclusion**: `.readthedocs.yaml`'s `pre_build` copies every `notebooks/**/*.ipynb` into `docs/examples/notebooks/`, but specific notebooks can be dropped from the build by listing them in `exclude_patterns` in `docs/conf.py` (e.g., `worldview_utqiagvik_stereo.ipynb`). Inter-notebook links in the WorldView examples use fully-qualified `https://asp-plot.readthedocs.io/en/latest/...` URLs so they resolve both on RTD and in raw notebook previews. Report-link convention: each notebook's "Full Report Generation" section ends with a `#### See the resulting [report](https://asp-plot.readthedocs.io/en/latest/_static/reports/<filename>.pdf).` line that links directly to the PDF served from `_static/reports/`. The `<filename>` must match what the cell's `!asp_plot --report_filename` writes (so the URL on RTD actually resolves).
+- **Selective notebook exclusion**: `.readthedocs.yaml`'s `pre_build` copies every `notebooks/**/*.ipynb` into `docs/examples/notebooks/`, but specific notebooks can be dropped from the build by listing them in `exclude_patterns` in `docs/conf.py` (e.g., `worldview_utqiagvik_stereo.ipynb`). Inter-notebook links in the WorldView examples use fully-qualified `https://asp-plot.readthedocs.io/en/latest/...` URLs so they resolve both on RTD and in raw notebook previews. Report-link convention: each notebook's "Full Report Generation" section ends with a `#### See the resulting [report](https://asp-plot.readthedocs.io/en/latest/_static/reports/<filename>.pdf).` line that links directly to the PDF served from `_static/reports/`. The `<filename>` must match what the cell's `!asp_report --report_filename` writes (so the URL on RTD actually resolves).
 
 ### Dependencies
 
@@ -313,7 +313,7 @@ Docs dependencies are in `pyproject.toml` under `[project.optional-dependencies]
 
 **External Tool Integration**: The package wraps ASP command-line tools (pc_align, geodiff, dg_mosaic) via `run_subprocess_command()`.
 
-**Report Generation**: The main `asp_plot` CLI uses `compile_report()` to combine individual plots into a single PDF with metadata tables.
+**Report Generation**: The main `asp_report` CLI uses `compile_report()` to combine individual plots into a single PDF with metadata tables.
 
 ## External Data Sources
 

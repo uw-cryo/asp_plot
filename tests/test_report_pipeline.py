@@ -1,7 +1,7 @@
 """Tests for the declarative report pipeline (issue #128).
 
 These characterize the orchestration that used to live inline in the
-~880-line ``cli/asp_plot.py::main()``: the section registry, its gating
+~880-line report CLI ``main()``: the section registry, its gating
 predicates, figure numbering, and the exact sequence of report sections
 produced for the Earth and planetary paths. All plotting/IO is monkeypatched,
 so the tests run without ASP, SlideRule, or network access.
@@ -36,7 +36,7 @@ class TestReportConfig:
     def test_defaults_match_cli_options(self):
         """Every Click option must map to a ReportConfig field with the same
         default, so the CLI's keyword splat stays correct."""
-        from asp_plot.cli.asp_plot import main
+        from asp_plot.cli.asp_report import main
 
         cfg_fields = {f.name: f for f in dataclasses.fields(ReportConfig)}
         # report_command is synthesized by the CLI, not a Click option.

@@ -9,7 +9,7 @@ Planetary altimetry data requires an asynchronous request/download workflow beca
 1. **Submit request** — run `request_planetary_altimetry` with your DEM and email
 2. **Wait for email** — you will receive a download link (may take minutes to hours)
 3. **Download and unzip** — extract the `*_topo_csv.csv` file from the zip
-4. **Generate report** — pass the CSV to `asp_plot` via `--altimetry_csv`
+4. **Generate report** — pass the CSV to `asp_report` via `--altimetry_csv`
 
 ## Basic usage
 
@@ -22,7 +22,7 @@ request_planetary_altimetry \
 Then, once the data is downloaded and unzipped:
 
 ```bash
-asp_plot --directory ./ \
+asp_report --directory ./ \
          --stereo_directory stereo \
          --altimetry_csv /path/to/MolaPEDR_*_topo_csv.csv \
          --add_basemap False \
@@ -64,7 +64,7 @@ Usage: request_planetary_altimetry [OPTIONS]
   Example:
     request_planetary_altimetry --dem stereo/output-DEM.tif --email user@example.com
     # ... wait for email, download and unzip ...
-    asp_plot --directory ./ --altimetry_csv /path/to/*_topo_csv.csv
+    asp_report --directory ./ --altimetry_csv /path/to/*_topo_csv.csv
 
 Options:
   --dem PATH       Path to the ASP DEM file. The planetary body (Moon/Mars) is

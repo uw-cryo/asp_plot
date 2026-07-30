@@ -40,7 +40,7 @@ classifiers = [
 ]
 
 [project.scripts]
-asp_plot = "asp_plot.cli.asp_plot:main"
+asp_report = "asp_plot.cli.asp_report:main"
 csm_camera_plot = "asp_plot.cli.csm_camera_plot:main"
 stereo_geom = "asp_plot.cli.stereo_geom:main"
 request_planetary_altimetry = "asp_plot.cli.request_planetary_altimetry:main"
