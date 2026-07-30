@@ -11,10 +11,10 @@ from asp_plot.sensors import (
     PleiadesMetadata,
     SensorMetadata,
     WorldViewMetadata,
-    resolve_xml_inputs,
-    sensor_for_directory,
-    sensor_for_inputs,
 )
+from asp_plot.sensors import dimap as dimap_module
+from asp_plot.sensors import resolve_xml_inputs, sensor_for_directory, sensor_for_inputs
+from asp_plot.sensors.dimap import SUPPORTED_DIMAP_PROFILES
 
 # The two committed single-scene WorldView camera XMLs at the top level of
 # tests/test_data (one *.r100.xml per CATID, no tiles).
@@ -558,27 +558,27 @@ class TestDimapProfileGating:
         )
 
     def test_supported_profiles_accepted(self, tmp_path):
-        for profile in ("PHR_SENSOR", "PNEO_SENSOR"):
+        for profile in SUPPORTED_DIMAP_PROFILES:
             f = tmp_path / f"DIM_{profile}.XML"
             self._dimap_with_profile(f, profile)
             assert PleiadesMetadata._is_camera_file(str(f)) is True
 
     def test_unsupported_profile_rejected_with_warning(self, tmp_path, caplog):
-        f = tmp_path / "DIM_SPOT6.XML"
-        self._dimap_with_profile(f, "S6_SENSOR")
+        f = tmp_path / "DIM_UNKNOWN.XML"
+        self._dimap_with_profile(f, "UNKNOWN_SENSOR")
         with caplog.at_level("WARNING"):
             assert PleiadesMetadata._is_camera_file(str(f)) is False
-        assert "S6_SENSOR" in caplog.text
+        assert "UNKNOWN_SENSOR" in caplog.text
         assert "#168" in caplog.text
 
     def test_unsupported_profile_warns_once(self, tmp_path, caplog):
-        f = tmp_path / "DIM_PERUSAT.XML"
-        self._dimap_with_profile(f, "PER1_SENSOR")
+        f = tmp_path / "DIM_UNKNOWN.XML"
+        self._dimap_with_profile(f, "UNKNOWN_SENSOR")
         with caplog.at_level("WARNING"):
             PleiadesMetadata._is_camera_file(str(f))
             caplog.clear()
             PleiadesMetadata._is_camera_file(str(f))
-        assert "PER1_SENSOR" not in caplog.text
+        assert "UNKNOWN_SENSOR" not in caplog.text
 
     def test_rpc_subprofile_rejected_silently(self, tmp_path, caplog):
         f = tmp_path / "RPC_PNEO.XML"
@@ -589,6 +589,154 @@ class TestDimapProfileGating:
 
     def test_real_pneo_fixture_still_accepted(self):
         assert PleiadesMetadata._is_camera_file(str(DIM_FORE)) is True
+
+
+# Synthetic DIMAP fixtures for the profiles added in #168: a Pléiades 1A/1B
+# product with Polynomial_Quaternions attitude (#161) and a PeruSat-1 product
+# with a single Located_Geometric_Values block. Both are derived from the
+# trimmed PNEO fixture and model the layouts ASP's readers (PleiadesXML.cc,
+# PeruSatXML.cc) parse. They live in their own directory so the pleiades/
+# fixture counts stay untouched.
+DIMAP_SYNTH_DIR = TEST_DATA_DIR / "dimap_synthetic"
+DIM_PHR = DIMAP_SYNTH_DIR / "DIM_PHR1A_202111071029126_PAN_synthetic.XML"
+DIM_PER1 = DIMAP_SYNTH_DIR / "DIM_PER1_202111071029126_PAN_synthetic.XML"
+
+
+class TestPleiades1A1BPolynomialAttitude:
+    """#161: 1A/1B Polynomial_Quaternions evaluate to a tabulated att_df."""
+
+    @pytest.fixture
+    def scene(self):
+        return PleiadesMetadata(image_list=[str(DIM_PHR)]).get_scene_dicts()[0]
+
+    def test_accepted_by_content_detection(self):
+        assert PleiadesMetadata._is_camera_file(str(DIM_PHR)) is True
+
+    def test_scene_identity(self, scene):
+        assert scene["sensor"] == "PHR1A"
+        assert scene["catid"] == "PHR1A_202111071029126_PAN_SEN"
+        assert scene["date"].year == 2021 and scene["date"].month == 11
+
+    def test_att_df_sampled_at_ephemeris_times(self, scene):
+        # The polynomial is evaluated at the ephemeris timestamps, so the
+        # attitude table lines up row-for-row with the ephemeris.
+        assert scene["att_df"].index.equals(scene["eph_gdf"].index)
+        assert len(scene["att_df"]) == 8  # trimmed fixture
+
+    def test_att_df_unit_quaternions(self, scene):
+        att_df = scene["att_df"]
+        norm = np.sqrt((att_df[["q1", "q2", "q3", "q4"]] ** 2).sum(axis=1))
+        assert np.allclose(norm, 1.0, atol=1e-12)
+
+    def test_polynomial_evaluation_pinned(self, scene):
+        # Hand-computed from the fixture's OFFSET/SCALE/COEFFICIENTS with an
+        # ASP-style ascending-power loop, independent of the np.polynomial
+        # implementation under test: scaled_t = (seconds since midnight of
+        # the start date - 37751.95) / 0.01, one cubic per component, then
+        # normalized and reordered scalar-last.
+        first = scene["att_df"].iloc[0]
+        assert first["q1"] == pytest.approx(0.9296693569966066, rel=1e-12)
+        assert first["q2"] == pytest.approx(0.12381232823473337, rel=1e-12)
+        assert first["q3"] == pytest.approx(-0.3055356636094778, rel=1e-12)
+        assert first["q4"] == pytest.approx(0.16441822375067466, rel=1e-12)
+        last = scene["att_df"].iloc[-1]
+        assert last["q1"] == pytest.approx(0.9297091923203954, rel=1e-12)
+        assert last["q2"] == pytest.approx(0.12405665881524922, rel=1e-12)
+        assert last["q3"] == pytest.approx(-0.30556125333626116, rel=1e-12)
+        assert last["q4"] == pytest.approx(0.1639606159360475, rel=1e-12)
+
+    def test_wrong_polynomial_degree_raises(self, tmp_path):
+        f = tmp_path / "DIM_PHR_DEG2.XML"
+        f.write_text(
+            DIM_PHR.read_text().replace("<DEGREE>3</DEGREE>", "<DEGREE>2</DEGREE>", 1)
+        )
+        reader = PleiadesMetadata(image_list=[str(f)])
+        with pytest.raises(ValueError, match="degree of the quaternion polynomial"):
+            reader.get_scene_dicts()
+
+    def test_missing_attitude_raises(self, tmp_path):
+        text = re.sub(
+            r"<Polynomial_Quaternions>.*?</Polynomial_Quaternions>",
+            "",
+            DIM_PHR.read_text(),
+            flags=re.DOTALL,
+        )
+        f = tmp_path / "DIM_PHR_NOATT.XML"
+        f.write_text(text)
+        reader = PleiadesMetadata(image_list=[str(f)])
+        with pytest.raises(ValueError, match="No attitude found"):
+            reader.get_scene_dicts()
+
+
+class TestPeruSatMetadata:
+    """PER1_SENSOR: same DIMAP layout, single Located_Geometric_Values."""
+
+    @pytest.fixture
+    def scene(self):
+        return PleiadesMetadata(image_list=[str(DIM_PER1)]).get_scene_dicts()[0]
+
+    def test_accepted_by_content_detection(self):
+        assert PleiadesMetadata._is_camera_file(str(DIM_PER1)) is True
+
+    def test_scene_identity(self, scene):
+        assert scene["sensor"] == "PER1"
+        assert scene["catid"] == "PER1_202111071029126_PAN_SEN"
+
+    def test_single_lgv_means(self, scene):
+        # With one Located_Geometric_Values block, the "means" are just that
+        # (center) block's values.
+        assert scene["meansataz"] == pytest.approx(63.05, abs=0.01)
+        assert scene["meansatel"] == pytest.approx(68.22, abs=0.01)
+        assert scene["meansunel"] == pytest.approx(29.08, abs=0.01)
+
+    def test_tabulated_attitude(self, scene):
+        assert len(scene["att_df"]) == 8
+        assert not scene["att_df"][["q1", "q2", "q3", "q4"]].isna().any().any()
+
+
+class TestDimapSpecOnlyProfileWarning:
+    """Spec-only profiles (S6/S7/PER1) warn once when parsed (#168)."""
+
+    @pytest.fixture(autouse=True)
+    def _reset_warned(self, monkeypatch):
+        monkeypatch.setattr(dimap_module, "_warned_spec_only_profiles", set())
+
+    def test_spec_only_profile_warns_once(self, caplog):
+        reader = PleiadesMetadata(image_list=[str(DIM_PER1)])
+        with caplog.at_level("WARNING"):
+            reader.get_scene_dicts()
+        assert "PER1_SENSOR" in caplog.text
+        assert "ASP reader spec" in caplog.text
+        assert "issues/168" in caplog.text
+        caplog.clear()
+        with caplog.at_level("WARNING"):
+            reader.get_scene_dicts()
+        assert "ASP reader spec" not in caplog.text
+
+    def test_validated_profile_does_not_warn(self, caplog):
+        reader = PleiadesMetadata(image_list=[str(DIM_FORE)])
+        with caplog.at_level("WARNING"):
+            reader.get_scene_dicts()
+        assert "ASP reader spec" not in caplog.text
+
+    def test_spot6_fabricated_scene(self, tmp_path, caplog):
+        # SPOT 6 products share the PNEO layout apart from the profile and
+        # mission strings, so fabricate one from the PNEO fixture instead of
+        # committing a third near-identical 25 KB file.
+        text = DIM_FORE.read_text()
+        text = text.replace("PNEO_SENSOR", "S6_SENSOR")
+        text = text.replace("<MISSION>PNEO</MISSION>", "<MISSION>SPOT</MISSION>")
+        text = text.replace(
+            "<MISSION_INDEX>3</MISSION_INDEX>", "<MISSION_INDEX>6</MISSION_INDEX>"
+        )
+        f = tmp_path / "DIM_SPOT6.XML"
+        f.write_text(text)
+        assert PleiadesMetadata._is_camera_file(str(f)) is True
+        with caplog.at_level("WARNING"):
+            d = PleiadesMetadata(image_list=[str(f)]).get_scene_dicts()[0]
+        assert d["sensor"] == "SPOT6"
+        assert "S6_SENSOR" in caplog.text
+        assert len(d["att_df"]) == 8
 
 
 class TestWorldViewSceneDictDegradation:
