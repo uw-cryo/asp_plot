@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- **`asp_plot/sensors.py` is now the `asp_plot/sensors/` package** ([#168](https://github.com/uw-cryo/asp_plot/issues/168)). Pure reorganization as groundwork for broader sensor support: the `SensorMetadata` ABC and shared helpers move to `sensors/base.py`, the WorldView reader to `sensors/worldview.py`, the Airbus DIMAP reader to `sensors/dimap.py`, and the `SENSORS` registry plus the `sensor_for_directory()`/`sensor_for_inputs()`/`resolve_xml_inputs()` entry points to `sensors/__init__.py`, which re-exports every public name — `from asp_plot.sensors import ...` is unchanged, and no behavior changes. Also fixes the two WorldView scene-selection notebooks, which still called `parser.get_id_dict()`/`parser.xml2poly()` from before those methods moved from `StereopairMetadataParser` to the sensor readers (the correct call is `parser.reader.get_id_dict()`).
+
 ## [2.0.0] - 2026-07-29
 
 A major version because two names changed. Neither has a back-compat alias, and both are one-line fixes at the call site:
