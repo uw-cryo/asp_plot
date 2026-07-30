@@ -94,8 +94,9 @@ _DEFAULT_HEIGHT_SPREAD = 500.0
 # recovered point is rejected when they pass this far apart, relative to the
 # range: rays that are effectively parallel (an already-orthorectified raster
 # that kept its RPCs, say) intersect nowhere meaningful, and a bogus position
-# would silently corrupt the off-nadir angle. Real products come in three
-# orders of magnitude under this (measured: 75 m at a 780 km range).
+# would silently corrupt the off-nadir angle. Real products come in two orders
+# of magnitude under this (measured: 75 m against a 7.8 km threshold at a
+# 780 km range).
 _MAX_RAY_MISS_FRACTION = 0.01
 
 # Sidecar RPC files: GDAL itself picks up ``<stem>_RPC.TXT`` when opening an
@@ -195,7 +196,16 @@ def read_rpc(image_fn):
     Rasters that are already map-projected are rejected even when they carry
     RPCs: an RPC describes the *raw* image grid, so on an orthorectified
     product it no longer corresponds to the pixels it would be evaluated
-    against.
+    against. This is not hypothetical — ASP's ``mapproject`` copies the RPC
+    metadata through, so a ``*_map.tif`` carries both a CRS and RPCs and would
+    otherwise be claimed and given a silently wrong footprint.
+
+    The mirror-image worry — an ASP *stereo* product that inherited RPCs but
+    no CRS, and so slipped past that guard — does not arise: across two real
+    RPC-session runs (52 rasters: ``-L``/``-R``/``-D``/``-F``/``-RD``/``-PC``,
+    the ``_sub`` pyramids, masks, DEM, ``GoodPixelMap``, ``-stats``), not one
+    carries RPCs. Neither does ``wv_correct``'s ``*_corr.tif``. Only the raw
+    delivered images do, which is exactly what this reader wants.
 
     Parameters
     ----------
