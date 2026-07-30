@@ -1,6 +1,6 @@
-"""Caption and description text for the ``asp_plot`` report sections.
+"""Caption and description text for the ``asp_report`` report sections.
 
-These strings were previously inlined into the ~880-line ``cli/asp_plot.py``
+These strings were previously inlined into the ~880-line report CLI
 ``main()`` control flow. Pulling them into a data module keeps the report
 pipeline (see :mod:`asp_plot.report_pipeline`) focused on orchestration and
 makes the prose reviewable in one place. The body-dependent alignment
