@@ -5,10 +5,11 @@ extracting per-scene metadata from the *sensor-agnostic* stereo-pair geometry
 math in :mod:`asp_plot.stereopair_metadata_parser`.
 
 The goal is flexibility: WorldView (and other DigitalGlobe-heritage) XML camera
-files and Airbus Pléiades / Pléiades Neo DIMAP products are supported, and adding
-a new sensor is a matter of writing a new :class:`SensorMetadata` subclass in its
-own module and registering it in ``SENSORS`` — no changes to the pair-level
-geometry code are required.
+files, the Airbus DIMAP v2 family (Pléiades 1A/1B and Neo, SPOT 6/7, PeruSat-1),
+and the DIMAP v1 family (SPOT 5, ALOS PRISM) are supported, and adding a new
+sensor is a matter of writing a new :class:`SensorMetadata` subclass in its own
+module and registering it in ``SENSORS`` — no changes to the pair-level geometry
+code are required.
 
 Each reader is responsible for turning a directory of camera/metadata files into
 a list of *scene dicts*, one per scene, each containing the sensor-agnostic keys
@@ -22,9 +23,16 @@ attributes (``meansataz``, ``meansatel``, ``meanoffnadirviewangle``,
 ``eph_gdf`` (ephemeris GeoDataFrame in EPSG:4978), ``att_df`` (attitude
 DataFrame), and ``fp_gdf`` (footprint GeoDataFrame in EPSG:4326).
 
+``att_df`` comes in one of two shapes, depending on what the sensor reports:
+quaternions (``q1..q4``, scalar-last) or the vendor's own roll/pitch/yaw
+(``roll``/``pitch``/``yaw`` in degrees, with ``attrs["rpy_frame"]`` naming the
+frame they are defined in). Both carry NaN-filled ``cov_*`` columns when the
+format has no covariance. Consumers dispatch on which columns are present.
+
 Layout: :mod:`asp_plot.sensors.base` holds the :class:`SensorMetadata` ABC and
 shared helpers; each sensor family lives in its own module
-(:mod:`asp_plot.sensors.worldview`, :mod:`asp_plot.sensors.dimap`); this
+(:mod:`asp_plot.sensors.worldview`, :mod:`asp_plot.sensors.dimap`,
+:mod:`asp_plot.sensors.dimap_v1`); this
 ``__init__`` holds the ``SENSORS`` registry and the detection entry points, and
 re-exports every public name so ``from asp_plot.sensors import ...`` is stable
 across the package split.
@@ -36,6 +44,7 @@ import os
 
 from asp_plot.sensors.base import SensorMetadata, _common_base, list_candidate_xmls
 from asp_plot.sensors.dimap import PleiadesMetadata
+from asp_plot.sensors.dimap_v1 import PrismMetadata, Spot5Metadata
 from asp_plot.sensors.worldview import WorldViewMetadata
 
 logging.basicConfig(level=logging.WARNING)
@@ -46,15 +55,18 @@ __all__ = [
     "SensorMetadata",
     "WorldViewMetadata",
     "PleiadesMetadata",
+    "Spot5Metadata",
+    "PrismMetadata",
     "resolve_xml_inputs",
     "sensor_for_directory",
     "sensor_for_inputs",
 ]
 
-# Registry of available sensor readers, in detection-priority order. The
-# Pléiades reader detects strictly on the DIMAP root tag, while the WorldView
-# reader matches any non-ortho XML, so Pléiades must be checked first.
-SENSORS = [PleiadesMetadata, WorldViewMetadata]
+# Registry of available sensor readers, in detection-priority order. The DIMAP
+# readers identify strictly (root tag plus profile/mission tags) while the
+# WorldView reader claims any XML carrying the DG camera blocks, so WorldView
+# is checked last.
+SENSORS = [PleiadesMetadata, Spot5Metadata, PrismMetadata, WorldViewMetadata]
 
 
 def resolve_xml_inputs(inputs, recursive=True):
