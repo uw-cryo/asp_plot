@@ -16,7 +16,11 @@ import numpy as np
 import pandas as pd
 from shapely import Polygon
 
-from asp_plot.sensors.base import SensorMetadata, _common_base, fill_scene_defaults
+from asp_plot.sensors.base import (
+    SensorMetadata,
+    fill_scene_defaults,
+    resolve_input_files,
+)
 
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
@@ -110,19 +114,9 @@ class PleiadesMetadata(SensorMetadata):
             If neither ``directory`` nor ``image_list`` is given, or if no
             DIMAP product XML files are found.
         """
-        if directory is None and image_list is None:
-            raise ValueError("Provide either a directory or an image_list.")
-
-        if image_list is not None:
-            self.image_list = self._filter_camera_xmls(image_list)
-            self.directory = (
-                os.path.expanduser(directory)
-                if directory
-                else _common_base(self.image_list)
-            )
-        else:
-            super().__init__(directory)
-            self.image_list = self._discover_xmls(self.directory)
+        self.directory, self.image_list = resolve_input_files(
+            type(self), directory, image_list
+        )
 
         if not self.image_list:
             raise ValueError(
@@ -148,6 +142,15 @@ class PleiadesMetadata(SensorMetadata):
                     if el.tag != "Dimap_Document":
                         return None
                     root_seen = True
+                elif event == "start":
+                    # DIMAP v1 (SPOT 5, ALOS PRISM) shares the root tag but
+                    # heads its metadata with Metadata_Id rather than v2's
+                    # Metadata_Identification, and is read by
+                    # asp_plot.sensors.dimap_v1. Bailing out here keeps this
+                    # reader from claiming those files or warning about their
+                    # (v1) profile values.
+                    if el.tag == "Metadata_Id":
+                        return None
                 elif event == "end":
                     if el.tag == "METADATA_PROFILE":
                         profile = (el.text or "").strip()

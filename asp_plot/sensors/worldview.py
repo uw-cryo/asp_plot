@@ -14,8 +14,8 @@ from shapely import union_all, wkt
 from asp_plot.sensors.base import (
     _NON_CAMERA_XML_RE,
     SensorMetadata,
-    _common_base,
     fill_scene_defaults,
+    resolve_input_files,
 )
 from asp_plot.utils import get_xml_tag, run_subprocess_command
 
@@ -88,23 +88,13 @@ class WorldViewMetadata(SensorMetadata):
             If neither ``directory`` nor ``image_list`` is given, or if no
             camera XML files are found.
         """
-        if directory is None and image_list is None:
-            raise ValueError("Provide either a directory or an image_list.")
-
-        if image_list is not None:
-            # Explicit file list (e.g. shell-expanded ``geom_plot *.XML``): use
-            # it directly, but still drop non-camera XMLs by name. Fall back to
-            # the files' common parent for mosaic output / pair naming when no
-            # directory is supplied.
-            self.image_list = self._filter_camera_xmls(image_list)
-            self.directory = (
-                os.path.expanduser(directory)
-                if directory
-                else _common_base(self.image_list)
-            )
-        else:
-            super().__init__(directory)
-            self.image_list = self._discover_xmls(self.directory)
+        # An explicit file list (e.g. shell-expanded ``stereo_geom *.XML``) is
+        # used directly, minus non-camera XMLs; without one, the directory is
+        # searched. Either way the files' common parent is the fallback base
+        # directory for mosaic output and pair naming.
+        self.directory, self.image_list = resolve_input_files(
+            type(self), directory, image_list
+        )
 
         if not self.image_list:
             raise ValueError(

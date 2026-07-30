@@ -232,6 +232,50 @@ class SensorMetadata(ABC):
         raise NotImplementedError
 
 
+def resolve_input_files(sensor_cls, directory, image_list):
+    """Resolve a reader's ``(directory, image_list)`` constructor arguments.
+
+    Every reader can be built either from a ``directory`` (its camera files are
+    discovered) or from an explicit ``image_list`` (e.g. a shell-expanded
+    ``stereo_geom *.XML``). Both paths end in the same place: a list filtered by
+    the sensor's own :meth:`SensorMetadata._is_camera_file` content check, plus
+    a directory to use for outputs and pair naming.
+
+    Returns the resolved pair without raising on an empty result — each reader
+    raises its own "missing files" error naming its format.
+
+    Parameters
+    ----------
+    sensor_cls : type
+        The :class:`SensorMetadata` subclass being constructed.
+    directory : str or None
+        Directory to discover files in, or the base directory for an explicit
+        ``image_list``.
+    image_list : list of str or None
+        Explicit candidate files.
+
+    Returns
+    -------
+    tuple of (str, list of str)
+        The reader's ``directory`` and its filtered file list.
+
+    Raises
+    ------
+    ValueError
+        If neither ``directory`` nor ``image_list`` is given.
+    """
+    if directory is None and image_list is None:
+        raise ValueError("Provide either a directory or an image_list.")
+
+    if image_list is not None:
+        files = sensor_cls._filter_camera_xmls(image_list)
+        base = os.path.expanduser(directory) if directory else _common_base(files)
+        return base, files
+
+    base = os.path.expanduser(directory)
+    return base, sensor_cls._discover_xmls(base)
+
+
 def _common_base(paths):
     """Return a base directory for a list of files.
 
