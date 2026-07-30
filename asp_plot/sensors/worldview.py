@@ -333,7 +333,7 @@ class WorldViewMetadata(SensorMetadata):
         TDI level, geometry information, and various mean angles and parameters.
         If geteph is True, also includes ephemeris and footprint GeoDataFrames.
 
-        The identity core (catid, sensor, date, geom) is read strictly — a
+        The identity core (xml_fn, catid, sensor, date, geom) is read strictly — a
         camera XML without those is an error. The summary fields degrade to
         "not provided" (None/NaN) when their tags are absent (issue #163):
         ``dg_mosaic`` can strip image tags, and Multi products carry per-band
