@@ -2,27 +2,42 @@ import random
 import re
 import shutil
 import xml.etree.ElementTree as ET
+from datetime import datetime
 from pathlib import Path
 
 import geopandas as gpd
 import numpy as np
 import pandas as pd
 import pytest
+import rasterio
+from rasterio.rpc import RPC
 
 from asp_plot.sensors import (
     SENSORS,
     AsterMetadata,
     PleiadesMetadata,
     PrismMetadata,
+    RpcMetadata,
     SensorMetadata,
     Spot5Metadata,
     WorldViewMetadata,
 )
 from asp_plot.sensors import dimap as dimap_module
 from asp_plot.sensors import dimap_v1 as dimap_v1_module
-from asp_plot.sensors import resolve_xml_inputs, sensor_for_directory, sensor_for_inputs
+from asp_plot.sensors import (
+    resolve_camera_inputs,
+    resolve_xml_inputs,
+    sensor_for_directory,
+    sensor_for_inputs,
+)
 from asp_plot.sensors.aster import _ray_ellipsoid_intersection
 from asp_plot.sensors.dimap import SUPPORTED_DIMAP_PROFILES
+from asp_plot.sensors.rpc import (
+    _acquisition_date,
+    _closest_approach,
+    _RpcGeometry,
+    read_rpc,
+)
 
 # The two committed single-scene WorldView camera XMLs at the top level of
 # tests/test_data (one *.r100.xml per CATID, no tiles).
@@ -126,7 +141,7 @@ class TestWorldViewDiscovery:
         nested.mkdir(parents=True)
         shutil.copy(CAM_A, nested / "camera.xml")
 
-        found = WorldViewMetadata._discover_xmls(str(tmp_path))
+        found = WorldViewMetadata._discover_camera_files(str(tmp_path))
         assert [Path(f).name for f in found] == ["camera.xml"]
 
     def test_top_level_takes_precedence_over_nested(self, tmp_path):
@@ -138,7 +153,7 @@ class TestWorldViewDiscovery:
         nested.mkdir()
         shutil.copy(CAM_B, nested / "nested.xml")
 
-        found = WorldViewMetadata._discover_xmls(str(tmp_path))
+        found = WorldViewMetadata._discover_camera_files(str(tmp_path))
         assert [Path(f).name for f in found] == ["top.xml"]
 
     def test_non_recursive_ignores_nested(self, tmp_path):
@@ -146,7 +161,10 @@ class TestWorldViewDiscovery:
         nested.mkdir()
         shutil.copy(CAM_A, nested / "camera.xml")
 
-        assert WorldViewMetadata._discover_xmls(str(tmp_path), recursive=False) == []
+        assert (
+            WorldViewMetadata._discover_camera_files(str(tmp_path), recursive=False)
+            == []
+        )
 
     def test_excludes_readme_and_ortho(self, tmp_path):
         pan = tmp_path / "scene_PAN"
@@ -156,7 +174,7 @@ class TestWorldViewDiscovery:
         (tmp_path / "500647760070_01_README.XML").write_text("<README/>")
         (pan / "scene-ortho.xml").write_text("<isd/>")
 
-        found = WorldViewMetadata._discover_xmls(str(tmp_path))
+        found = WorldViewMetadata._discover_camera_files(str(tmp_path))
         assert [Path(f).name for f in found] == ["camera.xml"]
 
     def test_detect_uses_recursive_discovery(self, tmp_path):
@@ -223,8 +241,8 @@ class TestFlexibleInputResolution:
         assert isinstance(reader, WorldViewMetadata)
         assert set(reader.image_list) == {str(CAM_A), str(CAM_B)}
 
-    def test_sensor_for_inputs_no_xml_raises(self, tmp_path):
-        with pytest.raises(ValueError, match="No XML files found"):
+    def test_sensor_for_inputs_no_camera_files_raises(self, tmp_path):
+        with pytest.raises(ValueError, match="No camera metadata files found"):
             sensor_for_inputs([str(tmp_path / "nope.xml")])
 
     def test_reader_from_image_list_filters_non_camera(self, tmp_path):
@@ -1271,3 +1289,377 @@ class TestWorldViewSceneDictDegradation:
         reader = WorldViewMetadata(directory=str(tmp_path))
         with pytest.raises(ValueError, match="FIRSTLINETIME"):
             reader.get_scene_dicts()
+
+
+# ---------------------------------------------------------------------------
+# RPC-only products (#177)
+#
+# No Cartosat-1 or Deimos delivery is committed, and none is needed to validate
+# the derivation: the two WorldView camera XMLs above carry real RPC00B
+# coefficients in their <RPB> blocks *and* the vendor's own view angles, GSD
+# and footprint for the same scenes. Rewriting those coefficients into a
+# minimal image container therefore produces an RPC-only product whose correct
+# answers are already known. The images are sparse (no pixels are written), so
+# a 35840 x 27648 scene costs ~120 kB of temporary space.
+# ---------------------------------------------------------------------------
+
+RPC_TAGS = [
+    "LINE_OFF",
+    "SAMP_OFF",
+    "LAT_OFF",
+    "LONG_OFF",
+    "HEIGHT_OFF",
+    "LINE_SCALE",
+    "SAMP_SCALE",
+    "LAT_SCALE",
+    "LONG_SCALE",
+    "HEIGHT_SCALE",
+]
+
+
+def _rpc_from_dg_xml(xml_fn):
+    """Build a rasterio RPC (and image size) from a DigitalGlobe <RPB> block."""
+    root = ET.parse(xml_fn).getroot()
+    image = root.find(".//RPB/IMAGE")
+
+    def coeffs(tag):
+        return [float(x) for x in image.findtext(f"{tag}List/{tag}").split()]
+
+    rpc = RPC(
+        height_off=float(image.findtext("HEIGHTOFFSET")),
+        height_scale=float(image.findtext("HEIGHTSCALE")),
+        lat_off=float(image.findtext("LATOFFSET")),
+        lat_scale=float(image.findtext("LATSCALE")),
+        line_off=float(image.findtext("LINEOFFSET")),
+        line_scale=float(image.findtext("LINESCALE")),
+        long_off=float(image.findtext("LONGOFFSET")),
+        long_scale=float(image.findtext("LONGSCALE")),
+        samp_off=float(image.findtext("SAMPOFFSET")),
+        samp_scale=float(image.findtext("SAMPSCALE")),
+        line_num_coeff=coeffs("LINENUMCOEF"),
+        line_den_coeff=coeffs("LINEDENCOEF"),
+        samp_num_coeff=coeffs("SAMPNUMCOEF"),
+        samp_den_coeff=coeffs("SAMPDENCOEF"),
+    )
+    return rpc, int(root.findtext(".//NUMCOLUMNS")), int(root.findtext(".//NUMROWS"))
+
+
+def _write_rpc_image(path, rpc, width, height, embed=True, crs=None, tags=None):
+    """Write a sparse single-band GeoTIFF, optionally carrying the RPCs."""
+    with rasterio.open(
+        str(path),
+        "w",
+        driver="GTiff",
+        width=width,
+        height=height,
+        count=1,
+        dtype="uint8",
+        tiled=True,
+        crs=crs,
+        SPARSE_OK="TRUE",
+    ) as dst:
+        if embed:
+            dst.rpcs = rpc
+        if tags:
+            dst.update_tags(**tags)
+    return str(path)
+
+
+def _write_rpc_sidecar(path, rpc):
+    """Write an RPC00B ``*_RPC.TXT`` sidecar for ``rpc``."""
+    gdal = rpc.to_gdal()
+    lines = [f"{tag}: {float(gdal[tag]):+.8f}" for tag in RPC_TAGS]
+    for tag in (
+        "LINE_NUM_COEFF",
+        "LINE_DEN_COEFF",
+        "SAMP_NUM_COEFF",
+        "SAMP_DEN_COEFF",
+    ):
+        for i, value in enumerate(str(gdal[tag]).split(), start=1):
+            lines.append(f"{tag}_{i}: {float(value):+.15E}")
+    Path(path).write_text("\n".join(lines) + "\n")
+    return str(path)
+
+
+def _vendor(xml_fn):
+    """The vendor's own summary geometry for a scene, from its camera XML."""
+    root = ET.parse(xml_fn).getroot()
+    return {
+        key: float(root.findtext(f".//{tag}"))
+        for key, tag in {
+            "az": "MEANSATAZ",
+            "el": "MEANSATEL",
+            "offnadir": "MEANOFFNADIRVIEWANGLE",
+            "gsd": "MEANPRODUCTGSD",
+        }.items()
+    }
+
+
+class TestRpcMetadata:
+    """Stereo geometry derived from RPC coefficients alone (#177).
+
+    Every assertion about a derived quantity is pinned against the vendor's
+    own value for the same scene, which is what makes this reader ✅ rather
+    than 🧪 despite deriving everything from a camera model.
+    """
+
+    @pytest.fixture(scope="class")
+    def rpc_dir(self, tmp_path_factory):
+        directory = tmp_path_factory.mktemp("rpc_only")
+        for xml_fn in (CAM_A, CAM_B):
+            rpc, width, height = _rpc_from_dg_xml(xml_fn)
+            _write_rpc_image(
+                directory / f"{xml_fn.name.split('.')[0]}.tif", rpc, width, height
+            )
+        return directory
+
+    @pytest.fixture(scope="class")
+    def scenes(self, rpc_dir):
+        return {
+            d["catid"]: d for d in RpcMetadata(directory=str(rpc_dir)).get_scene_dicts()
+        }
+
+    def test_detection(self, rpc_dir):
+        reader = sensor_for_directory(str(rpc_dir))
+        assert isinstance(reader, RpcMetadata)
+        assert len(reader.image_list) == 2
+        assert all(f.endswith(".tif") for f in reader.image_list)
+
+    def test_does_not_claim_other_sensors_files(self):
+        # The RPC reader claims images; a camera XML is never one of them.
+        assert RpcMetadata._is_camera_file(str(CAM_A)) is False
+        assert RpcMetadata._is_camera_file(str(DIM_FORE)) is False
+
+    def test_xml_readers_do_not_claim_images(self, rpc_dir):
+        image = sorted(str(p) for p in rpc_dir.glob("*.tif"))[0]
+        for reader in (WorldViewMetadata, PleiadesMetadata, AsterMetadata):
+            assert reader._is_camera_file(image) is False
+
+    def test_registered_last_as_a_fallback(self):
+        assert SENSORS[-1] is RpcMetadata
+        assert RpcMetadata.fallback is True
+        assert all(not s.fallback for s in SENSORS if s is not RpcMetadata)
+
+    def test_delivery_with_camera_xmls_is_not_claimed(self, rpc_dir, tmp_path):
+        # A WorldView delivery ships images carrying RPCs alongside its camera
+        # XMLs. The exact reader must win -- both when the XMLs sit beside the
+        # images...
+        flat = tmp_path / "flat"
+        flat.mkdir()
+        for image in rpc_dir.glob("*.tif"):
+            shutil.copy(image, flat / image.name)
+        for xml_fn in (CAM_A, CAM_B):
+            shutil.copy(xml_fn, flat / xml_fn.name)
+        assert isinstance(sensor_for_directory(str(flat)), WorldViewMetadata)
+
+        # ...and when they are nested below them, which is the case the
+        # fallback rule exists for: shallow-first discovery would otherwise
+        # hand the directory to the RPC reader.
+        nested = tmp_path / "nested"
+        (nested / "cameras").mkdir(parents=True)
+        for image in rpc_dir.glob("*.tif"):
+            shutil.copy(image, nested / image.name)
+        for xml_fn in (CAM_A, CAM_B):
+            shutil.copy(xml_fn, nested / "cameras" / xml_fn.name)
+        assert isinstance(sensor_for_directory(str(nested)), WorldViewMetadata)
+
+    def test_inputs_resolve_images_as_well_as_xmls(self, rpc_dir):
+        resolved = resolve_camera_inputs(str(rpc_dir))
+        assert len(resolved) == 2
+        # The XML-only resolver still means what its name says.
+        assert resolve_xml_inputs(str(rpc_dir)) == []
+        assert isinstance(sensor_for_inputs(str(rpc_dir)), RpcMetadata)
+        assert isinstance(sensor_for_inputs(resolved), RpcMetadata)
+
+    def test_missing_files_raises(self, tmp_path):
+        with pytest.raises(ValueError, match="Missing images carrying RPC"):
+            RpcMetadata(directory=str(tmp_path))
+
+    def test_scene_identity(self, scenes):
+        assert set(scenes) == {"10300100D0772D00", "10300100D12D7400"}
+        for d in scenes.values():
+            # RPC metadata carries no catalog ID and no timestamp: the scene is
+            # named for its image and is dateless (#163).
+            assert d["sensor"] == "RPC"
+            assert d["date"] is None
+            assert d["geom"].is_valid
+
+    def test_view_angles_match_the_vendor(self, scenes):
+        for xml_fn, catid in ((CAM_A, "10300100D0772D00"), (CAM_B, "10300100D12D7400")):
+            vendor, d = _vendor(xml_fn), scenes[catid]
+            assert d["meansataz"] == pytest.approx(vendor["az"], abs=0.05)
+            assert d["meansatel"] == pytest.approx(vendor["el"], abs=0.15)
+            # Off-nadir comes from the perspective centre recovered by
+            # intersecting two look rays -- the vendor never wrote it into the
+            # RPC, so matching it validates that recovery.
+            assert d["meanoffnadirviewangle"] == pytest.approx(
+                vendor["offnadir"], abs=0.15
+            )
+
+    def test_intrack_crosstrack_are_not_derived(self, scenes):
+        # Splitting off-nadir into along/across-track needs a velocity
+        # direction; the recovered positions cannot pin one down well enough
+        # (8-10 deg error), so the split is reported as not provided.
+        for d in scenes.values():
+            assert np.isnan(d["meanintrackviewangle"])
+            assert np.isnan(d["meancrosstrackviewangle"])
+            # ...as are the quantities RPCs say nothing whatsoever about.
+            for key in ("meansunaz", "meansunel", "cloudcover"):
+                assert np.isnan(d[key])
+            assert d["scandir"] is None and d["tdi"] is None
+
+    def test_gsd_matches_the_vendor(self, scenes):
+        for xml_fn, catid in ((CAM_A, "10300100D0772D00"), (CAM_B, "10300100D12D7400")):
+            assert scenes[catid]["meanproductgsd"] == pytest.approx(
+                _vendor(xml_fn)["gsd"], abs=0.02
+            )
+
+    def test_footprint_matches_the_vendor(self, scenes):
+        vendor = {
+            d["catid"]: d["geom"]
+            for d in WorldViewMetadata(directory="tests/test_data").get_scene_dicts()
+        }
+        for catid, geom in ((c, scenes[c]["geom"]) for c in scenes):
+            other = vendor[catid]
+            iou = geom.intersection(other).area / geom.union(other).area
+            assert iou > 0.95
+
+    def test_att_df_is_none(self, scenes):
+        # An RPC records no attitude at all -- the key is present with the
+        # documented "not provided" value rather than omitted.
+        for d in scenes.values():
+            assert "att_df" in d
+            assert d["att_df"] is None
+
+    def test_eph_gdf_is_positions_only_indexed_by_line(self, scenes):
+        eph_gdf = scenes["10300100D0772D00"]["eph_gdf"]
+        # RPCs carry no timestamps, so the recovered positions are indexed by
+        # image line, as ASTER's are.
+        assert eph_gdf.index.name == "line"
+        assert not isinstance(eph_gdf.index, pd.DatetimeIndex)
+        assert eph_gdf.crs.to_string() == "EPSG:4978"
+        radius = np.sqrt(eph_gdf["x"] ** 2 + eph_gdf["y"] ** 2 + eph_gdf["z"] ** 2)
+        assert ((radius > 7.10e6) & (radius < 7.20e6)).all()  # ~770 km altitude
+        for name in ["dx", "dy", "dz", "cov_11", "cov_22", "cov_33"]:
+            assert eph_gdf[name].isna().all()
+
+    def test_pair_geometry_matches_the_worldview_pair(self, rpc_dir):
+        from asp_plot.stereopair_metadata_parser import StereopairMetadataParser
+
+        derived = StereopairMetadataParser(directory=str(rpc_dir)).get_pair_dict()
+        parsed = StereopairMetadataParser(directory="tests/test_data").get_pair_dict()
+        assert derived["conv_ang"] == pytest.approx(parsed["conv_ang"], abs=0.1)
+        assert derived["bh"] == pytest.approx(parsed["bh"], abs=0.01)
+        assert derived["bie"] == pytest.approx(parsed["bie"], abs=0.1)
+        # Dateless pairs still produce a pair dict (#163).
+        assert derived["cdate"] is None and derived["dt"] is None
+        # The asymmetry angle is the one pair quantity that needs satellite
+        # *positions* rather than view angles. 8.31 deg is what the vendor's
+        # own MEANSATAZ/MEANSATEL imply for this pair; the parsed pair reports
+        # 2.36 because the committed camera XMLs ship a trimmed ephemeris
+        # whose samples are ~97 km from the scene, not because the recovered
+        # positions are wrong. Confirmed against a full (untrimmed) WorldView
+        # delivery, where the derived and parsed asymmetry angles agree to
+        # 0.01 deg.
+        assert derived["asymmetry_angle"] == pytest.approx(8.31, abs=0.3)
+
+    def test_sidecar_rpc_txt_is_read(self, tmp_path, scenes):
+        rpc, width, height = _rpc_from_dg_xml(CAM_A)
+        image = _write_rpc_image(
+            tmp_path / "scene.tif", rpc, width, height, embed=False
+        )
+        assert read_rpc(image) is None  # nothing embedded, no sidecar yet
+        _write_rpc_sidecar(tmp_path / "scene_RPC.TXT", rpc)
+        d = RpcMetadata(image_list=[image]).get_scene_dicts()[0]
+        assert d["meansataz"] == pytest.approx(
+            scenes["10300100D0772D00"]["meansataz"], abs=0.01
+        )
+
+    def test_cartosat_rpc_org_sidecar_is_read_and_flagged(self, tmp_path, caplog):
+        # Cartosat-1 names its sidecar _RPC_ORG.TXT, which GDAL does not pick
+        # up on its own (ASP renames the file). Reading it directly is the
+        # only path here that no real delivery has exercised, so it warns.
+        rpc, width, height = _rpc_from_dg_xml(CAM_A)
+        image = _write_rpc_image(
+            tmp_path / "band_f.tif", rpc, width, height, embed=False
+        )
+        _write_rpc_sidecar(tmp_path / "band_f_RPC_ORG.TXT", rpc)
+        with caplog.at_level("WARNING"):
+            assert RpcMetadata._is_camera_file(image) is True
+        assert "issues/new" in caplog.text
+
+    def test_incomplete_sidecar_is_not_claimed(self, tmp_path):
+        rpc, width, height = _rpc_from_dg_xml(CAM_A)
+        image = _write_rpc_image(
+            tmp_path / "scene.tif", rpc, width, height, embed=False
+        )
+        sidecar = Path(_write_rpc_sidecar(tmp_path / "scene_RPC.TXT", rpc))
+        # Drop one coefficient: a partial RPC is not a camera model.
+        sidecar.write_text(
+            "\n".join(
+                ln
+                for ln in sidecar.read_text().splitlines()
+                if not ln.startswith("SAMP_DEN_COEFF_20")
+            )
+        )
+        assert read_rpc(image) is None
+
+    def test_mapprojected_raster_is_not_claimed(self, tmp_path):
+        # An RPC describes the raw image grid; on an orthorectified product it
+        # no longer corresponds to the pixels it would be evaluated against.
+        rpc, width, height = _rpc_from_dg_xml(CAM_A)
+        image = _write_rpc_image(
+            tmp_path / "mapproj.tif", rpc, 512, 512, crs="EPSG:4326"
+        )
+        assert read_rpc(image) is None
+        del width, height
+
+    def test_non_raster_is_not_claimed(self, tmp_path):
+        f = tmp_path / "notes.tif"
+        f.write_text("this is not a raster")
+        assert RpcMetadata._is_camera_file(str(f)) is False
+
+    def test_date_from_container_tags(self, tmp_path):
+        # RPCs are timeless, but the containers holding them sometimes are not.
+        assert _acquisition_date({"NITF_IDATIM": "20140617213554"}) == datetime(
+            2014, 6, 17, 21, 35, 54
+        )
+        assert _acquisition_date(
+            {"TIFFTAG_DATETIME": "2014:06:17 21:35:54"}
+        ) == datetime(2014, 6, 17, 21, 35, 54)
+        assert _acquisition_date({"NITF_IDATIM": "notadate"}) is None
+        assert _acquisition_date({}) is None
+
+        rpc, width, height = _rpc_from_dg_xml(CAM_A)
+        image = _write_rpc_image(
+            tmp_path / "dated.tif",
+            rpc,
+            width,
+            height,
+            tags={"TIFFTAG_DATETIME": "2014:06:17 21:35:54"},
+        )
+        d = RpcMetadata(image_list=[image]).get_scene_dicts()[0]
+        assert d["date"] == datetime(2014, 6, 17, 21, 35, 54)
+
+    def test_parallel_rays_have_no_intersection(self):
+        origin, direction = np.array([0.0, 0.0, 0.0]), np.array([0.0, 0.0, 1.0])
+        assert _closest_approach(origin, direction, origin + 10.0, direction) is None
+
+    def test_unrecoverable_positions_degrade_cleanly(self, rpc_dir, monkeypatch):
+        # When the look rays do not converge (an RPC that is not a real
+        # pushbroom model), there is no perspective centre: the off-nadir
+        # angle and the position track must be absent, not invented.
+        monkeypatch.setattr(_RpcGeometry, "perspective_center", lambda self, row: None)
+        image = sorted(str(p) for p in rpc_dir.glob("*.tif"))[0]
+        d = RpcMetadata(image_list=[image]).get_scene_dicts()[0]
+        assert "eph_gdf" not in d
+        assert np.isnan(d["meanoffnadirviewangle"])
+        # Everything that does not need a satellite position survives.
+        assert d["meansataz"] == pytest.approx(253.0, abs=0.05)
+        assert d["geom"].is_valid
+
+    def test_tiny_image_raises(self, tmp_path):
+        rpc, _, _ = _rpc_from_dg_xml(CAM_A)
+        image = _write_rpc_image(tmp_path / "pixel.tif", rpc, 1, 1)
+        with pytest.raises(ValueError, match="needs a real image grid"):
+            RpcMetadata(image_list=[image]).get_scene_dicts()
