@@ -209,10 +209,16 @@ class DimapV1Metadata(SensorMetadata):
 
         DIMAP v1 stores the four scene corners as ``Vertex`` elements with
         ``FRAME_LON``/``FRAME_LAT`` (plus the ``FRAME_ROW``/``FRAME_COL``
-        pixel coordinates ASP uses for the RPC fit). Some products add a
-        ``Center`` element with the same children, which is excluded here —
-        ASP instead takes the first four children positionally
-        (``SpotXML::read_corners``).
+        pixel coordinates ASP uses for the RPC fit). Selection is by tag
+        name, which is what skips the ``Center`` element some products add
+        with the same children; ASP instead takes the first four children of
+        ``Dataset_Frame`` positionally (``SpotXML::read_corners``), whatever
+        they are named.
+
+        Neither reader has been validated against a real delivery, so a
+        corner count other than the expected four is reported rather than
+        quietly turned into a differently-shaped polygon — that is the signal
+        a product nests its corners under tags this does not anticipate.
         """
         frame = root.find(".//Dataset_Frame")
         vertices = frame.findall("Vertex") if frame is not None else []
@@ -226,6 +232,13 @@ class DimapV1Metadata(SensorMetadata):
             raise ValueError(
                 "Could not read a scene footprint: expected at least three "
                 "Dataset_Frame/Vertex elements with FRAME_LON and FRAME_LAT."
+            )
+        if len(corners) != 4:
+            logger.warning(
+                "Dataset_Frame has %d corner vertices, expected 4 — the scene "
+                "footprint is built from all of them. Please report this "
+                "product at https://github.com/uw-cryo/asp_plot/issues/179",
+                len(corners),
             )
         return Polygon(corners)
 

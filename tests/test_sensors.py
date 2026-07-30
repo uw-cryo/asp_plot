@@ -839,6 +839,43 @@ class TestSpot5Metadata:
         # Sanity check on the fixture itself: an off-nadir acquisition.
         assert row["roll"] == pytest.approx(15.0, abs=0.01)
 
+    def test_center_element_is_not_a_corner(self, tmp_path):
+        # Some DIMAP v1 products add a scene-center block with the same
+        # FRAME_LON/FRAME_LAT children as the corners. Selecting by the
+        # Vertex tag skips it, so the footprint stays a quadrilateral.
+        text = SPOT5_EAST.read_text().replace(
+            "    <SCENE_ORIENTATION>",
+            "    <Center>\n"
+            "      <FRAME_LON>26.816671</FRAME_LON>\n"
+            "      <FRAME_LAT>43.098818</FRAME_LAT>\n"
+            "      <FRAME_ROW>6000</FRAME_ROW>\n"
+            "      <FRAME_COL>6000</FRAME_COL>\n"
+            "    </Center>\n"
+            "    <SCENE_ORIENTATION>",
+        )
+        f = tmp_path / "with_center.XML"
+        f.write_text(text)
+        geom = Spot5Metadata(image_list=[str(f)]).get_scene_dicts()[0]["geom"]
+        assert len(geom.exterior.coords) == 5  # 4 corners, closed
+
+    def test_unexpected_corner_count_warns(self, tmp_path, caplog):
+        # Neither reader is validated against a real delivery, so a product
+        # that yields something other than four corners must say so rather
+        # than silently produce a differently-shaped footprint.
+        text = SPOT5_EAST.read_text().replace(
+            "    <SCENE_ORIENTATION>",
+            "    <Vertex>\n"
+            "      <FRAME_LON>26.9</FRAME_LON>\n"
+            "      <FRAME_LAT>43.2</FRAME_LAT>\n"
+            "    </Vertex>\n"
+            "    <SCENE_ORIENTATION>",
+        )
+        f = tmp_path / "five_corners.XML"
+        f.write_text(text)
+        with caplog.at_level("WARNING"):
+            Spot5Metadata(image_list=[str(f)]).get_scene_dicts()
+        assert "5 corner vertices, expected 4" in caplog.text
+
     def test_missing_attitude_raises(self, tmp_path):
         text = SPOT5_EAST.read_text()
         text = re.sub(r"<Angles>.*?</Angles>", "", text, flags=re.DOTALL)
