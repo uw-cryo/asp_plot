@@ -39,14 +39,14 @@ SUPPORTED_DIMAP_PROFILES = (
 # parsing one emits a one-time informational warning asking for reports.
 SPEC_ONLY_DIMAP_PROFILES = ("S6_SENSOR", "S7_SENSOR", "PER1_SENSOR")
 
-# Unsupported-profile warnings already emitted, keyed by absolute path:
-# detection can inspect the same file several times (shallow and recursive
-# passes, then reader construction), and the hint is only useful once.
-_warned_unsupported_profiles = set()
-
-# Spec-only profiles already warned about, keyed by profile: the caveat
-# applies to the profile as a whole, not to individual files.
-_warned_spec_only_profiles = set()
+# The two warning caches below key differently on purpose — don't reconcile
+# them. An unsupported profile means "this file was skipped", so the user
+# needs to hear it once per *file* (and detection inspects the same file
+# several times: shallow pass, recursive pass, then reader construction).
+# A spec-only profile means "this reader branch is unvalidated", which is a
+# property of the *profile*, so repeating it per file would be noise.
+_warned_unsupported_profiles = set()  # keyed by absolute path
+_warned_spec_only_profiles = set()  # keyed by METADATA_PROFILE
 
 
 class PleiadesMetadata(SensorMetadata):
