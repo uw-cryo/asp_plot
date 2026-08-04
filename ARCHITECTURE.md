@@ -308,6 +308,8 @@ docs/
 
 Docs dependencies are in `pyproject.toml` under `[project.optional-dependencies] docs` and mirrored in `docs/requirements.txt` (for RTD). The `environment.yml` installs with `pip install -e ".[dev,docs]"`.
 
+Runtime dependencies are declared in three places, kept in sync by hand: `pyproject.toml` (source of truth for the released package), `pixi.toml` (as conda packages, for the pixi development environment — #184), and `conda-forge-recipe/meta.yaml` (`run:`). `pixi.lock` is committed and excluded from the sdist; CI installs it with `locked: true`, so a `pixi.toml` edit not followed by `pixi install` fails the build. Adding a runtime dependency therefore means editing all three, plus the feedstock recipe at release time (see AGENTS.md).
+
 ## Key Design Patterns
 
 **Inheritance for shared scaffolding, composition for collaborators**: Plotting classes inherit from the `Plotter` base for consistent matplotlib setup and helpers (`save`, `plot_missing`, `plot_array`); the altimetry sources inherit `AltimetrySource` for shared DEM-sampling/outlier/CSV helpers. But cross-concern wiring is *composed*, not inherited (the #122 rewrite moved several god-classes this way): `Altimetry` composes its sources + plotter, `StereoGeometryPlotter` composes a `StereopairMetadataParser`, `StereopairMetadataParser` composes a `SensorMetadata` reader, and `StereoPlotter`/`ScenePlotter` compose a `*Files` discovery object.
