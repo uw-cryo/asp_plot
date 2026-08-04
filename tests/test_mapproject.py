@@ -48,11 +48,36 @@ class TestReconstruct:
         cmd = reconstruct_mapproject_command(str(fn))
 
         # Resolved session, srs, grid, projwin, BA prefix, then positional args.
+        # projwin is the bounds (735685 3727692 735687 3727694) shifted half a
+        # pixel NW to ASP's pixel-edge convention (#148).
         assert cmd.startswith("mapproject -t rpc --t_srs EPSG:32616 --tr 0.5 ")
-        assert "--t_projwin 735685 3727692 735687 3727694" in cmd
+        assert "--t_projwin 735684.75 3727692.25 735686.75 3727694.25" in cmd
         assert "--bundle-adjust-prefix ba/run" in cmd
         # Positional order: DEM, input image, camera, output (basename).
         assert cmd.endswith("ref/cop30.tif scene_corr.tif scene.xml scene_corr_map.tif")
+
+    def test_projwin_is_half_pixel_shifted_edge_box(self, tmp_path):
+        # ASP >= 3.7.0 snaps a given --t_projwin by converting edges to centers
+        # (+ tr/2) and rounding to the nearest grid multiple. The GDAL-reported
+        # bounds of an ASP output land exactly on that rounding tie, so
+        # re-running with them drifts the grid one pixel east; the bounds
+        # shifted half a pixel NW (x - tr/2, y + tr/2) are ASP's own pixel-edge
+        # box and re-run grid-identically (#148, verified empirically against
+        # ASP 3.8.0-alpha).
+        fn = tmp_path / "scene_map.tif"
+        _write_tagged_tif(str(fn), ASP_TAGS)
+        cmd = reconstruct_mapproject_command(str(fn))
+
+        with rasterio.open(str(fn)) as ds:
+            bounds = ds.bounds
+            half = ds.res[0] / 2
+        projwin = cmd.split("--t_projwin ")[1].split(" --")[0].split()
+        assert [float(v) for v in projwin] == [
+            bounds.left - half,
+            bounds.bottom + half,
+            bounds.right - half,
+            bounds.top + half,
+        ]
 
     def test_no_bundle_adjust_prefix_omitted(self, tmp_path):
         tags = dict(ASP_TAGS, BUNDLE_ADJUST_PREFIX="NONE")
