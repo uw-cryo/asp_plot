@@ -41,6 +41,8 @@ pixi shell           # interactive shell in the environment
 
 Runtime dependencies are declared in three places that must be kept in sync by hand: `pyproject.toml` (source of truth for the released package), `pixi.toml`, and `conda-forge-recipe/meta.yaml`. After editing `pixi.toml`, run `pixi install` and commit the regenerated `pixi.lock` — CI runs the suite with `locked: true`, which fails if the two have drifted.
 
+Two pixi behaviors that bite silently: (1) a dependency added to `pyproject.toml` but *not* `pixi.toml` still resolves — as a **PyPI wheel** instead of the conda-forge build, with no warning, which is the failure mode `pixi.toml` exists to prevent (and `locked: true` won't catch it, since the lock regenerates first). (2) **`pixi.lock` is rewritten in place by an ordinary `pixi run`** when the manifest has drifted from it, so `git status` can go dirty after `pixi run test`; check that a lockfile change in the diff is intended before committing. There is no reinstall step after changing `[project.scripts]` — pixi re-syncs the editable install itself.
+
 To build the docs locally (Sphinx + MyST; hosted on ReadTheDocs, auto-built on push to `main`):
 
 ```bash

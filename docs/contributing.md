@@ -32,7 +32,9 @@ cd asp_plot
 pixi run setup
 ```
 
-Don't create a conda environment or virtualenv first — pixi replaces that step rather than running inside one, building a project-local environment in `.pixi/` that `pixi run` uses regardless of what is active in your shell. There is nothing to create or activate: every `pixi run` installs the environment first if it is missing, from the committed `pixi.lock`. The lockfile pins every resolved package per platform, so your environment matches everyone else's and matches CI. Editable installs are handled by pixi, so there is no reinstall step after changing the CLI tools.
+Don't create a conda environment or virtualenv first — pixi replaces that step rather than running inside one, building a project-local environment in `.pixi/` that `pixi run` uses regardless of what is active in your shell. There is nothing to create or activate: every `pixi run` installs the environment first if it is missing, from the committed `pixi.lock`. The lockfile pins every resolved package per platform, so your environment matches everyone else's and matches CI.
+
+The package itself is installed editable, so there is **no `pip install -e .` step, ever** — not even after adding or renaming a console script in `[project.scripts]`. pixi notices the manifest changed and re-syncs on the next `pixi run`, where the conda workflow needs an explicit reinstall.
 
 The tasks defined in `pixi.toml` (list them with `pixi task list`):
 
@@ -44,7 +46,19 @@ The tasks defined in `pixi.toml` (list them with `pixi task list`):
 | `pixi run docs` | Serve the docs locally with live reload |
 | `pixi run docs-build` | Build the docs once into `docs/_build/html` |
 
-To add or change a dependency, edit `pixi.toml` and run `pixi install`, then commit the updated `pixi.lock` alongside it. Runtime dependencies are declared in three places that must stay in sync: `pyproject.toml` (the source of truth for the released package), `pixi.toml`, and `conda-forge-recipe/meta.yaml`.
+#### Adding a dependency
+
+Runtime dependencies are declared in three places that must stay in sync: `pyproject.toml` (the source of truth for the released package), `pixi.toml`, and `conda-forge-recipe/meta.yaml`. Add the package to `pixi.toml` as well as `pyproject.toml`, run `pixi install`, and commit the updated `pixi.lock` alongside them.
+
+```{warning}
+Adding a dependency to `pyproject.toml` *only* appears to work — and quietly does the wrong thing. pixi will resolve it as a **PyPI wheel** rather than the conda-forge build, which is exactly the outcome `pixi.toml` exists to prevent: fine for a pure-Python package, but for anything compiled against GDAL or PROJ it is how you end up with a mismatched or unbuildable stack. Nothing warns you. Declaring it in `pixi.toml` is what keeps it coming from conda-forge.
+
+CI will not catch this either. The `locked: true` check only fails when `pixi.lock` is out of date with the manifest, and the lock will already have been regenerated (see below), so a PyPI-resolved dependency sails straight through.
+```
+
+```{note}
+**`pixi.lock` can change without you asking.** When the manifest no longer matches the lockfile, an ordinary `pixi run` — including `pixi run test` — regenerates it in place. So `git status` can come back dirty after a command you thought was read-only. That is pixi keeping the environment honest, not a bug; just check whether a lockfile change in your diff is one you intended before committing it.
+```
 
 **Please don't miss the pre-commit hooks** (`pre-commit install` or `pixi run setup`), which run linting prior to any commits using the `.pre-commit-config.yaml` file included in the repo.
 
