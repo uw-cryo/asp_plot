@@ -62,7 +62,11 @@ cd asp_plot
 pixi run setup
 ```
 
-`pixi` needs no separate environment creation or activation step: any `pixi run` command installs the environment first if it is missing. Here `pixi run setup` installs the pre-commit hooks, and installs the environment on the way. Use `pixi shell` to work inside it interactively, or prefix individual commands, for example `pixi run asp_report --help`.
+That is the whole setup. **Do not create a conda environment or a virtualenv first** — pixi is the environment manager here, not something that runs inside one. It builds a project-local environment in `.pixi/` inside the clone (roughly 1 GB, the same stack conda would install, just in the project rather than a central envs directory), and `pixi run` uses that environment no matter what is active in your shell. Running from a plain shell or from conda's `base` is fine; an activated conda environment does no harm, but nothing in it is used.
+
+Any `pixi run` command installs the environment first if it is missing, so there is no separate creation or activation step. Here `pixi run setup` installs the pre-commit hooks and creates the environment on the way. Use `pixi shell` to work inside it interactively, or prefix individual commands, for example `pixi run asp_report --help`.
+
+Note that this only applies to commands you run *through* pixi. In your own shell, `python` still means whatever it meant before — pixi does not alter your shell unless you use `pixi shell`. To remove the environment, delete `.pixi/`.
 
 The difference from conda is `pixi.lock`, a committed lockfile pinning every resolved package for each supported platform (`linux-64`, `osx-arm64`, `osx-64`), so environments don't drift between machines or between a contributor and CI.
 

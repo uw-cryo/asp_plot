@@ -32,7 +32,7 @@ cd asp_plot
 pixi run setup
 ```
 
-There is no environment to create or activate: every `pixi run` installs the environment first if it is missing, from the committed `pixi.lock`. The lockfile pins every resolved package per platform, so your environment matches everyone else's and matches CI. Editable installs are handled by pixi, so there is no reinstall step after changing the CLI tools.
+Don't create a conda environment or virtualenv first — pixi replaces that step rather than running inside one, building a project-local environment in `.pixi/` that `pixi run` uses regardless of what is active in your shell. There is nothing to create or activate: every `pixi run` installs the environment first if it is missing, from the committed `pixi.lock`. The lockfile pins every resolved package per platform, so your environment matches everyone else's and matches CI. Editable installs are handled by pixi, so there is no reinstall step after changing the CLI tools.
 
 The tasks defined in `pixi.toml` (list them with `pixi task list`):
 
