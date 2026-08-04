@@ -36,8 +36,12 @@ pixi run setup       # pre-commit install (also creates the env on first run)
 pixi run test        # pytest
 pixi run lint        # pre-commit run --all-files
 pixi run docs        # stage docs assets + sphinx-autobuild
+pixi run lab         # JupyterLab in the environment (examples in notebooks/)
+pixi run kernel      # register the env as the "asp_plot (pixi)" Jupyter kernel
 pixi shell           # interactive shell in the environment
 ```
+
+Notebook support (`ipykernel`, `jupyterlab`) is declared in `pixi.toml`'s `notebooks` feature rather than left to arrive transitively via myst-nb — the example notebooks must not depend on the docs stack's dependency tree. `environment.yml` still ships no notebook tooling, so the conda path needs `ipykernel` installed by hand (or by the editor).
 
 Runtime dependencies are declared in three places that must be kept in sync by hand: `pyproject.toml` (source of truth for the released package), `pixi.toml`, and `conda-forge-recipe/meta.yaml`. After editing `pixi.toml`, run `pixi install` and commit the regenerated `pixi.lock` — CI runs the suite with `locked: true`, which fails if the two have drifted.
 

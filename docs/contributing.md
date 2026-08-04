@@ -45,6 +45,8 @@ The tasks defined in `pixi.toml` (list them with `pixi task list`):
 | `pixi run lint` | Run black, flake8, and isort over the whole repo |
 | `pixi run docs` | Serve the docs locally with live reload |
 | `pixi run docs-build` | Build the docs once into `docs/_build/html` |
+| `pixi run lab` | Launch JupyterLab in the environment |
+| `pixi run kernel` | Register the environment as a Jupyter kernel |
 
 #### Adding a dependency
 
@@ -69,6 +71,34 @@ pytest          # or: pixi run test
 ```
 
 When you add a new feature, add some test coverage as well. Use `pytest -s` to see output during debugging.
+
+## Run the example notebooks
+
+The notebooks in `notebooks/` need a Jupyter kernel that can import `asp_plot`. A kernel is nothing more than a Python interpreter with `ipykernel` installed, so "choosing the right kernel" means pointing Jupyter at the interpreter that has the package — the conda environment, or with pixi the one in `.pixi/envs/default/`.
+
+### With pixi
+
+Either run JupyterLab from inside the environment, in which case the kernel is already correct and there is nothing to choose:
+
+```bash
+pixi run lab
+```
+
+Or, if you prefer your own JupyterLab or VS Code, register the environment once as a named kernel:
+
+```bash
+pixi run kernel
+```
+
+It then appears in the kernel picker as **asp_plot (pixi)**, alongside any conda environments, and points at `.pixi/envs/default/bin/python`. This writes a kernelspec to your user Jupyter directory (outside the repo); remove it with `jupyter kernelspec remove asp_plot-pixi`.
+
+### With conda
+
+Activate the environment and install `ipykernel` into it (`environment.yml` does not include it), then select the `asp_plot` environment as the kernel. Editors such as VS Code will usually offer to install `ipykernel` for you when you pick an environment that lacks it.
+
+```{note}
+If an early import fails in a notebook, it is almost always the kernel rather than the code: the notebook is running against an interpreter where `asp_plot` isn't installed. Check `import sys; print(sys.executable)` in the first cell — it should point inside `.pixi/envs/default/` or your conda environment.
+```
 
 ## Add a feature
 

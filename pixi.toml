@@ -66,13 +66,23 @@ sphinx-copybutton = "*"
 sphinx-book-theme = ">=1.1,<1.3"
 sphinx-autobuild = "*"
 
+# Notebook support for the examples in notebooks/. ipykernel would arrive
+# transitively anyway (myst-nb -> jupyter-cache -> ipykernel), but the notebooks
+# must not depend on the docs stack's dependency tree: if that changed, kernels
+# would break with no obvious cause. Declared explicitly for that reason.
+[feature.notebooks.dependencies]
+ipykernel = "*"
+jupyterlab = "*"
+
 [environments]
-default = { features = ["dev", "docs"] }
+default = { features = ["dev", "docs", "notebooks"] }
 
 [tasks]
 setup = { cmd = "pre-commit install", description = "Install the pre-commit hooks (required for development)" }
 test = { cmd = "pytest", description = "Run the test suite" }
 lint = { cmd = "pre-commit run --all-files", description = "Run black, flake8, and isort over the whole repo" }
+lab = { cmd = "jupyter lab", description = "Launch JupyterLab in this environment (examples are in notebooks/)" }
+kernel = { cmd = "python -m ipykernel install --user --name asp_plot-pixi --display-name 'asp_plot (pixi)'", description = "Register this environment as a Jupyter kernel, for an external JupyterLab or VS Code" }
 
 # Sphinx reads notebooks, figures, and reports from inside docs/, so they are
 # copied in first. ReadTheDocs does the same in its `pre_build` job.
