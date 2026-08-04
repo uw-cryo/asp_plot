@@ -493,7 +493,8 @@ def _add_processing_parameters_page(pdf, params, report_command):
             0,
             4,
             "Reconstructed from output GeoTIFF metadata (mapproject writes no "
-            "log file); session type and grid size are the resolved values.",
+            "log file); session type and grid size are the resolved values. "
+            "Re-running reproduces the output grid exactly with ASP >= 3.7.0.",
             new_x="LMARGIN",
             new_y="NEXT",
         )

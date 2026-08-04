@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **Reconstructed `mapproject` commands now re-run grid-identically on ASP >= 3.7.0** ([#148](https://github.com/uw-cryo/asp_plot/issues/148)). The `--t_projwin` reconstructed from an output GeoTIFF's bounds did not round-trip: ASP snaps a given projwin by converting pixel edges to centers and rounding to the nearest grid multiple, and the bounds GDAL reports for an ASP output (after its `PixelIsPoint` half-pixel shift) land exactly on the rounding tie — re-running the reconstructed command drifted the grid one pixel east per run (and at fractional grid sizes, float noise could grow/shrink the raster by a pixel per edge). The reconstruction now emits ASP's own pixel-edge box — the bounds shifted half a pixel NW (`x − tr/2`, `y + tr/2`) — which survives ASP's snap unchanged; re-runs were verified bit-identical (grid, extent, and pixel values) at both whole and fractional grid sizes. On pre-3.7.0 ASP, which subtracted one grid size from the projwin maximum, no projwin choice can round-trip; the report's explanatory note now states the version assumption.
+
 ## [2.1.0] - 2026-07-30
 
 `asp_plot` now reads the same satellite camera metadata the Stereo Pipeline itself does ([#168](https://github.com/uw-cryo/asp_plot/issues/168)). Where 2.0.0 added Airbus Pléiades, this release finishes the job: the rest of the DIMAP v2 family (Pléiades 1A/1B attitude, SPOT 6/7, PeruSat-1), DIMAP v1 (SPOT 5, ALOS PRISM), ASTER, and RPC-only products (Cartosat-1, Deimos, anything ASP runs with `-t rpc`). The one gap left is ASP's `pinhole`/`opticalbar` sessions — historical aerial and declassified film, which carry no satellite geometry to plot.

@@ -15,13 +15,28 @@ ASP ``--log`` flag required. The fields written by ASP are:
 - ``BUNDLE_ADJUST_PREFIX`` -- the ``--bundle-adjust-prefix`` (``"NONE"`` if unset)
 
 combined with the raster's own CRS (``--t_srs``), resolution (``--tr``), and
-bounds (``--t_projwin``).
+bounds (``--t_projwin``, shifted half a pixel NW to ASP's pixel-edge
+convention -- see below).
 
 The reconstruction is faithful but *not* byte-for-byte re-runnable: the session
 type is the resolved value (not necessarily what the user typed), an input
 ``--mpp`` shows up resolved as ``--tr``, and the output name is read from the
 file itself. Callers that surface this to users (e.g. the PDF report) should say
 so. See ``reconstruct_mapproject_command`` for the exact argv order.
+
+The emitted ``--t_projwin`` is, however, *grid-exact*: re-running the
+reconstructed command with ASP >= 3.7.0 reproduces the output's grid, extent,
+and pixel values identically (verified empirically for #148). That requires
+emitting ASP's pixel-edge box -- the GDAL-reported bounds shifted half a pixel
+NW -- because ASP snaps a given projwin via an edge-to-center conversion plus
+round-to-nearest, and the raw GDAL bounds of an ASP output land exactly on the
+rounding tie (drifting the grid one pixel east per re-run). Two version caveats:
+ASP < 3.7.0 instead subtracts one grid size from the projwin maximum, so no
+projwin choice round-trips there (worst case: a one-pixel extent difference,
+identical pixel values on the shared grid); and the outputs of pre-3.7.0
+explicit-``--t_projwin`` runs may sit on a grid phase that a modern re-run snaps
+up to half a pixel. The output GeoTIFF records no ASP version, so the
+reconstruction targets current semantics unconditionally.
 """
 
 import glob
@@ -96,6 +111,11 @@ def reconstruct_mapproject_command(raster_path):
     ``--t_srs`` is emitted as ``EPSG:XXXX`` when the CRS has an exact EPSG code,
     otherwise as the PROJ string (quoted), so custom planetary/local projections
     (e.g. the stereographic frames used in jitter solving) still round-trip.
+
+    ``--t_projwin`` is the raster's bounds shifted half a pixel NW (x - tr/2,
+    y + tr/2): ASP's pixel-edge box, which re-runs grid-identically on
+    ASP >= 3.7.0 instead of drifting one pixel east (#148; see the module
+    docstring for the full convention story and pre-3.7.0 caveats).
     """
     # Reuse the package Raster wrapper: it suppresses the NotGeoreferencedWarning
     # that the raw (non-georef) input scenes raise during discovery, and it owns
@@ -122,14 +142,26 @@ def reconstruct_mapproject_command(raster_path):
         if t_srs:
             parts += ["--t_srs", t_srs]
 
-        parts += ["--tr", _format_coord(raster.get_gsd())]
+        gsd = raster.get_gsd()
+        parts += ["--tr", _format_coord(gsd)]
+        # Emit --t_projwin as ASP's pixel-EDGE box (pixel centers +- tr/2), not
+        # the GDAL-reported bounds. ASP snaps a given projwin by converting
+        # edges to centers (+ tr/2) and rounding to the nearest grid multiple;
+        # the bounds GDAL reports for an ASP output (after its PixelIsPoint
+        # half-pixel shift) land exactly on that rounding tie, so re-running
+        # with them drifts the grid one pixel east per run (and float noise at
+        # fractional grid sizes can flip individual edges either way). Shifting
+        # the window half a pixel NW yields the box ASP itself passes to its
+        # mapproject_single tiles; it survives the snap unchanged, and the
+        # re-run grid is identical (#148, ASP >= 3.7.0 -- see module docstring).
+        half = gsd / 2
         bounds = raster.ds.bounds
         parts += [
             "--t_projwin",
-            _format_coord(bounds.left),
-            _format_coord(bounds.bottom),
-            _format_coord(bounds.right),
-            _format_coord(bounds.top),
+            _format_coord(bounds.left - half),
+            _format_coord(bounds.bottom + half),
+            _format_coord(bounds.right - half),
+            _format_coord(bounds.top + half),
         ]
 
         ba_prefix = tags.get("BUNDLE_ADJUST_PREFIX")
