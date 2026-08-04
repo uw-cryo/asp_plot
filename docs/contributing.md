@@ -24,6 +24,8 @@ pip install -e ".[dev]"
 
 ### pixi
 
+Install pixi once per machine (`curl -fsSL https://pixi.sh/install.sh | sh`, `brew install pixi`, or `conda install -c conda-forge pixi`), then open a new shell so `~/.pixi/bin` is on your `PATH`. See the [installation guide](installation.md) for details and Windows instructions.
+
 ```bash
 git clone git@github.com:uw-cryo/asp_plot.git
 cd asp_plot

@@ -30,6 +30,8 @@ Flake8 config is in `.flake8` (extends ignore: E203, E701); pre-commit further i
 [pixi](https://pixi.sh) is supported as an alternative to conda (#184), backed by a committed `pixi.lock` so environments can't drift. There is nothing to create or activate — any `pixi run` installs the environment first if it's missing:
 
 ```bash
+# Install pixi once per machine, then open a new shell so ~/.pixi/bin is on PATH:
+#   curl -fsSL https://pixi.sh/install.sh | sh   (or: brew install pixi / conda install -c conda-forge pixi)
 pixi run setup       # pre-commit install (also creates the env on first run)
 pixi run test        # pytest
 pixi run lint        # pre-commit run --all-files

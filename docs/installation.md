@@ -42,6 +42,20 @@ The `environment.yml` installs the package in editable mode with development dep
 
 ### pixi
 
+First install pixi itself — once per machine, not per project. Any of these work:
+
+```bash
+curl -fsSL https://pixi.sh/install.sh | sh    # macOS / Linux
+brew install pixi                             # macOS, via Homebrew
+conda install -c conda-forge pixi             # if you already have conda
+```
+
+```{note}
+The install script places the binary in `~/.pixi/bin` and appends that directory to your `PATH` via your shell profile. **Open a new shell** (or `source ~/.zshrc`) before `pixi` will resolve — otherwise you'll get `command not found: pixi` even though the install succeeded. Windows instructions are in the [pixi installation docs](https://pixi.sh/latest/#installation).
+```
+
+Then:
+
 ```bash
 git clone git@github.com:uw-cryo/asp_plot.git
 cd asp_plot
