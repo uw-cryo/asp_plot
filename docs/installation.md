@@ -26,7 +26,9 @@ Some dependencies (notably GDAL) can be difficult to install via pip alone. If y
 
 ## Install from source (development)
 
-For contributing to the project or modifying the source code:
+For contributing to the project or modifying the source code, use either conda or [pixi](https://pixi.sh). Both produce an equivalent environment with the package installed in editable mode.
+
+### conda
 
 ```bash
 git clone git@github.com:uw-cryo/asp_plot.git
@@ -37,5 +39,17 @@ pre-commit install
 ```
 
 The `environment.yml` installs the package in editable mode with development dependencies (`pip install -e ".[dev]"`).
+
+### pixi
+
+```bash
+git clone git@github.com:uw-cryo/asp_plot.git
+cd asp_plot
+pixi run setup
+```
+
+`pixi` needs no separate environment creation or activation step: any `pixi run` command installs the environment first if it is missing. Here `pixi run setup` installs the pre-commit hooks, and installs the environment on the way. Use `pixi shell` to work inside it interactively, or prefix individual commands, for example `pixi run asp_report --help`.
+
+The difference from conda is `pixi.lock`, a committed lockfile pinning every resolved package for each supported platform (`linux-64`, `osx-arm64`, `osx-64`), so environments don't drift between machines or between a contributor and CI.
 
 See the [Contributing](contributing.md) guide for more details on the development workflow.

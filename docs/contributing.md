@@ -2,6 +2,10 @@
 
 ## Install from source
 
+Use either conda or [pixi](https://pixi.sh) — both give you the package in editable mode with the development and docs dependencies.
+
+### conda
+
 ```bash
 git clone git@github.com:uw-cryo/asp_plot.git
 cd asp_plot
@@ -12,18 +16,40 @@ pre-commit install
 
 The `environment.yml` installs the package in editable mode with development dependencies (`pip install -e ".[dev]"`).
 
-**Please don't miss the `pre-commit install` step**, which runs linting prior to any commits using the `.pre-commit-config.yaml` file included in the repo.
-
 If you want to rebuild the package, for instance while testing changes to the CLI tool, reinstall via:
 
 ```bash
 pip install -e ".[dev]"
 ```
 
+### pixi
+
+```bash
+git clone git@github.com:uw-cryo/asp_plot.git
+cd asp_plot
+pixi run setup
+```
+
+There is no environment to create or activate: every `pixi run` installs the environment first if it is missing, from the committed `pixi.lock`. The lockfile pins every resolved package per platform, so your environment matches everyone else's and matches CI. Editable installs are handled by pixi, so there is no reinstall step after changing the CLI tools.
+
+The tasks defined in `pixi.toml` (list them with `pixi task list`):
+
+| Task | What it does |
+| --- | --- |
+| `pixi run setup` | Install the pre-commit hooks |
+| `pixi run test` | Run the test suite |
+| `pixi run lint` | Run black, flake8, and isort over the whole repo |
+| `pixi run docs` | Serve the docs locally with live reload |
+| `pixi run docs-build` | Build the docs once into `docs/_build/html` |
+
+To add or change a dependency, edit `pixi.toml` and run `pixi install`, then commit the updated `pixi.lock` alongside it. Runtime dependencies are declared in three places that must stay in sync: `pyproject.toml` (the source of truth for the released package), `pixi.toml`, and `conda-forge-recipe/meta.yaml`.
+
+**Please don't miss the pre-commit hooks** (`pre-commit install` or `pixi run setup`), which run linting prior to any commits using the `.pre-commit-config.yaml` file included in the repo.
+
 ## Run tests
 
 ```bash
-pytest
+pytest          # or: pixi run test
 ```
 
 When you add a new feature, add some test coverage as well. Use `pytest -s` to see output during debugging.

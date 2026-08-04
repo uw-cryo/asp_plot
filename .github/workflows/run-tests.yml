@@ -37,3 +37,21 @@ jobs:
         source $CONDA/etc/profile.d/conda.sh
         conda activate asp_plot
         pytest
+
+  # The same suite, in the pixi environment (#184). `locked: true` fails the
+  # build when pixi.lock has drifted from pixi.toml, which is the whole point
+  # of having a lockfile.
+  pixi:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up pixi
+      uses: prefix-dev/setup-pixi@v0.10.0
+      with:
+        pixi-version: v0.76.0
+        locked: true
+        cache: true
+    - name: Test with pytest
+      run: pixi run test

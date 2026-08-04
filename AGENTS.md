@@ -27,6 +27,18 @@ pip install -e ".[dev]"
 
 Flake8 config is in `.flake8` (extends ignore: E203, E701); pre-commit further ignores E501, E722, E207.
 
+[pixi](https://pixi.sh) is supported as an alternative to conda (#184), backed by a committed `pixi.lock` so environments can't drift. There is nothing to create or activate — any `pixi run` installs the environment first if it's missing:
+
+```bash
+pixi run setup       # pre-commit install (also creates the env on first run)
+pixi run test        # pytest
+pixi run lint        # pre-commit run --all-files
+pixi run docs        # stage docs assets + sphinx-autobuild
+pixi shell           # interactive shell in the environment
+```
+
+Runtime dependencies are declared in three places that must be kept in sync by hand: `pyproject.toml` (source of truth for the released package), `pixi.toml`, and `conda-forge-recipe/meta.yaml`. After editing `pixi.toml`, run `pixi install` and commit the regenerated `pixi.lock` — CI runs the suite with `locked: true`, which fails if the two have drifted.
+
 To build the docs locally (Sphinx + MyST; hosted on ReadTheDocs, auto-built on push to `main`):
 
 ```bash

@@ -76,4 +76,7 @@ exclude = [
   "scratch/",
   "reports/",
   "docs/",
+  # Development-environment lockfile; ~400 KB of no use in a source
+  # distribution. See pixi.toml.
+  "pixi.lock",
 ]
