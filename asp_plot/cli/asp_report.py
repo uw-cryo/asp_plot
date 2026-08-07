@@ -101,6 +101,20 @@ def _reconstruct_command():
     help="If True, plot the stereo geometry. Default: True.",
 )
 @click.option(
+    "--control_parquet",
+    prompt=False,
+    default=None,
+    type=click.Path(exists=True),
+    help="EXPERIMENTAL (issue #156): Path to a ground-control GeoParquet written by groundcontrol-fetch (https://github.com/uw-cryo/groundcontrol). Adds a Ground Control section with DEM-minus-control residuals. Transforming the points into the DEM frame requires the groundcontrol package to be installed, unless the parquet is already in the DEM CRS with ellipsoidal heights. Default: None.",
+)
+@click.option(
+    "--control_epoch",
+    prompt=False,
+    default=None,
+    type=float,
+    help="Decimal-year epoch of the DEM (e.g. 2009.975) for the control-point frame transform. Default: derived from the scene acquisition dates.",
+)
+@click.option(
     "--subset_km",
     prompt=False,
     default=1.0,
@@ -145,6 +159,8 @@ def main(
     altimetry_csv,
     pc_align,
     plot_geometry,
+    control_parquet,
+    control_epoch,
     subset_km,
     atl06sr_time_range,
     reuse_selections,
@@ -172,6 +188,8 @@ def main(
         altimetry_csv=altimetry_csv,
         pc_align=pc_align,
         plot_geometry=plot_geometry,
+        control_parquet=control_parquet,
+        control_epoch=control_epoch,
         subset_km=subset_km,
         atl06sr_time_range=atl06sr_time_range,
         reuse_selections=reuse_selections,

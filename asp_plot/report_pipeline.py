@@ -26,6 +26,7 @@ from asp_plot import report_captions as captions
 from asp_plot.altimetry import Altimetry
 from asp_plot.bodies import BODIES
 from asp_plot.bundle_adjust import PlotBundleAdjustFiles, ReadBundleAdjustFiles
+from asp_plot.control_points import ControlPoints, ControlPointsPlotter, decimal_year
 from asp_plot.processing_parameters import ProcessingParameters
 from asp_plot.report import (
     AlignmentReportPage,
@@ -65,6 +66,8 @@ class ReportConfig:
     altimetry_csv: Optional[str] = None
     pc_align: bool = True
     plot_geometry: bool = True
+    control_parquet: Optional[str] = None
+    control_epoch: Optional[float] = None
     subset_km: float = 1.0
     atl06sr_time_range: str = "all"
     reuse_selections: Optional[str] = None
@@ -358,6 +361,50 @@ def _build_detailed_hillshade(ctx: ReportContext) -> List[object]:
             title="Detailed Hillshade",
             image_path=ctx.fig_path(fig_fn),
             caption=captions.DETAILED_HILLSHADE,
+        )
+    ]
+
+
+def _build_ground_control(ctx: ReportContext) -> List[object]:
+    """Ground-control residual page from a groundcontrol parquet (issue #156).
+
+    Failures (groundcontrol not installed, no usable points, transform
+    errors) warn and skip the section rather than aborting the report,
+    matching the missing-files placeholder philosophy elsewhere.
+    """
+    cfg = ctx.config
+    epoch = cfg.control_epoch
+    if epoch is None:
+        dates = (
+            ctx.report_metadata.acquisition_dates
+            if ctx.report_metadata is not None
+            else []
+        ) or get_acquisition_dates(cfg.directory)
+        if dates:
+            epoch = decimal_year(datetime.strptime(dates[0], "%Y-%m-%d %H:%M:%S UTC"))
+            print(f"\nGround control: using DEM epoch {epoch:.3f} from {dates[0]}\n")
+    try:
+        control = ControlPoints(cfg.control_parquet, ctx.asp_dem, epoch=epoch)
+        control.sample_dem()
+        if not control.stats["n"]:
+            print("\nGround control: no points over valid DEM area, skipping\n")
+            return []
+        fig_fn = ctx.next_fig_fn()
+        plotter = ControlPointsPlotter(control, title="Ground Control vs DEM")
+        plotter.plot_control_dh(save_dir=ctx.plots_directory, fig_fn=fig_fn)
+    except Exception as e:
+        print(f"\nCould not build the ground-control section: {e}\n")
+        return []
+    stats = control.stats
+    caption = (
+        f"{captions.GROUND_CONTROL} n={stats['n']}, "
+        f"median={stats['median']:+.2f} m, NMAD={stats['nmad']:.2f} m."
+    )
+    return [
+        ReportSection(
+            title="Ground Control",
+            image_path=ctx.fig_path(fig_fn),
+            caption=caption,
         )
     ]
 
@@ -758,6 +805,11 @@ REPORT_SECTIONS: List[ReportSpec] = [
     ReportSpec("dem_results", lambda ctx: True, _build_dem_results),
     ReportSpec("detailed_hillshade", lambda ctx: True, _build_detailed_hillshade),
     ReportSpec("altimetry", lambda ctx: ctx.plot_altimetry, _build_altimetry),
+    ReportSpec(
+        "ground_control",
+        lambda ctx: bool(ctx.config.control_parquet) and ctx.asp_dem is not None,
+        _build_ground_control,
+    ),
 ]
 
 
@@ -793,6 +845,8 @@ def _setup_context(config: ReportConfig) -> ReportContext:
         config.reference_dem = os.path.expanduser(config.reference_dem)
     if config.altimetry_csv:
         config.altimetry_csv = os.path.expanduser(config.altimetry_csv)
+    if config.control_parquet:
+        config.control_parquet = os.path.expanduser(config.control_parquet)
 
     print(f"\nProcessing ASP files in {directory}\n")
 
