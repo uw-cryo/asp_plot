@@ -39,7 +39,8 @@ def control_parquet(tmp_path):
         {
             "source": ["ngs"] * len(pts),
             "height": sampled - DH_TRUTH + noise,
-            "raw": [json.dumps({"vertSource": "ADJUSTED"})] * len(pts),
+            "raw": [json.dumps({"vertSource": "ADJUSTED", "posSource": "ADJUSTED"})]
+            * len(pts),
         },
         geometry=pts,
         crs=dem.rio.crs,
@@ -53,26 +54,29 @@ class TestFilterQuality:
     def test_drops_low_grade_and_heightless_rows(self):
         gdf = gpd.GeoDataFrame(
             {
-                "source": ["ngs", "ngs", "ngs", "3dep", "3dep", "opus", "ngl"],
-                "height": [10.0, 10.0, np.nan, 10.0, 10.0, 10.0, 10.0],
+                "source": ["ngs", "ngs", "ngs", "ngs", "3dep", "3dep", "opus", "ngl"],
+                "height": [10.0, 10.0, 10.0, np.nan, 10.0, 10.0, 10.0, 10.0],
                 "raw": [
-                    json.dumps({"vertSource": "ADJUSTED"}),
-                    json.dumps({"vertSource": "SCALED"}),
-                    json.dumps({"vertSource": "ADJUSTED"}),
+                    json.dumps({"vertSource": "ADJUSTED", "posSource": "ADJUSTED"}),
+                    json.dumps({"vertSource": "SCALED", "posSource": "ADJUSTED"}),
+                    json.dumps({"vertSource": "ADJUSTED", "posSource": "SCALED"}),
+                    json.dumps({"vertSource": "ADJUSTED", "posSource": "ADJUSTED"}),
                     json.dumps({}),
                     json.dumps({}),
                     json.dumps({}),
                     json.dumps({}),
                 ],
-                "point_type": ["monument"] * 3 + ["NVA", "BVA", "gnss", "gnss"],
+                "point_type": ["monument"] * 4 + ["NVA", "BVA", "gnss", "gnss"],
             },
-            geometry=[Point(0, i) for i in range(7)],
+            geometry=[Point(0, i) for i in range(8)],
             crs="EPSG:4326",
         )
         out = ControlPoints.filter_quality(gdf)
         # kept: survey-grade ngs, topo 3dep checkpoint, pass-through opus;
-        # dropped: scaled/heightless ngs, bathy 3dep, antenna-reference ngl
-        assert list(out.index) == [0, 3, 5]
+        # dropped: scaled-height ngs, scaled-horizontal ngs (good height on a
+        # map-scaled position samples the wrong pixel), heightless ngs,
+        # bathy 3dep, antenna-reference ngl
+        assert list(out.index) == [0, 4, 6]
 
     def test_bare_gdf_passes_through(self):
         gdf = gpd.GeoDataFrame(

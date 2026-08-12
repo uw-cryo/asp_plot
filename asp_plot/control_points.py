@@ -34,6 +34,13 @@ logger = logging.getLogger(__name__)
 #: VERTCON/SCALED/POSTED heights are interpolated or map-scaled vintages.
 NGS_SURVEY_GRADE_VERT_SOURCES = ("ADJUSTED", "GPS OBS", "LEVELING")
 
+#: NGS ``posSource`` values with horizontal positions good enough to sample
+#: the intended DEM pixel. A survey-grade *height* on a map-scaled (SCALED)
+#: horizontal position — off by tens of meters — samples the wrong ground.
+#: HD_HELD (handheld GPS, meters-level) is kept: small against DEM pixel
+#: scale, and categorically unlike SCALED.
+NGS_USABLE_POS_SOURCES = ("ADJUSTED", "HD_HELD1", "HD_HELD2")
+
 #: 3DEP ``point_type`` values usable as topographic control (BVA = bathymetry).
 THREEDEP_TOPO_POINT_TYPES = ("NVA", "VVA")
 
@@ -101,8 +108,10 @@ class ControlPoints:
         """Keep survey-grade points with usable heights.
 
         Drops rows without a height; for NGS monuments keeps only
-        survey-grade ``vertSource`` vintages (parsed from the ``raw`` JSON
-        column); for 3DEP checkpoints drops bathymetry (BVA); drops NGL GNSS
+        survey-grade ``vertSource`` vintages on usable ``posSource``
+        horizontal positions (both parsed from the ``raw`` JSON column — a
+        good height on a map-scaled position samples the wrong DEM pixel);
+        for 3DEP checkpoints drops bathymetry (BVA); drops NGL GNSS
         stations entirely (their heights are antenna-reference, and the
         monument may sit above ground — not height-checkpoint grade). Sources
         this function does not recognize pass through untouched.
@@ -112,12 +121,12 @@ class ControlPoints:
             keep &= gdf["source"] != "ngl"
             if "raw" in gdf.columns:
                 ngs = gdf["source"] == "ngs"
-                vert_source = gdf.loc[ngs, "raw"].map(
-                    lambda s: json.loads(s).get("vertSource")
+                raw = gdf.loc[ngs, "raw"].map(json.loads)
+                good = raw.map(
+                    lambda d: d.get("vertSource") in NGS_SURVEY_GRADE_VERT_SOURCES
+                    and d.get("posSource") in NGS_USABLE_POS_SOURCES
                 )
-                keep &= ~ngs | gdf.index.isin(
-                    vert_source[vert_source.isin(NGS_SURVEY_GRADE_VERT_SOURCES)].index
-                )
+                keep &= ~ngs | gdf.index.isin(good[good].index)
             if "point_type" in gdf.columns:
                 threedep = gdf["source"] == "3dep"
                 keep &= ~threedep | gdf["point_type"].isin(THREEDEP_TOPO_POINT_TYPES)
