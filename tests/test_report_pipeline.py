@@ -87,6 +87,7 @@ class TestRegistry:
             "dem_results",
             "detailed_hillshade",
             "altimetry",
+            "ground_control",
         ]
 
     def test_always_on_sections(self):
@@ -116,6 +117,13 @@ class TestRegistry:
         spec = next(s for s in REPORT_SECTIONS if s.name == "altimetry")
         assert spec.enabled(_ctx(plot_altimetry=True)) is True
         assert spec.enabled(_ctx(plot_altimetry=False)) is False
+
+    def test_ground_control_predicate(self):
+        spec = next(s for s in REPORT_SECTIONS if s.name == "ground_control")
+        cfg = ReportConfig(control_parquet="control.parquet")
+        assert spec.enabled(_ctx(config=cfg)) is True
+        assert spec.enabled(_ctx(config=ReportConfig())) is False
+        assert spec.enabled(_ctx(config=cfg, asp_dem=None)) is False
 
 
 # ---------------------------------------------------------------------------

@@ -37,6 +37,8 @@ DEM_RESULTS = "Output DEM with intersection error map and difference relative to
 
 DETAILED_HILLSHADE = "DEM hillshade. If the intersection error is available, zoomed subsets selected from low, medium, and high (left to right) uncertainty areas are displayed in the second row. If the mapprojected image is available, corresponding ortho image subsets are displayed in the bottom row."
 
+GROUND_CONTROL = "Ground control point residuals (DEM minus control height, both above the ellipsoid). Control points are fetched and normalized by the groundcontrol package (survey monuments and checkpoints with rigorous datum/epoch handling), quality-filtered to survey-grade heights on reliable horizontal positions, transformed into the DEM frame, and differenced against the bilinearly sampled DEM. Left: residuals over the DEM hillshade. Right: residual distribution with summary statistics."
+
 # ---- ICESat-2 (Earth) captions ----
 
 ICESAT2_MAP = "ICESat-2 ATL06-SR elevation differences vs. ASP DEM."
