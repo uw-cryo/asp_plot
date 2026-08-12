@@ -52,9 +52,11 @@ def _transform_points(gdf, target_crs, epoch):
     except ImportError as e:
         raise ImportError(
             "Transforming control points into the DEM frame requires the "
-            "groundcontrol package (https://github.com/uw-cryo/groundcontrol). "
-            "Install it, or supply a control parquet already in the DEM CRS "
-            "with ellipsoidal heights."
+            "groundcontrol package. Install it from a pinned git tag: "
+            "pip install git+https://github.com/uw-cryo/groundcontrol.git@v0.1.2 "
+            "(NOT 'pip install groundcontrol' — that name is held by an "
+            "unrelated PyPI package). Alternatively, supply a control parquet "
+            "already in the DEM CRS with ellipsoidal heights."
         ) from e
     return transform_points(gdf, target_crs, tt=epoch)
 
