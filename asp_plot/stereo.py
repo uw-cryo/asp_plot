@@ -606,6 +606,30 @@ class StereoPlotter(Plotter):
             ip = [self.read_ip_record(vwip_file) for _ in range(int(size))]
         return pd.DataFrame({"x": [r[0] for r in ip], "y": [r[1] for r in ip]})
 
+    @staticmethod
+    def _ip_on_aligned_images(files):
+        """Whether interest points were found on the aligned L/R images
+        rather than on the input images.
+
+        ASP names the match file after the images interest points were found
+        on: when the left name in ``<A>__<B>.match`` is the L image itself
+        (e.g. ``run-L__R.match``, as older ASP versions wrote for raw inputs),
+        the coordinates are already in aligned space and must not go through
+        the alignment matrices again. With no match file at all, the only
+        ``.vwip`` files discovered are ``*-L.vwip``/``*-R.vwip`` (see
+        :meth:`StereoFiles._find_vwip_files`), which are aligned-space too.
+        """
+
+        def stem(fn):
+            return os.path.splitext(os.path.basename(fn))[0]
+
+        if not files.match_point_fn:
+            return True
+        if not files.left_image_fn:
+            return False
+        left_name = stem(files.match_point_fn).split("__")[0]
+        return left_name == stem(files.left_image_fn)
+
     def _plot_match_points_figure(self, files, title, save_dir=None, fig_fn=None):
         """One two-panel match-point figure for a :class:`StereoFiles` or
         :class:`PairStereoFiles` (duck-typed) set of products."""
@@ -636,25 +660,38 @@ class StereoPlotter(Plotter):
                     return x / rescale_factor, y / rescale_factor
 
             else:
-                if not files.align_left_fn or not files.align_right_fn:
-                    raise FileNotFoundError(
-                        "Alignment matrix files (*-align-{L,R}.txt) not found. "
-                        "These are required to overlay match points on non-mapprojected images."
-                    )
-
                 full_width = Raster(files.left_image_fn).ds.width
                 sub_width = Raster(files.left_image_sub_fn).ds.width
                 rescale_factor = full_width / sub_width
 
-                # Transform points from original to aligned coordinate space
-                align = {
-                    "left": np.loadtxt(files.align_left_fn),
-                    "right": np.loadtxt(files.align_right_fn),
-                }
+                if self._ip_on_aligned_images(files):
+                    # Interest points were found on the aligned images
+                    # themselves (the match file is named for L, e.g.
+                    # <prefix>-L__R.match, as older ASP wrote for raw
+                    # inputs), so their coordinates are already in aligned
+                    # space and only need rescaling.
+                    def to_sub(x, y, side):
+                        return x / rescale_factor, y / rescale_factor
 
-                def to_sub(x, y, side):
-                    aligned = align[side] @ np.vstack([x, y, np.ones(len(x))])
-                    return aligned[0] / rescale_factor, aligned[1] / rescale_factor
+                else:
+                    if not files.align_left_fn or not files.align_right_fn:
+                        raise FileNotFoundError(
+                            "Alignment matrix files (*-align-{L,R}.txt) not found. "
+                            "These are required to overlay match points on non-mapprojected images."
+                        )
+
+                    # Transform points from original to aligned coordinate space
+                    align = {
+                        "left": np.loadtxt(files.align_left_fn),
+                        "right": np.loadtxt(files.align_right_fn),
+                    }
+
+                    def to_sub(x, y, side):
+                        aligned = align[side] @ np.vstack([x, y, np.ones(len(x))])
+                        return (
+                            aligned[0] / rescale_factor,
+                            aligned[1] / rescale_factor,
+                        )
 
             left_image = Raster(files.left_image_sub_fn).read_array()
             right_image = Raster(files.right_image_sub_fn).read_array()

@@ -257,6 +257,44 @@ class TestStereoPlotterNoMapproj:
             pytest.fail(f"figure method raised an exception: {str(e)}")
 
 
+class TestStereoPlotterAlignedInterestPoints:
+    """Older ASP raw-image runs found interest points on the aligned images
+    themselves — the match file is named for them (run-L__R.match) and the
+    alignment matrices may not exist as *.txt at all (.exr instead). Those
+    coordinates are already in aligned space: plotting must skip the align
+    transform instead of raising FileNotFoundError."""
+
+    @pytest.fixture
+    def plotter(self, tmp_path):
+        import shutil
+        from pathlib import Path
+
+        src = Path("tests/test_data/no_mapproj")
+        dst = tmp_path / "no_mapproj"
+        shutil.copytree(src, dst)
+        stereo = dst / "stereo"
+        (stereo / "run-out-Band3N__out-Band3B.match").rename(stereo / "run-L__R.match")
+        (stereo / "run-out-Band3N.vwip").rename(stereo / "run-L.vwip")
+        (stereo / "run-out-Band3B.vwip").rename(stereo / "run-R.vwip")
+        (stereo / "run-out-Band3N__out-Band3B.csv").unlink(missing_ok=True)
+        for f in stereo.glob("run-align-*.txt"):
+            f.unlink()
+        return StereoPlotter(
+            directory=str(dst), stereo_directory="stereo", title="Aligned IP"
+        )
+
+    def test_discovers_aligned_vwip_files(self, plotter):
+        assert plotter.left_vwip_fn.endswith("run-L.vwip")
+        assert plotter.right_vwip_fn.endswith("run-R.vwip")
+
+    def test_plot_match_points_without_align_files(self, plotter, tmp_path):
+        assert plotter.orthos is False
+        assert plotter.align_left_fn is None
+        assert plotter.plot_match_points(save_dir=str(tmp_path), fig_fn="mp.png") == [
+            "mp.png"
+        ]
+
+
 class TestStereoFilesMultiViewLayout:
     """ASP multi-view runs keep match files, sub-sampled scenes, and disparity
     in run-pair*/ subdirectories; the top level has only the joint products
