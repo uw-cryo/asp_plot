@@ -26,6 +26,10 @@ class TestStereoFiles:
         assert files.match_point_fn is not None
         assert "-disp-" not in files.match_point_fn
 
+    def test_discovers_vwip_files(self, files):
+        assert files.left_vwip_fn.endswith("date_time_left_right-L.vwip")
+        assert files.right_vwip_fn.endswith("date_time_left_right-R.vwip")
+
     def test_attribution_flag(self, files):
         assert files.attribution == "Vantor"
 
@@ -111,6 +115,39 @@ class TestStereoPlotter:
         except Exception as e:
             pytest.fail(f"figure method raised an exception: {str(e)}")
 
+    def test_get_vwip_df(self, stereo_plotter):
+        df = stereo_plotter.get_vwip_df(stereo_plotter.left_vwip_fn)
+        assert list(df.columns) == ["x", "y"]
+        assert len(df) == 609
+
+    def test_get_vwip_df_missing_file(self, stereo_plotter):
+        assert stereo_plotter.get_vwip_df(None) is None
+        assert stereo_plotter.get_vwip_df("nonexistent.vwip") is None
+
+    def test_plot_match_points_without_vwip(self, stereo_plotter, tmp_path):
+        # .vwip files are intermediates that runs often clean up; the figure
+        # must render matches-only as before.
+        stereo_plotter.files.left_vwip_fn = None
+        stereo_plotter.files.right_vwip_fn = None
+        assert stereo_plotter.plot_match_points(
+            save_dir=str(tmp_path), fig_fn="mp.png"
+        ) == ["mp.png"]
+
+    def test_plot_match_points_vwip_only(self, stereo_plotter, tmp_path):
+        # The failure-diagnosis case (#8): matching produced no match file,
+        # but the per-image interest points are still shown on their own.
+        stereo_plotter.files.match_point_fn = None
+        assert stereo_plotter.plot_match_points(
+            save_dir=str(tmp_path), fig_fn="mp.png"
+        ) == ["mp.png"]
+
+    def test_plot_match_points_single_side_vwip(self, stereo_plotter, tmp_path):
+        # Some runs keep only one side's .vwip (e.g. only the left file).
+        stereo_plotter.files.right_vwip_fn = None
+        assert stereo_plotter.plot_match_points(
+            save_dir=str(tmp_path), fig_fn="mp.png"
+        ) == ["mp.png"]
+
     def test_plot_disparity(self, stereo_plotter):
         try:
             stereo_plotter.plot_disparity(unit="meters")
@@ -182,6 +219,11 @@ class TestStereoPlotterNoMapproj:
         """Test that missing reference DEM in logs is handled gracefully."""
         assert not stereo_plotter_no_mapproj.reference_dem
 
+    def test_discovers_vwip_files_named_after_images(self, stereo_plotter_no_mapproj):
+        # Raw-image runs name the .vwip files after the input images, not L/R.
+        assert stereo_plotter_no_mapproj.left_vwip_fn.endswith("run-out-Band3N.vwip")
+        assert stereo_plotter_no_mapproj.right_vwip_fn.endswith("run-out-Band3B.vwip")
+
     def test_plot_match_points(self, stereo_plotter_no_mapproj):
         try:
             stereo_plotter_no_mapproj.plot_match_points()
@@ -231,8 +273,9 @@ class TestStereoFilesMultiViewLayout:
         dst = tmp_path / "stereo"
         shutil.copytree(src, dst)
         # Strip the per-pair files a multi-view run keeps in run-pair*/:
-        # match files, sub-sampled scenes, disparity, and the match CSV.
-        for pattern in ["*.match", "*_sub.tif", "*-D.tif", "*-L__R.csv"]:
+        # match files, interest points, sub-sampled scenes, disparity, and
+        # the match CSV.
+        for pattern in ["*.match", "*.vwip", "*_sub.tif", "*-D.tif", "*-L__R.csv"]:
             for f in dst.glob(pattern):
                 f.unlink()
         return str(tmp_path)
@@ -307,6 +350,8 @@ class TestStereoFilesMultiview:
             assert pair.align_right_fn is not None
             assert pair.match_point_fn is not None
             assert "-disp-" not in pair.match_point_fn
+            assert pair.left_vwip_fn is not None
+            assert pair.right_vwip_fn is not None
             assert pair.disparity_sub_fn is not None
             assert pair.disparity_fn is not None
         assert files.pairs[1].label == "Pair 2: out-Band3N.tif ↔ out-Band3C.tif"
@@ -352,6 +397,12 @@ class TestStereoPlotterMultiview:
         df = stereo_plotter.get_match_point_df(pair.match_point_fn)
         assert df is not None
         assert list(df.columns) == ["x1", "y1", "x2", "y2"]
+
+    def test_get_vwip_df_for_pair(self, stereo_plotter):
+        pair = stereo_plotter.pairs[0]
+        df = stereo_plotter.get_vwip_df(pair.left_vwip_fn)
+        assert df is not None
+        assert len(df) == 30
 
     def test_missing_pair_products_draw_match_point_placeholders(
         self, stereo_plotter, tmp_path

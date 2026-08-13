@@ -49,6 +49,8 @@ class PairStereoFiles:
     align_left_fn: Optional[str]
     align_right_fn: Optional[str]
     match_point_fn: Optional[str]
+    left_vwip_fn: Optional[str]
+    right_vwip_fn: Optional[str]
     disparity_sub_fn: Optional[str]
     disparity_fn: Optional[str]
 
@@ -86,6 +88,10 @@ class StereoFiles:
         Match-point file (the non-``-disp-`` one when several exist); None when
         the directory has none at the top level (e.g. a multi-view run, whose
         match files live in the ``run-pair*/`` subdirectories).
+    left_vwip_fn, right_vwip_fn : str or None
+        Per-image raw interest point files (``.vwip``) for the left and right
+        images; either may be None (they are intermediates that ASP runs
+        sometimes clean up, and some runs keep only the left file).
     disparity_sub_fn, disparity_fn : str or None
         Sub-sampled and full disparity map paths.
     pairs : list of PairStereoFiles
@@ -179,6 +185,9 @@ class StereoFiles:
         )
 
         self.match_point_fn = self._find_match_file(self.full_directory, quiet=quiet)
+        self.left_vwip_fn, self.right_vwip_fn = self._find_vwip_files(
+            self.full_directory, self.match_point_fn
+        )
 
         self.disparity_sub_fn = glob_file(
             self.full_directory, "*-D_sub.tif", quiet=quiet
@@ -187,22 +196,29 @@ class StereoFiles:
         # and rescaling below.
         self.disparity_fn = glob_file(self.full_directory, "*-D.tif", quiet=quiet)
 
-        self.pairs = [
-            PairStereoFiles(
-                number=number,
-                directory=pair_directory,
-                label=describe_pair(number, pair_directory),
-                left_image_fn=glob_file(pair_directory, "*-L.tif"),
-                left_image_sub_fn=glob_file(pair_directory, "*-L_sub.tif"),
-                right_image_sub_fn=glob_file(pair_directory, "*-R_sub.tif"),
-                align_left_fn=glob_file(pair_directory, "*-align-L.txt"),
-                align_right_fn=glob_file(pair_directory, "*-align-R.txt"),
-                match_point_fn=self._find_match_file(pair_directory),
-                disparity_sub_fn=glob_file(pair_directory, "*-D_sub.tif"),
-                disparity_fn=glob_file(pair_directory, "*-D.tif"),
+        self.pairs = []
+        for number, pair_directory in pair_directories:
+            match_point_fn = self._find_match_file(pair_directory)
+            left_vwip_fn, right_vwip_fn = self._find_vwip_files(
+                pair_directory, match_point_fn
             )
-            for number, pair_directory in pair_directories
-        ]
+            self.pairs.append(
+                PairStereoFiles(
+                    number=number,
+                    directory=pair_directory,
+                    label=describe_pair(number, pair_directory),
+                    left_image_fn=glob_file(pair_directory, "*-L.tif"),
+                    left_image_sub_fn=glob_file(pair_directory, "*-L_sub.tif"),
+                    right_image_sub_fn=glob_file(pair_directory, "*-R_sub.tif"),
+                    align_left_fn=glob_file(pair_directory, "*-align-L.txt"),
+                    align_right_fn=glob_file(pair_directory, "*-align-R.txt"),
+                    match_point_fn=match_point_fn,
+                    left_vwip_fn=left_vwip_fn,
+                    right_vwip_fn=right_vwip_fn,
+                    disparity_sub_fn=glob_file(pair_directory, "*-D_sub.tif"),
+                    disparity_fn=glob_file(pair_directory, "*-D.tif"),
+                )
+            )
 
         self.dem_gsd = dem_gsd
 
@@ -243,6 +259,46 @@ class StereoFiles:
         match_files = glob_file(directory, "*.match", all_files=True, quiet=quiet)
         non_disp = [f for f in (match_files or []) if "-disp-" not in f]
         return non_disp[0] if non_disp else None
+
+    @staticmethod
+    def _find_vwip_files(directory, match_point_fn):
+        """The directory's left and right ``.vwip`` files, or None for each.
+
+        ASP writes the per-image raw interest points next to the match file
+        that pairs them: ``<A>__<B>.match`` sits alongside ``<A>.vwip`` and
+        ``<prefix>-<B>.vwip`` (``A``/``B`` are ``L``/``R`` when interest
+        points were found on the aligned images, the input image basenames
+        otherwise). Either side may be absent — they are intermediates that
+        some runs clean up or only partially keep — so lookups are quiet.
+        """
+        vwip_files = glob_file(directory, "*.vwip", all_files=True, quiet=True) or []
+
+        def stem(fn):
+            return os.path.splitext(os.path.basename(fn))[0]
+
+        if match_point_fn:
+            match_stem = stem(match_point_fn)
+            left = next(
+                (f for f in vwip_files if match_stem.startswith(stem(f) + "__")),
+                None,
+            )
+            right_name = (
+                match_stem[len(stem(left)) + 2 :]
+                if left
+                else match_stem.rsplit("__", 1)[-1]
+            )
+            right = next(
+                (f for f in vwip_files if f != left and stem(f).endswith(right_name)),
+                None,
+            )
+            return left, right
+
+        # No match file (e.g. interest point matching itself failed): fall
+        # back to the aligned-image naming.
+        return (
+            glob_file(directory, "*-L.vwip", quiet=True),
+            glob_file(directory, "*-R.vwip", quiet=True),
+        )
 
 
 class StereoPlotter(Plotter):
@@ -375,6 +431,14 @@ class StereoPlotter(Plotter):
         return self.files.match_point_fn
 
     @property
+    def left_vwip_fn(self):
+        return self.files.left_vwip_fn
+
+    @property
+    def right_vwip_fn(self):
+        return self.files.right_vwip_fn
+
+    @property
     def disparity_sub_fn(self):
         return self.files.disparity_sub_fn
 
@@ -504,27 +568,68 @@ class StereoPlotter(Plotter):
             else None
         )
 
+    def get_vwip_df(self, vwip_fn):
+        """
+        Read a per-image raw interest point file (``.vwip``) into a DataFrame.
+
+        These are the interest points ASP detects on each image before
+        matching them across the pair; the ``.match`` file keeps only the
+        subset that matched. Comparing the two shows whether sparse matches
+        come from poor matching or from areas with no interest points at all
+        (limited texture, clouds, water).
+
+        Parameters
+        ----------
+        vwip_fn : str or None
+            Path to the ``.vwip`` file.
+
+        Returns
+        -------
+        pandas.DataFrame or None
+            DataFrame with columns 'x' and 'y' of the interest point
+            coordinates, or None if the file is missing.
+
+        Notes
+        -----
+        The file is a single uint64 interest point count followed by the same
+        binary interest point records as the ``.match`` file (issue #8).
+        """
+        if not vwip_fn or not os.path.exists(vwip_fn):
+            return None
+        with open(vwip_fn, "rb") as vwip_file:
+            (size,) = np.frombuffer(vwip_file.read(8), dtype=np.uint64)
+            ip = [self.read_ip_record(vwip_file) for _ in range(int(size))]
+        return pd.DataFrame({"x": [r[0] for r in ip], "y": [r[1] for r in ip]})
+
     def _plot_match_points_figure(self, files, title, save_dir=None, fig_fn=None):
         """One two-panel match-point figure for a :class:`StereoFiles` or
         :class:`PairStereoFiles` (duck-typed) set of products."""
         match_point_df = self.get_match_point_df(files.match_point_fn)
+        left_vwip_df = self.get_vwip_df(files.left_vwip_fn)
+        right_vwip_df = self.get_vwip_df(files.right_vwip_fn)
 
         fig, axa = plt.subplots(1, 2, figsize=(10, 5))
 
-        if (
-            files.left_image_fn
-            and files.left_image_sub_fn
-            and files.right_image_sub_fn
-            and match_point_df is not None
-        ):
+        have_images = (
+            files.left_image_fn and files.left_image_sub_fn and files.right_image_sub_fn
+        )
+        have_points = (
+            match_point_df is not None
+            or left_vwip_df is not None
+            or right_vwip_df is not None
+        )
+        if have_images and have_points:
+            # Both the match file and the .vwip files hold coordinates in the
+            # space of the images interest points were found on, so one
+            # transform per side maps either onto the sub-sampled images.
             if self.orthos:
                 full_gsd = Raster(files.left_image_fn).get_gsd()
                 sub_gsd = Raster(files.left_image_sub_fn).get_gsd()
                 rescale_factor = sub_gsd / full_gsd
-                left_x = match_point_df["x1"] / rescale_factor
-                left_y = match_point_df["y1"] / rescale_factor
-                right_x = match_point_df["x2"] / rescale_factor
-                right_y = match_point_df["y2"] / rescale_factor
+
+                def to_sub(x, y, side):
+                    return x / rescale_factor, y / rescale_factor
+
             else:
                 if not files.align_left_fn or not files.align_right_fn:
                     raise FileNotFoundError(
@@ -536,24 +641,15 @@ class StereoPlotter(Plotter):
                 sub_width = Raster(files.left_image_sub_fn).ds.width
                 rescale_factor = full_width / sub_width
 
-                # Transform match points from original to aligned coordinate space
-                align_L = np.loadtxt(files.align_left_fn)
-                align_R = np.loadtxt(files.align_right_fn)
+                # Transform points from original to aligned coordinate space
+                align = {
+                    "left": np.loadtxt(files.align_left_fn),
+                    "right": np.loadtxt(files.align_right_fn),
+                }
 
-                n = len(match_point_df)
-                ones = np.ones(n)
-
-                left_pts = np.vstack([match_point_df["x1"], match_point_df["y1"], ones])
-                left_aligned = align_L @ left_pts
-                left_x = left_aligned[0] / rescale_factor
-                left_y = left_aligned[1] / rescale_factor
-
-                right_pts = np.vstack(
-                    [match_point_df["x2"], match_point_df["y2"], ones]
-                )
-                right_aligned = align_R @ right_pts
-                right_x = right_aligned[0] / rescale_factor
-                right_y = right_aligned[1] / rescale_factor
+                def to_sub(x, y, side):
+                    aligned = align[side] @ np.vstack([x, y, np.ones(len(x))])
+                    return aligned[0] / rescale_factor, aligned[1] / rescale_factor
 
             left_image = Raster(files.left_image_sub_fn).read_array()
             right_image = Raster(files.right_image_sub_fn).read_array()
@@ -571,28 +667,47 @@ class StereoPlotter(Plotter):
                 add_cbar=False,
                 copyright=True,
             )
-            axa[0].set_title(f"Left (n={match_point_df.shape[0]})")
-            axa[1].set_title("Right")
 
-            axa[0].scatter(
-                left_x,
-                left_y,
-                color="r",
-                marker="o",
-                facecolor="none",
-                s=1,
-            )
-            axa[0].set_aspect("equal")
+            for ax, side, vwip_df, name in (
+                (axa[0], "left", left_vwip_df, "Left"),
+                (axa[1], "right", right_vwip_df, "Right"),
+            ):
+                counts = []
+                if vwip_df is not None:
+                    x, y = to_sub(vwip_df["x"], vwip_df["y"], side)
+                    ax.scatter(
+                        x,
+                        y,
+                        color="b",
+                        marker="o",
+                        facecolor="none",
+                        s=1,
+                        label="Interest points",
+                    )
+                    counts.append(f"n={vwip_df.shape[0]} interest points")
+                if match_point_df is not None:
+                    x, y = to_sub(
+                        match_point_df["x1" if side == "left" else "x2"],
+                        match_point_df["y1" if side == "left" else "y2"],
+                        side,
+                    )
+                    ax.scatter(
+                        x,
+                        y,
+                        color="r",
+                        marker="o",
+                        facecolor="none",
+                        s=1,
+                        label="Matches",
+                    )
+                    counts.append(f"n={match_point_df.shape[0]} matches")
+                ax.set_title(f"{name} ({', '.join(counts)})" if counts else name)
+                ax.set_aspect("equal")
 
-            axa[1].scatter(
-                right_x,
-                right_y,
-                color="r",
-                marker="o",
-                facecolor="none",
-                s=1,
-            )
-            axa[1].set_aspect("equal")
+            if match_point_df is not None and (
+                left_vwip_df is not None or right_vwip_df is not None
+            ):
+                axa[0].legend(loc="best", fontsize=7, markerscale=4)
         else:
             self.plot_missing(axa[0])
             self.plot_missing(axa[1])
@@ -606,8 +721,13 @@ class StereoPlotter(Plotter):
 
         Creates a figure with two subplots showing the left and right
         subsampled images with match points overlaid as small red circles.
-        For mapprojected scenes, match points are rescaled using the GSD ratio.
-        For non-mapprojected scenes, match points are transformed from original
+        When the per-image raw interest point files (``.vwip``) are present,
+        they are underlaid as small blue circles, so sparse matches can be
+        traced to either poor matching or areas with no detected interest
+        points at all (issue #8); if the match file is missing entirely, the
+        raw interest points are still shown on their own.
+        For mapprojected scenes, points are rescaled using the GSD ratio.
+        For non-mapprojected scenes, points are transformed from original
         to aligned coordinate space using the alignment matrices, then rescaled
         to the subsampled image dimensions.
 
