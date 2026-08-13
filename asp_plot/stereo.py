@@ -29,6 +29,11 @@ from asp_plot.utils import (
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
+# Overlay colors for the match point figure, chosen to stand out against the
+# grayscale images.
+INTEREST_POINT_COLOR = "deepskyblue"
+MATCH_POINT_COLOR = "r"
+
 
 @dataclass
 class PairStereoFiles:
@@ -678,7 +683,7 @@ class StereoPlotter(Plotter):
                     ax.scatter(
                         x,
                         y,
-                        color="b",
+                        color=INTEREST_POINT_COLOR,
                         marker="o",
                         facecolor="none",
                         s=1,
@@ -694,7 +699,7 @@ class StereoPlotter(Plotter):
                     ax.scatter(
                         x,
                         y,
-                        color="r",
+                        color=MATCH_POINT_COLOR,
                         marker="o",
                         facecolor="none",
                         s=1,
