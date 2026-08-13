@@ -124,6 +124,20 @@ class TestStereoPlotter:
         assert stereo_plotter.get_vwip_df(None) is None
         assert stereo_plotter.get_vwip_df("nonexistent.vwip") is None
 
+    def test_thin_for_display(self, stereo_plotter):
+        import pandas as pd
+
+        from asp_plot.stereo import MAX_POINTS_DRAWN
+
+        small = pd.DataFrame({"x": range(100)})
+        assert stereo_plotter._thin_for_display(small) is small
+        big = pd.DataFrame({"x": range(2 * MAX_POINTS_DRAWN + 5000)})
+        thinned = stereo_plotter._thin_for_display(big)
+        assert len(thinned) == MAX_POINTS_DRAWN
+        # sampling keeps the full extent, not just the head, and is seeded
+        assert thinned["x"].iloc[-1] > 2 * MAX_POINTS_DRAWN
+        assert thinned["x"].equals(stereo_plotter._thin_for_display(big)["x"])
+
     def test_plot_match_points_without_vwip(self, stereo_plotter, tmp_path):
         # .vwip files are intermediates that runs often clean up; the figure
         # must render matches-only as before.

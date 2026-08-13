@@ -33,6 +33,11 @@ logger = logging.getLogger(__name__)
 # grayscale images.
 INTEREST_POINT_COLOR = "deepskyblue"
 MATCH_POINT_COLOR = "r"
+# At most this many markers are drawn per overlay layer: dense runs (e.g.
+# ~100k interest points) saturate the panels into solid color otherwise.
+# Layers are thinned by striding, which preserves the spatial coverage the
+# figure exists to show; panel titles always report the true counts.
+MAX_POINTS_DRAWN = 10000
 
 
 @dataclass
@@ -259,10 +264,11 @@ class StereoFiles:
 
         There may be multiple match files if stereo was run with
         ``--num-matches-from-disparity``; in that case, filter out the match
-        file with ``-disp-`` in the filename.
+        file with ``-disp-`` in the filename. Candidates are sorted so the
+        choice is deterministic (glob order is filesystem-dependent).
         """
         match_files = glob_file(directory, "*.match", all_files=True, quiet=quiet)
-        non_disp = [f for f in (match_files or []) if "-disp-" not in f]
+        non_disp = sorted(f for f in (match_files or []) if "-disp-" not in f)
         return non_disp[0] if non_disp else None
 
     @staticmethod
@@ -607,6 +613,17 @@ class StereoPlotter(Plotter):
         return pd.DataFrame({"x": [r[0] for r in ip], "y": [r[1] for r in ip]})
 
     @staticmethod
+    def _thin_for_display(df):
+        """Subsample a point DataFrame down to :data:`MAX_POINTS_DRAWN` rows
+        for plotting (see the constant's rationale); returns it unchanged
+        when already under the cap. Sampling is seeded (deterministic) and
+        random rather than strided, because striding a gridded interest
+        point layout produces moiré artifacts."""
+        if len(df) <= MAX_POINTS_DRAWN:
+            return df
+        return df.sample(n=MAX_POINTS_DRAWN, random_state=0).sort_index()
+
+    @staticmethod
     def _ip_on_aligned_images(files):
         """Whether interest points were found on the aligned L/R images
         rather than on the input images.
@@ -716,7 +733,8 @@ class StereoPlotter(Plotter):
             ):
                 counts = []
                 if vwip_df is not None:
-                    x, y = to_sub(vwip_df["x"], vwip_df["y"], side)
+                    thinned = self._thin_for_display(vwip_df)
+                    x, y = to_sub(thinned["x"], thinned["y"], side)
                     ax.scatter(
                         x,
                         y,
@@ -726,11 +744,12 @@ class StereoPlotter(Plotter):
                         s=1,
                         label="Interest points",
                     )
-                    counts.append(f"n={vwip_df.shape[0]} interest points")
+                    counts.append(f"{vwip_df.shape[0]:,} ip")
                 if match_point_df is not None:
+                    thinned = self._thin_for_display(match_point_df)
                     x, y = to_sub(
-                        match_point_df["x1" if side == "left" else "x2"],
-                        match_point_df["y1" if side == "left" else "y2"],
+                        thinned["x1" if side == "left" else "x2"],
+                        thinned["y1" if side == "left" else "y2"],
                         side,
                     )
                     ax.scatter(
@@ -742,8 +761,11 @@ class StereoPlotter(Plotter):
                         s=1,
                         label="Matches",
                     )
-                    counts.append(f"n={match_point_df.shape[0]} matches")
-                ax.set_title(f"{name} ({', '.join(counts)})" if counts else name)
+                    counts.append(f"{match_point_df.shape[0]:,} matches")
+                ax.set_title(
+                    f"{name} ({', '.join(counts)})" if counts else name,
+                    fontsize=10,
+                )
                 ax.set_aspect("equal")
 
             if match_point_df is not None and (
@@ -767,7 +789,9 @@ class StereoPlotter(Plotter):
         they are underlaid as small blue circles, so sparse matches can be
         traced to either poor matching or areas with no detected interest
         points at all (issue #8); if the match file is missing entirely, the
-        raw interest points are still shown on their own.
+        raw interest points are still shown on their own. Layers denser than
+        :data:`MAX_POINTS_DRAWN` are thinned by striding for display (the
+        panel titles always report the true counts).
         For mapprojected scenes, points are rescaled using the GSD ratio.
         For non-mapprojected scenes, points are transformed from original
         to aligned coordinate space using the alignment matrices, then rescaled
