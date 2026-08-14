@@ -17,7 +17,7 @@ INPUT_SCENES = "Left and right input scenes used for stereo processing. Non-mapp
 
 STEREO_GEOMETRY = "Stereo acquisition geometry skyplot and map view showing satellite viewing angles and scene footprints."
 
-MATCH_POINTS = "Interest point matches between left and right images (red), overlaid on the raw interest points detected on each image individually (blue, when the .vwip files are present in the stereo directory). These are produced by stereo_corr during its initial interest point matching step, which is used to set the search windows for subsequent dense correlation (not the dense correlation matches themselves). Comparing the raw interest points against the matches shows whether sparse matching traces back to poor matching or to areas with no detected interest points at all (e.g., limited texture, clouds, water)."
+MATCH_POINTS = "Interest point matches between left and right images (red), overlaid on the raw interest points detected on each image individually (blue, when the .vwip files are present in the stereo directory). These are produced by stereo_corr during its initial interest point matching step, which is used to set the search windows for subsequent dense correlation (not the dense correlation matches themselves). Comparing the raw interest points against the matches shows whether sparse matching traces back to poor matching or to areas with no detected interest points at all (e.g., limited texture, clouds, water). Some ASP configurations only write a .vwip file for the left image (the right image's interest points are detected on a temporary aligned image and not saved), in which case only matches are shown on the right."
 
 BUNDLE_RESIDUALS_LOG = (
     "Initial and final bundle adjustment residuals on a logarithmic scale."
