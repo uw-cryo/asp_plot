@@ -35,8 +35,9 @@ INTEREST_POINT_COLOR = "deepskyblue"
 MATCH_POINT_COLOR = "r"
 # At most this many markers are drawn per overlay layer: dense runs (e.g.
 # ~100k interest points) saturate the panels into solid color otherwise.
-# Layers are thinned by striding, which preserves the spatial coverage the
-# figure exists to show; panel titles always report the true counts.
+# Layers are thinned by seeded random sampling, which preserves the spatial
+# coverage the figure exists to show; panel titles always report the true
+# counts.
 MAX_POINTS_DRAWN = 10000
 
 
@@ -282,7 +283,9 @@ class StereoFiles:
         otherwise). Either side may be absent — they are intermediates that
         some runs clean up or only partially keep — so lookups are quiet.
         """
-        vwip_files = glob_file(directory, "*.vwip", all_files=True, quiet=True) or []
+        vwip_files = sorted(
+            glob_file(directory, "*.vwip", all_files=True, quiet=True) or []
+        )
 
         def stem(fn):
             return os.path.splitext(os.path.basename(fn))[0]
@@ -305,7 +308,11 @@ class StereoFiles:
             return left, right
 
         # No match file (e.g. interest point matching itself failed): fall
-        # back to the aligned-image naming.
+        # back to the aligned-image naming. Vwips named after the input
+        # images are deliberately NOT picked up here: without a match file
+        # there is nothing to say which image is left vs right, nor whether
+        # the align transform applies, so guessing could plot the points on
+        # the wrong panel or in the wrong coordinate space.
         return (
             glob_file(directory, "*-L.vwip", quiet=True),
             glob_file(directory, "*-R.vwip", quiet=True),
@@ -790,8 +797,8 @@ class StereoPlotter(Plotter):
         traced to either poor matching or areas with no detected interest
         points at all (issue #8); if the match file is missing entirely, the
         raw interest points are still shown on their own. Layers denser than
-        :data:`MAX_POINTS_DRAWN` are thinned by striding for display (the
-        panel titles always report the true counts).
+        :data:`MAX_POINTS_DRAWN` are thinned by seeded random sampling for
+        display (the panel titles always report the true counts).
         For mapprojected scenes, points are rescaled using the GSD ratio.
         For non-mapprojected scenes, points are transformed from original
         to aligned coordinate space using the alignment matrices, then rescaled
