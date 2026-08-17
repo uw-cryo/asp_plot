@@ -15,6 +15,7 @@ import numpy as np
 from matplotlib import pyplot as plt
 from matplotlib.cm import ScalarMappable
 from matplotlib.colors import Normalize
+from matplotlib.ticker import ScalarFormatter
 
 from asp_plot.csm_analysis import (  # noqa: F401  (re-exported for back-compat)
     get_orbit_plot_gdf,
@@ -126,6 +127,60 @@ def _apply_frame_xaxis(ax, gdf, frame):
         ax.set_xlabel("Position Sample", fontsize=9)
 
 
+def _no_offset_colorbar_ticks(cbar):
+    """
+    Stop a colorbar from labelling its ticks with an additive offset.
+
+    Parameters
+    ----------
+    cbar : matplotlib.colorbar.Colorbar
+        The colorbar to reformat
+
+    Notes
+    -----
+    Over a narrow range of small values -- angle changes of 1.7860e-4 to
+    1.7870e-4 degrees, say -- matplotlib labels the ticks 0.5, 1.0, 1.5 and
+    parks a combined scale-and-offset string ("1e-8+1.786e-4") above the
+    colorbar, where it collides with the adjacent map panel's own northing
+    offset ("1e6"). Dropping the additive offset leaves a bare multiplier
+    ("1e-4"), which is both short enough to clear the neighbour and easier to
+    read: the ticks then carry the significant digits themselves.
+    """
+    formatter = ScalarFormatter(useOffset=False)
+    formatter.set_powerlimits((-3, 4))
+    cbar.ax.yaxis.set_major_formatter(formatter)
+
+
+def _magnitude_limits(magnitudes, upper_magnitude_percentile):
+    """
+    Colorbar limits for one camera's difference magnitudes.
+
+    Parameters
+    ----------
+    magnitudes : pandas.Series
+        A ``position_diff_magnitude`` or ``angular_diff_magnitude`` column
+    upper_magnitude_percentile : int
+        Percentile used for the upper limit
+
+    Returns
+    -------
+    tuple of float
+        ``(vmin, vmax)``, or ``(0, 0)`` when nothing changed
+
+    Notes
+    -----
+    Exact zeros are excluded before taking percentiles, and an all-zero column
+    (a camera the solver left untouched) returns ``(0, 0)`` rather than raising
+    on the empty percentile (issue #54).
+    """
+    values = magnitudes[magnitudes > 0]
+    try:
+        vmin, vmax = np.percentile(values, [0, upper_magnitude_percentile])
+    except IndexError:
+        vmin, vmax = 0, 0
+    return vmin, vmax
+
+
 def _plot_camera(
     pos_row,
     ang_row,
@@ -205,6 +260,7 @@ def _plot_camera(
     )
     cbar1.set_label("Diff Magnitude (m)", fontsize=9)
     cbar1.ax.tick_params(labelsize=9)
+    _no_offset_colorbar_ticks(cbar1)
 
     # Angle-magnitude mapview plot
     ax = ang_row[0]
@@ -230,6 +286,7 @@ def _plot_camera(
     )
     cbar2.set_label("Diff Magnitude (°)", fontsize=9)
     cbar2.ax.tick_params(labelsize=9)
+    _no_offset_colorbar_ticks(cbar2)
 
     frame = np.arange(gdf.shape[0])
 
@@ -265,7 +322,11 @@ def _plot_camera(
     for ax in [ax1, ax2, ax3]:
         ax.set_xlim(frame.min(), frame.max())
         ax.hlines(0, frame.min(), frame.max(), color="k", linestyle="-", lw=0.5)
-        ax.set_title(cam_label, loc="right", fontsize=10, y=0.98)
+        # Centered, not right-aligned: matplotlib parks a y-axis offset/scale
+        # label ("1e-5", "+1.669e2") in each top corner, and the angle panels
+        # have two of them -- the left axis's at top left and the twin axis's
+        # at top right -- so a right-aligned title renders on top of the latter.
+        ax.set_title(cam_label, loc="center", fontsize=10)
         _apply_frame_xaxis(ax, gdf, frame)
         ax.set_ylabel("Original $-$ Optimized (m)", fontsize=9)
         if shared_scales:
@@ -312,7 +373,11 @@ def _plot_camera(
     for ax, ax_r in [(ax1, ax1_r), (ax2, ax2_r), (ax3, ax3_r)]:
         ax.set_xlim(frame.min(), frame.max())
         ax.hlines(0, frame.min(), frame.max(), color="k", linestyle="-", lw=0.5)
-        ax.set_title(cam_label, loc="right", fontsize=10, y=0.98)
+        # Centered, not right-aligned: matplotlib parks a y-axis offset/scale
+        # label ("1e-5", "+1.669e2") in each top corner, and the angle panels
+        # have two of them -- the left axis's at top left and the twin axis's
+        # at top right -- so a right-aligned title renders on top of the latter.
+        ax.set_title(cam_label, loc="center", fontsize=10)
         _apply_frame_xaxis(ax, gdf, frame)
         ax.set_ylabel("Original $-$ Optimized (°)", fontsize=9)
         if shared_scales:
@@ -410,28 +475,38 @@ def csm_camera_summary_plot(
         )
         add_basemap = False
 
-    # Calculate colorbar ranges from camera 1; camera 2 reuses the same scale.
-    position_values = gdf_cam1.position_diff_magnitude[
-        gdf_cam1.position_diff_magnitude > 0
-    ]
-    angular_values = gdf_cam1.angular_diff_magnitude[
-        gdf_cam1.angular_diff_magnitude > 0
-    ]
-    # When position or angular changes are all zero, the percentile calculation will fail
-    # https://github.com/uw-cryo/asp_plot/issues/54
-    try:
-        cam1_position_vmin, cam1_position_vmax = np.percentile(
-            position_values, [0, upper_magnitude_percentile]
+    # Colorbar ranges are per camera by default. Two cameras in one run can
+    # differ by more than their own spread -- bundle_adjust might move one by
+    # 0.44 m and the other by 0.90 m -- and forcing the second onto the first's
+    # scale paints its whole track a single saturated color, hiding any spatial
+    # pattern. shared_scales puts both on one scale when the point is to compare
+    # their magnitudes directly.
+    cam1_position_vmin, cam1_position_vmax = _magnitude_limits(
+        gdf_cam1.position_diff_magnitude, upper_magnitude_percentile
+    )
+    cam1_angular_vmin, cam1_angular_vmax = _magnitude_limits(
+        gdf_cam1.angular_diff_magnitude, upper_magnitude_percentile
+    )
+    if cam2_list:
+        cam2_position_vmin, cam2_position_vmax = _magnitude_limits(
+            gdf_cam2.position_diff_magnitude, upper_magnitude_percentile
         )
-    except IndexError:
-        cam1_position_vmin, cam1_position_vmax = 0, 0
-
-    try:
-        cam1_angular_vmin, cam1_angular_vmax = np.percentile(
-            angular_values, [0, upper_magnitude_percentile]
+        cam2_angular_vmin, cam2_angular_vmax = _magnitude_limits(
+            gdf_cam2.angular_diff_magnitude, upper_magnitude_percentile
         )
-    except IndexError:
-        cam1_angular_vmin, cam1_angular_vmax = 0, 0
+        if shared_scales:
+            cam1_position_vmin = cam2_position_vmin = min(
+                cam1_position_vmin, cam2_position_vmin
+            )
+            cam1_position_vmax = cam2_position_vmax = max(
+                cam1_position_vmax, cam2_position_vmax
+            )
+            cam1_angular_vmin = cam2_angular_vmin = min(
+                cam1_angular_vmin, cam2_angular_vmin
+            )
+            cam1_angular_vmax = cam2_angular_vmax = max(
+                cam1_angular_vmax, cam2_angular_vmax
+            )
 
     if upper_magnitude_percentile == 100:
         extend = "neither"
@@ -469,10 +544,10 @@ def csm_camera_summary_plot(
             gdf_cam2,
             cam2_name,
             "Camera 2",
-            cam1_position_vmin,
-            cam1_position_vmax,
-            cam1_angular_vmin,
-            cam1_angular_vmax,
+            cam2_position_vmin,
+            cam2_position_vmax,
+            cam2_angular_vmin,
+            cam2_angular_vmax,
             extend,
             add_basemap,
             shared_scales,
