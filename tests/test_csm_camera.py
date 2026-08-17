@@ -8,7 +8,10 @@ import pytest
 from asp_plot.csm_camera import (
     csm_camera_summary_plot,
     get_orbit_plot_gdf,
+    read_angles,
+    read_csm_cam,
     reproject_ecef,
+    wrap_angle_diff,
 )
 
 matplotlib.use("Agg")
@@ -115,6 +118,113 @@ def _assert_camera_lines(main_axes, gdf):
     for idx, want in expected.items():
         got = np.asarray(main_axes[idx].get_lines()[0].get_ydata(), dtype=float)
         np.testing.assert_allclose(got, want, rtol=1e-9, atol=1e-9)
+
+
+def _write_resampled_camera(src_fn, dst_fn, factor=2, position_noise_m=0.0, seed=0):
+    """Write a copy of a linescan CSM camera on a denser ephemeris/quaternion grid.
+
+    This is what ``bundle_adjust`` and ``jitter_solve`` do to their input: they
+    resample the trajectory to a finer spacing and nudge the positions. The
+    *orientations* here are only resampled, never rotated, so the true
+    orientation change between ``src_fn`` and the written camera is zero.
+    """
+    model = read_csm_cam(src_fn)
+
+    def densify(flat, width):
+        arr = np.asarray(flat, dtype=float).reshape(-1, width)
+        n_out = (arr.shape[0] - 1) * factor + 1
+        x_in = np.linspace(0, 1, arr.shape[0])
+        x_out = np.linspace(0, 1, n_out)
+        return np.column_stack(
+            [np.interp(x_out, x_in, arr[:, i]) for i in range(width)]
+        )
+
+    positions = densify(model["m_positions"], 3)
+    velocities = densify(model["m_velocities"], 3)
+    quaternions = densify(model["m_quaternions"], 4)
+    quaternions /= np.linalg.norm(quaternions, axis=1, keepdims=True)
+
+    if position_noise_m:
+        rng = np.random.default_rng(seed)
+        # Perturb along the radial (nadir) direction, which is where solver
+        # position changes mostly land, and where they most strongly tilt an
+        # along-track direction estimated by central differences.
+        radial = positions / np.linalg.norm(positions, axis=1, keepdims=True)
+        positions = positions + radial * rng.normal(
+            0.0, position_noise_m, size=(positions.shape[0], 1)
+        )
+
+    model["m_positions"] = positions.ravel().tolist()
+    model["m_velocities"] = velocities.ravel().tolist()
+    model["m_quaternions"] = quaternions.ravel().tolist()
+    model["m_numPositions"] = positions.size
+    model["m_numQuaternions"] = quaternions.size
+    model["m_dtEphem"] = model["m_dtEphem"] / factor
+    model["m_dtQuat"] = model["m_dtQuat"] / factor
+
+    with open(dst_fn, "w") as f:
+        f.write("USGS_ASTRO_LINE_SCANNER_SENSOR_MODEL\n")
+        json.dump(model, f)
+    return dst_fn
+
+
+class TestAngleReferenceFrame:
+    """Angle differences must measure the cameras, not the estimated frame.
+
+    ``csm_io.read_angles()`` mirrors ASP's ``orbit_plot.py``, which estimates
+    the satellite body frame separately for each camera from a central
+    difference of that camera's own ephemeris. Differencing two such
+    independently-estimated frames injects a large spurious signal, because a
+    solver both resamples the ephemeris to a finer spacing (shortening the
+    central-difference baseline) and perturbs the positions. See issue #53.
+    """
+
+    def test_diff_of_identical_cameras_is_zero(self):
+        gdf = get_orbit_plot_gdf(CAM1[0], CAM1[0])
+        for col in ["roll_diff", "pitch_diff", "yaw_diff"]:
+            np.testing.assert_allclose(gdf[col].values, 0.0, atol=1e-12)
+
+    def test_resampled_and_nudged_ephemeris_does_not_fake_a_rotation(self, tmp_path):
+        # Same orientations, denser trajectory, 2 m of radial position noise:
+        # the reported orientation change must stay near zero.
+        optimized = _write_resampled_camera(
+            CAM1[0], str(tmp_path / "resampled.json"), factor=2, position_noise_m=2.0
+        )
+        gdf = get_orbit_plot_gdf(CAM1[0], optimized)
+
+        for col in ["roll_diff", "pitch_diff", "yaw_diff"]:
+            assert (
+                np.abs(gdf[col].values).max() < 1e-3
+            ), f"{col} reports a rotation that the camera did not undergo"
+
+        # Guard the regression the other way round: ASP's per-camera frames do
+        # see this as a large rotation, so the assertion above is not vacuous.
+        original_angles, optimized_angles = read_angles([CAM1[0]], [optimized], [])
+        asp_pitch = np.array([a[1] for a in original_angles])
+        asp_pitch_opt = np.array([a[1] for a in optimized_angles])
+        asp_pitch_diff = (
+            np.interp(
+                np.linspace(0, 1, len(asp_pitch_opt)),
+                np.linspace(0, 1, len(asp_pitch)),
+                asp_pitch,
+            )
+            - asp_pitch_opt
+        )
+        assert np.abs(asp_pitch_diff).max() > 0.1
+
+
+class TestAngleWrapping:
+    def test_wrap_angle_diff(self):
+        np.testing.assert_allclose(
+            wrap_angle_diff([0.0, 10.0, -10.0, 359.8, -359.8, 180.0, -180.0]),
+            [0.0, 10.0, -10.0, -0.2, 0.2, -180.0, -180.0],
+            atol=1e-9,
+        )
+
+    def test_yaw_near_the_branch_cut_is_not_a_360_degree_change(self):
+        # A camera at yaw ~+179.9 compared against one at ~-179.9 changed by
+        # 0.2 degrees, not by 359.8.
+        np.testing.assert_allclose(wrap_angle_diff(179.9 - -179.9), -0.2, atol=1e-9)
 
 
 class TestCameraOptimization:
