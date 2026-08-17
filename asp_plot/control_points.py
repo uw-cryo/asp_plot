@@ -12,6 +12,41 @@ groundcontrol at the one call site that needs it (:func:`_transform_points`)
 and fails with an actionable message when it is absent. Control parquets whose
 CRS already matches the DEM (pre-transformed points, test fixtures) never
 touch groundcontrol at all.
+
+Pending upstream sync (resolve and delete this section before merge)
+--------------------------------------------------------------------
+This PR is parked until groundcontrol has an installable distribution name
+(uw-cryo/groundcontrol#20), since PyPI rejects git-URL dependencies and the
+``groundcontrol`` name is held by an unrelated package. Upstream keeps moving
+in the meantime; this is the running list of what that costs us. Re-verified
+against groundcontrol main @ ``a833b38`` (2026-08-14) on the Atlanta MVS
+example:
+
+* **Install hint.** The message in :func:`_transform_points` names the pinned
+  git tag. It must name the new distribution once groundcontrol#20 lands, and
+  the extra can then be declared in ``pyproject.toml``.
+* **No regression from groundcontrol#21/#22.** The per-row NGS realization
+  quarantine (#21) leaves the ``vertSource``/``posSource`` fields this module
+  parses out of ``raw`` untouched, and the new fail-loud guard against 2D
+  target CRSs (#22) is satisfied because :meth:`ControlPoints.to_dem_frame`
+  already passes ``dem_crs.to_3d()``. Atlanta reproduces exactly: n=24,
+  median −0.14 m, NMAD 0.28 m — the numbers in the committed report page.
+* **New ``faa`` control source (groundcontrol#24) needs a branch in**
+  :meth:`ControlPoints.filter_quality`. FAA NASR runway ends and displaced
+  thresholds are unrecognized today, so they pass through unfiltered. They are
+  excellent DEM control — photo-identifiable flat pavement, published 7.6 cm
+  vertical accuracy, and at KATL they add 10 points that close at −0.46 m
+  median / 0.23 m NMAD against the 5-scene MVS DEM — but they need two
+  filters, not one: keep ``pos_class == "surveyed"`` (the ``vertSource``
+  pattern), *and* drop points whose ``pos_src_date`` post-dates the DEM. Both
+  live in the ``raw`` JSON. Airfield pavement gets rebuilt: KATL runway
+  09L/27R was extended eastward and resurveyed in 2012, so against this
+  2009 DEM that end reads −4.8 m while its displaced threshold 150 m west
+  closes at −0.4 m. ``epoch_residual_m`` is NaN for FAA rows (no velocities),
+  so nothing upstream flags it today.
+  :meth:`ControlPoints.sample_dem`'s 3σ NMAD filter does reject the point, but
+  only after it has entered the sample; at n=10 the std filter it replaced
+  could not have (see :meth:`_nmad_outlier_mask`).
 """
 
 import json
