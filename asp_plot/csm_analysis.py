@@ -111,8 +111,13 @@ def read_angles_common_frame(original_camera, optimized_camera):
     original_positions = np.array(original_positions, dtype=float)
 
     # A single-sample (frame) camera gives no baseline to estimate a satellite
-    # frame from, so fall back to ASP's behavior.
-    if len(original_positions) < 2:
+    # frame from, so fall back to ASP's behavior. Guard on *both* cameras: a
+    # one-sample optimized camera would collapse the resample below to a single
+    # point, which has the same zero-length tangent vector problem. Neither path
+    # produces usable angles for a frame camera -- ASP's own
+    # estim_satellite_orientation divides by zero there too -- so this only
+    # keeps the two cameras treated alike.
+    if len(original_positions) < 2 or len(optimized_rotations) < 2:
         original_angles, optimized_angles = read_angles(
             [original_camera], [optimized_camera], []
         )
