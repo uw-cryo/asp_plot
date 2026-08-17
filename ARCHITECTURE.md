@@ -130,6 +130,8 @@ The package is organized by functionality, with each module focused on a specifi
 
 **`csm_analysis.py`** - asp_plot-specific analysis built on `csm_io`
 - `get_orbit_plot_gdf()`: turns an original/optimized camera pair into the position- and orientation-difference GeoDataFrame consumed by the plotting layer
+- `read_angles_common_frame()`: the asp_plot replacement for `csm_io.read_angles()` when *differencing* two cameras (#53). ASP's `orbit_plot.py` estimates the satellite body frame per camera, from a central difference of that camera's own ephemeris; a solver both perturbs the positions and resamples the ephemeris finer, and over a ~140 m central-difference baseline a 2 m perturbation tilts that frame by ~0.8° (mostly into pitch), which swamps the orientation change being measured. Both cameras are instead put in one frame, estimated from the original ephemeris and resampled onto the optimized camera's grid. Falls back to `read_angles()` for single-sample (frame) cameras, which give no baseline to estimate a frame from
+- `wrap_angle_diff()`: wraps angle differences into [-180, 180), so a camera pointing near ±180° in yaw (ASTER's backward-looking 3B band, say) does not report a ~360° change across the Euler branch cut
 - `reproject_ecef()`, `poly_fit()`
 
 **`csm_camera.py`** - Plotting layer for CSM camera optimization / jitter results

@@ -4,8 +4,13 @@ position- and orientation-difference GeoDataFrame consumed by the plotting
 layer (``csm_camera.py``).
 
 This module owns the asp_plot-specific analysis (``get_orbit_plot_gdf``,
-``reproject_ecef``, ``poly_fit``) and builds on the ASP-mirrored readers in
-``csm_io.py``.
+``read_angles_common_frame``, ``wrap_angle_diff``, ``reproject_ecef``,
+``poly_fit``) and builds on the ASP-mirrored readers in ``csm_io.py``.
+
+``read_angles_common_frame`` is a deliberate divergence from ASP's
+``orbit_plot.py``: differencing two cameras requires them to share one reference
+frame, and ASP estimates a separate frame per camera from that camera's own
+ephemeris. See its docstring and issue #53.
 """
 
 import geopandas as gpd
@@ -15,12 +20,122 @@ from pyproj import Transformer
 from shapely.geometry import Point
 
 from asp_plot.csm_io import (
+    estim_satellite_orientation,
     getTimeAtLine,
     isLinescan,
     read_angles,
     read_csm_cam,
     read_positions_rotations,
+    roll_pitch_yaw,
 )
+
+
+def _resample(values, n_out):
+    """Resample an (n_in, k) array onto ``n_out`` samples spanning the same range."""
+    values = np.asarray(values, dtype=float)
+    n_in = values.shape[0]
+    if n_in == n_out:
+        return values
+    x_out = np.linspace(0, 1, n_out)
+    x_in = np.linspace(0, 1, n_in)
+    return np.column_stack(
+        [np.interp(x_out, x_in, values[:, i]) for i in range(values.shape[1])]
+    )
+
+
+def wrap_angle_diff(angles):
+    """
+    Wrap angle differences in degrees into the [-180, 180) range.
+
+    Parameters
+    ----------
+    angles : array-like
+        Angle differences in degrees
+
+    Returns
+    -------
+    numpy.ndarray
+        The same differences, wrapped into [-180, 180)
+
+    Notes
+    -----
+    Euler angles are recovered on a branch cut, so a camera whose yaw sits near
+    +/-180 degrees (a backward-looking sensor such as ASTER's 3B band, for
+    example) can have adjacent samples reported as +179.9 and -179.9. Without
+    wrapping, an orientation change of 0.2 degrees is plotted as ~360 degrees.
+    """
+    return (np.asarray(angles, dtype=float) + 180.0) % 360.0 - 180.0
+
+
+def read_angles_common_frame(original_camera, optimized_camera):
+    """
+    Read roll/pitch/yaw for a camera pair using a single shared reference frame.
+
+    Parameters
+    ----------
+    original_camera : str
+        Path to the original camera file
+    optimized_camera : str
+        Path to the optimized camera file
+
+    Returns
+    -------
+    tuple of numpy.ndarray
+        ``(original_angles, optimized_angles)``, each of shape (n, 3) holding
+        roll, pitch and yaw in degrees
+
+    Notes
+    -----
+    ASP's ``orbit_plot.py`` (mirrored in ``csm_io.read_angles()``) estimates the
+    satellite body frame separately for each camera, from a central difference
+    of that camera's own ephemeris. That is fine when plotting one camera, but
+    it corrupts a *difference* between two cameras: ``bundle_adjust`` and
+    ``jitter_solve`` both perturb the positions and usually resample the
+    ephemeris to a finer spacing, and a small position perturbation over a short
+    baseline tilts the estimated along-track axis a lot. At WorldView's ~7 km/s
+    and a 0.01 s sample spacing the baseline is only ~140 m, so a 2 m radial
+    perturbation swings the estimated frame by ~0.8 degrees -- orders of
+    magnitude more than the orientation change actually being measured, and it
+    lands almost entirely in pitch.
+
+    Here both cameras are instead expressed in one frame, estimated from the
+    original (unperturbed) ephemeris and resampled onto the optimized camera's
+    sample grid. The reported angle difference is then the true relative
+    rotation between the two camera models, not a difference of two different
+    reference frames.
+    """
+    original_positions, original_rotations = read_positions_rotations([original_camera])
+    optimized_positions, optimized_rotations = read_positions_rotations(
+        [optimized_camera]
+    )
+    original_positions = np.array(original_positions, dtype=float)
+
+    # A single-sample (frame) camera gives no baseline to estimate a satellite
+    # frame from, so fall back to ASP's behavior.
+    if len(original_positions) < 2:
+        original_angles, optimized_angles = read_angles(
+            [original_camera], [optimized_camera], []
+        )
+        return np.array(original_angles), np.array(optimized_angles)
+
+    original_ref_rotations = estim_satellite_orientation(original_positions)
+    optimized_ref_rotations = estim_satellite_orientation(
+        _resample(original_positions, len(optimized_rotations))
+    )
+
+    original_angles = np.array(
+        [
+            roll_pitch_yaw(original_rotations[i], original_ref_rotations[i])
+            for i in range(len(original_rotations))
+        ]
+    )
+    optimized_angles = np.array(
+        [
+            roll_pitch_yaw(optimized_rotations[i], optimized_ref_rotations[i])
+            for i in range(len(optimized_rotations))
+        ]
+    )
+    return original_angles, optimized_angles
 
 
 def reproject_ecef(positions, to_epsg=4326):
@@ -79,12 +194,13 @@ def get_orbit_plot_gdf(original_camera, optimized_camera, map_crs=None, trim=Tru
     cameras, it optionally trims the data to only include samples corresponding
     to the actual image lines.
     """
-    # orbit_plot.py method to get angles in NED
-    # https://github.com/NeoGeographyToolkit/StereoPipeline/blob/master/src/asp/Tools/orbit_plot.py#L412
-    # This method already calls read_positions_rotations below, but it
-    # doesn't return the positions and rotations we want for plotting
-    original_rotation_angles, optimized_rotation_angles = read_angles(
-        [original_camera], [optimized_camera], []
+    # Roll/pitch/yaw for both cameras, expressed in a single satellite frame
+    # estimated from the original ephemeris. This follows orbit_plot.py's
+    # read_angles() (mirrored in csm_io) but shares one reference frame between
+    # the two cameras, so the difference below is not contaminated by the
+    # frame itself moving. See read_angles_common_frame() for why.
+    original_rotation_angles, optimized_rotation_angles = read_angles_common_frame(
+        original_camera, optimized_camera
     )
 
     # orbit_plot.py method to get positions and rotations
@@ -142,28 +258,26 @@ def get_orbit_plot_gdf(original_camera, optimized_camera, map_crs=None, trim=Tru
     optimized_pitch = np.array([r[1] for r in optimized_rotation_angles])
     optimized_yaw = np.array([r[2] for r in optimized_rotation_angles])
 
-    # Interpolate original angles if lengths don't match
+    # Interpolate original angles if lengths don't match. Unwrap first so a
+    # series straddling the +/-180 branch cut is not averaged through zero,
+    # then wrap the result back into [-180, 180).
     if len(original_roll) != len(optimized_roll):
-        original_roll = np.interp(
-            np.linspace(0, 1, len(optimized_roll)),
-            np.linspace(0, 1, len(original_roll)),
-            original_roll,
+        original_angles = _resample(
+            np.unwrap(
+                np.column_stack([original_roll, original_pitch, original_yaw]),
+                period=360.0,
+                axis=0,
+            ),
+            len(optimized_roll),
         )
-        original_pitch = np.interp(
-            np.linspace(0, 1, len(optimized_pitch)),
-            np.linspace(0, 1, len(original_pitch)),
-            original_pitch,
-        )
-        original_yaw = np.interp(
-            np.linspace(0, 1, len(optimized_yaw)),
-            np.linspace(0, 1, len(original_yaw)),
-            original_yaw,
-        )
+        original_roll, original_pitch, original_yaw = wrap_angle_diff(original_angles).T
 
-    # We are interested in the difference between the original and optimized angles
-    roll_diff = original_roll - optimized_roll
-    pitch_diff = original_pitch - optimized_pitch
-    yaw_diff = original_yaw - optimized_yaw
+    # We are interested in the difference between the original and optimized
+    # angles. Wrap the differences so a camera pointing near +/-180 degrees in
+    # yaw does not report a ~360 degree change across the branch cut.
+    roll_diff = wrap_angle_diff(original_roll - optimized_roll)
+    pitch_diff = wrap_angle_diff(original_pitch - optimized_pitch)
+    yaw_diff = wrap_angle_diff(original_yaw - optimized_yaw)
 
     # Also get angular diff magnitude
     angular_diff_magnitudes = np.sqrt(roll_diff**2 + pitch_diff**2 + yaw_diff**2)
