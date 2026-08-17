@@ -227,6 +227,111 @@ class TestAngleWrapping:
         np.testing.assert_allclose(wrap_angle_diff(179.9 - -179.9), -0.2, atol=1e-9)
 
 
+class TestColorbarScaling:
+    """Each camera's map colorbar must cover that camera's own range.
+
+    Two cameras in one solver run can differ by more than their own spread, so
+    imposing camera 1's scale on camera 2 paints camera 2's whole track a single
+    saturated color. ``shared_scales`` opts back into one common scale.
+    """
+
+    # Map panels in the 4x4 grid: cam1 position, cam1 angle, cam2 position,
+    # cam2 angle (rows 0-3, column 0).
+    POSITION_MAPS = {1: 0, 2: 8}
+    ANGLE_MAPS = {1: 4, 2: 12}
+
+    @staticmethod
+    def _norm(fig, idx):
+        norm = fig.axes[idx].collections[0].norm
+        return norm.vmin, norm.vmax
+
+    @staticmethod
+    def _expected(gdf, column, percentile=95):
+        values = gdf[column][gdf[column] > 0]
+        return tuple(np.percentile(values, [0, percentile]))
+
+    def test_colorbar_limits_are_per_camera_by_default(self):
+        gdf_cam1 = get_orbit_plot_gdf(CAM1[0], CAM1[1])
+        gdf_cam2 = get_orbit_plot_gdf(CAM2[0], CAM2[1])
+        plt.close("all")
+        csm_camera_summary_plot(CAM1, CAM2)
+        fig = plt.gcf()
+
+        for cam, gdf in [(1, gdf_cam1), (2, gdf_cam2)]:
+            np.testing.assert_allclose(
+                self._norm(fig, self.POSITION_MAPS[cam]),
+                self._expected(gdf, "position_diff_magnitude"),
+                rtol=1e-9,
+            )
+            np.testing.assert_allclose(
+                self._norm(fig, self.ANGLE_MAPS[cam]),
+                self._expected(gdf, "angular_diff_magnitude"),
+                rtol=1e-9,
+            )
+
+        # The two cameras genuinely differ here, so the assertions above are not
+        # satisfied by both simply sharing one scale.
+        assert self._norm(fig, self.POSITION_MAPS[1]) != self._norm(
+            fig, self.POSITION_MAPS[2]
+        )
+        plt.close("all")
+
+    def test_shared_scales_puts_both_cameras_on_one_colorbar(self):
+        gdf_cam1 = get_orbit_plot_gdf(CAM1[0], CAM1[1])
+        gdf_cam2 = get_orbit_plot_gdf(CAM2[0], CAM2[1])
+        plt.close("all")
+        csm_camera_summary_plot(CAM1, CAM2, shared_scales=True)
+        fig = plt.gcf()
+
+        for maps, column in [
+            (self.POSITION_MAPS, "position_diff_magnitude"),
+            (self.ANGLE_MAPS, "angular_diff_magnitude"),
+        ]:
+            limits_cam1 = self._norm(fig, maps[1])
+            limits_cam2 = self._norm(fig, maps[2])
+            assert limits_cam1 == limits_cam2
+            expected_1 = self._expected(gdf_cam1, column)
+            expected_2 = self._expected(gdf_cam2, column)
+            np.testing.assert_allclose(
+                limits_cam1,
+                (min(expected_1[0], expected_2[0]), max(expected_1[1], expected_2[1])),
+                rtol=1e-9,
+            )
+        plt.close("all")
+
+    def test_colorbars_do_not_use_an_additive_tick_offset(self):
+        # An additive offset ("1e-8+1.786e-4") is long enough to overlap the
+        # neighbouring map panel's own northing offset, and is harder to read
+        # than a bare multiplier.
+        plt.close("all")
+        csm_camera_summary_plot(CAM1, CAM2)
+        fig = plt.gcf()
+        colorbar_axes = [ax for ax in fig.axes if ax.get_label() == "<colorbar>"]
+        assert len(colorbar_axes) == 4
+        for ax in colorbar_axes:
+            assert ax.yaxis.get_major_formatter().get_useOffset() is False
+        plt.close("all")
+
+
+class TestPanelTitlePlacement:
+    def test_camera_label_is_centered_not_in_an_offset_corner(self):
+        # matplotlib parks a y-axis offset/scale label in each top corner, and
+        # the angle panels have two (the left axis's and the twin axis's), so a
+        # right-aligned "Camera N" renders on top of the latter.
+        plt.close("all")
+        csm_camera_summary_plot(CAM1, CAM2)
+        fig = plt.gcf()
+        labelled = [
+            ax for ax in fig.axes[:16] if ax.get_title() in {"Camera 1", "Camera 2"}
+        ]
+        # 3 position + 3 angle line panels per camera, both cameras. The map
+        # panels carry a longer "Camera N: Position Change\n<name>" title.
+        assert len(labelled) == 12
+        for ax in labelled:
+            assert ax.get_title(loc="right") == ""
+        plt.close("all")
+
+
 class TestCameraOptimization:
     def test_csm_camera_summary_plot(self):
         try:
