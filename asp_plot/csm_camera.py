@@ -19,7 +19,9 @@ from matplotlib.colors import Normalize
 from asp_plot.csm_analysis import (  # noqa: F401  (re-exported for back-compat)
     get_orbit_plot_gdf,
     poly_fit,
+    read_angles_common_frame,
     reproject_ecef,
+    wrap_angle_diff,
 )
 from asp_plot.csm_io import (  # noqa: F401  (re-exported for back-compat)
     ASP_TO_CSM_SHIFT,
