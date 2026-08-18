@@ -54,7 +54,7 @@ sphinx-autobuild docs docs/_build/html --open-browser   # or sphinx-build for a 
 ## External Data Sources
 
 - **ICESat-2 ATL06-SR** (Earth): requested through the SlideRule API; results cached as parquet next to the report.
-- **LOLA (Moon) / MOLA (Mars)**: async queries to the ODE GDS REST API via the `request_planetary_altimetry` CLI — the user gets a download link by email, then passes the CSV to `asp_report --altimetry_csv`. Coordinates are east-positive 0–360 longitude, planetocentric latitude.
+- **LOLA (Moon) / MOLA (Mars)**: async queries to the ODE GDS REST API via the `request_planetary_altimetry` CLI — the user gets a download link by email, then passes the CSV to `asp_report --altimetry-csv`. Coordinates are east-positive 0–360 longitude, planetocentric latitude.
 
 ## Testing
 

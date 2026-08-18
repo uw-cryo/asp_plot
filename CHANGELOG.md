@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - 3.0.0
+
+A breaking standardization of the command-line interfaces ([#60](https://github.com/uw-cryo/asp_plot/issues/60)), done deliberately as a clean break — no aliases, no deprecation period — while the user base is small. Every multi-word option across the five CLIs (`asp_report`, `stereo_geom`, `csm_camera_plot`, `gallery`, `request_planetary_altimetry`) moves from underscores to the hyphenated style ASP itself uses (`--stereo_directory` → `--stereo-directory`), booleans become flag pairs (`--add_basemap False` → `--no-add-basemap`), and `--bundle_adjust_directory` becomes `--bundle-adjust-prefix`, matching both the name and the semantics of ASP's own option. The Python API is unchanged.
+
+### Changed
+- **All CLI options are hyphenated** (issue [#60](https://github.com/uw-cryo/asp_plot/issues/60)). One-for-one renames: `--stereo-directory`, `--dem-filename`, `--dem-gsd`, `--map-crs`, `--reference-dem`, `--altimetry-csv`, `--subset-km`, `--atl06sr-time-range`, `--reuse-selections`, `--report-filename`, `--report-title` (asp_report); `--output-directory`, `--output-filename` (stereo_geom, gallery); `--max-filesize-mb` (gallery); `--original-cameras`, `--optimized-cameras`, `--map-crs`, `--upper-magnitude-percentile` (csm_camera_plot). Single-word options are untouched. The command recorded on the report's final page is emitted with the new spellings, so it stays re-runnable.
+- **Boolean options are now flag pairs** in the Click/Unix idiom `--flag/--no-flag`, matching gallery's existing `--hillshade/--no-hillshade`: `--add-basemap/--no-add-basemap`, `--plot-altimetry/--no-plot-altimetry`, `--pc-align/--no-pc-align`, `--plot-geometry/--no-plot-geometry` (asp_report); `--add-basemap` (stereo_geom); `--trim`, `--shared-scales`, `--log-scale-positions`, `--log-scale-angles`, `--add-basemap` (csm_camera_plot). Where you passed `--add_basemap False`, pass `--no-add-basemap`.
+- **`--bundle_adjust_directory` is now `--bundle-adjust-prefix`**, and accepts either the containing directory (`ba`, the previous behavior) or the same ASP-style output prefix passed to `stereo`/`mapproject` (`ba/run`). A prefix narrows the residuals/log file search to that run's outputs, so several bundle-adjust runs can share a directory. Internally, `ReportConfig.bundle_adjust_directory` is renamed to `bundle_adjust_prefix`.
+- **`csm_camera_plot` options are harmonized with the other CLIs and ASP's `orbit_plot.py`**: `--save_dir` → `--output-directory`, `--fig_fn` → `--output-filename`, `--figsize` → `--figure-size`. The `csm_camera_summary_plot()` Python keyword arguments are unchanged.
+- **Trailing slashes on directory options are stripped centrally** (`--directory`, `--stereo-directory`, `--bundle-adjust-prefix`), closing the last thread of issue [#60](https://github.com/uw-cryo/asp_plot/issues/60); the dg_mosaic `r100` concern from the same issue was resolved earlier by the sensor readers, which treat `*.r100.xml`/`*.r50.xml` as regenerable intermediates.
+
+### Removed
+- **The deprecated `--plot_icesat` alias** (deprecated in favor of `--plot_altimetry` in 1.10.0) is gone; use `--plot-altimetry/--no-plot-altimetry`.
+
 ## [2.2.0] - 2026-08-18
 
 A correctness release for the CSM camera comparison, and a new diagnostic layer under the match points.

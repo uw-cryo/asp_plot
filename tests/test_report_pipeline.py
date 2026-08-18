@@ -20,7 +20,6 @@ from asp_plot.report_pipeline import (
     REPORT_SECTIONS,
     ReportConfig,
     ReportContext,
-    _resolve_plot_altimetry,
     run_report,
 )
 
@@ -51,6 +50,55 @@ class TestReportConfig:
         # The only config field with no matching Click option:
         extra = set(cfg_fields) - set(click_params)
         assert extra == {"report_command"}
+
+
+class TestCliOptionStyle:
+    """The CLI speaks hyphenated, ASP-style flags (#60)."""
+
+    def _invoke(self, monkeypatch, args):
+        from click.testing import CliRunner
+
+        import asp_plot.cli.asp_report as cli
+
+        captured = {}
+        monkeypatch.setattr(
+            cli, "run_report", lambda config: captured.update(config=config)
+        )
+        result = CliRunner().invoke(cli.main, args)
+        return result, captured.get("config")
+
+    def test_hyphenated_flags_parse_and_are_recorded(self, monkeypatch):
+        result, config = self._invoke(
+            monkeypatch,
+            [
+                "--directory",
+                "proc",
+                "--stereo-directory",
+                "st/",
+                "--bundle-adjust-prefix",
+                "ba/run",
+                "--no-plot-geometry",
+                "--subset-km",
+                "2.0",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert config.stereo_directory == "st"  # trailing slash stripped
+        assert config.bundle_adjust_prefix == "ba/run"
+        assert config.plot_geometry is False
+        # The recorded command must be re-runnable with the new spellings.
+        assert "--stereo-directory st" in config.report_command
+        assert "--bundle-adjust-prefix ba/run" in config.report_command
+        assert "--no-plot-geometry" in config.report_command
+        assert "--subset-km 2.0" in config.report_command
+        flags = [t for t in config.report_command.split() if t.startswith("--")]
+        assert all("_" not in flag for flag in flags), flags
+
+    def test_underscore_spellings_are_rejected(self, monkeypatch):
+        result, _ = self._invoke(
+            monkeypatch, ["--directory", "proc", "--stereo_directory", "st"]
+        )
+        assert result.exit_code != 0
 
 
 # ---------------------------------------------------------------------------
@@ -108,7 +156,7 @@ class TestRegistry:
 
     def test_bundle_adjust_predicate(self):
         spec = next(s for s in REPORT_SECTIONS if s.name == "bundle_adjust")
-        cfg = ReportConfig(bundle_adjust_directory="ba")
+        cfg = ReportConfig(bundle_adjust_prefix="ba")
         assert spec.enabled(_ctx(config=cfg)) is True
         assert spec.enabled(_ctx(config=ReportConfig())) is False
 
@@ -207,44 +255,6 @@ class TestStereoGeometryScoping:
             monkeypatch, ["left.xml", "right.xml"], fail_on_inputs=True
         )
         assert constructed == [{"directory": ReportConfig().directory, "inputs": None}]
-
-
-# ---------------------------------------------------------------------------
-# --plot_icesat deprecation alias
-# ---------------------------------------------------------------------------
-
-
-class TestResolvePlotAltimetry:
-    def test_none_passes_through_plot_altimetry(self):
-        assert _resolve_plot_altimetry(ReportConfig(plot_altimetry=True)) is True
-        assert _resolve_plot_altimetry(ReportConfig(plot_altimetry=False)) is False
-
-    @pytest.mark.parametrize(
-        "value, expected",
-        [
-            ("False", False),
-            ("false", False),
-            ("0", False),
-            ("no", False),
-            ("True", True),
-            ("anything", True),
-        ],
-    )
-    def test_deprecated_string_overrides(self, value, expected):
-        with pytest.warns(DeprecationWarning):
-            out = _resolve_plot_altimetry(
-                ReportConfig(plot_altimetry=True, plot_icesat=value)
-            )
-        assert out is expected
-
-    def test_deprecated_bool_overrides(self):
-        with pytest.warns(DeprecationWarning):
-            assert (
-                _resolve_plot_altimetry(
-                    ReportConfig(plot_altimetry=True, plot_icesat=False)
-                )
-                is False
-            )
 
 
 # ---------------------------------------------------------------------------

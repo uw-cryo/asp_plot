@@ -10,8 +10,8 @@ CAM_B = "tests/test_data/10300100D12D7400.r100.xml"
 
 
 def _run(args):
-    # add_basemap False keeps the CLI offline (no contextily tile fetch).
-    return CliRunner().invoke(main, args + ["--add_basemap", "False"])
+    # --no-add-basemap keeps the CLI offline (no contextily tile fetch).
+    return CliRunner().invoke(main, args + ["--no-add-basemap"])
 
 
 class TestStereoGeomCli:
@@ -22,9 +22,9 @@ class TestStereoGeomCli:
             [
                 CAM_A,
                 CAM_B,
-                "--output_directory",
+                "--output-directory",
                 str(tmp_path),
-                "--output_filename",
+                "--output-filename",
                 out.name,
             ]
         )
@@ -36,9 +36,9 @@ class TestStereoGeomCli:
         result = _run(
             [
                 "tests/test_data/*.r100.xml",
-                "--output_directory",
+                "--output-directory",
                 str(tmp_path),
-                "--output_filename",
+                "--output-filename",
                 out.name,
             ]
         )
@@ -52,9 +52,9 @@ class TestStereoGeomCli:
             [
                 "--directory",
                 "tests/test_data",
-                "--output_directory",
+                "--output-directory",
                 str(tmp_path),
-                "--output_filename",
+                "--output-filename",
                 out.name,
             ]
         )
@@ -62,8 +62,8 @@ class TestStereoGeomCli:
         assert out.exists()
 
     def test_default_output_filename_from_directory(self, tmp_path):
-        # With no --output_filename, the name derives from the base directory.
-        result = _run([CAM_A, CAM_B, "--output_directory", str(tmp_path)])
+        # With no --output-filename, the name derives from the base directory.
+        result = _run([CAM_A, CAM_B, "--output-directory", str(tmp_path)])
         assert result.exit_code == 0, result.output
         assert (tmp_path / "test_data_stereo_geom.png").exists()
 
@@ -74,16 +74,16 @@ class TestStereoGeomCli:
 
     def test_three_scenes_emit_overview_and_pairs(self, tmp_path):
         # More than two scenes -> overview + one figure per pair, derived from
-        # the --output_filename stem.
+        # the --output-filename stem.
         third = "tests/test_data/tiled_xmls/10200100A1865800.r100.xml"
         result = _run(
             [
                 CAM_A,
                 CAM_B,
                 third,
-                "--output_directory",
+                "--output-directory",
                 str(tmp_path),
-                "--output_filename",
+                "--output-filename",
                 "geom.png",
             ]
         )

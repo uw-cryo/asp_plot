@@ -21,6 +21,7 @@ from asp_plot.utils import (
     get_pair_images,
     get_planetary_bounds,
     get_utm_epsg,
+    resolve_directory_or_prefix,
 )
 
 matplotlib.use("Agg")
@@ -847,3 +848,29 @@ class TestPairDiscovery:
             "IMG_left.JP2 IMG_right.JP2 left.XML right.XML out/run-pair1/1\n"
         )
         assert get_pair_images(str(tmp_path)) == ("IMG_left.JP2", "IMG_right.JP2")
+
+
+class TestResolveDirectoryOrPrefix:
+    """--bundle-adjust-prefix accepts a directory or an ASP output prefix (#60)."""
+
+    def test_existing_directory_passes_through(self):
+        assert resolve_directory_or_prefix("tests/test_data", "ba") == ("ba", None)
+
+    def test_trailing_slash_is_stripped(self):
+        assert resolve_directory_or_prefix("tests/test_data", "ba/") == ("ba", None)
+
+    def test_asp_prefix_splits_into_directory_and_stem(self):
+        assert resolve_directory_or_prefix("tests/test_data", "ba/run") == (
+            "ba",
+            "run",
+        )
+
+    def test_none_passes_through(self):
+        assert resolve_directory_or_prefix("tests/test_data", None) == (None, None)
+
+    def test_missing_separator_free_value_stays_a_directory(self):
+        # Keeps downstream "not found in <dir>" errors pointing at the value.
+        assert resolve_directory_or_prefix("tests/test_data", "nope") == (
+            "nope",
+            None,
+        )

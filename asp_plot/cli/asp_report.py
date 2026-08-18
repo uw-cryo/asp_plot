@@ -16,7 +16,10 @@ def _reconstruct_command():
     for param in click_ctx.command.params:
         val = click_ctx.params.get(param.name)
         if val is not None and val != param.default:
-            cmd_parts.append(f"--{param.name} {shlex.quote(str(val))}")
+            if param.is_bool_flag:
+                cmd_parts.append(param.opts[0] if val else param.secondary_opts[0])
+            else:
+                cmd_parts.append(f"{param.opts[0]} {shlex.quote(str(val))}")
     return " ".join(cmd_parts)
 
 
@@ -28,112 +31,106 @@ def _reconstruct_command():
     help="Required directory of ASP processing with scenes and sub-directories for stereo and optionally bundle adjustment. Default: current directory.",
 )
 @click.option(
-    "--bundle_adjust_directory",
+    "--bundle-adjust-prefix",
     prompt=False,
     default=None,
-    help="Optional directory of bundle adjustment files. If expected *residuals_pointmap.csv files are not found in the supplied directory, no bundle adjustment plots will be generated. Default: None.",
+    help="Optional bundle adjustment output location, relative to --directory. Accepts either a directory (e.g. 'ba') or an ASP-style output prefix as passed to --bundle-adjust-prefix in stereo/mapproject (e.g. 'ba/run'). If expected *residuals_pointmap.csv files are not found there, no bundle adjustment plots will be generated. Default: None.",
 )
 @click.option(
-    "--stereo_directory",
+    "--stereo-directory",
     prompt=True,
     default="stereo",
     help="Required directory of stereo files. Default: stereo.",
 )
 @click.option(
-    "--dem_filename",
+    "--dem-filename",
     prompt=False,
     default=None,
     help="Optional DEM filename in the stereo directory. Default: None, which will search for the *-DEM.tif file in the stereo directory. Specify it as the basename with extension, e.g. my-custom-dem-name.tif.",
 )
 @click.option(
-    "--dem_gsd",
+    "--dem-gsd",
     prompt=False,
     default=None,
     help="Optional ground sample distance of the DEM. Default: None, which will search for the *-DEM.tif file in the stereo directory. If there is a GSD in the name of the file, specify it here as a float or integer, e.g. 1, 1.5, etc.",
 )
 @click.option(
-    "--map_crs",
+    "--map-crs",
     prompt=False,
     default=None,
     help="Projection for altimetry and bundle adjustment plots. As EPSG:XXXX. Default: None, which will use the projection of the ASP DEM, and fall back on EPSG:4326 if not found.",
 )
 @click.option(
-    "--reference_dem",
+    "--reference-dem",
     prompt=False,
     default=None,
     help="Optional reference DEM used in ASP processing. No default. If not supplied, the logs will be examined to find it. If not found, no difference plots will be generated.",
 )
 @click.option(
-    "--add_basemap",
+    "--add-basemap/--no-add-basemap",
     prompt=False,
     default=True,
-    help="If True, add a basemaps to the figures, which requires internet connection. Default: True.",
+    help="If True, add a basemap to the figures, which requires internet connection. Default: True.",
 )
 @click.option(
-    "--plot_altimetry",
+    "--plot-altimetry/--no-plot-altimetry",
     prompt=False,
     default=True,
-    help="If True, plot altimetry comparisons (ICESat-2 for Earth, LOLA for Moon, MOLA for Mars). For planetary DEMs, requires --altimetry_csv. Default: True.",
+    help="If True, plot altimetry comparisons (ICESat-2 for Earth, LOLA for Moon, MOLA for Mars). For planetary DEMs, requires --altimetry-csv. Default: True.",
 )
 @click.option(
-    "--plot_icesat",
-    prompt=False,
-    default=None,
-    help="Deprecated: use --plot_altimetry instead. Kept for backward compatibility.",
-)
-@click.option(
-    "--altimetry_csv",
+    "--altimetry-csv",
     prompt=False,
     default=None,
     type=click.Path(exists=True),
     help="Path to a LOLA/MOLA *_topo_csv.csv file from the ODE GDS API. Required for planetary altimetry plots. Obtain via: request_planetary_altimetry --dem <dem> --email <email>, then download and unzip the result.",
 )
 @click.option(
-    "--pc_align",
+    "--pc-align/--no-pc-align",
     prompt=False,
     default=True,
-    help="If True and --plot_altimetry is True, run pc_align against the reference altimetry (ICESat-2 for Earth, MOLA for Mars, LOLA for Moon) and append the alignment-report pages. Disabled automatically when --plot_altimetry / --plot_icesat is False. Default: True.",
+    help="If True and --plot-altimetry is True, run pc_align against the reference altimetry (ICESat-2 for Earth, MOLA for Mars, LOLA for Moon) and append the alignment-report pages. Disabled automatically when --plot-altimetry is False. Default: True.",
 )
 @click.option(
-    "--plot_geometry",
+    "--plot-geometry/--no-plot-geometry",
     prompt=False,
     default=True,
     help="If True, plot the stereo geometry. Default: True.",
 )
 @click.option(
-    "--subset_km",
+    "--subset-km",
     prompt=False,
     default=1.0,
     help="Size in km of the subset to plot for the detailed hillshade. Default: 1 km.",
 )
 @click.option(
-    "--atl06sr_time_range",
+    "--atl06sr-time-range",
     prompt=False,
     default="all",
     help='Time range for ICESat-2 ATL06-SR data requests. "all" for all available data (mission start to present), or "START,END" for a custom range (e.g. "2020-01-01,2024-12-31"), or "auto" for scene metadata +/- 1 year. Default: all.',
 )
 @click.option(
-    "--reuse_selections",
+    "--reuse-selections",
     prompt=False,
     default=None,
     type=click.Path(exists=True),
     help="Path to a *_figure_selections.yml written by a previous run. When supplied, replays that run's ICESat-2 points (parquet), profile track, best/worst segments, and detailed-hillshade clip boxes so figures are directly comparable across re-processing runs. Default: None.",
 )
 @click.option(
-    "--report_filename",
+    "--report-filename",
     prompt=False,
     default=None,
     help="PDF report filename or path. A bare filename (e.g. 'report.pdf') is saved in the stereo directory. A path (e.g. 'reports/report.pdf' or '/tmp/report.pdf') is used as-is. Default: auto-generated from directory name.",
 )
 @click.option(
-    "--report_title",
+    "--report-title",
     prompt=False,
     default=None,
     help="Title for the report. Default: Directory name of ASP processing.",
 )
 def main(
     directory,
-    bundle_adjust_directory,
+    bundle_adjust_prefix,
     stereo_directory,
     dem_filename,
     dem_gsd,
@@ -141,7 +138,6 @@ def main(
     reference_dem,
     add_basemap,
     plot_altimetry,
-    plot_icesat,
     altimetry_csv,
     pc_align,
     plot_geometry,
@@ -160,7 +156,7 @@ def main(
     """
     config = ReportConfig(
         directory=directory,
-        bundle_adjust_directory=bundle_adjust_directory,
+        bundle_adjust_prefix=bundle_adjust_prefix,
         stereo_directory=stereo_directory,
         dem_filename=dem_filename,
         dem_gsd=dem_gsd,
@@ -168,7 +164,6 @@ def main(
         reference_dem=reference_dem,
         add_basemap=add_basemap,
         plot_altimetry=plot_altimetry,
-        plot_icesat=plot_icesat,
         altimetry_csv=altimetry_csv,
         pc_align=pc_align,
         plot_geometry=plot_geometry,

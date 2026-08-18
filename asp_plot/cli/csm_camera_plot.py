@@ -6,19 +6,19 @@ from asp_plot.csm_camera import csm_camera_summary_plot
 
 @click.command()
 @click.option(
-    "--original_cameras",
+    "--original-cameras",
     prompt=True,
     default="",
     help="Original camera files, supplied as comma separated list 'path/to/original_camera_1,path/to/original_camera_2'. No default. Must be supplied.",
 )
 @click.option(
-    "--optimized_cameras",
+    "--optimized-cameras",
     prompt=True,
     default="",
     help="Optimized camera files, supplied as comma separated list 'path/to/optimized_camera_1,path/to/optimized_camera_2'. No default. Must be supplied.",
 )
 @click.option(
-    "--map_crs",
+    "--map-crs",
     prompt=False,
     default=None,
     help="UTM EPSG code for map projection. As EPSG:XXXX. If not supplied, the map will be plotted in original camera coordinates of EPSG:4978 (ECEF).",
@@ -30,56 +30,56 @@ from asp_plot.csm_camera import csm_camera_summary_plot
     help="Optional short title to append to figure output. Default: None.",
 )
 @click.option(
-    "--trim",
+    "--trim/--no-trim",
     prompt=False,
     default=True,
     help="Trim the beginning and end of the positions plotted to the first and last camera image lines. Default: True.",
 )
 @click.option(
-    "--shared_scales",
+    "--shared-scales/--no-shared-scales",
     prompt=False,
     default=False,
     help="If True, the position and angle difference scales are shared between each camera. Default: False.",
 )
 @click.option(
-    "--log_scale_positions",
+    "--log-scale-positions/--no-log-scale-positions",
     prompt=False,
     default=False,
     help="If True, the position difference scales are log scaled. Default: False.",
 )
 @click.option(
-    "--log_scale_angles",
+    "--log-scale-angles/--no-log-scale-angles",
     prompt=False,
     default=False,
     help="If True, the angle difference scales are log scaled. Default: False.",
 )
 @click.option(
-    "--upper_magnitude_percentile",
+    "--upper-magnitude-percentile",
     prompt=False,
     default=95,
     help="Percentile to use for the upper limit of the mapview colorbars. Default: 95.",
 )
 @click.option(
-    "--figsize",
+    "--figure-size",
     prompt=False,
     default="20,15",
     help="Figure size as width,height. Default: 20,15.",
     callback=lambda ctx, param, value: tuple(map(int, value.split(","))),
 )
 @click.option(
-    "--save_dir",
+    "--output-directory",
     prompt=False,
     default=None,
     help="Directory to save the figure. Default: None, which does not save the figure.",
 )
 @click.option(
-    "--fig_fn",
+    "--output-filename",
     prompt=False,
     default="csm_camera_summary_plot.png",
     help="Figure filename. Default: csm_camera_summary_plot.png.",
 )
 @click.option(
-    "--add_basemap",
+    "--add-basemap/--no-add-basemap",
     prompt=False,
     default=False,
     help="If True, add a contextily basemap to the figure, which requires internet connection. Default: False.",
@@ -94,9 +94,9 @@ def main(
     log_scale_positions,
     log_scale_angles,
     upper_magnitude_percentile,
-    figsize,
-    save_dir,
-    fig_fn,
+    figure_size,
+    output_directory,
+    output_filename,
     add_basemap,
 ):
     """
@@ -132,9 +132,9 @@ def main(
         log_scale_positions=log_scale_positions,
         log_scale_angles=log_scale_angles,
         upper_magnitude_percentile=upper_magnitude_percentile,
-        figsize=figsize,
-        save_dir=save_dir,
-        fig_fn=fig_fn,
+        figsize=figure_size,
+        save_dir=output_directory,
+        fig_fn=output_filename,
         add_basemap=add_basemap,
         **ctx_kwargs,
     )

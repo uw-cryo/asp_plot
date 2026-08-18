@@ -37,7 +37,7 @@ from asp_plot.gallery import GalleryPlotter
     help="Downsample factor for reads, or 'auto' to size thumbnails automatically. Default: auto.",
 )
 @click.option(
-    "--max_filesize_mb",
+    "--max-filesize-mb",
     prompt=False,
     default=10.0,
     type=float,
@@ -50,13 +50,13 @@ from asp_plot.gallery import GalleryPlotter
     help="Figure suptitle. Default: none.",
 )
 @click.option(
-    "--output_directory",
+    "--output-directory",
     prompt=False,
     default=None,
     help="Directory to save the output plot. Default: Input directory.",
 )
 @click.option(
-    "--output_filename",
+    "--output-filename",
     prompt=False,
     default=None,
     help="Filename for the output plot. Default: Directory name with _gallery.png suffix.",

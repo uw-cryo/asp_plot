@@ -17,19 +17,19 @@ from asp_plot.stereo_geometry import StereoGeometryPlotter
     ),
 )
 @click.option(
-    "--add_basemap",
+    "--add-basemap/--no-add-basemap",
     prompt=False,
     default=True,
     help="If True, add a basemap to the figures, which requires internet connection. Default: True.",
 )
 @click.option(
-    "--output_directory",
+    "--output-directory",
     prompt=False,
     default=None,
     help="Directory to save the output plot. Default: Input directory.",
 )
 @click.option(
-    "--output_filename",
+    "--output-filename",
     prompt=False,
     default=None,
     help=(
