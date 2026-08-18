@@ -5,7 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.2.0] - 2026-08-18
+
+A correctness release for the CSM camera comparison, and a new diagnostic layer under the match points.
+
+`csm_camera_summary_plot()` measured each camera's roll/pitch/yaw against a satellite body frame estimated separately for that camera — correct when plotting one camera, which is what ASP's `orbit_plot.py` does, but wrong for a *difference* between two ([#53](https://github.com/uw-cryo/asp_plot/issues/53)). `bundle_adjust` and `jitter_solve` both resample the ephemeris finer, and over the ~140 m central-difference baseline that leaves, a 2 m position change tilts the frame by ~0.8° — swamping the orientation change being plotted. Both cameras now share one frame, estimated from the original ephemeris, and the committed Salar de Uyuni pair's reported pitch change drops from 0.73° (ranging −3.4° to +3.6°) to 2.6e-06°, which finally says what that run did: it moved positions by ±2 m and left the orientations alone. The figure that looked full of outliers was the frame moving, not the data.
+
+The same figure gains a `bundle_adjust` counterpart to that `jitter_solve` example, in the UCSD WorldView notebook, so the two solvers' signatures can be compared directly — and putting a second, much smaller correction next to the first exposed two readability bugs: camera 2 was drawn on camera 1's colorbar limits, and panel labels overprinted matplotlib's axis offset text.
+
+Separately, the match point figure now underlays ASP's raw per-image interest points (`.vwip`) beneath the matches ([#8](https://github.com/uw-cryo/asp_plot/issues/8)), so a sparse match set can be traced to poor matching versus nothing detected to match; and reconstructed `mapproject` commands re-run grid-identically on ASP >= 3.7.0 instead of drifting a pixel east per run ([#148](https://github.com/uw-cryo/asp_plot/issues/148)).
+
+A minor version: everything is additive, with no API changes and no new dependencies.
 
 ### Added
 - **A `bundle_adjust` camera-comparison example in the UCSD WorldView notebook.** The only committed `csm_camera_summary_plot()` example was a `jitter_solve` run, whose per-segment corrections oscillate along the image. `notebooks/WorldView/worldview_spacenet_ucsd_stereo.ipynb` now also compares the original and adjusted cameras from its own `bundle_adjust` run, which solves one rigid translation and rotation per camera and so produces the opposite signature: smooth, nearly flat panels with a sub-metre position offset (0.4 m north on camera 1, 0.9 m up on camera 2, matching `ba/run-camera_offsets.txt`) and a constant orientation change of ~1e-4°. Having both makes the two solvers' signatures directly comparable, and the notebook says what it means if either shows up looking like the other. Because `bundle_adjust` writes CSM state only for the *optimized* cameras, the notebook also documents how to produce the unadjusted one: re-run with a 4x4 identity `--initial-transform` and `--apply-initial-transform-only`.
