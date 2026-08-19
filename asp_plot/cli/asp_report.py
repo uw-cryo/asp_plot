@@ -17,7 +17,7 @@ def _reconstruct_command():
         val = click_ctx.params.get(param.name)
         if val is not None and val != param.default:
             if param.is_bool_flag:
-                cmd_parts.append(param.opts[0] if val else param.secondary_opts[0])
+                cmd_parts.append(param.opts[0])
             else:
                 cmd_parts.append(f"{param.opts[0]} {shlex.quote(str(val))}")
     return " ".join(cmd_parts)
@@ -67,16 +67,16 @@ def _reconstruct_command():
     help="Optional reference DEM used in ASP processing. No default. If not supplied, the logs will be examined to find it. If not found, no difference plots will be generated.",
 )
 @click.option(
-    "--add-basemap/--no-add-basemap",
-    prompt=False,
-    default=True,
-    help="If True, add a basemap to the figures, which requires internet connection. Default: True.",
+    "--no-basemap",
+    is_flag=True,
+    default=False,
+    help="Skip the figure basemaps (basemaps are added by default, which requires an internet connection).",
 )
 @click.option(
-    "--plot-altimetry/--no-plot-altimetry",
-    prompt=False,
-    default=True,
-    help="If True, plot altimetry comparisons (ICESat-2 for Earth, LOLA for Moon, MOLA for Mars). For planetary DEMs, requires --altimetry-csv. Default: True.",
+    "--no-altimetry",
+    is_flag=True,
+    default=False,
+    help="Skip the altimetry comparisons (plotted by default: ICESat-2 for Earth, LOLA for Moon, MOLA for Mars; planetary DEMs require --altimetry-csv).",
 )
 @click.option(
     "--altimetry-csv",
@@ -86,16 +86,16 @@ def _reconstruct_command():
     help="Path to a LOLA/MOLA *_topo_csv.csv file from the ODE GDS API. Required for planetary altimetry plots. Obtain via: request_planetary_altimetry --dem <dem> --email <email>, then download and unzip the result.",
 )
 @click.option(
-    "--pc-align/--no-pc-align",
-    prompt=False,
-    default=True,
-    help="If True and --plot-altimetry is True, run pc_align against the reference altimetry (ICESat-2 for Earth, MOLA for Mars, LOLA for Moon) and append the alignment-report pages. Disabled automatically when --plot-altimetry is False. Default: True.",
+    "--no-pc-align",
+    is_flag=True,
+    default=False,
+    help="Skip the pc_align step (run by default against the reference altimetry -- ICESat-2 for Earth, MOLA for Mars, LOLA for Moon -- appending the alignment-report pages; skipped automatically with --no-altimetry).",
 )
 @click.option(
-    "--plot-geometry/--no-plot-geometry",
-    prompt=False,
-    default=True,
-    help="If True, plot the stereo geometry. Default: True.",
+    "--no-geometry",
+    is_flag=True,
+    default=False,
+    help="Skip the stereo geometry plots (plotted by default).",
 )
 @click.option(
     "--subset-km",
@@ -136,11 +136,11 @@ def main(
     dem_gsd,
     map_crs,
     reference_dem,
-    add_basemap,
-    plot_altimetry,
+    no_basemap,
+    no_altimetry,
     altimetry_csv,
-    pc_align,
-    plot_geometry,
+    no_pc_align,
+    no_geometry,
     subset_km,
     atl06sr_time_range,
     reuse_selections,
@@ -162,11 +162,11 @@ def main(
         dem_gsd=dem_gsd,
         map_crs=map_crs,
         reference_dem=reference_dem,
-        add_basemap=add_basemap,
-        plot_altimetry=plot_altimetry,
+        add_basemap=not no_basemap,
+        plot_altimetry=not no_altimetry,
         altimetry_csv=altimetry_csv,
-        pc_align=pc_align,
-        plot_geometry=plot_geometry,
+        pc_align=not no_pc_align,
+        plot_geometry=not no_geometry,
         subset_km=subset_km,
         atl06sr_time_range=atl06sr_time_range,
         reuse_selections=reuse_selections,

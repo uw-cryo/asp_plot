@@ -30,28 +30,28 @@ from asp_plot.csm_camera import csm_camera_summary_plot
     help="Optional short title to append to figure output. Default: None.",
 )
 @click.option(
-    "--trim/--no-trim",
-    prompt=False,
-    default=True,
-    help="Trim the beginning and end of the positions plotted to the first and last camera image lines. Default: True.",
+    "--no-trim",
+    is_flag=True,
+    default=False,
+    help="Do not trim the plotted positions to the first and last camera image lines (trimmed by default).",
 )
 @click.option(
-    "--shared-scales/--no-shared-scales",
-    prompt=False,
+    "--shared-scales",
+    is_flag=True,
     default=False,
-    help="If True, the position and angle difference scales are shared between each camera. Default: False.",
+    help="Share the position and angle difference scales between the cameras.",
 )
 @click.option(
-    "--log-scale-positions/--no-log-scale-positions",
-    prompt=False,
+    "--log-scale-positions",
+    is_flag=True,
     default=False,
-    help="If True, the position difference scales are log scaled. Default: False.",
+    help="Log-scale the position difference plots.",
 )
 @click.option(
-    "--log-scale-angles/--no-log-scale-angles",
-    prompt=False,
+    "--log-scale-angles",
+    is_flag=True,
     default=False,
-    help="If True, the angle difference scales are log scaled. Default: False.",
+    help="Log-scale the angle difference plots.",
 )
 @click.option(
     "--upper-magnitude-percentile",
@@ -79,17 +79,17 @@ from asp_plot.csm_camera import csm_camera_summary_plot
     help="Figure filename. Default: csm_camera_summary_plot.png.",
 )
 @click.option(
-    "--add-basemap/--no-add-basemap",
-    prompt=False,
+    "--add-basemap",
+    is_flag=True,
     default=False,
-    help="If True, add a contextily basemap to the figure, which requires internet connection. Default: False.",
+    help="Add a contextily basemap to the figure, which requires an internet connection.",
 )
 def main(
     original_cameras,
     optimized_cameras,
     map_crs,
     title,
-    trim,
+    no_trim,
     shared_scales,
     log_scale_positions,
     log_scale_angles,
@@ -127,7 +127,7 @@ def main(
         cam2_list,
         map_crs.split(":")[-1] if map_crs else None,
         title=title,
-        trim=trim,
+        trim=not no_trim,
         shared_scales=shared_scales,
         log_scale_positions=log_scale_positions,
         log_scale_angles=log_scale_angles,

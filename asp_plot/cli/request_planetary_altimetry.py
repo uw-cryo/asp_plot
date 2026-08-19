@@ -53,7 +53,7 @@ def main(dem, email, channels):
         click.echo(
             "\nThis DEM is an Earth DEM. ICESat-2 altimetry is fetched "
             "automatically by asp_plot — no separate request needed.\n"
-            "Run: asp_report --directory <dir> --plot-altimetry\n"
+            "Run: asp_report --directory <dir> (altimetry plots are on by default)\n"
         )
         sys.exit(0)
 

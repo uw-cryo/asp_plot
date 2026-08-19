@@ -10,8 +10,8 @@ CAM_B = "tests/test_data/10300100D12D7400.r100.xml"
 
 
 def _run(args):
-    # --no-add-basemap keeps the CLI offline (no contextily tile fetch).
-    return CliRunner().invoke(main, args + ["--no-add-basemap"])
+    # --no-basemap keeps the CLI offline (no contextily tile fetch).
+    return CliRunner().invoke(main, args + ["--no-basemap"])
 
 
 class TestStereoGeomCli:

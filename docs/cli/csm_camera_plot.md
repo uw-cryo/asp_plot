@@ -58,19 +58,13 @@ Options:
                                   EPSG:4978 (ECEF).
   --title TEXT                    Optional short title to append to figure
                                   output. Default: None.
-  --trim / --no-trim              Trim the beginning and end of the positions
-                                  plotted to the first and last camera image
-                                  lines. Default: True.
-  --shared-scales / --no-shared-scales
-                                  If True, the position and angle difference
-                                  scales are shared between each camera.
-                                  Default: False.
-  --log-scale-positions / --no-log-scale-positions
-                                  If True, the position difference scales are
-                                  log scaled. Default: False.
-  --log-scale-angles / --no-log-scale-angles
-                                  If True, the angle difference scales are log
-                                  scaled. Default: False.
+  --no-trim                       Do not trim the plotted positions to the
+                                  first and last camera image lines (trimmed
+                                  by default).
+  --shared-scales                 Share the position and angle difference
+                                  scales between the cameras.
+  --log-scale-positions           Log-scale the position difference plots.
+  --log-scale-angles              Log-scale the angle difference plots.
   --upper-magnitude-percentile INTEGER
                                   Percentile to use for the upper limit of the
                                   mapview colorbars. Default: 95.
@@ -79,9 +73,7 @@ Options:
                                   which does not save the figure.
   --output-filename TEXT          Figure filename. Default:
                                   csm_camera_summary_plot.png.
-  --add-basemap / --no-add-basemap
-                                  If True, add a contextily basemap to the
-                                  figure, which requires internet connection.
-                                  Default: False.
+  --add-basemap                   Add a contextily basemap to the figure,
+                                  which requires an internet connection.
   --help                          Show this message and exit.
 ```

@@ -73,13 +73,13 @@ stereo_geom scene1.xml scene2.xml \
             --output-filename custom_output.png
 ```
 
-## With basemap
+## Without basemap
 
-Adding a basemap to the map view requires an internet connection:
+A basemap is added to the map view by default, which requires an internet connection. To run offline, skip it:
 
 ```bash
 stereo_geom my_delivery_dir/ \
-            --add-basemap
+            --no-basemap
 ```
 
 ## Full options
@@ -111,19 +111,17 @@ Usage: stereo_geom [OPTIONS] [INPUTS]...
   If no INPUTS are given, --directory is used (default: current directory).
 
 Options:
-  --directory TEXT                Directory containing camera metadata files
-                                  (XMLs, or images carrying RPCs) for stereo
-                                  geometry analysis. Used when no positional
-                                  INPUTS are given. Default: current
-                                  directory.
-  --add-basemap / --no-add-basemap
-                                  If True, add a basemap to the figures, which
-                                  requires internet connection. Default: True.
-  --output-directory TEXT         Directory to save the output plot. Default:
-                                  Input directory.
-  --output-filename TEXT          Filename for the output plot. Default:
-                                  Directory name with _stereo_geom.png suffix.
-                                  With more than two scenes this is the stem
-                                  for the per-pair and overview figures.
-  --help                          Show this message and exit.
+  --directory TEXT         Directory containing camera metadata files (XMLs,
+                           or images carrying RPCs) for stereo geometry
+                           analysis. Used when no positional INPUTS are given.
+                           Default: current directory.
+  --no-basemap             Skip the figure basemaps (basemaps are added by
+                           default, which requires an internet connection).
+  --output-directory TEXT  Directory to save the output plot. Default: Input
+                           directory.
+  --output-filename TEXT   Filename for the output plot. Default: Directory
+                           name with _stereo_geom.png suffix. With more than
+                           two scenes this is the stem for the per-pair and
+                           overview figures.
+  --help                   Show this message and exit.
 ```

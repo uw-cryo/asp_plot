@@ -25,8 +25,8 @@ Then, once the data is downloaded and unzipped:
 asp_report --directory ./ \
          --stereo-directory stereo \
          --altimetry-csv /path/to/MolaPEDR_*_topo_csv.csv \
-         --no-add-basemap \
-         --no-plot-geometry
+         --no-basemap \
+         --no-geometry
 ```
 
 ## LOLA channels

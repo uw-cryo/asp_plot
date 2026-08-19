@@ -53,13 +53,13 @@ The package is organized by functionality, with each module focused on a specifi
 - `_add_processing_parameters_page()`: helper that renders the runtime summary table plus the bundle_adjust / stereo / point2dem / report commands on page 2 (moved from the trailing page as of v1.13.0). Also renders the reconstructed `mapproject` command(s) (from the optional `mapproject` list key; see `mapproject.py`) with a "reconstructed from output metadata" note.
 - `_fmt_sig()`: formats a number compactly — 2 decimals for |x| < 10, 1 decimal for 10 ≤ |x| < 100, 0 decimals above, "n/a" for non-finite. Used for alignment stats.
 - Title page displays: processing date, ASP version (from logs), asp_plot version (from package metadata)
-- Page order: title + DEM summary → Processing Parameters → diagnostic figures → (if `--pc-align` ran) alignment report page + aligned-DEM figures.
+- Page order: title + DEM summary → Processing Parameters → diagnostic figures → (if the `pc_align` step ran) alignment report page + aligned-DEM figures.
 - `report.py` is fed declaratively by `report_pipeline.py`; it was **not** rewritten in #128.
 
 **`report_pipeline.py`** - Declarative report pipeline behind the `asp_report` CLI (issue #128)
 - `ReportConfig`: dataclass packing the ~18 CLI options into one Click-free object (field names/defaults mirror the options one-for-one, guarded by a test)
 - `run_report(config)`: importable/callable from notebooks and tests with no Click context; returns the written PDF path
-- A declarative section registry (`REPORT_SECTIONS`) of `ReportSpec`s replaces the old inline plot-and-append wall: each spec pairs an `enabled(ctx)` predicate with a `build(ctx)` function returning the sections to append. `--plot-geometry` / `--plot-altimetry` / `--pc-align` gating are predicates; figure numbering comes from a per-run counter on the shared `ReportContext`, so section order and numbering are data, not source-line position. The alignment "Page B/C/D" follow-ups are one spec emitting several sections
+- A declarative section registry (`REPORT_SECTIONS`) of `ReportSpec`s replaces the old inline plot-and-append wall: each spec pairs an `enabled(ctx)` predicate with a `build(ctx)` function returning the sections to append. `--no-geometry` / `--no-altimetry` / `--no-pc-align` gating are predicates; figure numbering comes from a per-run counter on the shared `ReportContext`, so section order and numbering are data, not source-line position. The alignment "Page B/C/D" follow-ups are one spec emitting several sections
 - Section builders: `_build_input_scenes`, `_build_stereo_geometry`, `_build_match_points`, `_build_bundle_adjust`, `_build_disparity`, `_build_dem_results`, `_build_detailed_hillshade`, `_build_altimetry` (→ `_build_altimetry_earth` / `_build_altimetry_planetary`)
 - `_numbered_sections()`: shared helper turning a plotter's saved-filename list into one `ReportSection` per figure (first gets the caption, continuations are titled "... (continued)") — used by the scenes/geometry/match/disparity builders, whose plotters save one figure per pair on multi-view runs (issue #160)
 
@@ -229,11 +229,11 @@ All CLI tools are in `asp_plot/cli/` and use Click for argument parsing:
 - `--dem-gsd`: Custom DEM ground sample distance
 - `--map-crs`: Projection as `EPSG:XXXX` (default: auto-detect from DEM, fallback `EPSG:4326`)
 - `--reference-dem`: Reference DEM path (auto-detected from logs if not supplied)
-- `--add-basemap`: Add Esri WorldImagery basemaps (default: True, requires internet)
-- `--plot-altimetry`: Plot altimetry comparisons (default: True). Auto-detects planetary body from DEM CRS: Earth → ICESat-2 (requires internet), Moon → LOLA, Mars → MOLA. For planetary DEMs, requires `--altimetry-csv`.
+- `--no-basemap`: Skip the Esri WorldImagery basemaps added by default (which require internet)
+- `--no-altimetry`: Skip the altimetry comparisons plotted by default. Auto-detects planetary body from DEM CRS: Earth → ICESat-2 (requires internet), Moon → LOLA, Mars → MOLA. For planetary DEMs, requires `--altimetry-csv`.
 - `--altimetry-csv`: Path to a LOLA/MOLA CSV from the ODE GDS API. **Mars: must be the `*_pts_csv.csv` (not `*_topo_csv.csv`) — the loader requires the `PLANET_RAD` column to avoid the oblate-areoid offset.** Moon accepts either the `*_topo_simple_csv.csv` (results=u) or the `*_pts_csv.csv` (results=p). Obtained via the `request_planetary_altimetry` CLI tool.
-- `--pc-align`: If True (default) and `--plot-altimetry` is True, runs `pc_align` against the reference altimetry (ICESat-2 for Earth, MOLA for Mars, LOLA for Moon) after the existing altimetry plots and appends an alignment report. **Earth success path**: adds four pages (alignment report page, pre/post landcover histogram, aligned profile, aligned best/worst segments). **Planetary success path**: adds three pages (alignment report page, pre/post mapview, pre/post histogram). `insufficient_points` and `no_improvement` outcomes emit a single alignment report page on either branch. Disabled automatically when `--no-plot-altimetry` is set.
-- `--plot-geometry`: Plot stereo geometry (default: True; disable for planetary missions)
+- `--no-pc-align`: Skips the `pc_align` step; by default (when altimetry is on) the report runs `pc_align` against the reference altimetry (ICESat-2 for Earth, MOLA for Mars, LOLA for Moon) after the existing altimetry plots and appends an alignment report. **Earth success path**: adds four pages (alignment report page, pre/post landcover histogram, aligned profile, aligned best/worst segments). **Planetary success path**: adds three pages (alignment report page, pre/post mapview, pre/post histogram). `insufficient_points` and `no_improvement` outcomes emit a single alignment report page on either branch. Skipped automatically when `--no-altimetry` is set.
+- `--no-geometry`: Skip the stereo geometry plots drawn by default (used for planetary missions)
 - `--subset-km`: Hillshade subset size in km (default: 1.0)
 - `--atl06sr-time-range`: Time range for ICESat-2 ATL06-SR requests. `"all"` (default) for full mission, `"auto"` for scene metadata ±1 year, `"START,END"` for a custom range, or a single date (buffered by ±1 year).
 - `--reuse-selections`: Path to a `*_figure_selections.yml` from a prior run. Replays that run's ICESat-2 points (parquet), profile track, best/worst segments, and detailed-hillshade clips so re-processing runs (e.g. mapproj vs non-mapproj) are directly comparable (issue #121). Every run always writes `<report_stem>_figure_selections.yml` next to the report (the `regenerate_reports.sh` paired variants use this to reuse each other). Generated sidecars are gitignored (they hardcode absolute local paths); a sanitized example is in `docs/cli/asp_report.md`.
@@ -264,7 +264,7 @@ All CLI tools are in `asp_plot/cli/` and use Click for argument parsing:
 **`gallery.py`** - DEM gallery tool (`gallery` command)
 - Wrapper for `GalleryPlotter`; lays out many DEMs as a grid sharing one color scale
 - `--directory` + `--pattern` (supports recursive `**` for subdirectories) or an explicit list of `FILES` (files take precedence)
-- `--hillshade/--no-hillshade`, `--cmap`, `--downsample`, `--max-filesize-mb`, `--title`, `--output-directory/--output-filename`
+- `--no-hillshade`, `--cmap`, `--downsample`, `--max-filesize-mb`, `--title`, `--output-directory/--output-filename`
 - Saves `<dirname>_gallery.png` into the input directory by default
 
 ## Documentation Website
@@ -336,7 +336,7 @@ Docs dependencies are in `pyproject.toml` under `[project.optional-dependencies]
 
 **ODE GDS REST API**: Base URL `https://oderest.rsl.wustl.edu/livegds`. Queries are submitted via `gds_query_async()` in async mode. The `request_planetary_altimetry` CLI submits the query and the user downloads results via email link. Coordinates use east-positive 0-360 longitude and planetocentric latitude.
 
-**Basemaps**: Uses `contextily` to fetch Esri WorldImagery tiles (requires internet). Can be disabled with `--no-add-basemap`. Automatically skipped for planetary (non-Earth) DEMs.
+**Basemaps**: Uses `contextily` to fetch Esri WorldImagery tiles (requires internet). Can be disabled with `--no-basemap`. Automatically skipped for planetary (non-Earth) DEMs.
 
 ## Example Notebooks
 

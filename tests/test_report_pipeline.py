@@ -32,6 +32,15 @@ DEM = "tests/test_data/stereo/date_time_left_right_1m-DEM.tif"
 
 
 class TestReportConfig:
+    # Negative CLI switches whose value is inverted into a positive config
+    # field (--no-basemap -> add_basemap=True by default, etc.).
+    INVERTED_FLAGS = {
+        "no_basemap": "add_basemap",
+        "no_altimetry": "plot_altimetry",
+        "no_pc_align": "pc_align",
+        "no_geometry": "plot_geometry",
+    }
+
     def test_defaults_match_cli_options(self):
         """Every Click option must map to a ReportConfig field with the same
         default, so the CLI's keyword splat stays correct."""
@@ -42,14 +51,22 @@ class TestReportConfig:
         click_params = {p.name: p for p in main.params}
 
         for name, param in click_params.items():
+            if name in self.INVERTED_FLAGS:
+                field = self.INVERTED_FLAGS[name]
+                assert field in cfg_fields, f"{field} missing from ReportConfig"
+                assert cfg_fields[field].default == (
+                    not param.default
+                ), f"inverted default mismatch for {name} -> {field}"
+                continue
             assert name in cfg_fields, f"{name} missing from ReportConfig"
             assert (
                 cfg_fields[name].default == param.default
             ), f"default mismatch for {name}"
 
-        # The only config field with no matching Click option:
+        # Config fields with no directly-matching Click option: the inverted
+        # flag targets plus the CLI-synthesized report_command.
         extra = set(cfg_fields) - set(click_params)
-        assert extra == {"report_command"}
+        assert extra == set(self.INVERTED_FLAGS.values()) | {"report_command"}
 
 
 class TestCliOptionStyle:
@@ -77,7 +94,7 @@ class TestCliOptionStyle:
                 "st/",
                 "--bundle-adjust-prefix",
                 "ba/run",
-                "--no-plot-geometry",
+                "--no-geometry",
                 "--subset-km",
                 "2.0",
             ],
@@ -89,7 +106,7 @@ class TestCliOptionStyle:
         # The recorded command must be re-runnable with the new spellings.
         assert "--stereo-directory st" in config.report_command
         assert "--bundle-adjust-prefix ba/run" in config.report_command
-        assert "--no-plot-geometry" in config.report_command
+        assert "--no-geometry" in config.report_command
         assert "--subset-km 2.0" in config.report_command
         flags = [t for t in config.report_command.split() if t.startswith("--")]
         assert all("_" not in flag for flag in flags), flags
