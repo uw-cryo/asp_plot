@@ -103,8 +103,10 @@ class TestCliOptionStyle:
         assert config.stereo_directory == "st"  # trailing slash stripped
         assert config.bundle_adjust_prefix == "ba/run"
         assert config.plot_geometry is False
-        # The recorded command must be re-runnable with the new spellings.
-        assert "--stereo-directory st" in config.report_command
+        # The recorded command must be re-runnable with the new spellings. It
+        # preserves the raw value as typed ("st/"); only the config strips the
+        # trailing slash.
+        assert "--stereo-directory st/" in config.report_command
         assert "--bundle-adjust-prefix ba/run" in config.report_command
         assert "--no-geometry" in config.report_command
         assert "--subset-km 2.0" in config.report_command
