@@ -54,7 +54,11 @@ class ProcessingParameters:
     """
 
     def __init__(
-        self, processing_directory, bundle_adjust_directory=None, stereo_directory=None
+        self,
+        processing_directory,
+        bundle_adjust_directory=None,
+        stereo_directory=None,
+        bundle_adjust_stem=None,
     ):
         """
         Initialize the ProcessingParameters object.
@@ -67,6 +71,10 @@ class ProcessingParameters:
             Subdirectory containing bundle adjustment outputs, default is None
         stereo_directory : str, optional
             Subdirectory containing stereo outputs, default is None
+        bundle_adjust_stem : str, optional
+            Run stem of an ASP output prefix (the ``run`` in ``ba/run``).
+            When given, the bundle adjustment log glob is narrowed to that
+            run; otherwise any run in the directory matches.
 
         Notes
         -----
@@ -92,8 +100,13 @@ class ProcessingParameters:
         # Locate log files. A missing directory (None) means that stage was not
         # requested -- not an error -- so we guard on it rather than catching a
         # blanket exception that would also hide real I/O problems.
+        ba_log_pattern = (
+            f"{bundle_adjust_stem}-log-bundle_adjust*.txt"
+            if bundle_adjust_stem
+            else "*log-bundle_adjust*.txt"
+        )
         self.bundle_adjust_log = (
-            glob_file(self.full_ba_directory, "*log-bundle_adjust*.txt")
+            glob_file(self.full_ba_directory, ba_log_pattern)
             if self.full_ba_directory
             else None
         )

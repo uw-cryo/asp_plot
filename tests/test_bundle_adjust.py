@@ -67,3 +67,18 @@ class TestBundleAdjust:
         )
         assert isinstance(resid_initial, gpd.GeoDataFrame)
         assert isinstance(resid_final, gpd.GeoDataFrame)
+
+
+class TestStemNarrowing:
+    """An ASP-style prefix stem narrows the globs to that run's outputs (#60)."""
+
+    def test_matching_stem_finds_files(self):
+        ba_files = ReadBundleAdjustFiles("tests/test_data", "ba", stem="ba")
+        initial, final = ba_files.get_csv_paths()
+        assert initial.endswith("ba-initial_residuals_pointmap.csv")
+        assert final.endswith("ba-final_residuals_pointmap.csv")
+
+    def test_non_matching_stem_finds_nothing(self):
+        ba_files = ReadBundleAdjustFiles("tests/test_data", "ba", stem="other_run")
+        with pytest.raises(ValueError, match="not found"):
+            ba_files.get_csv_paths()

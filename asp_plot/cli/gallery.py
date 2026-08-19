@@ -20,9 +20,10 @@ from asp_plot.gallery import GalleryPlotter
 )
 @click.argument("files", nargs=-1, type=click.Path(exists=True))
 @click.option(
-    "--hillshade/--no-hillshade",
-    default=True,
-    help="Draw a gray hillshade underlay beneath each DEM. Default: True.",
+    "--no-hillshade",
+    is_flag=True,
+    default=False,
+    help="Skip the gray hillshade underlay drawn beneath each DEM by default.",
 )
 @click.option(
     "--cmap",
@@ -37,7 +38,7 @@ from asp_plot.gallery import GalleryPlotter
     help="Downsample factor for reads, or 'auto' to size thumbnails automatically. Default: auto.",
 )
 @click.option(
-    "--max_filesize_mb",
+    "--max-filesize-mb",
     prompt=False,
     default=10.0,
     type=float,
@@ -50,13 +51,13 @@ from asp_plot.gallery import GalleryPlotter
     help="Figure suptitle. Default: none.",
 )
 @click.option(
-    "--output_directory",
+    "--output-directory",
     prompt=False,
     default=None,
     help="Directory to save the output plot. Default: Input directory.",
 )
 @click.option(
-    "--output_filename",
+    "--output-filename",
     prompt=False,
     default=None,
     help="Filename for the output plot. Default: Directory name with _gallery.png suffix.",
@@ -65,7 +66,7 @@ def main(
     directory,
     pattern,
     files,
-    hillshade,
+    no_hillshade,
     cmap,
     downsample,
     max_filesize_mb,
@@ -110,7 +111,7 @@ def main(
     os.makedirs(output_directory, exist_ok=True)
 
     plotter.plot_gallery(
-        hillshade=hillshade,
+        hillshade=not no_hillshade,
         cmap=cmap,
         max_filesize_mb=max_filesize_mb,
         save_dir=output_directory,

@@ -41,7 +41,7 @@ class ReadBundleAdjustFiles:
     >>> mapproj_gdf = ba_reader.get_mapproj_residuals_gdf()
     """
 
-    def __init__(self, directory, bundle_adjust_directory):
+    def __init__(self, directory, bundle_adjust_directory, stem=None):
         """
         Initialize the ReadBundleAdjustFiles object.
 
@@ -51,10 +51,15 @@ class ReadBundleAdjustFiles:
             Root directory of ASP processing
         bundle_adjust_directory : str
             Subdirectory containing bundle adjustment outputs
+        stem : str, optional
+            Run stem of an ASP output prefix (the ``run`` in ``ba/run``).
+            When given, file globs are narrowed to that run's outputs;
+            otherwise any run in the directory matches.
         """
         self.directory = os.path.expanduser(directory)
         self.bundle_adjust_directory = bundle_adjust_directory
         self.full_directory = os.path.join(self.directory, bundle_adjust_directory)
+        self.stem_glob = stem if stem else "*"
 
     def get_csv_paths(self, geodiff_files=False):
         """
@@ -86,8 +91,8 @@ class ReadBundleAdjustFiles:
         will attempt to generate them using the geodiff ASP tool.
         """
         filenames = [
-            "*-initial_residuals_pointmap.csv",
-            "*-final_residuals_pointmap.csv",
+            f"{self.stem_glob}-initial_residuals_pointmap.csv",
+            f"{self.stem_glob}-final_residuals_pointmap.csv",
         ]
 
         if geodiff_files:
@@ -371,7 +376,9 @@ class ReadBundleAdjustFiles:
         the distance between matched interest points in the map-projected
         images after bundle adjustment.
         """
-        path = glob_file(self.full_directory, "*-mapproj_match_offsets.txt")
+        path = glob_file(
+            self.full_directory, f"{self.stem_glob}-mapproj_match_offsets.txt"
+        )
         if path is None:
             raise ValueError("\n\nMapProj Residuals TXT file not found.\n\n")
 
@@ -411,7 +418,9 @@ class ReadBundleAdjustFiles:
         the bundle adjustment residuals propagate to uncertainty in
         triangulation. This is an estimate of the final DEM error.
         """
-        path = glob_file(self.full_directory, "*-triangulation_uncertainty.txt")
+        path = glob_file(
+            self.full_directory, f"{self.stem_glob}-triangulation_uncertainty.txt"
+        )
         if path is None:
             raise ValueError("\n\nTriangulation Uncertainty TXT file not found.\n\n")
 
