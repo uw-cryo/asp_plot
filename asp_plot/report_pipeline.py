@@ -380,22 +380,26 @@ def _build_detailed_hillshade(ctx: ReportContext) -> List[object]:
     ]
 
 
-# pc_align_report() columns kept off the alignment report page so the
-# single-row stats table still fits: median duplicates p50, and mean/stddev
-# tell the same outlier story RMSE does. They remain in alignment_report_df.
-_ALIGNMENT_STATS_PAGE_OMIT = frozenset(
-    f"{stat}_{when}" for stat in ("mean", "stddev", "median") for when in ("beg", "end")
-)
+# Which pc_align_report() error statistics the alignment report page shows.
+# ASP >= 3.7.0 logs carry a Mean/StdDev/RMSE/Median/NMAD summary, and the
+# page shows Median/NMAD/RMSE from it (mean/stddev tell the same outlier
+# story RMSE does). Older logs only have the 16/50/84 percentiles, so the
+# page falls back to those -- their absence is the ASP-version signal, no
+# version sniffing needed. Everything parsed stays in alignment_report_df.
+_ALIGNMENT_STATS_PAGE_NEW = ("median", "nmad", "rmse")
+_ALIGNMENT_STATS_PAGE_OLD = ("p16", "p50", "p84")
+_ALIGNMENT_STATS_PAGE_HIDDEN = ("mean", "stddev")
 
 
 def _stats_row_from_result(align_result) -> dict:
-    """First row of the alignment report dataframe, minus the 'key' column
-    and the ``_ALIGNMENT_STATS_PAGE_OMIT`` statistics.
+    """First row of the alignment report dataframe, reduced to the columns
+    the alignment page shows, minus the 'key' column.
 
-    Column order follows the dataframe (i.e. the pc_align log order):
-    before-alignment percentiles and RMSE/NMAD, the same after alignment,
-    then the N-E-D translation and its magnitude. Logs from ASP < 3.7.0
-    carry no RMSE/NMAD columns and simply produce a shorter row.
+    Columns are the before-alignment error stats, the same after
+    alignment, then the N-E-D translation and its magnitude. If any of the ASP >= 3.7.0
+    ``median_*``/``nmad_*``/``rmse_*`` columns are present the percentile
+    columns are dropped; otherwise (ASP < 3.7.0 log) the percentiles are
+    shown as before. ``mean_*``/``stddev_*`` never appear on the page.
     """
     stats_row: dict = {}
     if (
@@ -404,9 +408,23 @@ def _stats_row_from_result(align_result) -> dict:
     ):
         row = align_result.alignment_report_df.iloc[0].to_dict()
         row.pop("key", None)
-        stats_row = {
-            k: v for k, v in row.items() if k not in _ALIGNMENT_STATS_PAGE_OMIT
-        }
+        has_new = any(k.split("_")[0] in _ALIGNMENT_STATS_PAGE_NEW for k in row)
+        shown = _ALIGNMENT_STATS_PAGE_NEW if has_new else _ALIGNMENT_STATS_PAGE_OLD
+        hidden = _ALIGNMENT_STATS_PAGE_HIDDEN + (
+            _ALIGNMENT_STATS_PAGE_OLD if has_new else ()
+        )
+        # Error stats first (before, then after alignment, in the order the
+        # tuples list them), then whatever else the row carries -- the
+        # translation columns -- in dataframe order.
+        ordered = [f"{stat}_{when}" for when in ("beg", "end") for stat in shown]
+        stats_row = {k: row[k] for k in ordered if k in row}
+        stats_row.update(
+            {
+                k: v
+                for k, v in row.items()
+                if k not in stats_row and k.split("_")[0] not in hidden
+            }
+        )
     return stats_row
 
 

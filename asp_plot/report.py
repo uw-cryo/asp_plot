@@ -396,6 +396,8 @@ _ALIGNMENT_STATS_DISPLAY_LABELS = {
     "east_shift": "E_shift",
     "down_shift": "D_shift",
     "translation_magnitude": "|T|",
+    "median_beg": "Median_beg",
+    "median_end": "Median_end",
     "nmad_beg": "NMAD_beg",
     "nmad_end": "NMAD_end",
     "rmse_beg": "RMSE_beg",
@@ -428,9 +430,7 @@ def _add_alignment_stats_row_table(pdf, stats_row):
     usable_w = pdf.w - pdf.l_margin - pdf.r_margin
     col_w = usable_w / len(keys)
 
-    # 10 columns (pre-ASP-3.7.0 logs) fit 7 pt headers; the 14-column row
-    # with RMSE/NMAD needs one point less so "RMSE_beg" clears its borders.
-    pdf.set_font("Helvetica", "B", 7 if len(keys) <= 10 else 6)
+    pdf.set_font("Helvetica", "B", 7)
     pdf.set_fill_color(220, 220, 220)
     for k in keys:
         label = _ALIGNMENT_STATS_DISPLAY_LABELS.get(k, str(k))

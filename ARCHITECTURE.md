@@ -180,7 +180,7 @@ The package is organized by functionality, with each module focused on a specifi
 - `pc_align_dem_to_atl06sr()`: ICESat-2 path, csv-format `1:lon 2:lat 3:height_above_datum`
 - `pc_align_dem_to_planetary_csv(planetary_csv, body, ...)`: MOLA/LOLA path. Uses csv-format `1:lon 2:lat 3:radius_m` and `--datum D_MARS`/`D_MOON` (per ASAP-Stereo's CTX cookbook). Default `max_displacement=500` m
 - Both public methods keep their signatures/validation/errors and delegate to a shared `_run_pc_align(csv, csv_format, max_displacement, datum=...)` (#127); generated argv is byte-identical to before, with `--datum` emitted only on the planetary path
-- `pc_align_report()`: Extracts begin/end percentiles, the ASP >= 3.7.0 Mean/StdDev/RMSE/Median/NMAD summary (keys absent for older logs), and the N-E-D translation from the pc_align log; the report page shows percentiles + RMSE/NMAD + translation (`report_pipeline._ALIGNMENT_STATS_PAGE_OMIT` hides the rest)
+- `pc_align_report()`: Extracts begin/end percentiles, the ASP >= 3.7.0 Mean/StdDev/RMSE/Median/NMAD summary (keys absent for older logs), and the N-E-D translation from the pc_align log; the report page shows Median/NMAD/RMSE + translation when the log has them, else the percentiles (`report_pipeline._stats_row_from_result()`)
 - `apply_dem_translation()`: Applies pc_align's Cartesian translation to the DEM (geotransform shift + scalar add to pixel values, no resampling). Picks the right body-centered geocentric source CRS via the module-level `_GEOCENTRIC_PROJ` dict — Earth uses EPSG:4978, Mars/Moon use PROJ strings (`+proj=geocent +R=...`) because PROJ refuses to convert across celestial bodies
 - Used by `Altimetry` class for DEM-to-altimetry alignment on Earth, Mars, and Moon
 

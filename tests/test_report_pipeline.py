@@ -335,7 +335,7 @@ class _FakeStereoPlotter:
 
 
 class TestStatsRowFromResult:
-    def test_drops_key_and_page_omitted_stats_keeps_order(self):
+    def test_new_stats_replace_percentiles(self):
         from asp_plot.report_pipeline import _stats_row_from_result
 
         row = {
@@ -362,36 +362,46 @@ class TestStatsRowFromResult:
             "translation_magnitude": 1.0,
         }
         ar = type("AR", (), {"alignment_report_df": pd.DataFrame([row])})()
+        # ASP >= 3.7.0 log: Median/NMAD/RMSE replace the percentiles, and
+        # are reordered from the log's Mean/StdDev/RMSE/Median/NMAD
         assert list(_stats_row_from_result(ar)) == [
-            "p16_beg",
-            "p50_beg",
-            "p84_beg",
-            "rmse_beg",
+            "median_beg",
             "nmad_beg",
-            "p16_end",
-            "p50_end",
-            "p84_end",
-            "rmse_end",
+            "rmse_beg",
+            "median_end",
             "nmad_end",
+            "rmse_end",
             "north_shift",
             "east_shift",
             "down_shift",
             "translation_magnitude",
         ]
 
-    def test_pre_370_row_passes_through(self):
+    def test_pre_370_row_keeps_percentiles(self):
+        """Without the 3.7.0 stats the percentiles are all we have, so they
+        stay on the page."""
         from asp_plot.report_pipeline import _stats_row_from_result
 
-        ar = type(
-            "AR",
-            (),
-            {
-                "alignment_report_df": pd.DataFrame(
-                    [{"key": "all", "p50_beg": 1.0, "p50_end": 0.5}]
-                )
-            },
-        )()
-        assert _stats_row_from_result(ar) == {"p50_beg": 1.0, "p50_end": 0.5}
+        row = {
+            "key": "all",
+            "p16_beg": 1.0,
+            "p50_beg": 2.0,
+            "p84_beg": 3.0,
+            "p16_end": 0.1,
+            "p50_end": 0.2,
+            "p84_end": 0.3,
+            "translation_magnitude": 1.0,
+        }
+        ar = type("AR", (), {"alignment_report_df": pd.DataFrame([row])})()
+        assert list(_stats_row_from_result(ar)) == [
+            "p16_beg",
+            "p50_beg",
+            "p84_beg",
+            "p16_end",
+            "p50_end",
+            "p84_end",
+            "translation_magnitude",
+        ]
 
     def test_empty_or_missing_df(self):
         from asp_plot.report_pipeline import _stats_row_from_result
