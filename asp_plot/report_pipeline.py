@@ -380,8 +380,23 @@ def _build_detailed_hillshade(ctx: ReportContext) -> List[object]:
     ]
 
 
+# pc_align_report() columns kept off the alignment report page so the
+# single-row stats table still fits: median duplicates p50, and mean/stddev
+# tell the same outlier story RMSE does. They remain in alignment_report_df.
+_ALIGNMENT_STATS_PAGE_OMIT = frozenset(
+    f"{stat}_{when}" for stat in ("mean", "stddev", "median") for when in ("beg", "end")
+)
+
+
 def _stats_row_from_result(align_result) -> dict:
-    """First row of the alignment report dataframe, minus the 'key' column."""
+    """First row of the alignment report dataframe, minus the 'key' column
+    and the ``_ALIGNMENT_STATS_PAGE_OMIT`` statistics.
+
+    Column order follows the dataframe (i.e. the pc_align log order):
+    before-alignment percentiles and RMSE/NMAD, the same after alignment,
+    then the N-E-D translation and its magnitude. Logs from ASP < 3.7.0
+    carry no RMSE/NMAD columns and simply produce a shorter row.
+    """
     stats_row: dict = {}
     if (
         align_result.alignment_report_df is not None
@@ -389,7 +404,9 @@ def _stats_row_from_result(align_result) -> dict:
     ):
         row = align_result.alignment_report_df.iloc[0].to_dict()
         row.pop("key", None)
-        stats_row = row
+        stats_row = {
+            k: v for k, v in row.items() if k not in _ALIGNMENT_STATS_PAGE_OMIT
+        }
     return stats_row
 
 

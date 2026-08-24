@@ -17,6 +17,43 @@ logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
 
+# Labels ASP >= 3.7.0 prints on the "Input stats (meters):" / "Output stats
+# (meters):" pc_align log lines, mapped to the keys pc_align_report() uses.
+_PC_ALIGN_STATS_FIELDS = {
+    "Mean": "mean",
+    "StdDev": "stddev",
+    "RMSE": "rmse",
+    "Median": "median",
+    "NMAD": "nmad",
+}
+
+
+def _parse_pc_align_stats_line(line, suffix):
+    """Parse one ``Input/Output stats (meters):`` pc_align log line.
+
+    Parameters
+    ----------
+    line : str
+        e.g. ``"... Input stats (meters): Mean: 71.4632, StdDev: 134.758,
+        RMSE: 152.535, Median: 5.71217, NMAD: 3.20963"``
+    suffix : str
+        ``"beg"`` for the Input line, ``"end"`` for the Output line.
+
+    Returns
+    -------
+    dict
+        ``{"mean_<suffix>": float, "stddev_<suffix>": float, ...}`` for every
+        label found on the line; labels that are missing are left out rather
+        than raising, so a future change to the line degrades gracefully.
+    """
+    parsed = {}
+    for label, key in _PC_ALIGN_STATS_FIELDS.items():
+        match = re.search(rf"{label}: (-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?)", line)
+        if match:
+            parsed[f"{key}_{suffix}"] = float(match.group(1))
+    return parsed
+
+
 class Alignment:
     """
     Perform DEM alignment using point cloud alignment techniques.
@@ -274,10 +311,21 @@ class Alignment:
         dict
             Dictionary containing alignment metrics:
             - p16_beg, p50_beg, p84_beg: Error percentiles before alignment
+            - mean_beg, stddev_beg, rmse_beg, median_beg, nmad_beg: Error
+              statistics before alignment (ASP >= 3.7.0 only; absent from
+              the dict when the log predates them)
             - p16_end, p50_end, p84_end: Error percentiles after alignment
+            - mean_end, stddev_end, rmse_end, median_end, nmad_end: Error
+              statistics after alignment (ASP >= 3.7.0 only)
             - north_shift, east_shift, down_shift: Translation vector components
               in North-East-Down (NED) coordinate frame, in meters
             - translation_magnitude: Magnitude of translation vector
+
+        All errors are the absolute point-to-point (or point-to-plane)
+        distances pc_align reports, in meters. ``median_*`` duplicates
+        ``p50_*``; ``nmad_*`` is the robust spread and ``rmse_*`` the
+        outlier-sensitive one, so a large RMSE alongside a small NMAD flags
+        a tail of gross errors rather than a broad misfit.
 
         Notes
         -----
@@ -317,6 +365,11 @@ class Alignment:
                     "p84_end": float(values[2]),
                 }
                 report = report | percentile_dict
+            # ASP >= 3.7.0 adds a one-line summary after each percentile line
+            if "Input stats (meters):" in line:
+                report = report | _parse_pc_align_stats_line(line, "beg")
+            if "Output stats (meters):" in line:
+                report = report | _parse_pc_align_stats_line(line, "end")
             if "Translation vector (North-East-Down, meters):" in line:
                 ned_shift = np.genfromtxt(
                     [line.split("Vector3")[1][1:-2]], delimiter=","
