@@ -5,9 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] - 3.0.0
+## [3.0.0] - 2026-08-24
 
 A breaking standardization of the command-line interfaces ([#60](https://github.com/uw-cryo/asp_plot/issues/60)), done deliberately as a clean break — no aliases, no deprecation period — while the user base is small. Every multi-word option across the five CLIs (`asp_report`, `stereo_geom`, `csm_camera_plot`, `gallery`, `request_planetary_altimetry`) moves from underscores to the hyphenated style ASP itself uses (`--stereo_directory` → `--stereo-directory`), booleans become single switches for the non-default behavior (`--add_basemap False` → `--no-basemap`), and `--bundle_adjust_directory` becomes `--bundle-adjust-prefix`, matching both the name and the semantics of ASP's own option. The Python API is unchanged.
+
+A major version because every existing `asp_report`/`stereo_geom`/`csm_camera_plot`/`gallery` invocation with a multi-word or boolean option needs editing. **Upgrade:** re-spell the flags per the entries below — the `--help` of each command lists the new names, and the committed example reports and notebooks show them in use. No new dependencies and no entry-point changes.
 
 ### Changed
 - **All CLI options are hyphenated** (issue [#60](https://github.com/uw-cryo/asp_plot/issues/60)). One-for-one renames: `--stereo-directory`, `--dem-filename`, `--dem-gsd`, `--map-crs`, `--reference-dem`, `--altimetry-csv`, `--subset-km`, `--atl06sr-time-range`, `--reuse-selections`, `--report-filename`, `--report-title` (asp_report); `--output-directory`, `--output-filename` (stereo_geom, gallery); `--max-filesize-mb` (gallery); `--original-cameras`, `--optimized-cameras`, `--map-crs`, `--upper-magnitude-percentile` (csm_camera_plot). Single-word options are untouched. The command recorded on the report's final page is emitted with the new spellings, so it stays re-runnable.
