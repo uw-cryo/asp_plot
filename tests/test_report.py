@@ -105,12 +105,12 @@ def test_compile_report_with_alignment_pages(dummy_image, tmp_path):
             title="DEM Alignment with ICESat-2",
             parameters={"processing_level": "all", "improvement_threshold_pct": 5.0},
             stats_row={
-                "p16_beg": 0.5,
-                "p50_beg": 1.2,
-                "p84_beg": 2.5,
-                "p16_end": 0.2,
-                "p50_end": 0.3,
-                "p84_end": 1.0,
+                "median_beg": 1.2,
+                "nmad_beg": 0.9,
+                "rmse_beg": 3.1,
+                "median_end": 0.3,
+                "nmad_end": 0.25,
+                "rmse_end": 1.4,
                 "north_shift": -0.1,
                 "east_shift": 0.3,
                 "down_shift": -1.2,
@@ -140,3 +140,70 @@ def test_compile_report_with_alignment_pages(dummy_image, tmp_path):
         report_metadata=ReportMetadata(dem_filename="test-DEM.tif"),
     )
     assert os.path.exists(out) and os.path.getsize(out) > 0
+
+
+class TestAlignmentStatsTables:
+    def test_split_pairs_beg_end_and_keeps_translation_in_order(self):
+        from asp_plot.report import _split_alignment_stats
+
+        row = {
+            "median_beg": 5.71,
+            "nmad_beg": 3.21,
+            "median_end": 2.01,
+            "nmad_end": 2.07,
+            "north_shift": -0.09,
+            "east_shift": -1.18,
+            "down_shift": 4.76,
+            "translation_magnitude": 4.90,
+        }
+        stats, translation = _split_alignment_stats(row)
+        assert stats == [("Median", 5.71, 2.01), ("NMAD", 3.21, 2.07)]
+        assert translation == [
+            ("North", -0.09),
+            ("East", -1.18),
+            ("Down", 4.76),
+            ("Magnitude |T|", 4.90),
+        ]
+
+    def test_split_pre_370_percentiles_and_unknown_keys(self):
+        from asp_plot.report import _split_alignment_stats
+
+        row = {"p50_beg": 1.0, "p50_end": 0.5, "|T|": 0.3, "p84_beg": 2.0}
+        stats, translation = _split_alignment_stats(row)
+        assert stats == [("p50", 1.0, 0.5)]
+        # an unpaired _beg and an unknown key fall through, labelled as-is
+        assert translation == [("|T|", 0.3), ("p84_beg", 2.0)]
+
+    @pytest.mark.parametrize(
+        "before, after, expected",
+        [
+            (5.71, 2.01, "-64.8%"),
+            (153.0, 153.3, "+0.2%"),
+            (0.0, 1.0, "n/a"),
+            (float("nan"), 1.0, "n/a"),
+            ("x", 1.0, "n/a"),
+        ],
+    )
+    def test_fmt_pct_change(self, before, after, expected):
+        from asp_plot.report import _fmt_pct_change
+
+        assert _fmt_pct_change(before, after) == expected
+
+    def test_lone_table_renders(self, tmp_path):
+        """Only-translation or only-stats rows each render as a single
+        full-width table without error."""
+        for stats_row in (
+            {"north_shift": 0.1, "east_shift": 0.2, "down_shift": 0.3},
+            {"median_beg": 1.0, "median_end": 0.5},
+        ):
+            out = str(tmp_path / f"lone_{len(stats_row)}.pdf")
+            compile_report(
+                sections=[
+                    AlignmentReportPage(
+                        title="Lone table", stats_row=stats_row, status_message="."
+                    )
+                ],
+                processing_parameters_dict=_minimal_params_dict(),
+                report_pdf_path=out,
+            )
+            assert os.path.exists(out) and os.path.getsize(out) > 0

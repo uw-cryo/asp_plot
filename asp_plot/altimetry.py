@@ -59,10 +59,10 @@ class AlignmentResult:
         One of:
           - ``"insufficient_points"``: not enough ATL06-SR points for
             pc_align to run (the aligned DEM is removed if one was written).
-          - ``"no_improvement"``: pc_align ran but p50 did not improve
+          - ``"no_improvement"``: pc_align ran but the median (p50) did not improve
             toward 0 by more than the ``improvement_threshold_pct``; the
             aligned DEM has been removed.
-          - ``"success"``: p50 improved by more than the threshold; the
+          - ``"success"``: the median (p50) improved by more than the threshold; the
             aligned DEM is retained and ``Altimetry.aligned_dem_fn`` points
             to it.
     alignment_report_df : pandas.DataFrame
@@ -729,11 +729,11 @@ class Altimetry:
             reason = (
                 f"Translation magnitude is below {min_translation_threshold*100:.0f}% "
                 "of the DEM GSD, so no aligned DEM was written despite a "
-                f"{improvement_repr} p50 reduction."
+                f"{improvement_repr} median reduction."
             )
         else:
             reason = (
-                f"p50 {p50_beg:.2f} m -> {p50_end:.2f} m, "
+                f"median {p50_beg:.2f} m -> {p50_end:.2f} m, "
                 f"{improvement_repr} <= {improvement_threshold_pct:.1f}% "
                 "threshold. Aligned DEM removed."
             )
@@ -795,7 +795,7 @@ class Altimetry:
             ``--max-displacement`` for pc_align, in meters. Default 500
             (ASAP-Stereo's CTX cookbook recommendation).
         improvement_threshold_pct : float, optional
-            Minimum p50 reduction (%) required to keep the aligned DEM.
+            Minimum median (p50) reduction (%) required to keep the aligned DEM.
         min_translation_threshold : float, optional
             Minimum translation magnitude as a fraction of the DEM GSD.
         minimum_points : int, optional
@@ -897,11 +897,11 @@ class Altimetry:
             reason = (
                 f"Translation magnitude is below {min_translation_threshold*100:.0f}% "
                 f"of the DEM GSD ({gsd:.2f} m), so no aligned DEM was "
-                f"written despite a {improvement_repr} p50 reduction."
+                f"written despite a {improvement_repr} median reduction."
             )
         else:
             reason = (
-                f"p50 {p50_beg:.2f} m -> {p50_end:.2f} m, "
+                f"median {p50_beg:.2f} m -> {p50_end:.2f} m, "
                 f"{improvement_repr} <= {improvement_threshold_pct:.1f}% "
                 "threshold."
             )
@@ -1034,7 +1034,7 @@ class Altimetry:
             aligned_dem_fn=self.aligned_dem_fn,
             improvement_pct=improvement_pct,
             message=(
-                f"p50 improved from {p50_beg:.2f} m -> {p50_end:.2f} m "
+                f"Median improved from {p50_beg:.2f} m -> {p50_end:.2f} m "
                 f"({improvement_pct:.1f}% reduction). Aligned DEM written to "
                 f"{self.aligned_dem_fn}."
             ),

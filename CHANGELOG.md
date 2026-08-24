@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - 3.1.0
+
+### Added
+- **`pc_align_report()` parses the error statistics ASP 3.7.0 added to the `pc_align` log** (issue [#146](https://github.com/uw-cryo/asp_plot/issues/146)): the `Input stats (meters):` / `Output stats (meters):` lines become `mean_beg/end`, `stddev_beg/end`, `rmse_beg/end`, `median_beg/end`, `nmad_beg/end` alongside the existing percentiles and translation, and flow into `Altimetry.alignment_report_df`. The alignment report page (ICESat-2 and LOLA/MOLA) now shows `Median`, `NMAD` and `RMSE` before/after alignment in place of the 16/50/84 percentiles, with the column description updated; `mean`/`stddev` stay in the dataframe only. Logs from ASP < 3.7.0 parse exactly as before, without the new keys, and the page keeps showing the percentiles for them — no version sniffing, the absence of the new stats is the signal. The seven committed example reports in `reports/` are regenerated with the new page.
+- **The `pc_align` log parser is now regression-tested** against real logs from both generations — the existing 2024-11 fixtures and a new ASP 3.8.0-alpha LOLA log (`tests/test_data/pc_align/pc_align_lola-log-pc_align.txt`) — which also confirmed the percentile and translation lines we key off are unchanged in 3.8.0.
+
 ## [3.0.0] - 2026-08-24
 
 A breaking standardization of the command-line interfaces ([#60](https://github.com/uw-cryo/asp_plot/issues/60)), done deliberately as a clean break — no aliases, no deprecation period — while the user base is small. Every multi-word option across the five CLIs (`asp_report`, `stereo_geom`, `csm_camera_plot`, `gallery`, `request_planetary_altimetry`) moves from underscores to the hyphenated style ASP itself uses (`--stereo_directory` → `--stereo-directory`), booleans become single switches for the non-default behavior (`--add_basemap False` → `--no-basemap`), and `--bundle_adjust_directory` becomes `--bundle-adjust-prefix`, matching both the name and the semantics of ASP's own option. The Python API is unchanged.

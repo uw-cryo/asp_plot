@@ -273,7 +273,7 @@ class TestAltimetry:
         # Pins the threshold-branch wording (Earth path appends "Aligned DEM
         # removed."), which differs from the planetary path.
         assert result.message == (
-            "No significant improvement: p50 2.00 m -> 2.00 m, 0.0% <= 5.0% "
+            "No significant improvement: median 2.00 m -> 2.00 m, 0.0% <= 5.0% "
             "threshold. Aligned DEM removed."
         )
 
@@ -296,7 +296,7 @@ class TestAltimetry:
         assert result.improvement_pct == pytest.approx(75.0)
         assert result.message == (
             "No significant improvement: Translation magnitude is below 10% of "
-            "the DEM GSD, so no aligned DEM was written despite a 75.0% p50 "
+            "the DEM GSD, so no aligned DEM was written despite a 75.0% median "
             "reduction."
         )
 
@@ -337,7 +337,7 @@ class TestAltimetry:
         assert result.improvement_pct is not None
         assert result.improvement_pct > 5.0
         assert result.message == (
-            f"p50 improved from 2.00 m -> 0.50 m (75.0% reduction). "
+            f"Median improved from 2.00 m -> 0.50 m (75.0% reduction). "
             f"Aligned DEM written to {fake_aligned}."
         )
 
@@ -420,7 +420,7 @@ class TestAlignmentEvaluationHelpers:
         assert out.aligned_dem_fn == str(tmp_path / "aligned.tif")
         assert out.improvement_pct == pytest.approx(75.0)
         assert out.message == (
-            f"p50 improved from 2.00 m -> 0.50 m (75.0% reduction). "
+            f"Median improved from 2.00 m -> 0.50 m (75.0% reduction). "
             f"Aligned DEM written to {tmp_path / 'aligned.tif'}."
         )
 
@@ -712,7 +712,7 @@ class TestPlanetaryDh:
         assert result.status == "no_improvement"
         assert result.aligned_dem_fn is None
         assert result.message == (
-            "No significant improvement: p50 2.00 m -> 2.00 m, 0.0% <= 5.0% "
+            "No significant improvement: median 2.00 m -> 2.00 m, 0.0% <= 5.0% "
             "threshold."
         )
 

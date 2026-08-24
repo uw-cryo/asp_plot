@@ -53,9 +53,10 @@ class AlignmentReportPage:
         to skip.
     stats_row : dict
         Single-row alignment statistics (e.g. p16_beg/p50_beg/... from
-        ``pc_align_report``). Rendered as a horizontal 1-row table with
-        column headers. Values are formatted to two significant figures.
-        Use an empty dict to skip.
+        ``pc_align_report``). Rendered as two side-by-side tables: one
+        row per error statistic (Before / After / Change) and one row per
+        translation component. Values are formatted to two significant
+        figures. Use an empty dict to skip.
     description : str
         Long-form explanation of pc_align and the meaning of each column in
         the parameters and stats tables. Rendered between the stats table
@@ -325,7 +326,7 @@ def _render_alignment_report_page(pdf, page):
         pdf.ln(3)
 
     if page.stats_row:
-        _add_alignment_stats_row_table(pdf, page.stats_row)
+        _add_alignment_stats_tables(pdf, page.stats_row)
         pdf.ln(3)
 
     if page.description:
@@ -391,21 +392,70 @@ def _add_alignment_parameters_table(pdf, parameters):
         pdf.cell(col_w, 6, str(val), border=1, new_x="LMARGIN", new_y="NEXT")
 
 
-_ALIGNMENT_STATS_DISPLAY_LABELS = {
-    "north_shift": "N_shift",
-    "east_shift": "E_shift",
-    "down_shift": "D_shift",
-    "translation_magnitude": "|T|",
+# Row labels for the error-statistics table, keyed by the pc_align_report()
+# stat name (the part of the key before _beg/_end).
+_ALIGNMENT_STAT_LABELS = {
+    "median": "Median",
+    "nmad": "NMAD",
+    "rmse": "RMSE",
+    "mean": "Mean",
+    "stddev": "StdDev",
+    "p16": "p16",
+    "p50": "p50",
+    "p84": "p84",
+}
+
+# Row labels for the translation table.
+_ALIGNMENT_TRANSLATION_LABELS = {
+    "north_shift": "North",
+    "east_shift": "East",
+    "down_shift": "Down",
+    "translation_magnitude": "Magnitude |T|",
 }
 
 
-def _add_alignment_stats_row_table(pdf, stats_row):
-    """Render a single-row horizontal alignment stats table.
+def _split_alignment_stats(stats_row):
+    """Split a flat pc_align_report() row into the two alignment tables.
 
-    Each key becomes a column header; the corresponding value becomes the
-    single data row (formatted to two significant figures). Long pc_align
-    field names are shortened via ``_ALIGNMENT_STATS_DISPLAY_LABELS`` so the
-    headers fit inside the table columns.
+    Returns ``(stats, translation)``: ``stats`` is a list of
+    ``(label, before, after)`` for every ``<stat>_beg`` key that has a
+    matching ``<stat>_end``; ``translation`` is a list of ``(label, value)``
+    for everything else, in row order.
+    """
+    stats, translation, consumed = [], [], set()
+    for key, val in stats_row.items():
+        if key.endswith("_beg") and f"{key[:-4]}_end" in stats_row:
+            stat = key[:-4]
+            stats.append(
+                (_ALIGNMENT_STAT_LABELS.get(stat, stat), val, stats_row[f"{stat}_end"])
+            )
+            consumed.update({key, f"{stat}_end"})
+    for key, val in stats_row.items():
+        if key not in consumed:
+            translation.append((_ALIGNMENT_TRANSLATION_LABELS.get(key, key), val))
+    return stats, translation
+
+
+def _fmt_pct_change(before, after):
+    """Percent change from before to after (negative = improvement)."""
+    try:
+        b, a = float(before), float(after)
+    except (TypeError, ValueError):
+        return "n/a"
+    if not (math.isfinite(b) and math.isfinite(a)) or b == 0:
+        return "n/a"
+    return f"{(a - b) / b * 100:+.1f}%"
+
+
+def _add_alignment_stats_tables(pdf, stats_row):
+    """Render the alignment statistics as two side-by-side tables.
+
+    Left, "Error Statistics (m)": one row per statistic with Before /
+    After / Change columns. Right, "Translation (m)": one row per
+    component of the applied translation. Both come from the flat
+    ``pc_align_report()`` row via ``_split_alignment_stats``; the number
+    of statistic rows follows what the log provided (Median/NMAD/RMSE for
+    ASP >= 3.7.0, p16/p50/p84 before that).
 
     Parameters
     ----------
@@ -413,28 +463,70 @@ def _add_alignment_stats_row_table(pdf, stats_row):
     stats_row : dict
         Ordered dict-like of ``{column_name: value}``.
     """
-    pdf.set_font("Helvetica", "B", 11)
-    pdf.cell(0, 8, "Alignment Statistics (m)", new_x="LMARGIN", new_y="NEXT")
-    pdf.ln(1)
-
-    keys = list(stats_row.keys())
-    if not keys:
+    stats, translation = _split_alignment_stats(stats_row)
+    if not stats and not translation:
         return
 
     usable_w = pdf.w - pdf.l_margin - pdf.r_margin
-    col_w = usable_w / len(keys)
+    gap = 8
+    if stats and translation:
+        left_w = (usable_w - gap) * 0.6
+        right_w = usable_w - gap - left_w
+    else:  # a lone table takes the full width
+        left_w = right_w = usable_w
+    row_h = 6
+    x_left, y_top = pdf.l_margin, pdf.get_y()
+    x_right = pdf.l_margin + left_w + gap if stats else pdf.l_margin
 
-    pdf.set_font("Helvetica", "B", 7)
-    pdf.set_fill_color(220, 220, 220)
-    for k in keys:
-        label = _ALIGNMENT_STATS_DISPLAY_LABELS.get(k, str(k))
-        pdf.cell(col_w, 6, label, border=1, fill=True, align="C")
-    pdf.ln(6)
+    def header(x, y, widths, labels):
+        pdf.set_xy(x, y)
+        pdf.set_font("Helvetica", "B", 9)
+        pdf.set_fill_color(220, 220, 220)
+        for w, label in zip(widths, labels):
+            pdf.cell(w, row_h, label, border=1, fill=True, align="C")
 
-    pdf.set_font("Helvetica", "", 8)
-    for k in keys:
-        pdf.cell(col_w, 6, _fmt_sig(stats_row[k]), border=1, align="C")
-    pdf.ln(6)
+    def body_row(x, y, widths, values):
+        pdf.set_xy(x, y)
+        pdf.set_font("Helvetica", "", 9)
+        for i, (w, val) in enumerate(zip(widths, values)):
+            pdf.cell(w, row_h, val, border=1, align="L" if i == 0 else "C")
+
+    bottoms = []
+    if stats:
+        pdf.set_xy(x_left, y_top)
+        pdf.set_font("Helvetica", "B", 10)
+        pdf.cell(left_w, 6, "Error Statistics (m)", new_x="LMARGIN", new_y="NEXT")
+        widths = [left_w * 0.31, left_w * 0.23, left_w * 0.23, left_w * 0.23]
+        y = y_top + 6
+        header(x_left, y, widths, ["Statistic", "Before", "After", "Change"])
+        for label, before, after in stats:
+            y += row_h
+            body_row(
+                x_left,
+                y,
+                widths,
+                [
+                    label,
+                    _fmt_sig(before),
+                    _fmt_sig(after),
+                    _fmt_pct_change(before, after),
+                ],
+            )
+        bottoms.append(y + row_h)
+
+    if translation:
+        pdf.set_xy(x_right, y_top)
+        pdf.set_font("Helvetica", "B", 10)
+        pdf.cell(right_w, 6, "Translation (m)", new_x="LMARGIN", new_y="NEXT")
+        widths = [right_w * 0.6, right_w * 0.4]
+        y = y_top + 6
+        header(x_right, y, widths, ["Component", "Value"])
+        for label, val in translation:
+            y += row_h
+            body_row(x_right, y, widths, [label, _fmt_sig(val)])
+        bottoms.append(y + row_h)
+
+    pdf.set_xy(pdf.l_margin, max(bottoms))
 
 
 def _render_command_block(pdf, label, cmd):
