@@ -1,0 +1,91 @@
+ASP 3.8.0-alpha
+Build ID: 39e4f4a
+Build date: 2026-06-26
+
+/Users/ben/asp/dev/libexec/pc_align --max-displacement 500 --max-num-source-points 10000000 --alignment-method point-to-point --csv-format "1:lon 2:lat 3:radius_m" --datum D_MOON --compute-translation-only --output-prefix /path/to/lunar_lro_nac/pc_align/pc_align_lola /path/to/lunar_lro_nac/out_stereo/output-DEM.tif /path/to/lunar_lro_nac/lola_for_pc_align.csv 
+
+uname -a
+Darwin Bens-MacBook-Air-2.local 25.3.0 Darwin Kernel Version 25.3.0: Wed Jan 28 20:54:22 PST 2026; root:xnu-12377.81.4~5/RELEASE_ARM64_T8112 arm64
+
+sysctl -a hw 2>/dev/null | grep -E "ncpu|byteorder|memsize|cpufamily|cachesize|mmx|sse|machine|model" | grep -v ipv6
+hw.ncpu: 8
+hw.byteorder: 1234
+hw.memsize: 17179869184
+hw.perflevel0.l1icachesize: 196608
+hw.perflevel0.l1dcachesize: 131072
+hw.perflevel0.l2cachesize: 16777216
+hw.perflevel1.l1icachesize: 131072
+hw.perflevel1.l1dcachesize: 65536
+hw.perflevel1.l2cachesize: 4194304
+hw.cpufamily: -634136515
+hw.cachesize: 3484778496 65536 4194304 0 0 0 0 0 0 0
+hw.l1icachesize: 131072
+hw.l1dcachesize: 65536
+hw.l2cachesize: 4194304
+hw.memsize_usable: 16369680384
+
+
+
+Vision Workbench log started at 2026-08-18 18:07:19.
+
+2026-08-18 18:07:19 {0} [ console ] : Will use datum (for CSV files): Geodetic Datum --> Name: D_MOON  Spheroid: MOON  Semi-major axis: 1737400  Semi-minor axis: 1737400  Meridian: Reference meridian at 0  Proj4 Str: +proj=longlat +R=1737400 +no_defs
+2026-08-18 18:07:19 {0} [ console ] : Computing the bounding boxes of the reference and source points using 1000000 sample points.
+2026-08-18 18:07:19 {0} [ console ] : Computation of bounding boxes took 0.781011 s
+2026-08-18 18:07:19 {0} [ console ] : Reference points box: Min: (15.1941, -9.6912) width: 0.206854 height: 0.195531
+2026-08-18 18:07:19 {0} [ console ] : Source points box:    Min: (15.1792, -9.70044) width: 0.215136 height: 0.220936
+2026-08-18 18:07:19 {0} [ console ] : Intersection box:     Min: (15.1941, -9.6912) width: 0.20018 height: 0.195531
+2026-08-18 18:07:19 {0} [ console ] : Reading: /path/to/lunar_lro_nac/out_stereo/output-DEM.tif
+2026-08-18 18:07:25 {0} [ console ] : Loaded points: 20409622
+2026-08-18 18:07:25 {0} [ console ] : Loading the reference point cloud took 5.61856 s
+2026-08-18 18:07:25 {0} [ console ] : Data shifted internally by subtracting: Vector3(1.65263e+06,452023,-289564)
+2026-08-18 18:07:25 {0} [ console ] : Building the reference cloud tree.
+2026-08-18 18:07:29 {0} [ console ] : Reference point cloud processing took 3.42976 s
+2026-08-18 18:07:29 {0} [ console ] : Reading: /path/to/lunar_lro_nac/lola_for_pc_align.csv
+2026-08-18 18:07:29 {0} [ console ] : Loaded points: 2044
+2026-08-18 18:07:29 {0} [ console ] : Loading the source point cloud took 0.003012 s
+2026-08-18 18:07:29 {0} [ console ] : Filtering gross outliers
+2026-08-18 18:07:29 {0} [ console ] : Filtering gross outliers took 0.184779 s
+2026-08-18 18:07:29 {0} [ console ] : Reducing number of source points to: 2027
+2026-08-18 18:07:29 {0} [ console ] : Not enough points left in the source cloud after filtering. Try loading more.
+2026-08-18 18:07:29 {0} [ console ] : Reading: /path/to/lunar_lro_nac/lola_for_pc_align.csv
+2026-08-18 18:07:29 {0} [ console ] : Loaded points: 2044
+2026-08-18 18:07:29 {0} [ console ] : Loading the source point cloud (second attempt) took 0.002909 s
+2026-08-18 18:07:29 {0} [ console ] : Filtering gross outliers
+2026-08-18 18:07:29 {0} [ console ] : Filtering gross outliers took 0.029893 s
+2026-08-18 18:07:29 {0} [ console ] : Reducing number of source points to: 2027
+2026-08-18 18:07:29 {0} [ console ] : Number of errors: 2027
+2026-08-18 18:07:29 {0} [ console ] : Input: error percentile of smallest errors (meters): 16%: 2.92937, 50%: 5.71217, 84%: 235.916
+2026-08-18 18:07:29 {0} [ console ] : Input: mean of smallest errors (meters): 25%: 2.31948, 50%: 3.58366, 75%: 4.65241, 100%: 71.4632
+2026-08-18 18:07:29 {0} [ console ] : Input stats (meters): Mean: 71.4632, StdDev: 134.758, RMSE: 152.535, Median: 5.71217, NMAD: 3.20963
+2026-08-18 18:07:29 {0} [ console ] : Initial error computation took 0.015275 s
+2026-08-18 18:07:32 {0} [ console ] : Match ratio: 0.75037
+2026-08-18 18:07:32 {0} [ console ] : Alignment took 3.42985 s
+2026-08-18 18:07:32 {0} [ console ] : Number of errors: 2027
+2026-08-18 18:07:32 {0} [ console ] : Output: error percentile of smallest errors (meters): 16%: 0.619107, 50%: 2.01482, 84%: 235.598
+2026-08-18 18:07:32 {0} [ console ] : Output: mean of smallest errors (meters): 25%: 0.479854, 50%: 0.945533, 75%: 1.73209, 100%: 69.3561
+2026-08-18 18:07:32 {0} [ console ] : Output stats (meters): Mean: 69.3561, StdDev: 136.126, RMSE: 152.776, Median: 2.01482, NMAD: 2.07062
+2026-08-18 18:07:32 {0} [ console ] : Final error computation took 0.017709 s
+2026-08-18 18:07:32 {0} [ console ] : Alignment transform (origin is planet center):
+                 1                  0                  0  -4.22454966395162
+                 0                  1                  0 -2.383039374253713
+                 0                  0                  1 0.7040960301528685
+                 0                  0                  0                  1
+2026-08-18 18:07:32 {0} [ console ] : 2026-08-18 18:07:32 {0} [ console ] : Centroid of source points (Cartesian, meters): Vector3(1652607.4,452179.99,-289534.03)
+2026-08-18 18:07:32 {0} [ console ] : Centroid of source points (lat,lon,z): Vector3(-9.591615,15.302509,244.32014)
+2026-08-18 18:07:32 {0} [ console ] : 
+2026-08-18 18:07:32 {0} [ console ] : Translation vector (Cartesian, meters): Vector3(-4.2245497,-2.3830394,0.70409603)
+2026-08-18 18:07:32 {0} [ console ] : Translation vector (North-East-Down, meters): Vector3(-0.089497083,-1.1836275,4.7552564)
+2026-08-18 18:07:32 {0} [ console ] : Translation vector magnitude (meters): 4.901168
+2026-08-18 18:07:32 {0} [ console ] : Maximum displacement of points between the source cloud with any initial transform applied to it and the source cloud after alignment to the reference: 4.901168 m
+2026-08-18 18:07:32 {0} [ console ] : Translation vector (lat,lon,z): Vector3(-2.9510155e-06,-3.9581485e-05,-4.755256)
+2026-08-18 18:07:32 {0} [ console ] : 
+2026-08-18 18:07:32 {0} [ console ] : Transform scale - 1 = 0
+2026-08-18 18:07:32 {0} [ console ] : Euler angles (degrees): Vector3(0,-0,0)
+2026-08-18 18:07:32 {0} [ console ] : Euler angles (North-East-Down, degrees): Vector3(-5.4503416e-17,-1.0790973e-15,1.0067973e-16)
+2026-08-18 18:07:32 {0} [ console ] : Axis of rotation and angle (degrees): Vector3(nan,nan,nan) 0
+2026-08-18 18:07:32 {0} [ console ] : Writing: /path/to/lunar_lro_nac/pc_align/pc_align_lola-transform.txt
+2026-08-18 18:07:32 {0} [ console ] : Writing: /path/to/lunar_lro_nac/pc_align/pc_align_lola-inverse-transform.txt
+2026-08-18 18:07:32 {0} [ console ] : Writing: /path/to/lunar_lro_nac/pc_align/pc_align_lola-beg_errors.csv
+2026-08-18 18:07:32 {0} [ console ] : Writing: /path/to/lunar_lro_nac/pc_align/pc_align_lola-end_errors.csv
+2026-08-18 18:07:32 {0} [ console ] : Writing: /path/to/lunar_lro_nac/pc_align/pc_align_lola-iterationInfo.csv
+2026-08-18 18:07:32 {0} [ console ] : Saving to disk took 0.007366 s
