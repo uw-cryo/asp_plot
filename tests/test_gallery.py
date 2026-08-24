@@ -112,9 +112,9 @@ class TestGalleryCLI:
             main,
             DEMS
             + [
-                "--output_directory",
+                "--output-directory",
                 str(tmp_path),
-                "--output_filename",
+                "--output-filename",
                 "cli_gallery.png",
             ],
         )

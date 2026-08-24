@@ -111,3 +111,38 @@ class TestProcessingParameters:
                 assert actual == expected, f"drift in field {key!r}"
             else:
                 assert str(actual) == expected, f"drift in field {key!r}"
+
+
+class TestBundleAdjustStemNarrowing:
+    """An ASP-style prefix stem narrows the BA log glob to that run (#60)."""
+
+    @pytest.fixture
+    def ba_dir(self, tmp_path):
+        ba = tmp_path / "ba"
+        ba.mkdir()
+        (ba / "run-log-bundle_adjust-2024.txt").touch()
+        (ba / "other-log-bundle_adjust-2024.txt").touch()
+        return tmp_path
+
+    def test_matching_stem_selects_that_run(self, ba_dir):
+        params = ProcessingParameters(
+            processing_directory=str(ba_dir),
+            bundle_adjust_directory="ba",
+            bundle_adjust_stem="run",
+        )
+        assert params.bundle_adjust_log.endswith("run-log-bundle_adjust-2024.txt")
+
+    def test_non_matching_stem_finds_nothing(self, ba_dir):
+        params = ProcessingParameters(
+            processing_directory=str(ba_dir),
+            bundle_adjust_directory="ba",
+            bundle_adjust_stem="nope",
+        )
+        assert params.bundle_adjust_log is None
+
+    def test_no_stem_matches_any_run(self, ba_dir):
+        params = ProcessingParameters(
+            processing_directory=str(ba_dir),
+            bundle_adjust_directory="ba",
+        )
+        assert params.bundle_adjust_log is not None

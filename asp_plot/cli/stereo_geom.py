@@ -17,19 +17,19 @@ from asp_plot.stereo_geometry import StereoGeometryPlotter
     ),
 )
 @click.option(
-    "--add_basemap",
-    prompt=False,
-    default=True,
-    help="If True, add a basemap to the figures, which requires internet connection. Default: True.",
+    "--no-basemap",
+    is_flag=True,
+    default=False,
+    help="Skip the figure basemaps (basemaps are added by default, which requires an internet connection).",
 )
 @click.option(
-    "--output_directory",
+    "--output-directory",
     prompt=False,
     default=None,
     help="Directory to save the output plot. Default: Input directory.",
 )
 @click.option(
-    "--output_filename",
+    "--output-filename",
     prompt=False,
     default=None,
     help=(
@@ -41,7 +41,7 @@ from asp_plot.stereo_geometry import StereoGeometryPlotter
 def main(
     inputs,
     directory,
-    add_basemap,
+    no_basemap,
     output_directory,
     output_filename,
 ):
@@ -72,14 +72,14 @@ def main(
     # Positional INPUTS take precedence; otherwise fall back to --directory.
     if inputs:
         inputs = [os.path.expanduser(i) for i in inputs]
-        plotter = StereoGeometryPlotter(inputs=inputs, add_basemap=add_basemap)
+        plotter = StereoGeometryPlotter(inputs=inputs, add_basemap=not no_basemap)
         source_desc = " ".join(inputs)
         # Base directory for default output paths (resolved by the parser).
         base_directory = plotter.directory
     else:
         base_directory = os.path.expanduser(directory or "./")
         plotter = StereoGeometryPlotter(
-            directory=base_directory, add_basemap=add_basemap
+            directory=base_directory, add_basemap=not no_basemap
         )
         source_desc = base_directory
 

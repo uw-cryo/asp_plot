@@ -84,6 +84,42 @@ def glob_file(directory, *patterns, all_files=False, recursive=False, quiet=Fals
     return None
 
 
+def resolve_directory_or_prefix(base_directory, value):
+    """
+    Resolve a CLI value that may name a directory or an ASP output prefix.
+
+    ASP tools take output *prefixes* (``--bundle-adjust-prefix ba/run``), while
+    asp_plot historically took the containing *directory* (``ba``). This
+    accepts both: an existing directory is returned as-is with no stem, while
+    a prefix is split into its directory and run stem so file globs can be
+    narrowed to that run (``run-final_residuals_pointmap.csv``).
+
+    Parameters
+    ----------
+    base_directory : str
+        Directory the value is relative to (the report's ``--directory``).
+    value : str or None
+        Directory or prefix, relative to ``base_directory``. Trailing slashes
+        are stripped.
+
+    Returns
+    -------
+    tuple of (str or None, str or None)
+        ``(subdirectory, stem)``; ``stem`` is None when ``value`` names a
+        directory. A separator-free value that is not an existing directory is
+        kept as a directory so downstream "not found" errors point at it.
+    """
+    if value is None:
+        return None, None
+    value = value.rstrip("/\\")
+    if os.path.isdir(os.path.join(os.path.expanduser(base_directory), value)):
+        return value, None
+    subdirectory, stem = os.path.split(value)
+    if subdirectory and stem:
+        return subdirectory, stem
+    return value, None
+
+
 def find_pair_directories(directory):
     """
     Find the per-pair subdirectories of an ASP multi-view stereo run.
