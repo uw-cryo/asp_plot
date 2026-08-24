@@ -188,3 +188,22 @@ class TestAlignmentStatsTables:
         from asp_plot.report import _fmt_pct_change
 
         assert _fmt_pct_change(before, after) == expected
+
+    def test_lone_table_renders(self, tmp_path):
+        """Only-translation or only-stats rows each render as a single
+        full-width table without error."""
+        for stats_row in (
+            {"north_shift": 0.1, "east_shift": 0.2, "down_shift": 0.3},
+            {"median_beg": 1.0, "median_end": 0.5},
+        ):
+            out = str(tmp_path / f"lone_{len(stats_row)}.pdf")
+            compile_report(
+                sections=[
+                    AlignmentReportPage(
+                        title="Lone table", stats_row=stats_row, status_message="."
+                    )
+                ],
+                processing_parameters_dict=_minimal_params_dict(),
+                report_pdf_path=out,
+            )
+            assert os.path.exists(out) and os.path.getsize(out) > 0

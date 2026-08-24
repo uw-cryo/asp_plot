@@ -469,10 +469,14 @@ def _add_alignment_stats_tables(pdf, stats_row):
 
     usable_w = pdf.w - pdf.l_margin - pdf.r_margin
     gap = 8
-    left_w = (usable_w - gap) * 0.6 if translation else usable_w
-    right_w = usable_w - gap - left_w
+    if stats and translation:
+        left_w = (usable_w - gap) * 0.6
+        right_w = usable_w - gap - left_w
+    else:  # a lone table takes the full width
+        left_w = right_w = usable_w
     row_h = 6
-    x_left, x_right, y_top = pdf.l_margin, pdf.l_margin + left_w + gap, pdf.get_y()
+    x_left, y_top = pdf.l_margin, pdf.get_y()
+    x_right = pdf.l_margin + left_w + gap if stats else pdf.l_margin
 
     def header(x, y, widths, labels):
         pdf.set_xy(x, y)
