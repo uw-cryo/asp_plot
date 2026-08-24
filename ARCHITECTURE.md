@@ -42,7 +42,7 @@ The package is organized by functionality, with each module focused on a specifi
 - `pixel_window_to_bbox()` / `bbox_to_pixel_offset()`: convert a detailed-hillshade clip between a DEM-CRS map bbox and a top-left pixel offset. `bbox_to_pixel_offset` uses `rowcol(..., op=round)` (round-to-nearest, **not** floor) so a replayed clip doesn't drift by a pixel from floating-point error
 - `reproject_bbox(bbox, src_crs, dst_crs)`: reprojects a clip bbox between CRSs (via `rasterio.warp.transform_bounds`) so clip reuse works across stereo variants in different projections (e.g. MOC non-mapproj Stereographic vs mapproj Sinusoidal). `plot_detailed_hillshade(clip_windows_crs=...)` passes the manifest's `dem_crs`; reprojection is a no-op when CRSs match
 - Deliberately imports nothing from `report.py` / `fpdf`, so it is safe to use from notebooks
-- The `asp_report` CLI always writes `<report_stem>_figure_selections.yml` next to the report; `--reuse_selections PATH` replays a prior run's choices
+- The `asp_report` CLI always writes `<report_stem>_figure_selections.yml` next to the report; `--reuse-selections PATH` replays a prior run's choices
 
 **`report.py`** - PDF report generation using fpdf2
 - `ReportSection`: Dataclass representing a report figure (title, image path, caption)
@@ -53,13 +53,13 @@ The package is organized by functionality, with each module focused on a specifi
 - `_add_processing_parameters_page()`: helper that renders the runtime summary table plus the bundle_adjust / stereo / point2dem / report commands on page 2 (moved from the trailing page as of v1.13.0). Also renders the reconstructed `mapproject` command(s) (from the optional `mapproject` list key; see `mapproject.py`) with a "reconstructed from output metadata" note.
 - `_fmt_sig()`: formats a number compactly — 2 decimals for |x| < 10, 1 decimal for 10 ≤ |x| < 100, 0 decimals above, "n/a" for non-finite. Used for alignment stats.
 - Title page displays: processing date, ASP version (from logs), asp_plot version (from package metadata)
-- Page order: title + DEM summary → Processing Parameters → diagnostic figures → (if `--pc_align` ran) alignment report page + aligned-DEM figures.
+- Page order: title + DEM summary → Processing Parameters → diagnostic figures → (if the `pc_align` step ran) alignment report page + aligned-DEM figures.
 - `report.py` is fed declaratively by `report_pipeline.py`; it was **not** rewritten in #128.
 
 **`report_pipeline.py`** - Declarative report pipeline behind the `asp_report` CLI (issue #128)
 - `ReportConfig`: dataclass packing the ~18 CLI options into one Click-free object (field names/defaults mirror the options one-for-one, guarded by a test)
 - `run_report(config)`: importable/callable from notebooks and tests with no Click context; returns the written PDF path
-- A declarative section registry (`REPORT_SECTIONS`) of `ReportSpec`s replaces the old inline plot-and-append wall: each spec pairs an `enabled(ctx)` predicate with a `build(ctx)` function returning the sections to append. `--plot_geometry` / `--plot_altimetry` / `--pc_align` gating are predicates; figure numbering comes from a per-run counter on the shared `ReportContext`, so section order and numbering are data, not source-line position. The alignment "Page B/C/D" follow-ups are one spec emitting several sections
+- A declarative section registry (`REPORT_SECTIONS`) of `ReportSpec`s replaces the old inline plot-and-append wall: each spec pairs an `enabled(ctx)` predicate with a `build(ctx)` function returning the sections to append. `--no-geometry` / `--no-altimetry` / `--no-pc-align` gating are predicates; figure numbering comes from a per-run counter on the shared `ReportContext`, so section order and numbering are data, not source-line position. The alignment "Page B/C/D" follow-ups are one spec emitting several sections
 - Section builders: `_build_input_scenes`, `_build_stereo_geometry`, `_build_match_points`, `_build_bundle_adjust`, `_build_disparity`, `_build_dem_results`, `_build_detailed_hillshade`, `_build_altimetry` (→ `_build_altimetry_earth` / `_build_altimetry_planetary`)
 - `_numbered_sections()`: shared helper turning a plotter's saved-filename list into one `ReportSection` per figure (first gets the caption, continuations are titled "... (continued)") — used by the scenes/geometry/match/disparity builders, whose plotters save one figure per pair on multi-view runs (issue #160)
 
@@ -218,28 +218,27 @@ All CLI tools are in `asp_plot/cli/` and use Click for argument parsing:
 **`asp_report.py`** - Main CLI tool (`asp_report` command)
 - Generates comprehensive PDF reports of ASP processing
 - A **thin Click wrapper** (issue #128): parses the ~18 options into a `ReportConfig` and calls `report_pipeline.run_report(config)`. All orchestration lives in `report_pipeline.py` (see the module structure section); the CLI file itself is now just option definitions + the `ReportConfig` build
-- Accepts directories for stereo and bundle_adjust outputs
+- Accepts a directory for stereo outputs and a directory or ASP-style prefix for bundle_adjust outputs; trailing slashes are tolerated (issue #60)
 - Options for reference DEMs, ICESat-2 comparisons, basemaps
 - Report section order: Input Scenes → Stereo Geometry → Match Points → Bundle Adjust panels (Log/Linear Residuals, Map-Projected Residuals, Geodiff) → Disparity → DEM Results → Detailed Hillshade → Altimetry panels. Disparity follows Bundle Adjust (not Hillshade) and DEM Results precedes Hillshade, so the title page → inputs → per-step diagnostics → final DEM products narrative reads top-down.
 - Title-page `ReportMetadata` is populated here; `get_acquisition_dates()` is called with the main directory plus stereo/BA subdirs as `extra_dirs` so the Acquisition Date(s) row appears on both raw-input layouts (WV XMLs at top level) and layouts where XMLs live one level deep.
 - `--directory`: Root ASP processing directory (default: `./`)
-- `--stereo_directory`: Stereo output subdirectory (default: `stereo`)
-- `--bundle_adjust_directory`: Optional BA directory
-- `--dem_filename`: Custom DEM filename (default: auto-detect `*-DEM.tif`)
-- `--dem_gsd`: Custom DEM ground sample distance
-- `--map_crs`: Projection as `EPSG:XXXX` (default: auto-detect from DEM, fallback `EPSG:4326`)
-- `--reference_dem`: Reference DEM path (auto-detected from logs if not supplied)
-- `--add_basemap`: Add Esri WorldImagery basemaps (default: True, requires internet)
-- `--plot_altimetry`: Plot altimetry comparisons (default: True). Auto-detects planetary body from DEM CRS: Earth → ICESat-2 (requires internet), Moon → LOLA, Mars → MOLA. For planetary DEMs, requires `--altimetry_csv`. Replaces the deprecated `--plot_icesat` flag.
-- `--plot_icesat`: Deprecated alias for `--plot_altimetry`. Prints deprecation warning if used.
-- `--altimetry_csv`: Path to a LOLA/MOLA CSV from the ODE GDS API. **Mars: must be the `*_pts_csv.csv` (not `*_topo_csv.csv`) — the loader requires the `PLANET_RAD` column to avoid the oblate-areoid offset.** Moon accepts either the `*_topo_simple_csv.csv` (results=u) or the `*_pts_csv.csv` (results=p). Obtained via the `request_planetary_altimetry` CLI tool.
-- `--pc_align`: If True (default) and `--plot_altimetry` is True, runs `pc_align` against the reference altimetry (ICESat-2 for Earth, MOLA for Mars, LOLA for Moon) after the existing altimetry plots and appends an alignment report. **Earth success path**: adds four pages (alignment report page, pre/post landcover histogram, aligned profile, aligned best/worst segments). **Planetary success path**: adds three pages (alignment report page, pre/post mapview, pre/post histogram). `insufficient_points` and `no_improvement` outcomes emit a single alignment report page on either branch. Disabled automatically when `--plot_altimetry` / `--plot_icesat` is False.
-- `--plot_geometry`: Plot stereo geometry (default: True; disable for planetary missions)
-- `--subset_km`: Hillshade subset size in km (default: 1.0)
-- `--atl06sr_time_range`: Time range for ICESat-2 ATL06-SR requests. `"all"` (default) for full mission, `"auto"` for scene metadata ±1 year, `"START,END"` for a custom range, or a single date (buffered by ±1 year).
-- `--reuse_selections`: Path to a `*_figure_selections.yml` from a prior run. Replays that run's ICESat-2 points (parquet), profile track, best/worst segments, and detailed-hillshade clips so re-processing runs (e.g. mapproj vs non-mapproj) are directly comparable (issue #121). Every run always writes `<report_stem>_figure_selections.yml` next to the report (the `regenerate_reports.sh` paired variants use this to reuse each other). Generated sidecars are gitignored (they hardcode absolute local paths); a sanitized example is in `docs/cli/asp_report.md`.
-- `--report_filename`: PDF report filename or path. A bare filename saves in the stereo directory; a path (e.g. `reports/report.pdf`) is used as-is. Default is auto-generated as `asp_report_<report_title>_<UTC timestamp>.pdf`
-- `--report_title`: Custom report title (default: directory name)
+- `--stereo-directory`: Stereo output subdirectory (default: `stereo`)
+- `--bundle-adjust-prefix`: Optional BA output location — either a directory (`ba`) or an ASP-style output prefix (`ba/run`, as passed to stereo/mapproject); a prefix narrows file globs to that run's outputs
+- `--dem-filename`: Custom DEM filename (default: auto-detect `*-DEM.tif`)
+- `--dem-gsd`: Custom DEM ground sample distance
+- `--map-crs`: Projection as `EPSG:XXXX` (default: auto-detect from DEM, fallback `EPSG:4326`)
+- `--reference-dem`: Reference DEM path (auto-detected from logs if not supplied)
+- `--no-basemap`: Skip the Esri WorldImagery basemaps added by default (which require internet)
+- `--no-altimetry`: Skip the altimetry comparisons plotted by default. Auto-detects planetary body from DEM CRS: Earth → ICESat-2 (requires internet), Moon → LOLA, Mars → MOLA. For planetary DEMs, requires `--altimetry-csv`.
+- `--altimetry-csv`: Path to a LOLA/MOLA CSV from the ODE GDS API. **Mars: must be the `*_pts_csv.csv` (not `*_topo_csv.csv`) — the loader requires the `PLANET_RAD` column to avoid the oblate-areoid offset.** Moon accepts either the `*_topo_simple_csv.csv` (results=u) or the `*_pts_csv.csv` (results=p). Obtained via the `request_planetary_altimetry` CLI tool.
+- `--no-pc-align`: Skips the `pc_align` step; by default (when altimetry is on) the report runs `pc_align` against the reference altimetry (ICESat-2 for Earth, MOLA for Mars, LOLA for Moon) after the existing altimetry plots and appends an alignment report. **Earth success path**: adds four pages (alignment report page, pre/post landcover histogram, aligned profile, aligned best/worst segments). **Planetary success path**: adds three pages (alignment report page, pre/post mapview, pre/post histogram). `insufficient_points` and `no_improvement` outcomes emit a single alignment report page on either branch. Skipped automatically when `--no-altimetry` is set.
+- `--no-geometry`: Skip the stereo geometry plots drawn by default (used for planetary missions)
+- `--subset-km`: Hillshade subset size in km (default: 1.0)
+- `--atl06sr-time-range`: Time range for ICESat-2 ATL06-SR requests. `"all"` (default) for full mission, `"auto"` for scene metadata ±1 year, `"START,END"` for a custom range, or a single date (buffered by ±1 year).
+- `--reuse-selections`: Path to a `*_figure_selections.yml` from a prior run. Replays that run's ICESat-2 points (parquet), profile track, best/worst segments, and detailed-hillshade clips so re-processing runs (e.g. mapproj vs non-mapproj) are directly comparable (issue #121). Every run always writes `<report_stem>_figure_selections.yml` next to the report (the `regenerate_reports.sh` paired variants use this to reuse each other). Generated sidecars are gitignored (they hardcode absolute local paths); a sanitized example is in `docs/cli/asp_report.md`.
+- `--report-filename`: PDF report filename or path. A bare filename saves in the stereo directory; a path (e.g. `reports/report.pdf`) is used as-is. Default is auto-generated as `asp_report_<report_title>_<UTC timestamp>.pdf`
+- `--report-title`: Custom report title (default: directory name)
 
 **`csm_camera_plot.py`** - CSM camera comparison tool (`csm_camera_plot` command)
 - Wrapper for `csm_camera.py` functions
@@ -253,7 +252,7 @@ All CLI tools are in `asp_plot/cli/` and use Click for argument parsing:
 - `--email`: Email for notification when query finishes (required)
 - `--channels`: LOLA detector channels (Moon only, default `tffff` = channel 1 only)
 - Saves request metadata as `altimetry_request_info.yml` alongside the DEM
-- Workflow: submit query → receive email → download/unzip → pass `*_pts_csv.csv` (Mars) or `*_topo_simple_csv.csv`/`*_pts_csv.csv` (Moon) to `asp_report --altimetry_csv`
+- Workflow: submit query → receive email → download/unzip → pass `*_pts_csv.csv` (Mars) or `*_topo_simple_csv.csv`/`*_pts_csv.csv` (Moon) to `asp_report --altimetry-csv`
 
 **`stereo_geom.py`** - Stereo geometry visualization tool (`stereo_geom` command)
 - Wrapper for `StereoGeometryPlotter`
@@ -265,7 +264,7 @@ All CLI tools are in `asp_plot/cli/` and use Click for argument parsing:
 **`gallery.py`** - DEM gallery tool (`gallery` command)
 - Wrapper for `GalleryPlotter`; lays out many DEMs as a grid sharing one color scale
 - `--directory` + `--pattern` (supports recursive `**` for subdirectories) or an explicit list of `FILES` (files take precedence)
-- `--hillshade/--no-hillshade`, `--cmap`, `--downsample`, `--max_filesize_mb`, `--title`, `--output_directory/--output_filename`
+- `--no-hillshade`, `--cmap`, `--downsample`, `--max-filesize-mb`, `--title`, `--output-directory/--output-filename`
 - Saves `<dirname>_gallery.png` into the input directory by default
 
 ## Documentation Website
@@ -307,7 +306,7 @@ docs/
 - **`html_extra_path`** is used to serve `notebooks/figures/` at the correct relative path for notebook `<img src>` references.
 - **`docs/` is excluded from sdist** in `pyproject.toml` so docs never ship in the PyPI/conda package.
 - **Changelog** uses `{include} ../CHANGELOG.md` so there's one source of truth.
-- **Selective notebook exclusion**: `.readthedocs.yaml`'s `pre_build` copies every `notebooks/**/*.ipynb` into `docs/examples/notebooks/`, but specific notebooks can be dropped from the build by listing them in `exclude_patterns` in `docs/conf.py` (e.g., `worldview_utqiagvik_stereo.ipynb`). Inter-notebook links in the WorldView examples use fully-qualified `https://asp-plot.readthedocs.io/en/latest/...` URLs so they resolve both on RTD and in raw notebook previews. Report-link convention: each notebook's "Full Report Generation" section ends with a `#### See the resulting [report](https://asp-plot.readthedocs.io/en/latest/_static/reports/<filename>.pdf).` line that links directly to the PDF served from `_static/reports/`. The `<filename>` must match what the cell's `!asp_report --report_filename` writes (so the URL on RTD actually resolves).
+- **Selective notebook exclusion**: `.readthedocs.yaml`'s `pre_build` copies every `notebooks/**/*.ipynb` into `docs/examples/notebooks/`, but specific notebooks can be dropped from the build by listing them in `exclude_patterns` in `docs/conf.py` (e.g., `worldview_utqiagvik_stereo.ipynb`). Inter-notebook links in the WorldView examples use fully-qualified `https://asp-plot.readthedocs.io/en/latest/...` URLs so they resolve both on RTD and in raw notebook previews. Report-link convention: each notebook's "Full Report Generation" section ends with a `#### See the resulting [report](https://asp-plot.readthedocs.io/en/latest/_static/reports/<filename>.pdf).` line that links directly to the PDF served from `_static/reports/`. The `<filename>` must match what the cell's `!asp_report --report-filename` writes (so the URL on RTD actually resolves).
 
 ### Dependencies
 
@@ -337,7 +336,7 @@ Docs dependencies are in `pyproject.toml` under `[project.optional-dependencies]
 
 **ODE GDS REST API**: Base URL `https://oderest.rsl.wustl.edu/livegds`. Queries are submitted via `gds_query_async()` in async mode. The `request_planetary_altimetry` CLI submits the query and the user downloads results via email link. Coordinates use east-positive 0-360 longitude and planetocentric latitude.
 
-**Basemaps**: Uses `contextily` to fetch Esri WorldImagery tiles (requires internet). Can be disabled with `--add_basemap False`. Automatically skipped for planetary (non-Earth) DEMs.
+**Basemaps**: Uses `contextily` to fetch Esri WorldImagery tiles (requires internet). Can be disabled with `--no-basemap`. Automatically skipped for planetary (non-Earth) DEMs.
 
 ## Example Notebooks
 

@@ -41,7 +41,12 @@ from asp_plot.selections import (
 )
 from asp_plot.stereo import StereoPlotter
 from asp_plot.stereo_geometry import StereoGeometryPlotter, camera_files_from_stereo_run
-from asp_plot.utils import Raster, detect_planetary_body, get_acquisition_dates
+from asp_plot.utils import (
+    Raster,
+    detect_planetary_body,
+    get_acquisition_dates,
+    resolve_directory_or_prefix,
+)
 
 
 @dataclass
@@ -53,7 +58,7 @@ class ReportConfig:
     """
 
     directory: str = "./"
-    bundle_adjust_directory: Optional[str] = None
+    bundle_adjust_prefix: Optional[str] = None
     stereo_directory: str = "stereo"
     dem_filename: Optional[str] = None
     dem_gsd: Optional[float] = None
@@ -61,7 +66,6 @@ class ReportConfig:
     reference_dem: Optional[str] = None
     add_basemap: bool = True
     plot_altimetry: bool = True
-    plot_icesat: Optional[object] = None
     altimetry_csv: Optional[str] = None
     pc_align: bool = True
     plot_geometry: bool = True
@@ -73,6 +77,15 @@ class ReportConfig:
     # Reconstructed "asp_report --flag ..." string recorded in the report. The
     # CLI builds this from the Click context; non-CLI callers may leave it None.
     report_command: Optional[str] = None
+
+    def __post_init__(self):
+        # Tolerate trailing slashes on directory-like inputs (issue #60) so
+        # path joins and basename-derived titles behave the same either way.
+        for attr in ("directory", "stereo_directory", "bundle_adjust_prefix"):
+            value = getattr(self, attr)
+            if value:
+                stripped = value.rstrip("/\\")
+                setattr(self, attr, stripped or value)
 
 
 @dataclass
@@ -93,6 +106,9 @@ class ReportContext:
     stereo_plotter: StereoPlotter
     asp_dem: Optional[str]
     plot_altimetry: bool
+    # --bundle-adjust-prefix resolved into a subdirectory and optional run stem
+    ba_directory: Optional[str] = None
+    ba_stem: Optional[str] = None
     report_metadata: Optional[ReportMetadata] = None
     reuse_clip_windows: Optional[list] = None
     reuse_clip_windows_crs: Optional[str] = None
@@ -204,7 +220,9 @@ def _build_bundle_adjust(ctx: ReportContext) -> List[object]:
     cfg = ctx.config
     sections: List[object] = []
     try:
-        ba_files = ReadBundleAdjustFiles(cfg.directory, cfg.bundle_adjust_directory)
+        ba_files = ReadBundleAdjustFiles(
+            cfg.directory, ctx.ba_directory, stem=ctx.ba_stem
+        )
         resid_initial_gdf, resid_final_gdf = ba_files.get_initial_final_residuals_gdfs()
 
         plotter = PlotBundleAdjustFiles(
@@ -316,7 +334,7 @@ def _build_bundle_adjust(ctx: ReportContext) -> List[object]:
 
     except ValueError:
         print(
-            f"\n\nNo bundle adjustment files found in directory {os.path.join(cfg.directory, cfg.bundle_adjust_directory):}. If you want bundle adjustment plots, make sure you run the tool and supply the correct directory to asp_report.\n\n"
+            f"\n\nNo bundle adjustment files found in directory {os.path.join(cfg.directory, ctx.ba_directory):}. If you want bundle adjustment plots, make sure you run the tool and supply the correct --bundle-adjust-prefix to asp_report.\n\n"
         )
     return sections
 
@@ -400,7 +418,7 @@ def _build_altimetry_earth(ctx: ReportContext, ctx_kwargs_altimetry: dict):
     asp_dem = ctx.asp_dem
     sections: List[object] = []
 
-    # Parse --atl06sr_time_range into time_range/t0/t1 kwargs
+    # Parse --atl06sr-time-range into time_range/t0/t1 kwargs
     atl06sr_time_range = cfg.atl06sr_time_range
     atl06sr_time_kwargs = {}
     if atl06sr_time_range.lower() == "all":
@@ -632,7 +650,7 @@ def _build_altimetry_planetary(ctx: ReportContext, body: str):
             f"  1. Run: request_planetary_altimetry --dem {asp_dem} --email <your_email>\n"
             f"  2. Wait for the email with a download link\n"
             f"  3. Download and unzip the result\n"
-            f"  4. Re-run asp_report with: --altimetry_csv <path_to_pts_csv.csv>\n"
+            f"  4. Re-run asp_report with: --altimetry-csv <path_to_pts_csv.csv>\n"
             f"\nSkipping {instrument} altimetry plots.\n"
             f"{'='*60}\n"
         )
@@ -751,7 +769,7 @@ REPORT_SECTIONS: List[ReportSpec] = [
     ReportSpec("match_points", lambda ctx: True, _build_match_points),
     ReportSpec(
         "bundle_adjust",
-        lambda ctx: bool(ctx.config.bundle_adjust_directory),
+        lambda ctx: bool(ctx.config.bundle_adjust_prefix),
         _build_bundle_adjust,
     ),
     ReportSpec("disparity", lambda ctx: True, _build_disparity),
@@ -766,29 +784,13 @@ REPORT_SECTIONS: List[ReportSpec] = [
 # ---------------------------------------------------------------------------
 
 
-def _resolve_plot_altimetry(config: ReportConfig) -> bool:
-    """Resolve the deprecated --plot_icesat alias against --plot_altimetry."""
-    plot_altimetry = config.plot_altimetry
-    if config.plot_icesat is not None:
-        import warnings
-
-        warnings.warn(
-            "--plot_icesat is deprecated. Use --plot_altimetry instead.",
-            DeprecationWarning,
-            stacklevel=1,
-        )
-        plot_icesat = config.plot_icesat
-        # Convert Click string 'True'/'False' to bool
-        if isinstance(plot_icesat, str):
-            plot_icesat = plot_icesat.lower() not in ("false", "0", "no")
-        plot_altimetry = plot_icesat
-    return plot_altimetry
-
-
 def _setup_context(config: ReportConfig) -> ReportContext:
     """Resolve paths, projection, DEM metadata, and shared plotters."""
     directory = os.path.expanduser(config.directory)
     config.directory = directory
+    ba_directory, ba_stem = resolve_directory_or_prefix(
+        directory, config.bundle_adjust_prefix
+    )
     if config.reference_dem:
         config.reference_dem = os.path.expanduser(config.reference_dem)
     if config.altimetry_csv:
@@ -858,7 +860,7 @@ def _setup_context(config: ReportConfig) -> ReportContext:
                 print(f"\nUsing map projection from DEM: {map_crs}\n")
             except Exception as e:
                 print(
-                    f"\nError getting projection from DEM: {e}. Using default projection EPSG:4326. If you want a different projection, use the --map_crs flag.\n"
+                    f"\nError getting projection from DEM: {e}. Using default projection EPSG:4326. If you want a different projection, use the --map-crs flag.\n"
                 )
                 map_crs = "EPSG:4326"
 
@@ -875,10 +877,8 @@ def _setup_context(config: ReportConfig) -> ReportContext:
                 (float(valid.min()), float(valid.max())) if valid.size else (0, 0)
             )
             acq_extra_dirs = [os.path.join(directory, config.stereo_directory)]
-            if config.bundle_adjust_directory:
-                acq_extra_dirs.append(
-                    os.path.join(directory, config.bundle_adjust_directory)
-                )
+            if ba_directory:
+                acq_extra_dirs.append(os.path.join(directory, ba_directory))
             acquisition_dates = get_acquisition_dates(
                 directory, extra_dirs=acq_extra_dirs
             )
@@ -915,7 +915,9 @@ def _setup_context(config: ReportConfig) -> ReportContext:
         ctx_kwargs=ctx_kwargs,
         stereo_plotter=stereo_plotter,
         asp_dem=asp_dem,
-        plot_altimetry=_resolve_plot_altimetry(config),
+        plot_altimetry=config.plot_altimetry,
+        ba_directory=ba_directory,
+        ba_stem=ba_stem,
         report_metadata=report_metadata,
         reuse_clip_windows=reuse_clip_windows,
         reuse_clip_windows_crs=reuse_clip_windows_crs,
@@ -983,7 +985,8 @@ def run_report(config: ReportConfig) -> str:
     # Compile report
     processing_parameters = ProcessingParameters(
         processing_directory=config.directory,
-        bundle_adjust_directory=config.bundle_adjust_directory,
+        bundle_adjust_directory=ctx.ba_directory,
+        bundle_adjust_stem=ctx.ba_stem,
         stereo_directory=config.stereo_directory,
     )
     processing_parameters_dict = processing_parameters.from_log_files()

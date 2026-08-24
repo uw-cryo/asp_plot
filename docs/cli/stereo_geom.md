@@ -69,17 +69,17 @@ stereo_geom --directory /path/to/directory/with/xml/files
 
 ```bash
 stereo_geom scene1.xml scene2.xml \
-            --output_directory /path/to/save/plots \
-            --output_filename custom_output.png
+            --output-directory /path/to/save/plots \
+            --output-filename custom_output.png
 ```
 
-## With basemap
+## Without basemap
 
-Adding a basemap to the map view requires an internet connection:
+A basemap is added to the map view by default, which requires an internet connection. To run offline, skip it:
 
 ```bash
 stereo_geom my_delivery_dir/ \
-            --add_basemap True
+            --no-basemap
 ```
 
 ## Full options
@@ -115,11 +115,11 @@ Options:
                            or images carrying RPCs) for stereo geometry
                            analysis. Used when no positional INPUTS are given.
                            Default: current directory.
-  --add_basemap BOOLEAN    If True, add a basemap to the figures, which
-                           requires internet connection. Default: True.
-  --output_directory TEXT  Directory to save the output plot. Default: Input
+  --no-basemap             Skip the figure basemaps (basemaps are added by
+                           default, which requires an internet connection).
+  --output-directory TEXT  Directory to save the output plot. Default: Input
                            directory.
-  --output_filename TEXT   Filename for the output plot. Default: Directory
+  --output-filename TEXT   Filename for the output plot. Default: Directory
                            name with _stereo_geom.png suffix. With more than
                            two scenes this is the stem for the per-pair and
                            overview figures.

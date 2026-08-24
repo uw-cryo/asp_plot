@@ -30,7 +30,7 @@ See the [installation guide](https://asp-plot.readthedocs.io/en/latest/installat
 Generate a PDF report from an ASP processing directory:
 
 ```
-asp_report --directory ./ --stereo_directory stereo
+asp_report --directory ./ --stereo-directory stereo
 ```
 
 See the [CLI documentation](https://asp-plot.readthedocs.io/en/latest/cli/index.html) for all options and additional tools (`stereo_geom`, `csm_camera_plot`).
