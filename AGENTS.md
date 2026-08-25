@@ -76,7 +76,7 @@ The rest is automated: `release.yml` detects the version bump, creates a GitHub 
 ASP output files follow specific naming patterns (find them with the `glob_file()` utility):
 - DEMs: `*-DEM.tif` or `*_dem.tif`
 - Disparity: `*-F.tif`
-- Match files: `*.match`
+- Match files: `*.match` (binary) or `*__*.txt` (plain text, from ASP >= 3.7.0 `--matches-as-txt`; binary preferred when both exist)
 - Bundle adjust residuals: `*-initial_residuals_pointmap.csv`, `*-final_residuals_pointmap.csv`
 - Log files: `*log-bundle_adjust*.txt`, `*log-stereo*.txt`, `*log-point2dem*.txt`
 

@@ -1,4 +1,8 @@
+import shutil
+from pathlib import Path
+
 import matplotlib
+import numpy as np
 import pytest
 
 from asp_plot.stereo import StereoFiles, StereoPlotter
@@ -305,6 +309,77 @@ class TestStereoPlotterAlignedInterestPoints:
         assert plotter.orthos is False
         assert plotter.align_left_fn is None
         assert plotter.plot_match_points(save_dir=str(tmp_path), fig_fn="mp.png") == [
+            "mp.png"
+        ]
+
+
+class TestStereoPlotterTextMatchFile:
+    """ASP >= 3.7.0 writes plain-text match files (``<A>__<B>.txt``, one
+    ``x1 y1 unc1 x2 y2 unc2`` line per match) when run with
+    ``--matches-as-txt``, and then ignores ``.match`` files entirely, so a
+    stereo directory may hold only the text form (issue #147). The committed
+    ``run-out-Band3N__out-Band3B.txt`` is the binary fixture converted with
+    ``ipmatch --binary-to-txt`` (ASP 3.8.0-alpha), so the two readers must
+    agree on it."""
+
+    STEM = "run-out-Band3N__out-Band3B"
+
+    @pytest.fixture
+    def binary(self):
+        return StereoPlotter(
+            directory="tests/test_data/no_mapproj", stereo_directory="stereo"
+        )
+
+    @pytest.fixture
+    def text_only(self, tmp_path):
+        dst = tmp_path / "no_mapproj"
+        shutil.copytree(Path("tests/test_data/no_mapproj"), dst)
+        stereo = dst / "stereo"
+        (stereo / f"{self.STEM}.match").unlink()
+        (stereo / f"{self.STEM}.csv").unlink(missing_ok=True)
+        return StereoPlotter(directory=str(dst), stereo_directory="stereo")
+
+    def test_prefers_binary_when_both_exist(self, binary):
+        # The committed fixture directory holds both forms. A run reads one
+        # format and ignores the other, so the directory cannot say which was
+        # used; binary keeps the choice every pre-existing layout made.
+        assert binary.match_point_fn.endswith(f"{self.STEM}.match")
+
+    def test_discovers_text_match_file(self, text_only):
+        assert text_only.match_point_fn.endswith(f"{self.STEM}.txt")
+        # The .vwip pairing is derived from the match stem, whatever the
+        # extension.
+        assert text_only.left_vwip_fn.endswith("run-out-Band3N.vwip")
+        assert text_only.right_vwip_fn.endswith("run-out-Band3B.vwip")
+
+    def test_format_detected_from_bytes(self, binary, text_only):
+        assert not binary._is_text_match_file(binary.match_point_fn)
+        assert text_only._is_text_match_file(text_only.match_point_fn)
+
+    def test_text_and_binary_agree(self, binary, text_only):
+        df_txt = text_only.get_match_point_df()
+        df_bin = binary.get_match_point_df()
+        assert list(df_txt.columns) == ["x1", "y1", "x2", "y2"]
+        assert len(df_txt) == len(df_bin) > 0
+        # ipmatch prints the float32 coordinates to 9 significant digits.
+        assert np.allclose(df_txt.values, df_bin.values, atol=1e-3)
+
+    def test_text_file_ignores_stale_csv_cache(self, text_only):
+        # A binary conversion leaves <stem>.csv next to the match file; the
+        # text reader must not pick that up in place of the .txt.
+        stale = Path(text_only.full_directory) / f"{self.STEM}.csv"
+        stale.write_text("x1 y1 x2 y2\n0 0 0 0\n")
+        assert len(text_only.get_match_point_df()) > 1
+
+    def test_empty_text_match_file(self, tmp_path):
+        empty = tmp_path / "run-a__b.txt"
+        empty.write_text("")
+        df = StereoPlotter._read_text_match_file(str(empty))
+        assert list(df.columns) == ["x1", "y1", "x2", "y2"]
+        assert df.empty
+
+    def test_plot_match_points(self, text_only, tmp_path):
+        assert text_only.plot_match_points(save_dir=str(tmp_path), fig_fn="mp.png") == [
             "mp.png"
         ]
 
