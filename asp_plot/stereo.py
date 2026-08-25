@@ -267,8 +267,10 @@ class StereoFiles:
         ASP writes matches either as binary ``<A>__<B>.match`` or, when run
         with ``--matches-as-txt`` (ASP >= 3.7.0), as plain-text
         ``<A>__<B>.txt`` (issue #147); both are candidates. The ``.txt`` glob
-        is anchored on the ``__`` image-name separator so the logs and
-        alignment matrices sharing that extension are never picked up.
+        is anchored on the ``__`` image-name separator, and a candidate must
+        also open with a match row (:meth:`_opens_with_match_row`), so the
+        logs and alignment matrices sharing that extension are never picked
+        up -- not even when the run prefix itself contains ``__``.
 
         There may be multiple match files if stereo was run with
         ``--num-matches-from-disparity``; in that case, filter out the match
@@ -281,11 +283,12 @@ class StereoFiles:
         which was used, and preferring binary keeps the choice every
         pre-existing layout made.
         """
-        candidates = []
-        for pattern in ("*.match", "*__*.txt"):
-            candidates += (
-                glob_file(directory, pattern, all_files=True, quiet=True) or []
-            )
+        candidates = glob_file(directory, "*.match", all_files=True, quiet=True) or []
+        candidates += [
+            f
+            for f in glob_file(directory, "*__*.txt", all_files=True, quiet=True) or []
+            if StereoFiles._opens_with_match_row(f)
+        ]
         non_disp = sorted(
             (f for f in candidates if "-disp-" not in f),
             key=lambda f: (not f.endswith(".match"), f),
@@ -295,6 +298,30 @@ class StereoFiles:
                 f"Could not find a match file (*.match or *__*.txt) in {directory}. Some plots may be missing."
             )
         return non_disp[0] if non_disp else None
+
+    @staticmethod
+    def _opens_with_match_row(path):
+        """Whether a text file's first non-blank line is a plain-text match
+        row: six numeric fields (``x1 y1 unc1 x2 y2 unc2``).
+
+        With a run prefix containing ``__`` (``-o my__run``), the run's logs
+        (``my__run-log-stereo_corr-*.txt``) and alignment matrices
+        (``my__run-align-L.txt``, three fields per row) match the
+        ``*__*.txt`` discovery glob too, and the alignment matrix even sorts
+        ahead of the real match file; neither opens with six numbers. An
+        empty file -- a run that found no matches -- is accepted.
+        """
+        with open(path, errors="replace") as f:
+            fields = next((line.split() for line in f if line.strip()), None)
+        if fields is None:
+            return True
+        if len(fields) != 6:
+            return False
+        try:
+            [float(v) for v in fields]
+        except ValueError:
+            return False
+        return True
 
     @staticmethod
     def _find_vwip_files(directory, match_point_fn):

@@ -383,6 +383,18 @@ class TestStereoPlotterTextMatchFile:
             "mp.png"
         ]
 
+    def test_prefix_containing_double_underscore(self, text_only):
+        # `-o my__run` makes the run's logs and alignment matrices match the
+        # *__*.txt glob too, and my__run-align-L.txt sorts ahead of the real
+        # match file; only a file that opens with a six-field match row
+        # counts.
+        stereo = Path(text_only.full_directory)
+        for f in stereo.glob("run-*"):
+            f.rename(stereo / f.name.replace("run-", "my__run-", 1))
+        files = StereoFiles(directory=str(stereo.parent), stereo_directory="stereo")
+        assert files.match_point_fn.endswith(f"my__{self.STEM}.txt")
+        assert files.left_vwip_fn.endswith("my__run-out-Band3N.vwip")
+
 
 class TestStereoFilesMultiViewLayout:
     """ASP multi-view runs keep match files, sub-sampled scenes, and disparity
