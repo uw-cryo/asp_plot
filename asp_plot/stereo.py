@@ -96,9 +96,10 @@ class StereoFiles:
     align_left_fn, align_right_fn : str or None
         Alignment transform text files.
     match_point_fn : str or None
-        Match-point file (the non-``-disp-`` one when several exist); None when
-        the directory has none at the top level (e.g. a multi-view run, whose
-        match files live in the ``run-pair*/`` subdirectories).
+        Match-point file, binary ``.match`` or plain-text ``.txt`` (the
+        non-``-disp-`` one when several exist); None when the directory has
+        none at the top level (e.g. a multi-view run, whose match files live
+        in the ``run-pair*/`` subdirectories).
     left_vwip_fn, right_vwip_fn : str or None
         Per-image raw interest point files (``.vwip``) for the left and right
         images; either may be None (they are intermediates that ASP runs
@@ -263,14 +264,64 @@ class StereoFiles:
     def _find_match_file(directory, quiet=False):
         """The directory's match file, or None.
 
+        ASP writes matches either as binary ``<A>__<B>.match`` or, when run
+        with ``--matches-as-txt`` (ASP >= 3.7.0), as plain-text
+        ``<A>__<B>.txt`` (issue #147); both are candidates. The ``.txt`` glob
+        is anchored on the ``__`` image-name separator, and a candidate must
+        also open with a match row (:meth:`_opens_with_match_row`), so the
+        logs and alignment matrices sharing that extension are never picked
+        up -- not even when the run prefix itself contains ``__``.
+
         There may be multiple match files if stereo was run with
         ``--num-matches-from-disparity``; in that case, filter out the match
         file with ``-disp-`` in the filename. Candidates are sorted so the
-        choice is deterministic (glob order is filesystem-dependent).
+        choice is deterministic (glob order is filesystem-dependent), binary
+        ahead of text. The two coexist only when a binary run's matches were
+        converted for inspection (same points either way) or a
+        ``--matches-as-txt`` re-run left an older ``.match`` behind; a run
+        reads one format and ignores the other, so the directory cannot say
+        which was used, and preferring binary keeps the choice every
+        pre-existing layout made.
         """
-        match_files = glob_file(directory, "*.match", all_files=True, quiet=quiet)
-        non_disp = sorted(f for f in (match_files or []) if "-disp-" not in f)
+        candidates = glob_file(directory, "*.match", all_files=True, quiet=True) or []
+        candidates += [
+            f
+            for f in glob_file(directory, "*__*.txt", all_files=True, quiet=True) or []
+            if StereoFiles._opens_with_match_row(f)
+        ]
+        non_disp = sorted(
+            (f for f in candidates if "-disp-" not in f),
+            key=lambda f: (not f.endswith(".match"), f),
+        )
+        if not non_disp and not quiet:
+            logger.warning(
+                f"Could not find a match file (*.match or *__*.txt) in {directory}. Some plots may be missing."
+            )
         return non_disp[0] if non_disp else None
+
+    @staticmethod
+    def _opens_with_match_row(path):
+        """Whether a text file's first non-blank line is a plain-text match
+        row: six numeric fields (``x1 y1 unc1 x2 y2 unc2``).
+
+        With a run prefix containing ``__`` (``-o my__run``), the run's logs
+        (``my__run-log-stereo_corr-*.txt``) and alignment matrices
+        (``my__run-align-L.txt``, three fields per row) match the
+        ``*__*.txt`` discovery glob too, and the alignment matrix even sorts
+        ahead of the real match file; neither opens with six numbers. An
+        empty file -- a run that found no matches -- is accepted.
+        """
+        with open(path, errors="replace") as f:
+            fields = next((line.split() for line in f if line.strip()), None)
+        if fields is None:
+            return True
+        if len(fields) != 6:
+            return False
+        try:
+            [float(v) for v in fields]
+        except ValueError:
+            return False
+        return True
 
     @staticmethod
     def _find_vwip_files(directory, match_point_fn):
@@ -531,13 +582,51 @@ class StereoPlotter(Plotter):
         iprec.extend(desc)
         return iprec
 
+    @staticmethod
+    def _is_text_match_file(match_point_fn):
+        """Whether a match file is ASP's plain-text format rather than binary.
+
+        ASP itself goes by extension (``.txt`` with ``--matches-as-txt``,
+        ``.match`` otherwise), but the bytes are unambiguous and survive a
+        renamed file: the binary format opens with two little-endian uint64
+        interest point counts, whose upper bytes are NUL, while the text
+        format is digits, spaces and newlines throughout (issue #147).
+        """
+        with open(match_point_fn, "rb") as match_file:
+            return b"\x00" not in match_file.read(16)
+
+    @staticmethod
+    def _read_text_match_file(match_point_fn):
+        """Read an ASP plain-text match file into an x1/y1/x2/y2 DataFrame.
+
+        The format (ASP >= 3.7.0; written by ``--matches-as-txt`` runs and
+        ``ipmatch --binary-to-txt``) is one match per line, six
+        space-separated floats::
+
+            x1 y1 unc1 x2 y2 unc2
+
+        pixel coordinates (column, row from 0) in the first and second image
+        and a per-point uncertainty in pixels that bundle adjustment weights
+        by. The uncertainties are dropped so the result has the same columns
+        as a binary match file's; an empty file (no matches) yields an empty
+        DataFrame.
+        """
+        df = pd.read_csv(
+            match_point_fn,
+            sep=r"\s+",
+            header=None,
+            names=["x1", "y1", "unc1", "x2", "y2", "unc2"],
+        )
+        return df[["x1", "y1", "x2", "y2"]]
+
     def get_match_point_df(self, match_point_fn=None):
         """
-        Convert a binary match file to a DataFrame of match points.
+        Read a match file into a DataFrame of match points.
 
-        Reads the binary match file produced by ASP stereo processing
-        and converts it to a DataFrame containing matched interest points
-        from the left and right images.
+        Reads the match file produced by ASP stereo processing -- the binary
+        ``.match`` format or the plain-text format ASP writes with
+        ``--matches-as-txt`` (issue #147) -- and converts it to a DataFrame
+        containing matched interest points from the left and right images.
 
         Parameters
         ----------
@@ -554,16 +643,23 @@ class StereoPlotter(Plotter):
 
         Notes
         -----
-        This method converts the binary match file to a CSV file with the
-        same base name but '.csv' extension, then reads that CSV file into
-        a DataFrame. If the CSV file already exists, it is read directly.
+        The format is detected from the file's bytes rather than its
+        extension (:meth:`_is_text_match_file`). A binary match file is
+        converted to a CSV file with the same base name but '.csv' extension,
+        then that CSV file is read into a DataFrame; if the CSV file already
+        exists, it is read directly. A plain-text match file is read directly
+        and never consults that cache, so a stale CSV left by an earlier
+        binary run next to it cannot shadow it.
         """
         if match_point_fn is None:
             match_point_fn = self.match_point_fn
-        out_csv = (
-            os.path.splitext(match_point_fn)[0] + ".csv" if match_point_fn else None
-        )
-        if match_point_fn and not os.path.exists(out_csv):
+        if not match_point_fn:
+            return None
+        if self._is_text_match_file(match_point_fn):
+            return self._read_text_match_file(match_point_fn)
+
+        out_csv = os.path.splitext(match_point_fn)[0] + ".csv"
+        if not os.path.exists(out_csv):
             with (
                 open(match_point_fn, "rb") as match_file,
                 open(out_csv, "w") as out,
@@ -580,11 +676,7 @@ class StereoPlotter(Plotter):
                         )
                     )
 
-        return (
-            pd.read_csv(out_csv, delimiter=r"\s+")
-            if out_csv and os.path.exists(out_csv)
-            else None
-        )
+        return pd.read_csv(out_csv, sep=r"\s+")
 
     def get_vwip_df(self, vwip_fn):
         """
