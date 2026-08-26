@@ -1,3 +1,5 @@
+import os
+
 import geopandas as gpd
 import matplotlib
 import pandas as pd
@@ -82,3 +84,42 @@ class TestStemNarrowing:
         ba_files = ReadBundleAdjustFiles("tests/test_data", "ba", stem="other_run")
         with pytest.raises(ValueError, match="not found"):
             ba_files.get_csv_paths()
+
+
+class TestTwoStageDirectory:
+    """A second bundle_adjust run (the pc_align two-stage workflow) leaves two
+    generations of residual CSVs in one directory. The initial/final pair must
+    come from the same generation, whatever order the filesystem lists them in
+    (#6)."""
+
+    @pytest.fixture
+    def two_stage_directory(self, tmp_path):
+        (tmp_path / "ba").mkdir()
+        for stem in ("ba", "ba_pc_align"):
+            for kind in ("initial", "final"):
+                (tmp_path / "ba" / f"{stem}-{kind}_residuals_pointmap.csv").write_text(
+                    ""
+                )
+        return tmp_path
+
+    def test_initial_and_final_come_from_the_same_run(self, two_stage_directory):
+        initial, final = ReadBundleAdjustFiles(
+            str(two_stage_directory), "ba"
+        ).get_csv_paths()
+        assert os.path.basename(initial) == "ba-initial_residuals_pointmap.csv"
+        assert os.path.basename(final) == "ba-final_residuals_pointmap.csv"
+
+    def test_the_run_that_was_read_is_reported(self, two_stage_directory, caplog):
+        with caplog.at_level("WARNING"):
+            ReadBundleAdjustFiles(str(two_stage_directory), "ba").get_csv_paths()
+        assert "ba_pc_align-final_residuals_pointmap.csv" in caplog.text
+        assert "Using ba-final_residuals_pointmap.csv" in caplog.text
+
+    def test_a_stem_selects_the_post_alignment_run(self, two_stage_directory, caplog):
+        with caplog.at_level("WARNING"):
+            initial, final = ReadBundleAdjustFiles(
+                str(two_stage_directory), "ba", stem="ba_pc_align"
+            ).get_csv_paths()
+        assert os.path.basename(initial) == "ba_pc_align-initial_residuals_pointmap.csv"
+        assert os.path.basename(final) == "ba_pc_align-final_residuals_pointmap.csv"
+        assert caplog.text == ""

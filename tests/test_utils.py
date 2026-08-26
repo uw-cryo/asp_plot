@@ -1,3 +1,4 @@
+import glob
 import os
 
 import matplotlib
@@ -21,6 +22,7 @@ from asp_plot.utils import (
     get_pair_images,
     get_planetary_bounds,
     get_utm_epsg,
+    glob_file,
     resolve_directory_or_prefix,
 )
 
@@ -874,3 +876,81 @@ class TestResolveDirectoryOrPrefix:
             "nope",
             None,
         )
+
+
+class TestGlobFile:
+    """Matches are sorted, and an ambiguous single-file lookup is logged (#6)."""
+
+    @pytest.fixture
+    def two_runs(self, tmp_path):
+        """A directory written by two bundle_adjust runs, as a two-stage
+        pc_align workflow leaves it."""
+        for stem in ("ba", "ba_pc_align"):
+            for kind in ("initial", "final"):
+                (tmp_path / f"{stem}-{kind}_residuals_pointmap.csv").write_text("")
+        return tmp_path
+
+    @pytest.fixture
+    def unsorted_glob(self, monkeypatch):
+        """glob.glob hands back filesystem order, which is arbitrary; return it
+        reverse-sorted so a sorted result cannot happen by accident."""
+        real_glob = glob.glob
+
+        def reverse_ordered(pathname, **kwargs):
+            return sorted(real_glob(pathname, **kwargs), reverse=True)
+
+        monkeypatch.setattr(glob, "glob", reverse_ordered)
+
+    def test_single_match_is_returned(self, tmp_path):
+        (tmp_path / "run-DEM.tif").write_text("")
+        assert glob_file(str(tmp_path), "*-DEM.tif") == str(tmp_path / "run-DEM.tif")
+
+    def test_first_match_is_the_sorted_one(self, two_runs, unsorted_glob):
+        assert glob_file(str(two_runs), "*-final_residuals_pointmap.csv") == str(
+            two_runs / "ba-final_residuals_pointmap.csv"
+        )
+
+    def test_all_files_are_sorted(self, two_runs, unsorted_glob):
+        assert glob_file(str(two_runs), "*_residuals_pointmap.csv", all_files=True) == [
+            str(two_runs / f"{stem}-{kind}_residuals_pointmap.csv")
+            for stem in ("ba", "ba_pc_align")
+            for kind in ("final", "initial")
+        ]
+
+    def test_pattern_precedence_beats_sort_order(self, tmp_path):
+        # The first pattern that matches wins, even when a later pattern would
+        # sort earlier -- the fallback order of the patterns is the intent.
+        (tmp_path / "a_dem.tif").write_text("")
+        (tmp_path / "z-DEM.tif").write_text("")
+        assert glob_file(str(tmp_path), "*-DEM.tif", "*_dem.tif") == str(
+            tmp_path / "z-DEM.tif"
+        )
+
+    def test_ambiguous_lookup_is_logged(self, two_runs, caplog):
+        with caplog.at_level("WARNING"):
+            glob_file(str(two_runs), "*-final_residuals_pointmap.csv")
+        assert "Found 2 files matching" in caplog.text
+        assert "ba_pc_align-final_residuals_pointmap.csv" in caplog.text
+        assert "Using ba-final_residuals_pointmap.csv" in caplog.text
+
+    def test_unambiguous_lookup_is_not_logged(self, tmp_path, caplog):
+        (tmp_path / "run-DEM.tif").write_text("")
+        with caplog.at_level("WARNING"):
+            glob_file(str(tmp_path), "*-DEM.tif")
+        assert caplog.text == ""
+
+    def test_all_files_lookup_is_not_logged(self, two_runs, caplog):
+        # Returning every match is not an ambiguous choice.
+        with caplog.at_level("WARNING"):
+            glob_file(str(two_runs), "*_residuals_pointmap.csv", all_files=True)
+        assert caplog.text == ""
+
+    def test_no_match_still_warns(self, tmp_path, caplog):
+        with caplog.at_level("WARNING"):
+            assert glob_file(str(tmp_path), "*-DEM.tif") is None
+        assert "Could not find" in caplog.text
+
+    def test_no_match_stays_quiet_when_asked(self, tmp_path, caplog):
+        with caplog.at_level("WARNING"):
+            assert glob_file(str(tmp_path), "*-DEM.tif", quiet=True) is None
+        assert caplog.text == ""

@@ -36,8 +36,17 @@ def glob_file(directory, *patterns, all_files=False, recursive=False, quiet=Fals
     Find files matching pattern(s) in a directory.
 
     Searches a directory for files matching one or more glob patterns.
-    By default, returns the first matching file found. If all_files is True,
-    returns all matching files.
+    Matches are sorted, so the same directory always yields the same file --
+    ``glob.glob()`` returns them in filesystem order, which is arbitrary. By
+    default, returns the first match. If all_files is True, returns all
+    matching files, sorted.
+
+    When a single-file lookup matches more than one file the choice is
+    ambiguous, so the candidates are logged: an ASP output directory that has
+    been written by two runs (e.g. the second ``bundle_adjust`` of a
+    ``pc_align`` two-stage workflow, which re-emits the same diagnostics under
+    a new prefix) otherwise gives no sign of which run was plotted. Pass an
+    ASP output prefix rather than a directory to narrow the search to one run.
 
     Parameters
     ----------
@@ -59,8 +68,10 @@ def glob_file(directory, *patterns, all_files=False, recursive=False, quiet=Fals
     Returns
     -------
     str or list or None
-        If all_files is False, returns the first matching file path or None if no matches
-        If all_files is True, returns a list of matching file paths or None if no matches
+        If all_files is False, returns the first matching file path in sorted
+        order, or None if no matches
+        If all_files is True, returns a sorted list of matching file paths or
+        None if no matches
 
     Examples
     --------
@@ -71,12 +82,18 @@ def glob_file(directory, *patterns, all_files=False, recursive=False, quiet=Fals
     """
     directory = os.path.expanduser(directory)
     for pattern in patterns:
-        files = glob.glob(os.path.join(directory, pattern), recursive=recursive)
+        files = sorted(glob.glob(os.path.join(directory, pattern), recursive=recursive))
         if files:
             if all_files:
                 return files
-            else:
-                return files[0]
+            if len(files) > 1:
+                logger.warning(
+                    f"Found {len(files)} files matching {pattern} in {directory}: "
+                    f"{[os.path.basename(f) for f in files]}. "
+                    f"Using {os.path.basename(files[0])}. Pass an ASP output prefix "
+                    "instead of a directory to select a specific run."
+                )
+            return files[0]
     if not quiet:
         logger.warning(
             f"Could not find {patterns} in {directory}. Some plots may be missing."
