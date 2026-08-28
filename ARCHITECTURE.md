@@ -215,6 +215,14 @@ The package is organized by functionality, with each module focused on a specifi
 - Key method: `plot_gallery()`; static helper `_grid_shape(n, aspect)` picks the most square-in-display grid
 - Not wired into the main `asp_report` PDF report (standalone class + `gallery` CLI)
 
+**`dem_benchmark.py`** - `DEMBenchmark` class (issue #169)
+- Scores *many* DEMs against *one* altimetry sample so scene combinations, processing flows (joint MVS vs. pairwise + `dem_mosaic`) and parameter sweeps compare apples to apples. Productizes the loop the Atlanta MVS notebook used to hand-roll: one `Altimetry` per DEM (kept in `self.altimetry[label]` for follow-up per-DEM figures), the same parquet replayed via `load_atl06sr_from_parquet` (or `load_planetary_csv`), the report's WorldCover water filter and 3σ cut
+- `run()` → `stats_df`, one row per DEM, columns `STATS_COLUMNS`: coverage (`valid_pct` / `valid_area_km2`) inside a common AOI (default the **intersection** of all DEM extents in the first DEM's CRS, so differing crop windows compare fairly; falls back to own extents with a warning when footprints don't all overlap), IntersectionErr median/NMAD from the `point2dem` sibling raster (`intersection_error_path()`; NaN for mosaics), altimetry-minus-DEM n/median/NMAD/RMSE before and after a per-DEM `pc_align --compute-translation-only` (translation + N-E-D shifts from `Alignment.pc_align_report`), and optional DEM-minus-reference stats via `Raster.compute_difference`
+- Window reads (`_window_for_bounds` / `_read_window`) are downsampled past `MAX_WINDOW_PIXELS` so a 1 m 20k×20k DEM stays at ~16 M samples (valid fraction becomes a subsample estimate; area scales from it)
+- pc_align products and the translated DEM go under `<directory>/dem_benchmark/<label>/` (via `Alignment.apply_dem_translation(output_fn=...)`), never next to the candidate DEMs; an existing `*-transform.txt` there is reused (instant, offline re-runs); a missing `pc_align` binary (`FileNotFoundError`) degrades to pre-alignment scoring with one warning
+- Figures: `summary_plot()` (rows = DEMs sorted best-first by post-alignment NMAD; panels coverage / IntersectionErr / dh median / dh NMAD as before→after dumbbells; the NMAD panel is anchored at zero and its markers coincide by construction for a translation-only alignment) and `histogram_plot()` (overlaid residual outlines). `label_from_dem_path()` / `parse_dem_specs()` back the CLI's `LABEL=PATH` specs (an ASP `run-DEM.tif` is labelled by its folder)
+- Not wired into the `asp_report` PDF (standalone class + `dem_benchmark` CLI)
+
 ## CLI Tools
 
 All CLI tools are in `asp_plot/cli/` and use Click for argument parsing:
@@ -277,6 +285,11 @@ All CLI tools are in `asp_plot/cli/` and use Click for argument parsing:
 - `--no-hillshade`, `--cmap`, `--downsample`, `--max-filesize-mb`, `--title`, `--output-directory/--output-filename`
 - Saves `<dirname>_gallery.png` into the input directory by default
 
+**`dem_benchmark.py`** - Multi-DEM altimetry benchmark tool (`dem_benchmark` command)
+- Wrapper for `DEMBenchmark`; positional `DEMS` as paths or `LABEL=PATH`
+- `--parquet` (Earth, the ATL06-SR cache) or `--altimetry-csv` (Moon/Mars); `--directory` (where `dem_benchmark/<label>/` products go), `--reference`, `--no-pc-align`, `--own-extent`, `--title`, `--output-directory/--output-filename`
+- Writes the summary figure, a `_histogram.png` twin, and the stats table as `.csv` with the same stem, and prints the table
+
 ## Documentation Website
 
 Documentation is hosted at **https://asp-plot.readthedocs.io** and built with Sphinx + MyST Markdown + sphinx-book-theme. ReadTheDocs builds automatically on push to `main`.
@@ -295,7 +308,7 @@ docs/
   conf.py                     # Sphinx configuration
   index.md                    # Landing page with sphinx-design cards
   installation.md             # conda/pip/source install
-  cli/                        # CLI tool docs (asp_report, stereo_geom, csm_camera_plot, request_planetary_altimetry, gallery)
+  cli/                        # CLI tool docs (asp_report, stereo_geom, csm_camera_plot, bundle_adjust_cameras, request_planetary_altimetry, gallery, dem_benchmark)
   examples/
     index.md                  # Notebook gallery with cards by sensor
     reports.md                # PDF reports embedded as iframes

@@ -11,7 +11,7 @@ Examples of modular usage of `asp_plot`, organized by sensor type. Each notebook
 :link: notebooks/worldview_spacenet_atlanta_mvs
 :link-type: doc
 
-Three-scene same-pass multi-view stereo of publicly available SpaceNet Atlanta WorldView-2 data, compared against the three pairwise runs merged with `dem_mosaic`.
+Three-scene same-pass multi-view stereo of publicly available SpaceNet Atlanta WorldView-2 data, compared against the three pairwise runs merged with `dem_mosaic` — and, with `dem_benchmark`, against each single pair and a five-scene run on one ICESat-2 sample.
 :::
 
 :::{grid-item-card} WorldView — SpaceNet Atlanta (Scene Selection)
