@@ -1156,7 +1156,7 @@ class ReadBundleAdjustCameras:
                     logger.warning(
                         f"\n\nNo .adjusted_state.json or matching original .xml "
                         f"camera for {adjust_path}. Skipping. (For DigitalGlobe "
-                        "runs, point --original_cameras_directory at the input "
+                        "runs, point --original-cameras-directory at the input "
                         ".xml cameras.)\n\n"
                     )
                     continue
