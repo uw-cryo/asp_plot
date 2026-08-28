@@ -230,7 +230,38 @@ class TestBundleAdjustCameras:
         plotter = PlotBundleAdjustCameras(gdf, title="Test cameras")
         try:
             plotter.plot_center_offset_bars()
-            plotter.plot_orientation_cartoons()
+            plotter.plot_orientation_bars()
             plotter.summary_plot()
         except Exception as e:
             pytest.fail(f"figure method raised an exception: {str(e)}")
+
+    def test_identity_run_draws_note(self, cam_reader):
+        """All-zero changes still draw the panels, with a 'no camera change' note."""
+        gdf = cam_reader.get_camera_optimization_gdf(map_crs=32619)
+        for col in [
+            "horizontal_offset_m",
+            "vertical_offset_m",
+            "adj_roll",
+            "adj_pitch",
+            "adj_yaw",
+        ]:
+            gdf[col] = 0.0
+        gdf["adj_roll"] = -0.0  # a signed zero, as real identity .adjust files give
+        plotter = PlotBundleAdjustCameras(gdf)
+        assert plotter.is_identity
+        fig = plotter.summary_plot()
+        notes = [
+            t.get_text()
+            for ax in fig.axes
+            for t in ax.texts
+            if "no camera change" in t.get_text()
+        ]
+        assert len(notes) == 2  # one per bar panel
+        assert all("identity" in n for n in notes)
+
+    def test_fmt_deg_signed_zero(self):
+        from asp_plot.bundle_adjust import _fmt_deg
+
+        assert _fmt_deg(-0.0) == "+0°"
+        assert _fmt_deg(0.00039) == "+0.00039°"
+        assert _fmt_deg(-0.0161) == "-0.016°"

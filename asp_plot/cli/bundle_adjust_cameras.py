@@ -62,9 +62,9 @@ def main(
     Reads the self-contained camera products written by bundle_adjust
     (``*.adjust``, ``*.adjusted_state.json``, and, when present,
     ``*camera_offsets.txt``) and produces a summary: per-camera bars of the
-    horizontal and vertical camera-center change, above a per-camera satellite
-    cartoon of the roll/pitch/yaw orientation change (labeled with the actual
-    degrees changed).
+    horizontal and vertical camera-center change, above per-camera bars of the
+    roll/pitch/yaw orientation change with the degrees printed on each bar and
+    one satellite cartoon as the legend for the body axes.
 
     Unlike ``csm_camera_plot``, this does not require the pre-adjustment
     original camera files -- it works directly on the bundle_adjust output.

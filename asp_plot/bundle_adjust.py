@@ -1,7 +1,6 @@
 import glob
 import logging
 import os
-import textwrap
 
 import geopandas as gpd
 import matplotlib.pyplot as plt
@@ -1141,20 +1140,30 @@ class ReadBundleAdjustCameras:
         return gdf
 
 
+def _fmt_deg(value):
+    """Format a signed degree value for a label, printing ``-0`` as ``+0``."""
+    value = 0.0 if value == 0 else float(value)
+    return f"{value:+.2g}°"
+
+
 class PlotBundleAdjustCameras(Plotter):
     """
     Visualize before/after camera position and orientation changes.
 
     Consumes the GeoDataFrame from
-    :meth:`ReadBundleAdjustCameras.get_camera_optimization_gdf` and renders two
-    complementary views (issues #95 and #43):
+    :meth:`ReadBundleAdjustCameras.get_camera_optimization_gdf` and renders
+    per-camera bar rows (issues #95 and #43):
 
-    1. Per-camera bars of the horizontal and vertical camera-center change.
-    2. A per-camera satellite cartoon of the orientation change: a nadir-looking
-       satellite with black body-frame X/Y/Z axes overlaid and a colored rotation
-       arc around each (roll about X, pitch about Y, yaw about Z), labeled with
-       the actual degrees changed (the number carries the magnitude, so tiny
-       changes are not visually exaggerated).
+    1. Horizontal and vertical camera-center change (meters).
+    2. Roll / pitch / yaw orientation change (degrees), with the value printed
+       on every bar. A single satellite cartoon beside the row is a legend for
+       the body axes and the sense of each rotation (X = along-track,
+       Y = across-track, Z = nadir); it is deliberately not scaled -- the
+       numbers carry the magnitude.
+
+    When a run changed nothing (e.g. an identity ``--initial-transform`` used to
+    recover the unadjusted cameras), the panels are still drawn with a
+    "no camera change" note overlaid, rather than left as empty axes.
 
     Parameters
     ----------
@@ -1165,12 +1174,72 @@ class PlotBundleAdjustCameras(Plotter):
         Forwarded to :class:`asp_plot.utils.Plotter`.
     """
 
+    _POSITION_COLS = ["horizontal_offset_m", "vertical_offset_m"]
+    _ANGLE_COLS = ["adj_roll", "adj_pitch", "adj_yaw"]
+
     def __init__(self, gdf, **kwargs):
         super().__init__(**kwargs)
-        self.gdf = gdf
+        self.gdf = gdf.reset_index(drop=True)
+
+    @property
+    def is_identity(self):
+        """True when every camera-center offset and rotation angle is zero."""
+        cols = self._POSITION_COLS + self._ANGLE_COLS
+        return bool((self.gdf[cols].abs().values == 0).all())
+
+    def _annotate_no_change(self, ax):
+        """Overlay the "no camera change" note on an all-zero panel."""
+        note = "no camera change"
+        if self.is_identity:
+            note += "\n(identity adjustment)"
+        ax.text(
+            0.5,
+            0.5,
+            note,
+            transform=ax.transAxes,
+            ha="center",
+            va="center",
+            fontsize=11,
+            weight="bold",
+            color="#333333",
+            bbox=dict(boxstyle="round,pad=0.5", facecolor="#f4f4f4", edgecolor="#999"),
+            zorder=10,
+        )
+
+    def _camera_axis(self, ax, index_labels):
+        """Camera ticks: numbers only (upper rows) or ``#n  id`` (bottom row)."""
+        ids = self.gdf.camera_id.values
+        xi = np.arange(len(ids))
+        ax.set_xticks(xi)
+        if index_labels:
+            ax.set_xticklabels([str(i + 1) for i in xi], fontsize=8)
+            ax.set_xlabel("camera #", fontsize=8)
+        else:
+            ax.set_xticklabels(
+                [f"#{i + 1}  {cid}" for i, cid in zip(xi, ids)],
+                rotation=40,
+                ha="right",
+                fontsize=7,
+            )
+        ax.set_xlim(-0.6, len(ids) - 0.4)
+        ax.grid(True, axis="y", linestyle=":", linewidth=0.5, alpha=0.8)
+
+    @staticmethod
+    def _legend(ax, outside):
+        if outside:
+            ax.legend(
+                loc="center left", bbox_to_anchor=(1.01, 0.5), fontsize=8, frameon=False
+            )
+        else:
+            ax.legend(fontsize=8)
 
     def plot_center_offset_bars(
-        self, ax=None, save_dir=None, fig_fn=None, index_labels=False
+        self,
+        ax=None,
+        save_dir=None,
+        fig_fn=None,
+        index_labels=False,
+        legend_outside=False,
     ):
         """
         Per-camera bars of horizontal and vertical camera-center change.
@@ -1185,14 +1254,18 @@ class PlotBundleAdjustCameras(Plotter):
             Axes to draw on. A new figure is created if None.
         save_dir, fig_fn : str or None, optional
             If both are given (and a new figure was created), save the figure.
+        index_labels : bool, optional
+            Label cameras by number only (for stacked rows that share the
+            camera order); default False prints ``#n  camera_id``.
+        legend_outside : bool, optional
+            Place the legend to the right of the axes instead of inside.
         """
         created = ax is None
         if created:
             fig, ax = plt.subplots(figsize=(8, 5))
 
         gdf = self.gdf
-        ids = gdf.camera_id.values
-        xi = np.arange(len(ids))
+        xi = np.arange(len(gdf))
         ax.bar(
             xi - 0.2,
             gdf.horizontal_offset_m,
@@ -1207,14 +1280,7 @@ class PlotBundleAdjustCameras(Plotter):
             label="Vertical",
             color="#87CEEB",
         )
-        ax.set_xticks(xi)
-        if index_labels:
-            # Cross-reference to the orientation cartoons by number instead of
-            # crowding the axis with long camera names.
-            ax.set_xticklabels([str(i + 1) for i in xi], fontsize=8)
-            ax.set_xlabel("camera # (see cartoons below)", fontsize=8)
-        else:
-            ax.set_xticklabels(ids, rotation=30, ha="right", fontsize=7)
+        self._camera_axis(ax, index_labels)
         ax.set_ylabel("Camera-center change (m)", fontsize=9)
         source = (
             "camera_offsets.txt"
@@ -1222,34 +1288,101 @@ class PlotBundleAdjustCameras(Plotter):
             else "|.adjust translation|"
         )
         ax.set_title(f"Per-camera center displacement\n(from {source})", fontsize=11)
-        ax.legend(fontsize=8)
-        ax.grid(True, axis="y", linestyle=":", linewidth=0.5, alpha=0.8)
+        self._legend(ax, legend_outside)
+        if bool((gdf[self._POSITION_COLS].abs().values == 0).all()):
+            ax.set_ylim(0, 1)
+            self._annotate_no_change(ax)
 
         if created:
             self.save(fig, save_dir, fig_fn)
         return ax
 
-    @staticmethod
-    def _draw_satellite(ax, roll, pitch, yaw, name, index=None):
+    def plot_orientation_bars(
+        self, ax=None, save_dir=None, fig_fn=None, index_labels=False
+    ):
         """
-        Draw one satellite orientation-change cartoon on ``ax``.
+        Per-camera bars of the roll / pitch / yaw orientation change (degrees).
+
+        The ``.adjust`` rotation is shown as signed intrinsic XYZ Euler angles
+        (roll about the along-track X axis, pitch about across-track Y, yaw
+        about nadir Z), colored to match :meth:`_draw_satellite`, with the value
+        printed on every bar so sub-millidegree changes stay readable.
+
+        Parameters
+        ----------
+        ax : matplotlib.axes.Axes or None, optional
+            Axes to draw on. A new figure is created if None.
+        save_dir, fig_fn : str or None, optional
+            If both are given (and a new figure was created), save the figure.
+        index_labels : bool, optional
+            Label cameras by number only; default False prints ``#n  camera_id``.
+        """
+        created = ax is None
+        if created:
+            fig, ax = plt.subplots(figsize=(8, 5))
+
+        gdf = self.gdf
+        xi = np.arange(len(gdf))
+        width = 0.27
+        series = (
+            ("adj_roll", "roll (X)", _ROLL_COLOR, -width),
+            ("adj_pitch", "pitch (Y)", _PITCH_COLOR, 0.0),
+            ("adj_yaw", "yaw (Z)", _YAW_COLOR, width),
+        )
+        max_abs = float(gdf[self._ANGLE_COLS].abs().values.max())
+        pad = 0.04 * max_abs if max_abs > 0 else 0.0
+        for col, label, color, shift in series:
+            values = gdf[col].values
+            ax.bar(xi + shift, values, width, label=label, color=color)
+            for x, v in zip(xi + shift, values):
+                ax.text(
+                    x,
+                    v + (pad if v >= 0 else -pad),
+                    _fmt_deg(v),
+                    rotation=90,
+                    ha="center",
+                    va="bottom" if v >= 0 else "top",
+                    fontsize=6.5,
+                    color=color,
+                )
+        ax.axhline(0, color="k", lw=0.6)
+        self._camera_axis(ax, index_labels)
+        ax.set_ylabel("Orientation change (deg)", fontsize=9)
+        ax.set_title(
+            "Per-camera orientation change\n(.adjust rotation as roll / pitch / yaw)",
+            fontsize=11,
+        )
+        if max_abs > 0:
+            # Headroom for the rotated value labels on both sides of zero.
+            ax.set_ylim(-1.9 * max_abs, 1.9 * max_abs)
+        else:
+            ax.set_ylim(-1, 1)
+            self._annotate_no_change(ax)
+        if created:
+            ax.legend(fontsize=8)
+            self.save(fig, save_dir, fig_fn)
+        return ax
+
+    @staticmethod
+    def _draw_satellite(ax):
+        """
+        Draw the orientation legend: one satellite with its body axes.
 
         A nadir-looking satellite (body, solar panels, sensor frustum) with the
         black body-frame X/Y/Z axes overlaid: X = along-track, Y = across-track,
         Z = nadir/boresight (down the frustum). A colored rotation arc encircles
-        each axis to show the sense of the roll (about X), pitch (about Y), and
-        yaw (about Z) change, and the actual degrees are printed below. The arcs
-        are fixed size -- the magnitude lives in the number, so a 1e-4 deg change
-        is not visually exaggerated.
+        each axis to show the sense of roll (about X), pitch (about Y), and yaw
+        (about Z), in the colors used by :meth:`plot_orientation_bars`. The
+        cartoon is a legend only and carries no magnitude.
         """
         ax.set_xlim(0, 1)
-        ax.set_ylim(-0.42, 1)
+        ax.set_ylim(-0.3, 1.02)
         ax.set_aspect("equal")
         ax.axis("off")
-        body = np.array([0.5, 0.64])
+        body = np.array([0.5, 0.62])
 
         # Sensor view frustum (camera looking down at a ground patch).
-        ground = [(0.30, 0.22), (0.66, 0.22), (0.74, 0.33), (0.38, 0.33)]
+        ground = [(0.30, 0.20), (0.66, 0.20), (0.74, 0.31), (0.38, 0.31)]
         ax.add_patch(
             Polygon(
                 ground,
@@ -1337,112 +1470,51 @@ class PlotBundleAdjustCameras(Plotter):
             )
             rotation_arc(body + 0.55 * vec, vec, rot_color)
 
-        # Per-axis rotation values (color = rotation axis).
+        ax.text(
+            0.5, 0.98, "body axes & rotation sense", ha="center", va="top", fontsize=7.5
+        )
+        for y, text, color in (
+            (0.06, "roll (X) — along-track", _ROLL_COLOR),
+            (-0.04, "pitch (Y) — across-track", _PITCH_COLOR),
+            (-0.14, "yaw (Z) — nadir", _YAW_COLOR),
+        ):
+            ax.text(0.5, y, text, color=color, ha="center", fontsize=7, weight="bold")
         ax.text(
             0.5,
-            0.05,
-            f"roll (X) {roll:+.2g}°",
-            color=_ROLL_COLOR,
+            -0.25,
+            "(not to scale; see the bar values)",
             ha="center",
-            fontsize=7.5,
-            weight="bold",
-        )
-        ax.text(
-            0.5,
-            -0.04,
-            f"pitch (Y) {pitch:+.2g}°",
-            color=_PITCH_COLOR,
-            ha="center",
-            fontsize=7.5,
-            weight="bold",
-        )
-        ax.text(
-            0.5,
-            -0.13,
-            f"yaw (Z) {yaw:+.2g}°",
-            color=_YAW_COLOR,
-            ha="center",
-            fontsize=7.5,
-            weight="bold",
+            fontsize=6,
+            color="#555555",
         )
 
-        label = name if index is None else f"#{index}  {name}"
-        label = "\n".join(textwrap.wrap(label, 22))
-        ax.text(0.5, -0.26, label, ha="center", va="top", fontsize=6, color="#333")
-
-    def _draw_cartoon_grid(self, fig, gs, row_offset, ncol):
-        """Draw the per-camera orientation cartoons into a gridspec block."""
-        gdf = self.gdf.reset_index(drop=True)
-        for i in range(len(gdf)):
-            ax = fig.add_subplot(gs[row_offset + i // ncol, i % ncol])
-            row = gdf.iloc[i]
-            self._draw_satellite(
-                ax,
-                row.adj_roll,
-                row.adj_pitch,
-                row.adj_yaw,
-                row.camera_id,
-                index=i + 1,
-            )
-
-    def plot_orientation_cartoons(self, save_dir=None, fig_fn=None, ncol=5):
+    def summary_plot(self, save_dir=None, fig_fn=None):
         """
-        Grid of per-camera satellite orientation-change cartoons.
+        Combined summary: center-displacement bars over orientation bars.
 
-        Each camera gets a nadir-looking satellite with black body-frame X/Y/Z
-        axes overlaid and a colored rotation arc around each (roll about X, pitch
-        about Y, yaw about Z), with the actual degrees changed printed below (see
-        :meth:`_draw_satellite`).
+        The rows share the camera order; only the bottom row prints the camera
+        ids. The orientation legend cartoon sits beside its row.
 
         Parameters
         ----------
         save_dir, fig_fn : str or None, optional
             If both are given, save the figure.
-        ncol : int, optional
-            Maximum cartoons per row, default 5.
         """
         n = len(self.gdf)
-        ncol = min(ncol, max(n, 1))
-        nrow = (n + ncol - 1) // ncol
-        fig = plt.figure(figsize=(2.4 * ncol, 2.5 * nrow + 0.6))
-        gs = fig.add_gridspec(nrow, ncol, hspace=0.15, wspace=0.05)
-        self._draw_cartoon_grid(fig, gs, row_offset=0, ncol=ncol)
-        prefix = f"{self.title} — " if self.title else ""
-        fig.suptitle(
-            f"{prefix}Orientation change per camera\n"
-            "(fixed-length arrows; R/P/Y = degrees changed)",
-            fontsize=11,
-        )
-        fig.tight_layout(rect=[0, 0, 1, 0.94])
-        self.save(fig, save_dir, fig_fn, tight_layout=False)
-        return fig
-
-    def summary_plot(self, save_dir=None, fig_fn=None, ncol=5):
-        """
-        Combined summary: center-displacement bars above orientation cartoons.
-
-        Parameters
-        ----------
-        save_dir, fig_fn : str or None, optional
-            If both are given, save the figure.
-        ncol : int, optional
-            Maximum orientation cartoons per row, default 5.
-        """
-        n = len(self.gdf)
-        ncol = min(ncol, max(n, 1))
-        nrow = (n + ncol - 1) // ncol
-        fig = plt.figure(figsize=(max(11, 2.4 * ncol), 3.8 + 2.5 * nrow))
-        # Row 0: bars. Row 1: thin spacer (keeps bar labels off the cartoons).
-        # Rows 2+: cartoon grid.
+        fig = plt.figure(figsize=(max(11, 0.75 * n + 3.5), 7.6))
         gs = fig.add_gridspec(
-            nrow + 2,
-            ncol,
-            height_ratios=[3.0, 0.35] + [2.4] * nrow,
-            hspace=0.15,
+            2,
+            2,
+            width_ratios=[5, 1.1],
+            height_ratios=[1, 1.15],
+            hspace=0.35,
             wspace=0.05,
         )
-        self.plot_center_offset_bars(ax=fig.add_subplot(gs[0, :]), index_labels=True)
-        self._draw_cartoon_grid(fig, gs, row_offset=2, ncol=ncol)
+        self.plot_center_offset_bars(
+            ax=fig.add_subplot(gs[0, 0]), index_labels=True, legend_outside=True
+        )
+        self.plot_orientation_bars(ax=fig.add_subplot(gs[1, 0]))
+        self._draw_satellite(fig.add_subplot(gs[1, 1]))
         if self.title:
             fig.suptitle(self.title, size=13)
         fig.tight_layout(rect=[0, 0, 1, 0.96 if self.title else 1.0])
