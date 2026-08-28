@@ -31,6 +31,25 @@ MAP_PROJECTED_RESIDUALS = "Midpoint distance between final interest points proje
 
 GEODIFF = "Initial and final geodiff height differences compared to the reference DEM used in processing."
 
+BUNDLE_ADJUST_CAMERAS = (
+    "Per-camera changes made by bundle_adjust, read from the run's own outputs "
+    "(the .adjust files and, when present, camera_offsets.txt and "
+    "triangulation_offsets.txt); no original cameras are needed. "
+    "Top: horizontal and vertical change of each camera center in meters (from "
+    "camera_offsets.txt when ASP wrote it, otherwise from the .adjust "
+    "translation). Middle: change in camera orientation in degrees as roll "
+    "(about the along-track X axis), pitch (about the across-track Y axis), and "
+    "yaw (about the nadir Z axis), with the value printed on every bar; the "
+    "satellite cartoon is a legend for the axes and rotation sense and is not to "
+    "scale. Bottom, only when ASP >= 3.6 wrote triangulation_offsets.txt: median "
+    "and mean change of each image's triangulated points in meters, i.e. the "
+    "effect of the camera change on the ground. A large camera-center shift next "
+    "to a small ground change means the solver traded camera position against "
+    "orientation; the ground row is what matters for the DEM. Cameras are "
+    "numbered in .adjust file order; the bottom row prints each camera id. A "
+    "run that applied only an identity transform shows a 'no camera change' note."
+)
+
 DISPARITY = "Horizontal and vertical disparity maps in pixels with quiver overlay."
 
 DEM_RESULTS = "Output DEM with intersection error map and difference relative to the reference DEM used in processing."

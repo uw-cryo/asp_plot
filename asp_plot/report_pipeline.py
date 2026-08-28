@@ -25,7 +25,12 @@ import contextily as ctx
 from asp_plot import report_captions as captions
 from asp_plot.altimetry import Altimetry
 from asp_plot.bodies import BODIES
-from asp_plot.bundle_adjust import PlotBundleAdjustFiles, ReadBundleAdjustFiles
+from asp_plot.bundle_adjust import (
+    PlotBundleAdjustCameras,
+    PlotBundleAdjustFiles,
+    ReadBundleAdjustCameras,
+    ReadBundleAdjustFiles,
+)
 from asp_plot.processing_parameters import ProcessingParameters
 from asp_plot.report import (
     AlignmentReportPage,
@@ -336,7 +341,48 @@ def _build_bundle_adjust(ctx: ReportContext) -> List[object]:
         print(
             f"\n\nNo bundle adjustment files found in directory {os.path.join(cfg.directory, ctx.ba_directory):}. If you want bundle adjustment plots, make sure you run the tool and supply the correct --bundle-adjust-prefix to asp_report.\n\n"
         )
+    sections.extend(_build_bundle_adjust_cameras(ctx))
     return sections
+
+
+def _epsg_code(map_crs) -> Optional[int]:
+    """``"EPSG:32616"`` -> ``32616``; None for anything else."""
+    try:
+        return int(str(map_crs).split(":")[-1]) if map_crs else None
+    except ValueError:
+        return None
+
+
+def _build_bundle_adjust_cameras(ctx: ReportContext) -> List[object]:
+    """Camera position/orientation change figure (issues #95, #43).
+
+    Self-contained on the bundle_adjust output folder (the ``.adjust`` files
+    and ASP's per-image reports), so it needs no original cameras. Appended
+    after the residual pages; skipped with a message when the folder has no
+    ``.adjust`` files or no camera can be built.
+    """
+    cfg = ctx.config
+    try:
+        reader = ReadBundleAdjustCameras(
+            cfg.directory, ctx.ba_directory, stem=ctx.ba_stem
+        )
+        gdf = reader.get_camera_optimization_gdf(map_crs=_epsg_code(ctx.map_crs))
+    except ValueError as e:
+        print(f"\n\nSkipping bundle adjustment camera changes plot: {e}\n\n")
+        return []
+
+    title = "Camera Changes from Bundle Adjustment"
+    fig_fn = ctx.next_fig_fn()
+    PlotBundleAdjustCameras(gdf, title=title).summary_plot(
+        save_dir=ctx.plots_directory, fig_fn=fig_fn
+    )
+    return [
+        ReportSection(
+            title=title,
+            image_path=ctx.fig_path(fig_fn),
+            caption=captions.BUNDLE_ADJUST_CAMERAS,
+        )
+    ]
 
 
 def _build_disparity(ctx: ReportContext) -> List[object]:

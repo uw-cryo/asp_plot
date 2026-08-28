@@ -1,6 +1,6 @@
 # CLI Tools
 
-`asp_plot` provides five command-line tools for different visualization tasks:
+`asp_plot` provides six command-line tools for different visualization tasks:
 
 ::::{grid} 1
 :gutter: 3
@@ -26,6 +26,13 @@ Visualize stereo acquisition geometry from satellite camera metadata.
 Diagnostic plots for CSM camera model adjustments after bundle adjustment or jitter correction.
 :::
 
+:::{grid-item-card} bundle_adjust_cameras
+:link: bundle_adjust_cameras
+:link-type: doc
+
+How far each camera moved and rotated in a `bundle_adjust` run, from the run's own output folder — no original cameras needed.
+:::
+
 :::{grid-item-card} request_planetary_altimetry
 :link: request_planetary_altimetry
 :link-type: doc
@@ -49,6 +56,7 @@ Lay out many DEMs as a grid of thumbnails sharing one color scale, for QA'ing a 
 asp_report
 stereo_geom
 csm_camera_plot
+bundle_adjust_cameras
 request_planetary_altimetry
 gallery
 ```

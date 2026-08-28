@@ -1,17 +1,39 @@
+import glob
 import logging
 import os
+import warnings
 
 import geopandas as gpd
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from matplotlib.patches import Polygon, Rectangle
+from pyproj import Transformer
+from scipy.spatial.transform import Rotation
+from shapely.geometry import Point
 
+from asp_plot.csm_io import (
+    getTimeAtLine,
+    isLinescan,
+    read_csm_cam,
+    read_positions_rotations_from_file,
+)
 from asp_plot.processing_parameters import ProcessingParameters
 from asp_plot.stereopair_metadata_parser import StereopairMetadataParser
-from asp_plot.utils import ColorBar, Plotter, glob_file, run_subprocess_command
+from asp_plot.utils import (
+    ColorBar,
+    Plotter,
+    get_xml_tag,
+    glob_file,
+    run_subprocess_command,
+)
 
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
+
+# Consistent colors for the roll / pitch / yaw body axes (roll=red, pitch=green,
+# yaw=blue) in the orientation-change cartoons.
+_ROLL_COLOR, _PITCH_COLOR, _YAW_COLOR = "#d1495b", "#2a9d3f", "#2f6fb0"
 
 
 class ReadBundleAdjustFiles:
@@ -641,3 +663,1054 @@ class PlotBundleAdjustFiles(Plotter):
         fig.suptitle(self.title, size=10)
         plt.subplots_adjust(wspace=0.2, hspace=0.4)
         self.save(fig, save_dir, fig_fn)
+
+
+def _enu_basis(center_ecef):
+    """
+    Build a local East-North-Up basis at an ECEF point.
+
+    Parameters
+    ----------
+    center_ecef : array-like
+        A single ECEF (EPSG:4978) coordinate as [x, y, z] in meters.
+
+    Returns
+    -------
+    tuple of numpy.ndarray
+        The (east, north, up) unit vectors expressed in ECEF, so that the
+        east/north/up component of any ECEF vector ``v`` is ``v @ east`` etc.
+
+    Notes
+    -----
+    The basis is computed from the geodetic latitude and longitude of the
+    point (the sub-satellite location for a camera center). This lets us
+    decompose the ECEF camera-center shift from a ``.adjust`` file into the
+    horizontal and vertical components that ASP reports in
+    ``camera_offsets.txt``.
+    """
+    lat, lon, _ = Transformer.from_crs("EPSG:4978", "EPSG:4326").transform(*center_ecef)
+    lat, lon = np.radians(lat), np.radians(lon)
+    up = np.array([np.cos(lat) * np.cos(lon), np.cos(lat) * np.sin(lon), np.sin(lat)])
+    east = np.array([-np.sin(lon), np.cos(lon), 0.0])
+    north = np.cross(up, east)
+    return east, north, up
+
+
+def _camera_label(path):
+    """
+    Human-readable label for a camera, from its filename.
+
+    Strips only the deterministic camera-file extension (``.adjusted_state.json``,
+    ``.adjusted_state.adjust``, ``.adjust``, or ``.xml``) -- it makes no
+    assumptions about the ASP output prefix (the ``-o`` value, e.g. ``run`` or
+    ``ba_mvs_csm``) or ``_corr``-style suffixes, so the label is just the real
+    filename stem. This is display-only and never used to associate files.
+    """
+    name = os.path.basename(path)
+    for ext in (".adjusted_state.json", ".adjusted_state.adjust", ".adjust", ".xml"):
+        if name.endswith(ext):
+            return name[: -len(ext)]
+    return os.path.splitext(name)[0]
+
+
+def _camera_center_from_xml(xml_path):
+    """
+    Return the image-center ECEF camera center from a DigitalGlobe XML.
+
+    Reads the ``<EPHEMLIST>`` satellite ephemeris (ECF positions, meters) and
+    interpolates the position at the time the sensor imaged the center image
+    line -- the sub-satellite point at mid-acquisition, used to place the camera
+    on the map and build its local ENU frame. This is the original
+    (pre-adjustment) camera center: DG ``bundle_adjust`` runs store the
+    optimization only as a ``.adjust`` delta, with no ``.adjusted_state.json``.
+
+    The center-line time is ``FIRSTLINETIME + (NUMROWS / 2) / AVGLINERATE``,
+    converted to an ephemeris sample index via ``STARTTIME`` / ``TIMEINTERVAL``.
+    Falls back to the ephemeris mean if any of those tags are missing.
+
+    Parameters
+    ----------
+    xml_path : str
+        Path to a DigitalGlobe image metadata ``.xml`` file.
+
+    Returns
+    -------
+    numpy.ndarray
+        Length-3 ECEF (EPSG:4978) coordinate in meters.
+    """
+    ephem = np.array(
+        [row.split() for row in get_xml_tag(xml_path, "EPHEMLIST", all=True)],
+        dtype=np.float64,
+    )
+    # Columns are: point_num, X, Y, Z, dX, dY, dZ, covariance...
+    positions = ephem[:, 1:4]
+    try:
+        start = pd.to_datetime(get_xml_tag(xml_path, "STARTTIME"))
+        dt = float(get_xml_tag(xml_path, "TIMEINTERVAL"))
+        first_line = pd.to_datetime(get_xml_tag(xml_path, "FIRSTLINETIME"))
+        num_rows = float(get_xml_tag(xml_path, "NUMROWS"))
+        line_rate = float(get_xml_tag(xml_path, "AVGLINERATE"))
+        center_time = first_line + pd.Timedelta((num_rows / 2.0) / line_rate, unit="s")
+        index = (center_time - start).total_seconds() / dt
+        sample = np.arange(len(positions))
+        return np.array([np.interp(index, sample, positions[:, k]) for k in range(3)])
+    except Exception:
+        return positions.mean(axis=0)
+
+
+class ReadBundleAdjustCameras:
+    """
+    Read before/after camera geometry from an ASP bundle_adjust folder.
+
+    Unlike :class:`asp_plot.csm_camera.csm_camera_summary_plot`, which requires
+    the user to supply the original (pre-adjustment) camera files, this reader
+    works directly on a ``bundle_adjust`` output directory. It combines three
+    self-contained products that ASP always writes there:
+
+    - ``*.adjust`` -- the rigid adjustment (ECEF translation + rotation
+      quaternion) applied to each camera. Per ASP's convention a world point
+      projects the same in the original camera as ``R * (P - C) + C + T`` in
+      the adjusted camera, so the translation ``T`` is the bulk camera-center
+      shift (exact at the camera center for pixel (0, 0)).
+    - ``*.adjusted_state.json`` -- the optimized CSM camera state, used to
+      locate each camera center in space.
+    - ``*camera_offsets.txt`` (optional) -- ASP's authoritative per-camera
+      horizontal and vertical camera-center change, in the local North-East-Down
+      frame. When present it is used for the reported magnitudes (it also folds
+      in the rotation lever-arm that the bulk translation ``T`` does not).
+
+    Parameters
+    ----------
+    directory : str
+        Root directory of ASP processing.
+    bundle_adjust_directory : str
+        Subdirectory containing bundle adjustment outputs.
+
+    Examples
+    --------
+    >>> reader = ReadBundleAdjustCameras('/path/to/asp', 'ba')
+    >>> gdf = reader.get_camera_optimization_gdf(map_crs=32616)
+    """
+
+    def __init__(self, directory, bundle_adjust_directory, stem=None):
+        """
+        Parameters
+        ----------
+        directory : str
+            Root directory of ASP processing.
+        bundle_adjust_directory : str
+            Subdirectory containing the bundle_adjust outputs.
+        stem : str, optional
+            Run stem of an ASP output prefix (the ``run`` in ``ba/run``). When
+            given, the ``.adjust`` files and per-run reports are narrowed to
+            that run's outputs (``run-*.adjust``, ``run-camera_offsets.txt``,
+            ...); otherwise any run in the directory matches.
+        """
+        self.directory = os.path.expanduser(directory)
+        self.bundle_adjust_directory = bundle_adjust_directory
+        self.full_directory = os.path.join(self.directory, bundle_adjust_directory)
+        self.stem = stem
+
+    def _report_path(self, name):
+        """Glob for one of ASP's per-run report files, narrowed to the stem."""
+        prefix = f"{self.stem}-" if self.stem else "*"
+        return os.path.join(self.full_directory, f"{prefix}{name}")
+
+    def _adjust_pattern(self):
+        """Glob for the ``.adjust`` files, narrowed to the stem."""
+        return f"{self.stem}-*.adjust" if self.stem else "*.adjust"
+
+    def get_camera_offsets_df(self):
+        """
+        Read ``*camera_offsets.txt`` into a DataFrame if it exists.
+
+        Returns
+        -------
+        pandas.DataFrame or None
+            DataFrame with columns ``image``, ``horizontal_offset_m``, and
+            ``vertical_offset_m`` (one row per input image, in ASP's order).
+            Returns None if the file is not present (it is only written by
+            recent ASP versions).
+        """
+        # camera_offsets.txt is optional (only written by recent ASP versions),
+        # so look it up directly to avoid glob_file's "missing" warning.
+        matches = glob.glob(self._report_path("camera_offsets.txt"))
+        if not matches:
+            return None
+        return pd.read_csv(
+            matches[0],
+            sep=r"\s+",
+            comment="#",
+            header=None,
+            names=["image", "horizontal_offset_m", "vertical_offset_m"],
+        )
+
+    def get_triangulation_offsets_df(self):
+        """
+        Read ``*triangulation_offsets.txt`` into a DataFrame if it exists.
+
+        ASP >= 3.6 writes this report ("Changes in triangulated points" in the
+        bundle_adjust docs): for each input image, the mean, median, and count
+        of the distances (ECEF, meters) between the initial triangulated points
+        (after any initial adjustment or alignment transform, before any DEM
+        constraint) and the final ones after optimization. It is the ground
+        effect of the camera change, which the camera-center offsets alone do
+        not show.
+
+        Returns
+        -------
+        pandas.DataFrame or None
+            Columns ``image``, ``tri_mean_m``, ``tri_median_m``, ``tri_count``
+            (one row per input image, in ASP's order), or None when the file is
+            absent (older ASP versions).
+        """
+        matches = glob.glob(self._report_path("triangulation_offsets.txt"))
+        if not matches:
+            return None
+        return pd.read_csv(
+            matches[0],
+            sep=r"\s+",
+            comment="#",
+            header=None,
+            names=["image", "tri_mean_m", "tri_median_m", "tri_count"],
+        )
+
+    @staticmethod
+    def _read_list_file(path):
+        """Read an ASP ``*_list.txt`` file as ordered, comment-free lines."""
+        entries = []
+        with open(path, "r") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#"):
+                    entries.append(line)
+        return entries
+
+    def _rows_by_camera_basename(self, df, report_name):
+        """
+        Associate a per-image ASP report with cameras via ``camera_list.txt``.
+
+        ASP writes its per-image reports (``camera_offsets.txt``,
+        ``triangulation_offsets.txt``; one row per input image) and
+        ``camera_list.txt`` (one output camera per line) together and **in the
+        same input order**. Zipping them by position is exact and needs no
+        filename-string assumptions (no ``run-``/``_corr`` guessing). The result
+        is keyed by the camera file's basename so a discovered camera can be
+        looked up directly.
+
+        Parameters
+        ----------
+        df : pandas.DataFrame or None
+            The report, one row per input image (None if the file is absent).
+        report_name : str
+            File name used in the length-mismatch warning.
+
+        Returns
+        -------
+        dict or None
+            Maps each camera basename (e.g. ``run-<id>.adjusted_state.json`` or
+            ``<id>.xml``) to that camera's report row (a pandas Series). None if
+            ``df`` is None, ``camera_list.txt`` is absent, or their lengths
+            disagree.
+        """
+        list_matches = glob.glob(self._report_path("camera_list.txt"))
+        if df is None or not list_matches:
+            return None
+        cameras = [
+            os.path.basename(entry) for entry in self._read_list_file(list_matches[0])
+        ]
+        if len(cameras) != len(df):
+            logger.warning(
+                f"\n\ncamera_list.txt and {report_name} lengths differ "
+                f"({len(cameras)} vs {len(df)}); ignoring {report_name}.\n\n"
+            )
+            return None
+        return {camera: row for camera, (_, row) in zip(cameras, df.iterrows())}
+
+    def _offsets_by_camera_basename(self):
+        """
+        ``camera_offsets.txt`` values keyed by camera basename.
+
+        Returns
+        -------
+        dict or None
+            Maps camera basename to ``(horizontal_offset_m, vertical_offset_m)``;
+            None when the report or ``camera_list.txt`` is unusable (the caller
+            then falls back to the ``.adjust`` translation).
+        """
+        rows = self._rows_by_camera_basename(
+            self.get_camera_offsets_df(), "camera_offsets.txt"
+        )
+        if rows is None:
+            return None
+        return {
+            camera: (float(row.horizontal_offset_m), float(row.vertical_offset_m))
+            for camera, row in rows.items()
+        }
+
+    def _find_state_file(self, adjust_path):
+        """
+        Find the ``.adjusted_state.json`` matching a ``.adjust`` file, if any.
+
+        Handles both naming conventions seen in ASP output: ``<base>.adjust``
+        alongside ``<base>.adjusted_state.json`` (WorldView/CSM runs) and
+        ``<base>.adjusted_state.adjust`` alongside ``<base>.adjusted_state.json``
+        (e.g. ASTER jitter runs). Returns None for DigitalGlobe runs, which
+        write only the ``.adjust`` delta with no state file.
+        """
+        base = adjust_path[: -len(".adjust")]
+        candidates = [
+            base + ".adjusted_state.json",  # <base>.adjust
+            base + ".json",  # <base>.adjusted_state.adjust
+        ]
+        for candidate in candidates:
+            if os.path.exists(candidate):
+                return candidate
+        return None
+
+    def _index_original_xmls(self, original_cameras_directory=None):
+        """
+        Build a ``{filename stem: path}`` index of original camera XMLs.
+
+        Used to locate the pre-adjustment camera center for DigitalGlobe runs
+        (which have no ``.adjusted_state.json``). When
+        ``original_cameras_directory`` is given, only that directory is searched;
+        otherwise the bundle_adjust directory and its parent are searched (ASP
+        typically writes the ``ba_*`` output as a subdirectory of the folder
+        holding the input ``.xml`` cameras).
+
+        Parameters
+        ----------
+        original_cameras_directory : str or None, optional
+            Directory holding the original ``.xml`` cameras. If None, auto-search
+            the BA directory and its parent.
+
+        Returns
+        -------
+        dict
+            Maps each XML filename stem (basename without ``.xml``) to its path.
+        """
+        if original_cameras_directory:
+            search_dirs = [os.path.expanduser(original_cameras_directory)]
+        else:
+            search_dirs = [
+                self.full_directory,
+                os.path.dirname(self.full_directory.rstrip(os.sep)),
+            ]
+        index = {}
+        for directory in search_dirs:
+            for path in glob.glob(os.path.join(directory, "*.xml")):
+                stem = os.path.basename(path)[: -len(".xml")]
+                index.setdefault(stem, path)
+        return index
+
+    @staticmethod
+    def _match_original_xml(adjust_path, xml_index):
+        """
+        Match a ``.adjust`` file to an original camera XML by filename.
+
+        ASP names DG adjustments ``<prefix>-<camera>.adjust`` where ``<camera>``
+        is the original XML's basename stem (e.g. a CATID like
+        ``10300100D044F700.r100``). The longest XML stem that appears in the
+        ``.adjust`` filename is taken as the match, so distinct CATIDs never
+        cross-match.
+        """
+        adjust_base = os.path.basename(adjust_path)
+        best = None
+        for stem, path in xml_index.items():
+            if stem in adjust_base and (best is None or len(stem) > len(best[0])):
+                best = (stem, path)
+        return best[1] if best else None
+
+    @staticmethod
+    def read_adjust_file(adjust_path):
+        """
+        Parse an ASP ``.adjust`` file.
+
+        Parameters
+        ----------
+        adjust_path : str
+            Path to a ``.adjust`` file.
+
+        Returns
+        -------
+        tuple
+            ``(translation, rotation)`` where ``translation`` is a length-3
+            numpy array of the ECEF camera-center shift in meters and
+            ``rotation`` is a :class:`scipy.spatial.transform.Rotation`.
+
+        Notes
+        -----
+        The first line holds the translation ``x y z`` (meters); the second
+        holds the rotation quaternion in ASP's ``w x y z`` order, which is
+        reordered to the ``x y z w`` order that SciPy expects.
+        """
+        with open(adjust_path, "r") as f:
+            lines = f.read().split("\n")
+        translation = np.array([float(x) for x in lines[0].split()])
+        w, x, y, z = (float(v) for v in lines[1].split())
+        rotation = Rotation.from_quat([x, y, z, w])
+        return translation, rotation
+
+    def _representative_center(self, state_path):
+        """
+        Return the image-center ECEF camera center for a camera state file.
+
+        For frame cameras this is the single camera center. For linescan
+        cameras it is the trajectory position at the center image line (the
+        sub-satellite point at mid-acquisition), which is more meaningful than
+        the trajectory mean when the stored ephemeris is padded beyond the image
+        acquisition window. Falls back to the trajectory mean if the center-line
+        time cannot be computed.
+        """
+        positions, _ = read_positions_rotations_from_file(state_path)
+        positions = np.array(positions)
+        if len(positions) < 2 or not isLinescan(state_path):
+            return positions.mean(axis=0)
+        try:
+            j = read_csm_cam(state_path)
+            center_time = getTimeAtLine(j, (j["m_nLines"] - 1) / 2.0)
+            times = j["m_t0Ephem"] + j["m_dtEphem"] * np.arange(len(positions))
+            return np.array(
+                [np.interp(center_time, times, positions[:, k]) for k in range(3)]
+            )
+        except Exception:
+            return positions.mean(axis=0)
+
+    def get_camera_optimization_gdf(
+        self, map_crs=None, original_cameras_directory=None
+    ):
+        """
+        Build a per-camera GeoDataFrame of before/after camera changes.
+
+        Discovery is driven by the ``.adjust`` files, which ASP writes for every
+        camera. Each camera's absolute center comes from its
+        ``.adjusted_state.json`` (WorldView/CSM and jitter runs) or, when that is
+        absent (DigitalGlobe runs), from the original camera ``.xml`` ephemeris.
+
+        Parameters
+        ----------
+        map_crs : int or None, optional
+            EPSG code (e.g. a UTM zone) for the output geometry. If None, the
+            geometry is returned in geographic coordinates (EPSG:4326). The
+            east/north/up offsets do not depend on it.
+        original_cameras_directory : str or None, optional
+            Directory holding the original ``.xml`` cameras, used only for
+            DigitalGlobe runs that lack ``.adjusted_state.json``. If None, the
+            BA directory and its parent are searched automatically.
+
+        Returns
+        -------
+        geopandas.GeoDataFrame
+            One row per camera, with geometry at the (projected) camera center
+            and columns:
+
+            - ``camera_id`` : camera filename stem (display label).
+            - ``t_east``, ``t_north``, ``t_up`` : ECEF translation ``T``
+              decomposed into the local ENU frame (meters).
+            - ``t_horizontal`` : horizontal magnitude of ``T`` (meters).
+            - ``adj_roll``, ``adj_pitch``, ``adj_yaw`` : the ``.adjust``
+              rotation as intrinsic XYZ Euler angles (degrees).
+            - ``horizontal_offset_m``, ``vertical_offset_m`` : ASP's reported
+              camera-center change from ``camera_offsets.txt`` when available,
+              otherwise filled from ``t_horizontal`` / ``t_up``.
+            - ``offsets_from_asp`` : True if the offsets came from
+              ``camera_offsets.txt``, False if derived from ``T``.
+            - ``tri_mean_m``, ``tri_median_m``, ``tri_count`` : per-image mean
+              and median change of the triangulated points (meters) and the
+              point count, from ``triangulation_offsets.txt`` (ASP >= 3.6);
+              NaN when that report is absent.
+
+        Raises
+        ------
+        ValueError
+            If no ``.adjust`` files are found in the directory.
+        """
+        adjust_paths = glob_file(
+            self.full_directory, self._adjust_pattern(), all_files=True
+        )
+        if adjust_paths is None:
+            raise ValueError(
+                "\n\nNo *.adjust files found. This reader needs the per-camera "
+                ".adjust files written by bundle_adjust (or jitter_solve).\n\n"
+            )
+
+        offsets_by_camera = self._offsets_by_camera_basename()
+        tri_by_camera = self._rows_by_camera_basename(
+            self.get_triangulation_offsets_df(), "triangulation_offsets.txt"
+        )
+        xml_index = None  # built lazily, only if a DG (state-less) camera appears
+
+        rows, centers_ecef = [], []
+        for adjust_path in sorted(adjust_paths):
+            state_path = self._find_state_file(adjust_path)
+
+            # DigitalGlobe runs have no state file; fall back to the original
+            # camera XML for the absolute (pre-adjustment) center.
+            xml_path = None
+            if state_path is None:
+                if xml_index is None:
+                    xml_index = self._index_original_xmls(original_cameras_directory)
+                xml_path = self._match_original_xml(adjust_path, xml_index)
+                if xml_path is None:
+                    logger.warning(
+                        f"\n\nNo .adjusted_state.json or matching original .xml "
+                        f"camera for {adjust_path}. Skipping. (For DigitalGlobe "
+                        "runs, point --original-cameras-directory at the input "
+                        ".xml cameras.)\n\n"
+                    )
+                    continue
+
+            # A corrupt/truncated .adjust, state, or XML file should not sink the
+            # whole run; skip that one camera with a warning.
+            camera_path = state_path if state_path is not None else xml_path
+            try:
+                translation, rotation = self.read_adjust_file(adjust_path)
+                if state_path is not None:
+                    center_ecef = self._representative_center(state_path)
+                else:
+                    center_ecef = _camera_center_from_xml(xml_path)
+                camera_id = _camera_label(camera_path)
+            except Exception as e:
+                logger.warning(
+                    f"\n\nCould not parse camera files for {adjust_path} "
+                    f"({type(e).__name__}: {e}). Skipping.\n\n"
+                )
+                continue
+            east, north, up = _enu_basis(center_ecef)
+            t_east, t_north, t_up = (
+                float(translation @ east),
+                float(translation @ north),
+                float(translation @ up),
+            )
+            roll, pitch, yaw = rotation.as_euler("XYZ", degrees=True)
+
+            row = {
+                "camera_id": camera_id,
+                "t_east": t_east,
+                "t_north": t_north,
+                "t_up": t_up,
+                "t_horizontal": float(np.hypot(t_east, t_north)),
+                "adj_roll": float(roll),
+                "adj_pitch": float(pitch),
+                "adj_yaw": float(yaw),
+            }
+
+            offset = None
+            if offsets_by_camera is not None:
+                offset = offsets_by_camera.get(os.path.basename(camera_path))
+
+            if offset is not None:
+                row["horizontal_offset_m"], row["vertical_offset_m"] = offset
+                row["offsets_from_asp"] = True
+            else:
+                row["horizontal_offset_m"] = row["t_horizontal"]
+                row["vertical_offset_m"] = abs(t_up)
+                row["offsets_from_asp"] = False
+
+            tri = None
+            if tri_by_camera is not None:
+                tri = tri_by_camera.get(os.path.basename(camera_path))
+            row["tri_mean_m"] = float(tri.tri_mean_m) if tri is not None else np.nan
+            row["tri_median_m"] = float(tri.tri_median_m) if tri is not None else np.nan
+            row["tri_count"] = float(tri.tri_count) if tri is not None else np.nan
+
+            rows.append(row)
+            centers_ecef.append(center_ecef)
+
+        if not rows:
+            raise ValueError(
+                "\n\nFound *.adjust files but no camera could be built (no matching "
+                ".adjusted_state.json or original .xml cameras, or unparseable files). "
+                "Cannot build the camera optimization GeoDataFrame.\n\n"
+            )
+
+        gdf = gpd.GeoDataFrame(
+            pd.DataFrame(rows),
+            geometry=[Point(*c) for c in centers_ecef],
+            crs="EPSG:4978",
+        )
+        gdf = gdf.to_crs(epsg=map_crs) if map_crs else gdf.to_crs(epsg=4326)
+        return gdf
+
+
+def _fmt_deg(value):
+    """Format a signed degree value for a label, printing ``-0`` as ``+0``."""
+    value = 0.0 if value == 0 else float(value)
+    return f"{value:+.2g}°"
+
+
+class PlotBundleAdjustCameras(Plotter):
+    """
+    Visualize before/after camera position and orientation changes.
+
+    Consumes the GeoDataFrame from
+    :meth:`ReadBundleAdjustCameras.get_camera_optimization_gdf` and renders
+    per-camera bar rows (issues #95 and #43):
+
+    1. Horizontal and vertical camera-center change (meters).
+    2. Roll / pitch / yaw orientation change (degrees), with the value printed
+       on every bar. A single satellite cartoon beside the row is a legend for
+       the body axes and the sense of each rotation (X = along-track,
+       Y = across-track, Z = nadir); it is deliberately not scaled -- the
+       numbers carry the magnitude.
+    3. Only when ASP wrote ``triangulation_offsets.txt`` (>= 3.6): the per-image
+       median and mean change of the triangulated points (meters), i.e. what
+       the camera change did on the ground. A solver can trade tens of meters
+       of camera translation against millidegrees of rotation with almost no
+       effect on the ground, so this row is the context for the first.
+
+    When a run changed nothing (e.g. an identity ``--initial-transform`` used to
+    recover the unadjusted cameras), the panels are still drawn with a
+    "no camera change" note overlaid, rather than left as empty axes.
+
+    Parameters
+    ----------
+    gdf : geopandas.GeoDataFrame
+        Output of
+        :meth:`ReadBundleAdjustCameras.get_camera_optimization_gdf`.
+    **kwargs
+        Forwarded to :class:`asp_plot.utils.Plotter`.
+    """
+
+    _POSITION_COLS = ["horizontal_offset_m", "vertical_offset_m"]
+    _ANGLE_COLS = ["adj_roll", "adj_pitch", "adj_yaw"]
+
+    def __init__(self, gdf, **kwargs):
+        super().__init__(**kwargs)
+        self.gdf = gdf.reset_index(drop=True)
+
+    @property
+    def is_identity(self):
+        """True when every camera-center offset and rotation angle is zero."""
+        cols = self._POSITION_COLS + self._ANGLE_COLS
+        return bool((self.gdf[cols].abs().values == 0).all())
+
+    @property
+    def has_triangulation_offsets(self):
+        """True when ``triangulation_offsets.txt`` values are present."""
+        return "tri_median_m" in self.gdf.columns and bool(
+            self.gdf.tri_median_m.notna().any()
+        )
+
+    def _annotate_no_change(self, ax):
+        """Overlay the "no camera change" note on an all-zero panel."""
+        note = "no camera change"
+        if self.is_identity:
+            note += "\n(identity adjustment)"
+        ax.text(
+            0.5,
+            0.5,
+            note,
+            transform=ax.transAxes,
+            ha="center",
+            va="center",
+            fontsize=11,
+            weight="bold",
+            color="#333333",
+            bbox=dict(boxstyle="round,pad=0.5", facecolor="#f4f4f4", edgecolor="#999"),
+            zorder=10,
+        )
+
+    def _camera_axis(self, ax, index_labels):
+        """Camera ticks: numbers only (upper rows) or ``#n  id`` (bottom row)."""
+        ids = self.gdf.camera_id.values
+        xi = np.arange(len(ids))
+        ax.set_xticks(xi)
+        if index_labels:
+            ax.set_xticklabels([str(i + 1) for i in xi], fontsize=8)
+            ax.set_xlabel("camera #", fontsize=8)
+        else:
+            ax.set_xticklabels(
+                [f"#{i + 1}  {cid}" for i, cid in zip(xi, ids)],
+                rotation=40,
+                ha="right",
+                fontsize=7,
+            )
+        ax.set_xlim(-0.6, len(ids) - 0.4)
+        ax.grid(True, axis="y", linestyle=":", linewidth=0.5, alpha=0.8)
+
+    @staticmethod
+    def _legend(ax, outside):
+        if outside:
+            ax.legend(
+                loc="center left", bbox_to_anchor=(1.01, 0.5), fontsize=8, frameon=False
+            )
+        else:
+            ax.legend(fontsize=8)
+
+    def plot_center_offset_bars(
+        self,
+        ax=None,
+        save_dir=None,
+        fig_fn=None,
+        index_labels=False,
+        legend_outside=False,
+    ):
+        """
+        Per-camera bars of horizontal and vertical camera-center change.
+
+        Uses ASP's ``camera_offsets.txt`` values when available (see
+        ``offsets_from_asp``); otherwise falls back to the horizontal/vertical
+        components of the ``.adjust`` translation.
+
+        Parameters
+        ----------
+        ax : matplotlib.axes.Axes or None, optional
+            Axes to draw on. A new figure is created if None.
+        save_dir, fig_fn : str or None, optional
+            If both are given (and a new figure was created), save the figure.
+        index_labels : bool, optional
+            Label cameras by number only (for stacked rows that share the
+            camera order); default False prints ``#n  camera_id``.
+        legend_outside : bool, optional
+            Place the legend to the right of the axes instead of inside.
+        """
+        created = ax is None
+        if created:
+            fig, ax = plt.subplots(figsize=(8, 5))
+
+        gdf = self.gdf
+        xi = np.arange(len(gdf))
+        ax.bar(
+            xi - 0.2,
+            gdf.horizontal_offset_m,
+            0.4,
+            label="Horizontal",
+            color="#4169E1",
+        )
+        ax.bar(
+            xi + 0.2,
+            gdf.vertical_offset_m.abs(),
+            0.4,
+            label="Vertical",
+            color="#87CEEB",
+        )
+        self._camera_axis(ax, index_labels)
+        ax.set_ylabel("Camera-center change (m)", fontsize=9)
+        source = (
+            "camera_offsets.txt"
+            if bool(gdf.offsets_from_asp.any())
+            else "|.adjust translation|"
+        )
+        ax.set_title(f"Per-camera center displacement\n(from {source})", fontsize=11)
+        self._legend(ax, legend_outside)
+        if bool((gdf[self._POSITION_COLS].abs().values == 0).all()):
+            ax.set_ylim(0, 1)
+            self._annotate_no_change(ax)
+
+        if created:
+            self.save(fig, save_dir, fig_fn)
+        return ax
+
+    def plot_orientation_bars(
+        self, ax=None, save_dir=None, fig_fn=None, index_labels=False
+    ):
+        """
+        Per-camera bars of the roll / pitch / yaw orientation change (degrees).
+
+        The ``.adjust`` rotation is shown as signed intrinsic XYZ Euler angles
+        (roll about the along-track X axis, pitch about across-track Y, yaw
+        about nadir Z), colored to match :meth:`_draw_satellite`, with the value
+        printed on every bar so sub-millidegree changes stay readable.
+
+        Parameters
+        ----------
+        ax : matplotlib.axes.Axes or None, optional
+            Axes to draw on. A new figure is created if None.
+        save_dir, fig_fn : str or None, optional
+            If both are given (and a new figure was created), save the figure.
+        index_labels : bool, optional
+            Label cameras by number only; default False prints ``#n  camera_id``.
+        """
+        created = ax is None
+        if created:
+            fig, ax = plt.subplots(figsize=(8, 5))
+
+        gdf = self.gdf
+        xi = np.arange(len(gdf))
+        width = 0.27
+        series = (
+            ("adj_roll", "roll (X)", _ROLL_COLOR, -width),
+            ("adj_pitch", "pitch (Y)", _PITCH_COLOR, 0.0),
+            ("adj_yaw", "yaw (Z)", _YAW_COLOR, width),
+        )
+        max_abs = float(gdf[self._ANGLE_COLS].abs().values.max())
+        pad = 0.04 * max_abs if max_abs > 0 else 0.0
+        for col, label, color, shift in series:
+            values = gdf[col].values
+            ax.bar(xi + shift, values, width, label=label, color=color)
+            for x, v in zip(xi + shift, values):
+                ax.text(
+                    x,
+                    v + (pad if v >= 0 else -pad),
+                    _fmt_deg(v),
+                    rotation=90,
+                    ha="center",
+                    va="bottom" if v >= 0 else "top",
+                    fontsize=6.5,
+                    color=color,
+                )
+        ax.axhline(0, color="k", lw=0.6)
+        self._camera_axis(ax, index_labels)
+        ax.set_ylabel("Orientation change (deg)", fontsize=9)
+        ax.set_title(
+            "Per-camera orientation change\n(.adjust rotation as roll / pitch / yaw)",
+            fontsize=11,
+        )
+        if max_abs > 0:
+            # Headroom for the rotated value labels on both sides of zero.
+            ax.set_ylim(-1.9 * max_abs, 1.9 * max_abs)
+        else:
+            ax.set_ylim(-1, 1)
+            self._annotate_no_change(ax)
+        if created:
+            ax.legend(fontsize=8)
+            self.save(fig, save_dir, fig_fn)
+        return ax
+
+    def plot_triangulation_offset_bars(
+        self,
+        ax=None,
+        save_dir=None,
+        fig_fn=None,
+        index_labels=False,
+        legend_outside=False,
+    ):
+        """
+        Per-camera bars of the triangulated-point change (meters).
+
+        From ASP's ``triangulation_offsets.txt`` (>= 3.6): for each input image,
+        the median and mean distance between its initial and final triangulated
+        points, with the point count printed above each pair.
+
+        Parameters
+        ----------
+        ax : matplotlib.axes.Axes or None, optional
+            Axes to draw on. A new figure is created if None.
+        save_dir, fig_fn : str or None, optional
+            If both are given (and a new figure was created), save the figure.
+        index_labels : bool, optional
+            Label cameras by number only; default False prints ``#n  camera_id``.
+        legend_outside : bool, optional
+            Place the legend to the right of the axes instead of inside.
+
+        Raises
+        ------
+        ValueError
+            If the GeoDataFrame carries no ``triangulation_offsets.txt`` values.
+        """
+        if not self.has_triangulation_offsets:
+            raise ValueError(
+                "\n\nNo triangulation_offsets.txt values in the GeoDataFrame "
+                "(ASP >= 3.6 writes that report).\n\n"
+            )
+        created = ax is None
+        if created:
+            fig, ax = plt.subplots(figsize=(8, 5))
+
+        gdf = self.gdf
+        xi = np.arange(len(gdf))
+        ax.bar(xi - 0.2, gdf.tri_median_m, 0.4, label="Median", color="#B8651F")
+        ax.bar(xi + 0.2, gdf.tri_mean_m, 0.4, label="Mean", color="#F2C29B")
+        top = float(np.nanmax(gdf[["tri_median_m", "tri_mean_m"]].values))
+        for x, count, m1, m2 in zip(
+            xi, gdf.tri_count, gdf.tri_median_m, gdf.tri_mean_m
+        ):
+            if np.isnan(count):
+                continue
+            ax.text(
+                x,
+                np.nanmax([m1, m2]) + 0.03 * top,
+                f"n={int(count):,}",
+                ha="center",
+                va="bottom",
+                fontsize=6.5,
+                color="#555555",
+            )
+        self._camera_axis(ax, index_labels)
+        ax.set_ylabel("Triangulated-point change (m)", fontsize=9)
+        ax.set_title(
+            "Per-camera triangulated-point change\n"
+            "(from triangulation_offsets.txt: initial vs. final points, per image)",
+            fontsize=11,
+        )
+        if top > 0:
+            ax.set_ylim(0, 1.25 * top)
+        self._legend(ax, legend_outside)
+
+        if created:
+            self.save(fig, save_dir, fig_fn)
+        return ax
+
+    @staticmethod
+    def _draw_satellite(ax):
+        """
+        Draw the orientation legend: one satellite with its body axes.
+
+        A nadir-looking satellite (body, solar panels, sensor frustum) with the
+        black body-frame X/Y/Z axes overlaid: X = along-track, Y = across-track,
+        Z = nadir/boresight (down the frustum). A colored rotation arc encircles
+        each axis to show the sense of roll (about X), pitch (about Y), and yaw
+        (about Z), in the colors used by :meth:`plot_orientation_bars`. The
+        cartoon is a legend only and carries no magnitude.
+        """
+        ax.set_xlim(0, 1)
+        ax.set_ylim(-0.3, 1.02)
+        ax.set_aspect("equal")
+        ax.axis("off")
+        body = np.array([0.5, 0.62])
+
+        # Sensor view frustum (camera looking down at a ground patch).
+        ground = [(0.30, 0.20), (0.66, 0.20), (0.74, 0.31), (0.38, 0.31)]
+        ax.add_patch(
+            Polygon(
+                ground,
+                closed=True,
+                facecolor="#dfe7ee",
+                edgecolor="#8aa0b2",
+                lw=1.0,
+                zorder=1,
+            )
+        )
+        for gx, gy in ground:
+            ax.plot([body[0], gx], [body[1], gy], color="#8aa0b2", lw=0.8, zorder=1)
+
+        # Satellite body + solar panels.
+        ax.add_patch(
+            Rectangle(
+                (body[0] - 0.05, body[1] - 0.03),
+                0.10,
+                0.07,
+                facecolor="#3b3b3b",
+                edgecolor="k",
+                lw=0.8,
+                zorder=3,
+            )
+        )
+        for sx in (-0.14, 0.05):
+            ax.add_patch(
+                Rectangle(
+                    (body[0] + sx, body[1] - 0.01),
+                    0.09,
+                    0.03,
+                    facecolor="#5b7fb0",
+                    edgecolor="k",
+                    lw=0.5,
+                    zorder=2,
+                )
+            )
+
+        def rotation_arc(center, direction, color):
+            # Ellipse arc encircling the (screen-projected) axis ``direction``.
+            direction = direction / np.linalg.norm(direction)
+            major = np.array([-direction[1], direction[0]])
+            t = np.linspace(-2.3, 2.1, 40)
+            pts = (
+                center
+                + 0.09 * np.outer(np.cos(t), major)
+                + 0.032 * np.outer(np.sin(t), direction)
+            )
+            ax.plot(pts[:, 0], pts[:, 1], color=color, lw=1.8, zorder=6)
+            ax.annotate(
+                "",
+                xy=tuple(pts[-1]),
+                xytext=tuple(pts[-4]),
+                arrowprops=dict(arrowstyle="-|>", color=color, lw=1.8),
+                zorder=6,
+            )
+
+        # Black body-frame axes with a colored rotation arc around each.
+        for vec, rot_color, label in (
+            (np.array([0.0, -0.34]), _YAW_COLOR, "Z"),  # nadir  -> yaw
+            (np.array([-0.26, 0.20]), _ROLL_COLOR, "X"),  # along  -> roll
+            (np.array([0.26, 0.20]), _PITCH_COLOR, "Y"),  # across -> pitch
+        ):
+            tip = body + vec
+            ax.annotate(
+                "",
+                xy=tuple(tip),
+                xytext=tuple(body),
+                arrowprops=dict(
+                    arrowstyle="-|>", color="#111111", lw=2.2, shrinkA=0, shrinkB=0
+                ),
+                zorder=5,
+            )
+            ltip = body + 1.2 * vec
+            ax.text(
+                ltip[0],
+                ltip[1],
+                label,
+                color="#111111",
+                fontsize=8,
+                weight="bold",
+                ha="center",
+                va="center",
+                zorder=7,
+            )
+            rotation_arc(body + 0.55 * vec, vec, rot_color)
+
+        ax.text(
+            0.5, 0.98, "body axes & rotation sense", ha="center", va="top", fontsize=7.5
+        )
+        for y, text, color in (
+            (0.06, "roll (X) — along-track", _ROLL_COLOR),
+            (-0.04, "pitch (Y) — across-track", _PITCH_COLOR),
+            (-0.14, "yaw (Z) — nadir", _YAW_COLOR),
+        ):
+            ax.text(0.5, y, text, color=color, ha="center", fontsize=7, weight="bold")
+        ax.text(
+            0.5,
+            -0.25,
+            "(not to scale; see the bar values)",
+            ha="center",
+            fontsize=6,
+            color="#555555",
+        )
+
+    def summary_plot(self, save_dir=None, fig_fn=None):
+        """
+        Combined summary: center-displacement bars, orientation bars, and --
+        when ``triangulation_offsets.txt`` was written -- triangulated-point
+        change bars.
+
+        The rows share the camera order; only the bottom row prints the camera
+        ids. The orientation legend cartoon sits beside its row.
+
+        Parameters
+        ----------
+        save_dir, fig_fn : str or None, optional
+            If both are given, save the figure.
+        """
+        n = len(self.gdf)
+        with_tri = self.has_triangulation_offsets
+        nrows = 3 if with_tri else 2
+        fig = plt.figure(figsize=(max(11, 0.75 * n + 3.5), 3.8 * nrows))
+        gs = fig.add_gridspec(
+            nrows,
+            2,
+            width_ratios=[5, 1.1],
+            height_ratios=[1, 1.15] + ([1] if with_tri else []),
+            hspace=0.35,
+            wspace=0.05,
+        )
+        self.plot_center_offset_bars(
+            ax=fig.add_subplot(gs[0, 0]), index_labels=True, legend_outside=True
+        )
+        self.plot_orientation_bars(ax=fig.add_subplot(gs[1, 0]), index_labels=with_tri)
+        self._draw_satellite(fig.add_subplot(gs[1, 1]))
+        if with_tri:
+            self.plot_triangulation_offset_bars(
+                ax=fig.add_subplot(gs[2, 0]), legend_outside=True
+            )
+        if self.title:
+            fig.suptitle(self.title, size=13)
+        with warnings.catch_warnings():
+            # The equal-aspect legend axes trip matplotlib's tight_layout
+            # compatibility check; the layout is fine, silence the noise.
+            warnings.filterwarnings(
+                "ignore", message=".*not compatible with tight_layout"
+            )
+            fig.tight_layout(rect=[0, 0, 1, 0.96 if self.title else 1.0])
+        self.save(fig, save_dir, fig_fn, tight_layout=False)
+        return fig
