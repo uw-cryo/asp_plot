@@ -265,17 +265,14 @@ class DEMBenchmark:
     title : str, optional
         Figure title.
 
-    Attributes
-    ----------
-    stats_df : pandas.DataFrame or None
-        One row per DEM, columns :data:`STATS_COLUMNS`; set by :meth:`run`.
-        Residual columns are altimetry minus DEM, in meters.
-    altimetry : dict
-        ``{label: Altimetry}`` after :meth:`run`, for per-DEM figures such
-        as ``mapview_plot_atl06sr_to_dem()`` or ``histogram_by_landcover()``.
-    dh, dh_aligned : dict
-        ``{label: pandas.Series}`` of the residuals scored (aligned only when
-        pc_align ran for that DEM).
+    Notes
+    -----
+    After :meth:`run`, ``stats_df`` holds one row per DEM with the columns in
+    :data:`STATS_COLUMNS` (residual columns are altimetry minus DEM, in
+    meters); ``altimetry`` maps each label to its :class:`Altimetry` object,
+    for per-DEM figures such as ``mapview_plot_atl06sr_to_dem()`` or
+    ``histogram_by_landcover()``; and ``dh`` / ``dh_aligned`` map each label
+    to the residual series scored (aligned only when pc_align ran for it).
     """
 
     def __init__(

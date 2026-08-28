@@ -80,7 +80,7 @@ Usage: dem_benchmark [OPTIONS] DEMS...
   DEMS are paths, optionally labelled as LABEL=PATH (e.g.
   "MVS=stereo_mvs3/run-DEM.tif"); an unlabelled ASP run-DEM.tif is labelled by
   its folder. Every DEM gets: coverage inside the common footprint, the median
-  triangulation error from its *-IntersectionErr.tif when present, and the
+  triangulation error from its IntersectionErr raster when present, and the
   altimetry-minus-DEM median / NMAD / RMSE before and (unless --no-pc-align)
   after a pc_align translation. Writes a one-row-per-DEM summary figure, an
   overlaid residual histogram, and the stats table as CSV.
