@@ -265,3 +265,33 @@ class TestBundleAdjustCameras:
         assert _fmt_deg(-0.0) == "+0°"
         assert _fmt_deg(0.00039) == "+0.00039°"
         assert _fmt_deg(-0.0161) == "-0.016°"
+
+    def test_get_triangulation_offsets_df(self, cam_reader):
+        df = cam_reader.get_triangulation_offsets_df()
+        assert list(df.columns) == ["image", "tri_mean_m", "tri_median_m", "tri_count"]
+        assert len(df) == 2
+
+    def test_optimization_gdf_carries_triangulation_offsets(self, cam_reader):
+        gdf = cam_reader.get_camera_optimization_gdf(map_crs=32619)
+        assert gdf.tri_median_m.notna().all()
+        assert (gdf.tri_count == 1532).all()
+        assert np.isclose(gdf.tri_median_m.max(), 0.61077902)
+
+    def test_summary_plot_third_row_only_with_triangulation_offsets(
+        self, cam_reader, monkeypatch
+    ):
+        with_tri = PlotBundleAdjustCameras(
+            cam_reader.get_camera_optimization_gdf(map_crs=32619)
+        )
+        assert with_tri.has_triangulation_offsets
+        assert len(with_tri.summary_plot().axes) == 4  # 3 bar rows + legend cartoon
+
+        # Older ASP: no triangulation_offsets.txt -> NaN columns, two rows.
+        monkeypatch.setattr(cam_reader, "get_triangulation_offsets_df", lambda: None)
+        gdf = cam_reader.get_camera_optimization_gdf(map_crs=32619)
+        assert gdf.tri_median_m.isna().all()
+        without = PlotBundleAdjustCameras(gdf)
+        assert not without.has_triangulation_offsets
+        assert len(without.summary_plot().axes) == 3
+        with pytest.raises(ValueError, match="triangulation_offsets"):
+            without.plot_triangulation_offset_bars()

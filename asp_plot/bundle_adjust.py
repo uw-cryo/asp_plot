@@ -821,6 +821,38 @@ class ReadBundleAdjustCameras:
             names=["image", "horizontal_offset_m", "vertical_offset_m"],
         )
 
+    def get_triangulation_offsets_df(self):
+        """
+        Read ``*triangulation_offsets.txt`` into a DataFrame if it exists.
+
+        ASP >= 3.6 writes this report ("Changes in triangulated points" in the
+        bundle_adjust docs): for each input image, the mean, median, and count
+        of the distances (ECEF, meters) between the initial triangulated points
+        (after any initial adjustment or alignment transform, before any DEM
+        constraint) and the final ones after optimization. It is the ground
+        effect of the camera change, which the camera-center offsets alone do
+        not show.
+
+        Returns
+        -------
+        pandas.DataFrame or None
+            Columns ``image``, ``tri_mean_m``, ``tri_median_m``, ``tri_count``
+            (one row per input image, in ASP's order), or None when the file is
+            absent (older ASP versions).
+        """
+        matches = glob.glob(
+            os.path.join(self.full_directory, "*triangulation_offsets.txt")
+        )
+        if not matches:
+            return None
+        return pd.read_csv(
+            matches[0],
+            sep=r"\s+",
+            comment="#",
+            header=None,
+            names=["image", "tri_mean_m", "tri_median_m", "tri_count"],
+        )
+
     @staticmethod
     def _read_list_file(path):
         """Read an ASP ``*_list.txt`` file as ordered, comment-free lines."""
@@ -832,41 +864,66 @@ class ReadBundleAdjustCameras:
                     entries.append(line)
         return entries
 
-    def _offsets_by_camera_basename(self):
+    def _rows_by_camera_basename(self, df, report_name):
         """
-        Associate ``camera_offsets.txt`` rows with cameras via ``camera_list.txt``.
+        Associate a per-image ASP report with cameras via ``camera_list.txt``.
 
-        ASP writes ``camera_offsets.txt`` (one row per input image) and
+        ASP writes its per-image reports (``camera_offsets.txt``,
+        ``triangulation_offsets.txt``; one row per input image) and
         ``camera_list.txt`` (one output camera per line) together and **in the
         same input order**. Zipping them by position is exact and needs no
         filename-string assumptions (no ``run-``/``_corr`` guessing). The result
         is keyed by the camera file's basename so a discovered camera can be
         looked up directly.
 
+        Parameters
+        ----------
+        df : pandas.DataFrame or None
+            The report, one row per input image (None if the file is absent).
+        report_name : str
+            File name used in the length-mismatch warning.
+
         Returns
         -------
         dict or None
             Maps each camera basename (e.g. ``run-<id>.adjusted_state.json`` or
-            ``<id>.xml``) to ``(horizontal_offset_m, vertical_offset_m)``. Returns
-            None if either companion file is absent or their lengths disagree.
+            ``<id>.xml``) to that camera's report row (a pandas Series). None if
+            ``df`` is None, ``camera_list.txt`` is absent, or their lengths
+            disagree.
         """
-        offsets_df = self.get_camera_offsets_df()
         list_matches = glob.glob(os.path.join(self.full_directory, "*camera_list.txt"))
-        if offsets_df is None or not list_matches:
+        if df is None or not list_matches:
             return None
         cameras = [
             os.path.basename(entry) for entry in self._read_list_file(list_matches[0])
         ]
-        if len(cameras) != len(offsets_df):
+        if len(cameras) != len(df):
             logger.warning(
-                "\n\ncamera_list.txt and camera_offsets.txt lengths differ "
-                f"({len(cameras)} vs {len(offsets_df)}); ignoring ASP offsets and "
-                "falling back to the .adjust translation.\n\n"
+                f"\n\ncamera_list.txt and {report_name} lengths differ "
+                f"({len(cameras)} vs {len(df)}); ignoring {report_name}.\n\n"
             )
+            return None
+        return {camera: row for camera, (_, row) in zip(cameras, df.iterrows())}
+
+    def _offsets_by_camera_basename(self):
+        """
+        ``camera_offsets.txt`` values keyed by camera basename.
+
+        Returns
+        -------
+        dict or None
+            Maps camera basename to ``(horizontal_offset_m, vertical_offset_m)``;
+            None when the report or ``camera_list.txt`` is unusable (the caller
+            then falls back to the ``.adjust`` translation).
+        """
+        rows = self._rows_by_camera_basename(
+            self.get_camera_offsets_df(), "camera_offsets.txt"
+        )
+        if rows is None:
             return None
         return {
             camera: (float(row.horizontal_offset_m), float(row.vertical_offset_m))
-            for camera, (_, row) in zip(cameras, offsets_df.iterrows())
+            for camera, row in rows.items()
         }
 
     def _find_state_file(self, adjust_path):
@@ -1013,9 +1070,8 @@ class ReadBundleAdjustCameras:
         ----------
         map_crs : int or None, optional
             EPSG code (e.g. a UTM zone) for the output geometry. If None, the
-            geometry is returned in geographic coordinates (EPSG:4326). A
-            projected CRS is recommended for the position quiver so the
-            east/north shift components align with the map axes.
+            geometry is returned in geographic coordinates (EPSG:4326). The
+            east/north/up offsets do not depend on it.
         original_cameras_directory : str or None, optional
             Directory holding the original ``.xml`` cameras, used only for
             DigitalGlobe runs that lack ``.adjusted_state.json``. If None, the
@@ -1038,6 +1094,10 @@ class ReadBundleAdjustCameras:
               otherwise filled from ``t_horizontal`` / ``t_up``.
             - ``offsets_from_asp`` : True if the offsets came from
               ``camera_offsets.txt``, False if derived from ``T``.
+            - ``tri_mean_m``, ``tri_median_m``, ``tri_count`` : per-image mean
+              and median change of the triangulated points (meters) and the
+              point count, from ``triangulation_offsets.txt`` (ASP >= 3.6);
+              NaN when that report is absent.
 
         Raises
         ------
@@ -1052,6 +1112,9 @@ class ReadBundleAdjustCameras:
             )
 
         offsets_by_camera = self._offsets_by_camera_basename()
+        tri_by_camera = self._rows_by_camera_basename(
+            self.get_triangulation_offsets_df(), "triangulation_offsets.txt"
+        )
         xml_index = None  # built lazily, only if a DG (state-less) camera appears
 
         rows, centers_ecef = [], []
@@ -1121,6 +1184,13 @@ class ReadBundleAdjustCameras:
                 row["vertical_offset_m"] = abs(t_up)
                 row["offsets_from_asp"] = False
 
+            tri = None
+            if tri_by_camera is not None:
+                tri = tri_by_camera.get(os.path.basename(camera_path))
+            row["tri_mean_m"] = float(tri.tri_mean_m) if tri is not None else np.nan
+            row["tri_median_m"] = float(tri.tri_median_m) if tri is not None else np.nan
+            row["tri_count"] = float(tri.tri_count) if tri is not None else np.nan
+
             rows.append(row)
             centers_ecef.append(center_ecef)
 
@@ -1160,6 +1230,11 @@ class PlotBundleAdjustCameras(Plotter):
        the body axes and the sense of each rotation (X = along-track,
        Y = across-track, Z = nadir); it is deliberately not scaled -- the
        numbers carry the magnitude.
+    3. Only when ASP wrote ``triangulation_offsets.txt`` (>= 3.6): the per-image
+       median and mean change of the triangulated points (meters), i.e. what
+       the camera change did on the ground. A solver can trade tens of meters
+       of camera translation against millidegrees of rotation with almost no
+       effect on the ground, so this row is the context for the first.
 
     When a run changed nothing (e.g. an identity ``--initial-transform`` used to
     recover the unadjusted cameras), the panels are still drawn with a
@@ -1186,6 +1261,13 @@ class PlotBundleAdjustCameras(Plotter):
         """True when every camera-center offset and rotation angle is zero."""
         cols = self._POSITION_COLS + self._ANGLE_COLS
         return bool((self.gdf[cols].abs().values == 0).all())
+
+    @property
+    def has_triangulation_offsets(self):
+        """True when ``triangulation_offsets.txt`` values are present."""
+        return "tri_median_m" in self.gdf.columns and bool(
+            self.gdf.tri_median_m.notna().any()
+        )
 
     def _annotate_no_change(self, ax):
         """Overlay the "no camera change" note on an all-zero panel."""
@@ -1363,6 +1445,80 @@ class PlotBundleAdjustCameras(Plotter):
             self.save(fig, save_dir, fig_fn)
         return ax
 
+    def plot_triangulation_offset_bars(
+        self,
+        ax=None,
+        save_dir=None,
+        fig_fn=None,
+        index_labels=False,
+        legend_outside=False,
+    ):
+        """
+        Per-camera bars of the triangulated-point change (meters).
+
+        From ASP's ``triangulation_offsets.txt`` (>= 3.6): for each input image,
+        the median and mean distance between its initial and final triangulated
+        points, with the point count printed above each pair.
+
+        Parameters
+        ----------
+        ax : matplotlib.axes.Axes or None, optional
+            Axes to draw on. A new figure is created if None.
+        save_dir, fig_fn : str or None, optional
+            If both are given (and a new figure was created), save the figure.
+        index_labels : bool, optional
+            Label cameras by number only; default False prints ``#n  camera_id``.
+        legend_outside : bool, optional
+            Place the legend to the right of the axes instead of inside.
+
+        Raises
+        ------
+        ValueError
+            If the GeoDataFrame carries no ``triangulation_offsets.txt`` values.
+        """
+        if not self.has_triangulation_offsets:
+            raise ValueError(
+                "\n\nNo triangulation_offsets.txt values in the GeoDataFrame "
+                "(ASP >= 3.6 writes that report).\n\n"
+            )
+        created = ax is None
+        if created:
+            fig, ax = plt.subplots(figsize=(8, 5))
+
+        gdf = self.gdf
+        xi = np.arange(len(gdf))
+        ax.bar(xi - 0.2, gdf.tri_median_m, 0.4, label="Median", color="#B8651F")
+        ax.bar(xi + 0.2, gdf.tri_mean_m, 0.4, label="Mean", color="#F2C29B")
+        top = float(np.nanmax(gdf[["tri_median_m", "tri_mean_m"]].values))
+        for x, count, m1, m2 in zip(
+            xi, gdf.tri_count, gdf.tri_median_m, gdf.tri_mean_m
+        ):
+            if np.isnan(count):
+                continue
+            ax.text(
+                x,
+                np.nanmax([m1, m2]) + 0.03 * top,
+                f"n={int(count):,}",
+                ha="center",
+                va="bottom",
+                fontsize=6.5,
+                color="#555555",
+            )
+        self._camera_axis(ax, index_labels)
+        ax.set_ylabel("Triangulated-point change (m)", fontsize=9)
+        ax.set_title(
+            "Per-camera triangulated-point change\n"
+            "(from triangulation_offsets.txt: initial vs. final points, per image)",
+            fontsize=11,
+        )
+        if top > 0:
+            ax.set_ylim(0, 1.25 * top)
+        self._legend(ax, legend_outside)
+
+        if created:
+            self.save(fig, save_dir, fig_fn)
+        return ax
+
     @staticmethod
     def _draw_satellite(ax):
         """
@@ -1490,7 +1646,9 @@ class PlotBundleAdjustCameras(Plotter):
 
     def summary_plot(self, save_dir=None, fig_fn=None):
         """
-        Combined summary: center-displacement bars over orientation bars.
+        Combined summary: center-displacement bars, orientation bars, and --
+        when ``triangulation_offsets.txt`` was written -- triangulated-point
+        change bars.
 
         The rows share the camera order; only the bottom row prints the camera
         ids. The orientation legend cartoon sits beside its row.
@@ -1501,20 +1659,26 @@ class PlotBundleAdjustCameras(Plotter):
             If both are given, save the figure.
         """
         n = len(self.gdf)
-        fig = plt.figure(figsize=(max(11, 0.75 * n + 3.5), 7.6))
+        with_tri = self.has_triangulation_offsets
+        nrows = 3 if with_tri else 2
+        fig = plt.figure(figsize=(max(11, 0.75 * n + 3.5), 3.8 * nrows))
         gs = fig.add_gridspec(
-            2,
+            nrows,
             2,
             width_ratios=[5, 1.1],
-            height_ratios=[1, 1.15],
+            height_ratios=[1, 1.15] + ([1] if with_tri else []),
             hspace=0.35,
             wspace=0.05,
         )
         self.plot_center_offset_bars(
             ax=fig.add_subplot(gs[0, 0]), index_labels=True, legend_outside=True
         )
-        self.plot_orientation_bars(ax=fig.add_subplot(gs[1, 0]))
+        self.plot_orientation_bars(ax=fig.add_subplot(gs[1, 0]), index_labels=with_tri)
         self._draw_satellite(fig.add_subplot(gs[1, 1]))
+        if with_tri:
+            self.plot_triangulation_offset_bars(
+                ax=fig.add_subplot(gs[2, 0]), legend_outside=True
+            )
         if self.title:
             fig.suptitle(self.title, size=13)
         fig.tight_layout(rect=[0, 0, 1, 0.96 if self.title else 1.0])

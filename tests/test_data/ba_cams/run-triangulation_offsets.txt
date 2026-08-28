@@ -1,0 +1,4 @@
+# Per-image offsets between initial and final triangulated points (meters)
+# Image mean median count
+1040010074793300.tif 0.83120415 0.61077902 1532
+1040010075633C00.tif 0.79455388 0.58890014 1532

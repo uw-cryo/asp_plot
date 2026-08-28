@@ -64,7 +64,9 @@ def main(
     ``*camera_offsets.txt``) and produces a summary: per-camera bars of the
     horizontal and vertical camera-center change, above per-camera bars of the
     roll/pitch/yaw orientation change with the degrees printed on each bar and
-    one satellite cartoon as the legend for the body axes.
+    one satellite cartoon as the legend for the body axes, and -- when the run
+    wrote ``triangulation_offsets.txt`` (ASP >= 3.6) -- a third row of the
+    per-image triangulated-point change, the ground effect of the camera change.
 
     Unlike ``csm_camera_plot``, this does not require the pre-adjustment
     original camera files -- it works directly on the bundle_adjust output.
