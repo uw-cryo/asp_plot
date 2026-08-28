@@ -21,6 +21,7 @@ build:
     - stereo_geom = asp_plot.cli.stereo_geom:main
     - request_planetary_altimetry = asp_plot.cli.request_planetary_altimetry:main
     - gallery = asp_plot.cli.gallery:main
+    - dem_benchmark = asp_plot.cli.dem_benchmark:main
 
 requirements:
   host:
@@ -57,6 +58,7 @@ test:
     - stereo_geom --help
     - request_planetary_altimetry --help
     - gallery --help
+    - dem_benchmark --help
 
 about:
   home: https://github.com/uw-cryo/asp_plot
