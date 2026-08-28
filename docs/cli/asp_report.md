@@ -2,6 +2,17 @@
 
 The main CLI tool generates a comprehensive PDF report of ASP processing results.
 
+## What the report contains
+
+Each report opens with a title page of DEM metadata and a processing-parameters page that reconstructs the ASP commands from the logs, then one figure per page in processing order: input scenes, stereo geometry, match points, bundle adjustment residuals and camera changes (when `--bundle-adjust-prefix` is given), disparity, DEM results (DEM, triangulation intersection error, difference to the reference DEM), a hillshade with zoomed details, and the altimetry comparison — ICESat-2 on Earth, LOLA on the Moon, MOLA on Mars — before and after the optional `pc_align` step. Seven complete reports are on the [Example Reports](../examples/reports.md) page.
+
+```{figure} ../figures/example_detailed_hillshade.jpg
+:alt: DEM hillshade with three zoomed detail subsets
+:width: 100%
+
+The "Detailed Hillshade" page of the [WorldView Atlanta multi-view report](../examples/reports.md): the DEM hillshade with three subsets picked automatically from low, medium, and high triangulation-intersection-error areas, so the reader sees the best and worst of the surface without choosing where to look.
+```
+
 ## Files needed from ASP processing
 
 During the `stereo` or `parallel_stereo` steps, add this flag to retain the files needed for plotting:
