@@ -5,7 +5,9 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] - 3.1.0
+## [3.1.0] - 2026-08-27
+
+A compatibility release for two things ASP 3.7.0 changed in the files the report reads. `pc_align` now writes Mean/StdDev/RMSE/Median/NMAD error statistics to its log, and the alignment page shows Median, NMAD and RMSE before and after alignment in place of the 16/50/84 percentiles ([#146](https://github.com/uw-cryo/asp_plot/issues/146)); older logs keep the percentiles, with no version sniffing. And a `parallel_stereo`/`bundle_adjust` run made with `--matches-as-txt` writes plain-text match files instead of binary `.match`, which previously left the match-point page with a "missing match file" placeholder — both formats are now discovered and parsed into the same DataFrame ([#147](https://github.com/uw-cryo/asp_plot/issues/147)). No new dependencies and no entry-point changes.
 
 ### Added
 - **`pc_align_report()` parses the error statistics ASP 3.7.0 added to the `pc_align` log** (issue [#146](https://github.com/uw-cryo/asp_plot/issues/146)): the `Input stats (meters):` / `Output stats (meters):` lines become `mean_beg/end`, `stddev_beg/end`, `rmse_beg/end`, `median_beg/end`, `nmad_beg/end` alongside the existing percentiles and translation, and flow into `Altimetry.alignment_report_df`. The alignment report page (ICESat-2 and LOLA/MOLA) now shows `Median`, `NMAD` and `RMSE` before/after alignment in place of the 16/50/84 percentiles, with the column description updated; `mean`/`stddev` stay in the dataframe only. Logs from ASP < 3.7.0 parse exactly as before, without the new keys, and the page keeps showing the percentiles for them — no version sniffing, the absence of the new stats is the signal. The seven committed example reports in `reports/` are regenerated with the new page.
