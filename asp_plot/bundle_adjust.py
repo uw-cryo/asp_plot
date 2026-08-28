@@ -1,6 +1,7 @@
 import glob
 import logging
 import os
+import warnings
 
 import geopandas as gpd
 import matplotlib.pyplot as plt
@@ -791,10 +792,33 @@ class ReadBundleAdjustCameras:
     >>> gdf = reader.get_camera_optimization_gdf(map_crs=32616)
     """
 
-    def __init__(self, directory, bundle_adjust_directory):
+    def __init__(self, directory, bundle_adjust_directory, stem=None):
+        """
+        Parameters
+        ----------
+        directory : str
+            Root directory of ASP processing.
+        bundle_adjust_directory : str
+            Subdirectory containing the bundle_adjust outputs.
+        stem : str, optional
+            Run stem of an ASP output prefix (the ``run`` in ``ba/run``). When
+            given, the ``.adjust`` files and per-run reports are narrowed to
+            that run's outputs (``run-*.adjust``, ``run-camera_offsets.txt``,
+            ...); otherwise any run in the directory matches.
+        """
         self.directory = os.path.expanduser(directory)
         self.bundle_adjust_directory = bundle_adjust_directory
         self.full_directory = os.path.join(self.directory, bundle_adjust_directory)
+        self.stem = stem
+
+    def _report_path(self, name):
+        """Glob for one of ASP's per-run report files, narrowed to the stem."""
+        prefix = f"{self.stem}-" if self.stem else "*"
+        return os.path.join(self.full_directory, f"{prefix}{name}")
+
+    def _adjust_pattern(self):
+        """Glob for the ``.adjust`` files, narrowed to the stem."""
+        return f"{self.stem}-*.adjust" if self.stem else "*.adjust"
 
     def get_camera_offsets_df(self):
         """
@@ -810,7 +834,7 @@ class ReadBundleAdjustCameras:
         """
         # camera_offsets.txt is optional (only written by recent ASP versions),
         # so look it up directly to avoid glob_file's "missing" warning.
-        matches = glob.glob(os.path.join(self.full_directory, "*camera_offsets.txt"))
+        matches = glob.glob(self._report_path("camera_offsets.txt"))
         if not matches:
             return None
         return pd.read_csv(
@@ -840,9 +864,7 @@ class ReadBundleAdjustCameras:
             (one row per input image, in ASP's order), or None when the file is
             absent (older ASP versions).
         """
-        matches = glob.glob(
-            os.path.join(self.full_directory, "*triangulation_offsets.txt")
-        )
+        matches = glob.glob(self._report_path("triangulation_offsets.txt"))
         if not matches:
             return None
         return pd.read_csv(
@@ -891,7 +913,7 @@ class ReadBundleAdjustCameras:
             ``df`` is None, ``camera_list.txt`` is absent, or their lengths
             disagree.
         """
-        list_matches = glob.glob(os.path.join(self.full_directory, "*camera_list.txt"))
+        list_matches = glob.glob(self._report_path("camera_list.txt"))
         if df is None or not list_matches:
             return None
         cameras = [
@@ -1104,7 +1126,9 @@ class ReadBundleAdjustCameras:
         ValueError
             If no ``.adjust`` files are found in the directory.
         """
-        adjust_paths = glob_file(self.full_directory, "*.adjust", all_files=True)
+        adjust_paths = glob_file(
+            self.full_directory, self._adjust_pattern(), all_files=True
+        )
         if adjust_paths is None:
             raise ValueError(
                 "\n\nNo *.adjust files found. This reader needs the per-camera "
@@ -1681,6 +1705,12 @@ class PlotBundleAdjustCameras(Plotter):
             )
         if self.title:
             fig.suptitle(self.title, size=13)
-        fig.tight_layout(rect=[0, 0, 1, 0.96 if self.title else 1.0])
+        with warnings.catch_warnings():
+            # The equal-aspect legend axes trip matplotlib's tight_layout
+            # compatibility check; the layout is fine, silence the noise.
+            warnings.filterwarnings(
+                "ignore", message=".*not compatible with tight_layout"
+            )
+            fig.tight_layout(rect=[0, 0, 1, 0.96 if self.title else 1.0])
         self.save(fig, save_dir, fig_fn, tight_layout=False)
         return fig

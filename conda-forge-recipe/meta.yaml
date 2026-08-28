@@ -17,6 +17,7 @@ build:
   entry_points:
     - asp_report = asp_plot.cli.asp_report:main
     - csm_camera_plot = asp_plot.cli.csm_camera_plot:main
+    - bundle_adjust_cameras = asp_plot.cli.bundle_adjust_cameras:main
     - stereo_geom = asp_plot.cli.stereo_geom:main
     - request_planetary_altimetry = asp_plot.cli.request_planetary_altimetry:main
     - gallery = asp_plot.cli.gallery:main
@@ -52,6 +53,7 @@ test:
   commands:
     - asp_report --help
     - csm_camera_plot --help
+    - bundle_adjust_cameras --help
     - stereo_geom --help
     - request_planetary_altimetry --help
     - gallery --help

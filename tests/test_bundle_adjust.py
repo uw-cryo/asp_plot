@@ -1,3 +1,5 @@
+import os
+
 import geopandas as gpd
 import matplotlib
 import numpy as np
@@ -295,3 +297,39 @@ class TestBundleAdjustCameras:
         assert len(without.summary_plot().axes) == 3
         with pytest.raises(ValueError, match="triangulation_offsets"):
             without.plot_triangulation_offset_bars()
+
+    def test_stem_narrows_adjust_and_reports(self, tmp_path):
+        """A run stem (the ``run`` in ``ba/run``) selects that run's files only."""
+        import shutil
+        from glob import glob
+
+        ba = tmp_path / "ba"
+        ba.mkdir()
+        src = "tests/test_data/ba_cams"
+        for f in glob(f"{src}/*"):
+            if os.path.isfile(f):
+                shutil.copy(f, ba)
+        # The fixture's .adjust files carry no stem; add a stemmed copy of one.
+        first = sorted(glob(f"{ba}/*.adjust"))[0]
+        shutil.copy(first, ba / ("other-" + os.path.basename(first)))
+
+        assert (
+            len(
+                ReadBundleAdjustCameras(
+                    str(tmp_path), "ba"
+                ).get_camera_optimization_gdf()
+            )
+            == 3
+        )
+        narrowed = ReadBundleAdjustCameras(str(tmp_path), "ba", stem="other")
+        assert narrowed._adjust_pattern() == "other-*.adjust"
+        assert narrowed._report_path("camera_offsets.txt").endswith(
+            "other-camera_offsets.txt"
+        )
+        assert (
+            narrowed.get_camera_offsets_df() is None
+        )  # run-camera_offsets.txt is another run's
+        with pytest.raises(ValueError):
+            ReadBundleAdjustCameras(
+                str(tmp_path), "ba", stem="nomatch"
+            ).get_camera_optimization_gdf()
