@@ -2,6 +2,13 @@
 
 The `csm_camera_plot` command-line tool creates diagnostic plots after running tools like `bundle_adjust` and `jitter_solve`. The inputs must be [CSM camera files](https://stereopipeline.readthedocs.io/en/stable/examples/csm.html). Currently, this tool only supports CSM linescan cameras, such as those from WorldView satellites.
 
+```{figure} ../figures/example_csm_camera_plot.png
+:alt: csm_camera_summary_plot for two WorldView-3 cameras before and after jitter_solve over Salar de Uyuni
+:width: 100%
+
+Two WorldView-3 cameras before and after `jitter_solve` over Salar de Uyuni ([notebook](../examples/notebooks/worldview_uyuni_jitter_plots.ipynb)). For each camera: the position change along the image lines (easting, northing, altitude, in meters) and the roll / pitch / yaw change with the original angle overlaid, plus a map of where along the trajectory the change is largest. The along-track oscillation is the jitter being removed; a `bundle_adjust` run shows a flat offset instead (compare the [UCSD notebook](../examples/notebooks/worldview_spacenet_ucsd_stereo.ipynb)). To see only *how far* each camera moved, from the `bundle_adjust` folder alone, use [`bundle_adjust_cameras`](bundle_adjust_cameras.md).
+```
+
 ## Basic usage
 
 ```bash

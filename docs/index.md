@@ -9,6 +9,13 @@ A Python package for visualizing output from the [NASA Ames Stereo Pipeline (ASP
 
 `asp_plot` generates diagnostic plots and comprehensive PDF reports for ASP stereo processing results, similar to reports from commercial SfM software like Agisoft Metashape.
 
+```{figure} figures/example_dem_results.jpg
+:alt: Stereo DEM, triangulation intersection error, and difference to the reference DEM for a WorldView-2 multi-view run over Atlanta
+:width: 100%
+
+One page of an `asp_report` PDF: the stereo DEM, its triangulation intersection error, and the difference to the reference DEM, for a three-scene WorldView-2 multi-view run over Atlanta. That report, and six more spanning ASTER, the Moon, and Mars, are on the [Example Reports](examples/reports.md) page.
+```
+
 ## Features
 
 ::::{grid} 2

@@ -2,6 +2,13 @@
 
 Submit a LOLA (Moon) or MOLA (Mars) altimetry data request for a planetary DEM. This tool auto-detects the planetary body from the DEM's CRS and submits an asynchronous query to the [ODE Granular Data System (GDS)](https://oderest.rsl.wustl.edu/) REST API.
 
+```{figure} ../figures/example_planetary_altimetry.jpg
+:alt: LOLA altimetry points colored by their difference to an LRO NAC stereo DEM
+:width: 70%
+
+What the request feeds: the "LOLA Altimetry Map" page of the [LRO NAC example report](../examples/reports.md) — LOLA shots over the DEM hillshade, colored by LOLA minus DEM, with the point count, median, and NMAD — followed by a histogram, and both again after `pc_align`. The [Mars MOC reports](../examples/reports.md) show the MOLA equivalent, with and without mapprojection.
+```
+
 ## Workflow
 
 Planetary altimetry data requires an asynchronous request/download workflow because the ODE GDS API processes queries in a queue:

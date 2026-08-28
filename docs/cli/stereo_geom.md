@@ -4,6 +4,13 @@ The `stereo_geom` command-line tool creates visualizations of stereo geometry fo
 
 The sensor is detected from the files themselves, so the same command works across WorldView (and other DigitalGlobe-heritage) XML, the Airbus DIMAP families, ASTER `gen_aster` XML, and RPC-only products.
 
+```{figure} ../figures/example_stereo_geom.png
+:alt: Skyplot and map view of the stereo geometry of a WorldView-3 pair over UCSD
+:width: 90%
+
+The two-scene output for the UCSD WorldView-3 pair ([notebook](../examples/notebooks/worldview_spacenet_ucsd_stereo.ipynb)): a skyplot of the two satellite positions (azimuth and off-nadir angle) with the convergence angle, base-to-height ratio, bisector elevation angle, asymmetry angle, and intersection area in the title, and a map of the two ground tracks over the intersection area.
+```
+
 ## Basic usage
 
 Pass the camera metadata files directly. `INPUTS` may be any mix of files, directories, and glob patterns, and need not follow a fixed directory structure:
@@ -56,6 +63,13 @@ So four scenes produce one overview plus six pair figures. Pairs whose footprint
 do not overlap are still plotted (their intersection-dependent stats show `N/A`).
 With exactly two scenes the output is a single `<name>_stereo_geom.png`, as
 before.
+
+```{figure} ../figures/example_stereo_geom_overview.png
+:alt: Overview skyplot and map of a three-scene same-pass WorldView-2 collect over Atlanta
+:width: 80%
+
+The overview figure for the three-scene Atlanta same-pass collect ([notebook](../examples/notebooks/worldview_spacenet_atlanta_mvs.ipynb)): every scene color-coded on one skyplot and one map. The pairwise figures follow, one per combination, each in the two-scene format above.
+```
 
 ## Using `--directory` instead
 
