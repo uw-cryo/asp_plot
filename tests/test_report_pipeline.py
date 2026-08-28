@@ -186,6 +186,46 @@ class TestRegistry:
 
 
 # ---------------------------------------------------------------------------
+# Bundle adjust camera-change figure (issues #95, #43)
+# ---------------------------------------------------------------------------
+
+
+class TestBundleAdjustCamerasSection:
+    """The camera-change figure is self-contained on the BA folder and is
+    appended after the residual pages; a folder without .adjust files is
+    skipped, not fatal."""
+
+    def test_built_from_adjust_files(self, tmp_path):
+        ctx = _ctx(
+            config=ReportConfig(
+                directory="tests/test_data", bundle_adjust_prefix="ba_cams"
+            ),
+            ba_directory="ba_cams",
+            plots_directory=str(tmp_path),
+            map_crs="EPSG:32619",
+        )
+        sections = rp._build_bundle_adjust_cameras(ctx)
+        assert len(sections) == 1
+        assert sections[0].title == "Camera Changes from Bundle Adjustment"
+        assert sections[0].caption == rp.captions.BUNDLE_ADJUST_CAMERAS
+        assert os.path.exists(sections[0].image_path)
+
+    def test_skipped_without_adjust_files(self, tmp_path, capsys):
+        ctx = _ctx(
+            config=ReportConfig(directory="tests/test_data", bundle_adjust_prefix="ba"),
+            ba_directory="ba",
+            plots_directory=str(tmp_path),
+        )
+        assert rp._build_bundle_adjust_cameras(ctx) == []
+        assert "Skipping bundle adjustment camera changes" in capsys.readouterr().out
+
+    def test_epsg_code(self):
+        assert rp._epsg_code("EPSG:32616") == 32616
+        assert rp._epsg_code(None) is None
+        assert rp._epsg_code("+proj=stere +lat_0=90") is None
+
+
+# ---------------------------------------------------------------------------
 # Stereo geometry section fan-out (N-scene runs save several figures)
 # ---------------------------------------------------------------------------
 

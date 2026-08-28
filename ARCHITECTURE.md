@@ -115,13 +115,16 @@ The package is organized by functionality, with each module focused on a specifi
 - `plot_detailed_hillshade()` auto-selects three subset clips from intersection-error variance (low/medium/high) via `_auto_hillshade_clip_offsets()`. Accepts `clip_windows` (DEM-CRS bboxes) + `clip_windows_crs` to pin/replay clips for run-to-run comparison (issue #121); records the boxes it drew on `self.detailed_hillshade_clips`. Out-of-bounds pinned boxes warn and fall back to auto.
 - Key methods: `plot_dem_results()`, `plot_disparity()`, `plot_match_points()`, `plot_detailed_hillshade()`
 
-**`bundle_adjust.py`** - Two main classes
+**`bundle_adjust.py`** - Four main classes
 - `ReadBundleAdjustFiles`: Reads bundle adjustment CSV outputs (residual pointmaps)
   - `get_initial_final_residuals_gdfs()`: Returns initial and final residual GeoDataFrames
   - `get_initial_final_geodiff_gdfs()`: Returns geodiff comparison GeoDataFrames (requires `--mapproj-dem` flag in bundle_adjust)
   - `get_mapproj_residuals_gdf()`: Returns map-projected residual GeoDataFrame
 - `PlotBundleAdjustFiles` (inherits from `Plotter`): Visualizes bundle adjustment residuals before/after optimization
 - Plots include map views of residuals, histograms, and geodiff comparisons
+- **Camera before/after position and orientation (issues #95, #43)** — shows where each camera *moved* in the solve, not just the ground residuals. Unlike `csm_camera.py` (which needs the user to pass original + optimized cameras), this is **self-contained on a bundle_adjust output folder**: the pre-BA cameras are not co-located there, and ASP writes no "unadjusted" state (see the AGENTS.md gotcha).
+  - `ReadBundleAdjustCameras`: discovery is driven by the `*.adjust` files (rigid ECEF translation `T` + rotation quaternion; matched as both `<base>.adjust` and `<base>.adjusted_state.adjust`, the ASTER jitter naming). Per ASP's `.adjust` convention (a world point projects the same in the original camera as `R*(P−C)+C+T` in the adjusted one, `C` = camera center for pixel (0,0)), `T` is the exact bulk camera-center shift at the anchor pixel; the rotation only adds a lever-arm shift for other lines. Each camera's absolute center is anchored at the **center image line** (sub-satellite point at mid-acquisition, more meaningful than the trajectory mean when the ephemeris is padded beyond the image; falls back to the mean if the timing can't be computed): from `*.adjusted_state.json` (CSM runs; `getTimeAtLine` + ephemeris interpolation) or, for DigitalGlobe runs that write only `.adjust` deltas, from the original camera `.xml` ephemeris (`<EPHEMLIST>` interpolated at `FIRSTLINETIME + (NUMROWS/2)/AVGLINERATE`), auto-found in the BA dir and its parent or via `original_cameras_directory`. The two paths agree to <1 m on the same scenes. `get_camera_optimization_gdf(map_crs, original_cameras_directory)` returns one row per camera: the translation in local ENU (`t_east/t_north/t_up`, `t_horizontal`), the adjustment `adj_roll/adj_pitch/adj_yaw`, and `horizontal_offset_m/vertical_offset_m` — from `camera_offsets.txt` when present (authoritative: folds in the rotation lever-arm; associated to cameras positionally by zipping with `camera_list.txt`, both written per input image in the same order), else derived from `T`; `offsets_from_asp` flags which. Cameras whose center cannot be located, or whose `.adjust`/state file fails to parse, are warned and skipped. `triangulation_offsets.txt` (ASP >= 3.6; per-image mean/median/count of the initial-vs-final triangulated-point distance) is read the same positional way into `tri_mean_m/tri_median_m/tri_count`, NaN when absent — both reports go through `_rows_by_camera_basename()`.
+  - `PlotBundleAdjustCameras` (inherits from `Plotter`): per-camera bar rows sharing the camera order — `plot_center_offset_bars()` (horizontal and vertical center change, m), `plot_orientation_bars()` (signed roll/pitch/yaw in degrees with the value printed on every bar; `_draw_satellite()` draws one satellite cartoon beside the row as the legend for the body axes and rotation sense — deliberately not scaled, the numbers carry the magnitude), and `plot_triangulation_offset_bars()` (median/mean triangulated-point change with the point count), which `summary_plot()` adds as a third row only when `has_triangulation_offsets`. An all-zero run (identity `--initial-transform`) still draws the panels, with a "no camera change (identity adjustment)" note overlaid; signed zeros print as `+0` (`_fmt_deg`). Earlier map-view/orientation quivers and the per-camera cartoon grid were dropped: sub-meter shifts can't be drawn to scale on a ~400 km map, and fixed-size arcs looked identical at 1e-7° and 0.016°.
 
 **CSM camera model comparison** — split into three layers by issue #131 (was one 1541-LOC `csm_camera.py`):
 
@@ -245,6 +248,12 @@ All CLI tools are in `asp_plot/cli/` and use Click for argument parsing:
 - Wrapper for `csm_camera.py` functions
 - Compares original and optimized CSM camera models
 - Visualizes position/angle differences and camera footprints
+
+**`bundle_adjust_cameras.py`** - Self-contained camera before/after tool (`bundle_adjust_cameras` command)
+- Wrapper for `ReadBundleAdjustCameras` + `PlotBundleAdjustCameras` in `bundle_adjust.py`
+- `--directory` is the bundle_adjust output folder itself (split internally into the reader's root + subdirectory); no original cameras needed, except `--original-cameras-directory` for DigitalGlobe runs whose XMLs are in neither the BA folder nor its parent
+- `--map-crs`, `--title`, `--output-directory` (defaults to the BA folder, so a bare call always writes a figure) / `--output-filename`
+- Renders `summary_plot()`: center-offset bars, orientation bars (with the legend cartoon), and the triangulated-point row when the run wrote `triangulation_offsets.txt`
 
 **`request_planetary_altimetry.py`** - Planetary altimetry data request tool (`request_planetary_altimetry` command)
 - Submits async LOLA (Moon) or MOLA (Mars) queries to the ODE GDS REST API

@@ -1,0 +1,2 @@
+ba_cams/1040010074793300.adjusted_state.json
+ba_cams/1040010075633C00.adjusted_state.json
