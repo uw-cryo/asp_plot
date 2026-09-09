@@ -17,8 +17,11 @@
 # run_pairwise.sh (asp_mgm, subpixel-mode 9, affineepipolar, the shared 5-scene
 # ba/run prefix, point2dem 1.9 m EPSG:32616 with --errorimage).
 #
-# Cost on an 8-thread laptop: pair ~1 h, triple ~2 h, quad ~2.5 h -> about 11-12 h,
-# ~30 GB. wv_correct is ~40 s per scene.
+# Cost on an 8-thread laptop, measured 2026-08-31: pair 52-74 min (62 average),
+# triple 1h27m, quad 2h18m -> 11h03m in all; wv_correct ~40 s per scene. Disk is
+# the real cost: ~100 GB (7-8 GB per pair, 12 GB triple, 18 GB quad), nearly all
+# of it the F/RD/R.tif correlation intermediates that a cleanup can drop once
+# the DEMs are scored.
 #
 # Scenes (2009-12-22, SpaceNet AOI_6_Atlanta; along-track order 10, 8, 13, 16, 21):
 #   nadir8   10300100023BC100_P001
