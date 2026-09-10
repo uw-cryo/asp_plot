@@ -14,6 +14,13 @@ Examples of modular usage of `asp_plot`, organized by sensor type. Each notebook
 Three-scene same-pass multi-view stereo of publicly available SpaceNet Atlanta WorldView-2 data, compared against the three pairwise runs merged with `dem_mosaic` — and, with `dem_benchmark`, against each single pair and a five-scene run on one ICESat-2 sample.
 :::
 
+:::{grid-item-card} WorldView — SpaceNet Atlanta (Scene-Combination Benchmark)
+:link: notebooks/worldview_spacenet_atlanta_benchmark
+:link-type: doc
+
+Given five same-pass scenes, which combination and which flow give the best DEM? All ten pairs (5–32° convergence), three `dem_mosaic` flows and four multi-view runs (3, 4 and 5 scenes) scored with `dem_benchmark` against one ICESat-2 sample.
+:::
+
 :::{grid-item-card} WorldView — SpaceNet Atlanta (Scene Selection)
 :link: notebooks/worldview_spacenet_atlanta_stereo_scene_selection
 :link-type: doc
@@ -105,6 +112,7 @@ Mars Reconnaissance Orbiter High Resolution Imaging Science Experiment processin
 :hidden:
 
 notebooks/worldview_spacenet_atlanta_mvs
+notebooks/worldview_spacenet_atlanta_benchmark
 notebooks/worldview_spacenet_atlanta_stereo_scene_selection
 notebooks/worldview_spacenet_ucsd_stereo
 notebooks/worldview_spacenet_ucsd_stereo_scene_selection
