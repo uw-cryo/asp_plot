@@ -11,6 +11,12 @@
 #   2. dem_mosaic of all ten pairs, and of the six pairs with convergence > 15 deg
 #   3. a nested quad {13,10,16,21}          -> the 2->3->4->5 scene curve
 #      (pair 13-10 < MVS3 {13,10,16} < quad < MVS5) and a wide-spread triple {13,8,21}
+#   4. the five scenes again with nadir10 as the reference. ASP's multi-view
+#      matches every scene to the reference only, so the run is a "star" of
+#      reference-to-scene pairs: nadir13's star is 16.3/21.8/5.1/10.5 deg (one
+#      pair above 20), nadir10's is 5.5/21.8/26.9/32.3 deg (three above 20).
+#      Same scenes, same cameras, only the star changes -- the direct test of
+#      whether the reference geometry is what caps the five-scene result.
 #
 # Every step is skipped when its product already exists, so the script can be
 # re-run after an interruption. Settings are identical to run_mvs.sh /
@@ -131,5 +137,8 @@ mosaic pairwise_wide6_mosaic $(for d in $WIDE6; do echo "$d/run-DEM.tif"; done)
 # 3. Scene count: the nested quad, and a triple that spans the pass (16.3 / 10.5 / 26.8 deg).
 run_stereo stereo_mvs4      "$N13" "$N10" "$N16" "$N21"
 run_stereo stereo_mvs3_wide "$N13" "$N8"  "$N21"
+
+# 4. Five scenes referenced on nadir10 (widest star: 5.5 / 21.8 / 26.9 / 32.3 deg).
+run_stereo stereo_mvs5_ref10 "$N10" "$N13" "$N8" "$N16" "$N21"
 
 log "ALL DONE"
