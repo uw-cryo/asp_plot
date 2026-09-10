@@ -17,6 +17,20 @@
 #      pair above 20), nadir10's is 5.5/21.8/26.9/32.3 deg (three above 20).
 #      Same scenes, same cameras, only the star changes -- the direct test of
 #      whether the reference geometry is what caps the five-scene result.
+#   5. two more blends of all ten pairs, to ask whether a smarter merge can
+#      replace pair selection: dem_mosaic --median, and the weighted average
+#      with each pair weighted by its convergence angle.
+#   6. ASP's own recipe for the pairwise flow (docs, "Multiview reconstruction"
+#      and dem_mosaic "External weights"): re-triangulate every pair with
+#      --propagate-errors (Maxar ephemeris/attitude covariances from the XML),
+#      grid the VerticalStdDev with point2dem, and blend all ten weighted by
+#      1/VerticalStdDev. The re-triangulation reuses each pair's merged run-F.tif
+#      through stereo_tri directly (~16 min per pair) -- not parallel_stereo
+#      --prev-run-prefix, which wants the per-tile F.tif files that the default
+#      --keep-only all_combined deletes once a run finishes ("No valid F.tif
+#      files found"). Pairs whose intermediates are gone are re-run in full.
+#      Error propagation stores points at higher precision, so the
+#      re-triangulated DEMs differ from the originals only marginally.
 #
 # Every step is skipped when its product already exists, so the script can be
 # re-run after an interruption. Settings are identical to run_mvs.sh /
@@ -63,6 +77,13 @@ crop_win () {
         "$N8")  echo "5461 9789 13354 12980" ;;
         "$N16") echo "6083 8756 12879 11461" ;;
         "$N21") echo "6467 8177 12495 10687" ;;
+        *) echo "unknown scene $1" >&2; exit 1 ;;
+    esac
+}
+
+cid_of () {
+    case "$1" in
+        8) echo "$N8" ;; 10) echo "$N10" ;; 13) echo "$N13" ;; 16) echo "$N16" ;; 21) echo "$N21" ;;
         *) echo "unknown scene $1" >&2; exit 1 ;;
     esac
 }
@@ -140,5 +161,80 @@ run_stereo stereo_mvs3_wide "$N13" "$N8"  "$N21"
 
 # 4. Five scenes referenced on nadir10 (widest star: 5.5 / 21.8 / 26.9 / 32.3 deg).
 run_stereo stereo_mvs5_ref10 "$N10" "$N13" "$N8" "$N16" "$N21"
+
+# 5. Smarter blends of all ten pairs: median, and convergence-angle weights.
+ALL10_DEMS=$(for d in $ALL10; do echo "$d/run-DEM.tif"; done)
+if [ ! -f pairwise10_median_mosaic-DEM.tif ]; then
+    log "dem_mosaic --median of all ten pairs"
+    # shellcheck disable=SC2086
+    dem_mosaic --median $ALL10_DEMS -o pairwise10_median_mosaic
+    mv pairwise10_median_mosaic-tile-0-median.tif pairwise10_median_mosaic-DEM.tif
+fi
+if [ ! -f pairwise10_convw_mosaic-DEM.tif ]; then
+    log "dem_mosaic of all ten pairs weighted by convergence angle"
+    # One constant weight raster per DEM (its BA median convergence angle, deg),
+    # no-data where the DEM is; dem_mosaic multiplies these into its own
+    # boundary weights. --min-weight 1 keeps a weight from ever vanishing.
+    mkdir -p conv_weights
+    : > conv_weights/dem_list.txt; : > conv_weights/weight_list.txt
+    for d in $ALL10; do
+        pair=${d#stereo_pair_}; a=${pair%_*}; b=${pair#*_}
+        conv=$(awk -v a="$(cid_of "$a")_corr.tif" -v b="$(cid_of "$b")_corr.tif" \
+            '($1==a && $2==b) || ($1==b && $2==a) {print $4}' ba/run-convergence_angles.txt)
+        w="conv_weights/${d}_w.tif"
+        [ -f "$w" ] || gdal_calc.py -A "$d/run-DEM.tif" --outfile="$w" --type=Float32 --quiet \
+            --NoDataValue=-3.4028234663852886e+38 --calc="where(A > -1e30, $conv, -3.4028234663852886e+38)"
+        echo "$d/run-DEM.tif" >> conv_weights/dem_list.txt; echo "$w" >> conv_weights/weight_list.txt
+    done
+    dem_mosaic --dem-list conv_weights/dem_list.txt --weight-list conv_weights/weight_list.txt \
+        --min-weight 1 -o pairwise10_convw_mosaic
+    mv pairwise10_convw_mosaic-tile-0.tif pairwise10_convw_mosaic-DEM.tif
+fi
+
+# 6. ASP's documented recipe: propagated vertical uncertainty as the weight.
+for d in $ALL10; do
+    pair=${d#stereo_pair_}; a=${pair%_*}; b=${pair#*_}
+    left=$(cid_of "$a"); right=$(cid_of "$b"); out="${d}_err"
+    if [ ! -f "$out/run-PC.tif" ] && [ ! -f "$d/run-F.tif" ]; then
+        log "full stereo with --propagate-errors: $d -> $out (no run-F.tif to reuse)"
+        # shellcheck disable=SC2046
+        parallel_stereo --propagate-errors \
+            --stereo-algorithm asp_mgm --subpixel-mode 9 --alignment-method affineepipolar \
+            --left-image-crop-win $(crop_win "$left") --bundle-adjust-prefix ba/run \
+            "${left}_corr.tif" "${right}_corr.tif" "${left}.xml" "${right}.xml" "$out/run"
+    fi
+    if [ ! -f "$out/run-PC.tif" ]; then
+        log "re-triangulate $d -> $out with --propagate-errors"
+        # A new prefix made of symlinks to everything the original run produced
+        # before triangulation; stereo_tri only checks that <prefix>-F.tif exists.
+        mkdir -p "$out"
+        for f in "$d"/run-*; do
+            case "$(basename "$f")" in
+                run-PC*|run-DEM*|run-IntersectionErr*|run-log-*|run-dirList.txt) continue ;;
+            esac
+            ln -sf "../$f" "$out/$(basename "$f")"
+        done
+        # shellcheck disable=SC2046
+        stereo_tri --threads "$THREADS" --propagate-errors \
+            --stereo-algorithm asp_mgm --subpixel-mode 9 --alignment-method affineepipolar \
+            --left-image-crop-win $(crop_win "$left") --bundle-adjust-prefix ba/run \
+            "${left}_corr.tif" "${right}_corr.tif" "${left}.xml" "${right}.xml" "$out/run"
+    fi
+    if [ ! -f "$out/run-VerticalStdDev.tif" ]; then
+        point2dem --threads "$THREADS" --tr 1.9 --t_srs EPSG:32616 --errorimage --propagate-errors "$out/run-PC.tif"
+    fi
+done
+if [ ! -f pairwise10_vstd_mosaic-DEM.tif ]; then
+    log "dem_mosaic of the ten re-triangulated pairs weighted by 1/VerticalStdDev"
+    mkdir -p conv_weights
+    : > conv_weights/dem_list_err.txt; : > conv_weights/vstd_list.txt
+    for d in $ALL10; do
+        echo "${d}_err/run-DEM.tif" >> conv_weights/dem_list_err.txt
+        echo "${d}_err/run-VerticalStdDev.tif" >> conv_weights/vstd_list.txt
+    done
+    dem_mosaic --dem-list conv_weights/dem_list_err.txt --weight-list conv_weights/vstd_list.txt \
+        --invert-weights --min-weight 0.1 -o pairwise10_vstd_mosaic
+    mv pairwise10_vstd_mosaic-tile-0.tif pairwise10_vstd_mosaic-DEM.tif
+fi
 
 log "ALL DONE"
