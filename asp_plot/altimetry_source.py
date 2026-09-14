@@ -20,6 +20,11 @@ import numpy as np
 import rioxarray
 import xarray as xr
 
+# A residual this many NMADs from the median is not a DEM error but a blunder in
+# the altimetry (cloud returns, a bad fit); dropped before the n_sigma × std cut
+# so that a large cluster of them cannot inflate the std and defeat it.
+GROSS_OUTLIER_NMAD = 30
+
 
 class AltimetrySource:
     """Base for ICESat-2 and planetary altimetry sources.
@@ -66,13 +71,26 @@ class AltimetrySource:
         return rioxarray.open_rasterio(dem_fn, masked=True).squeeze()
 
     @staticmethod
-    def _std_outlier_mask(dh, n_sigma):
-        """Boolean mask keeping dh values within ``n_sigma`` × std of the mean.
+    def _outlier_mask(dh, n_sigma):
+        """Boolean mask keeping dh values within ``n_sigma`` × std of the mean,
+        after dropping gross outliers.
+
+        Two cuts. First, anything farther than ``GROSS_OUTLIER_NMAD`` (30)
+        normalized median absolute deviations from the median is dropped: no
+        DEM error puts a point 30 NMADs out, but a cloud return does — one
+        ICESat-2 pass of marine-layer cloud 150–200 m above the ground was a
+        fifth of the sample over a coastal site, and a plain mean/std cut,
+        its std inflated to ~70 m by that cluster, removed nothing and left
+        every DEM with an RMSE near 85 m. Then the usual ``n_sigma`` × std cut
+        about the mean of what survives, which is the cut every report has
+        always applied and, absent gross contamination, gives the same result
+        as before (the gross cut touches at most a few dozen points of the
+        ~7000 over Atlanta).
 
         Rows whose ``dh`` is NaN are kept (they carry no difference yet and
         must not be dropped). Returns ``None`` — signalling that no filtering
         should occur — when there are no finite values or the spread is
-        degenerate (zero or non-finite std).
+        degenerate (zero or non-finite scale).
 
         Parameters
         ----------
@@ -84,11 +102,17 @@ class AltimetrySource:
         valid = dh.dropna().values
         if valid.size == 0:
             return None
-        mean_val = np.mean(valid)
-        std_val = np.std(valid)
+        median_val = np.median(valid)
+        nmad_val = 1.4826 * np.median(np.abs(valid - median_val))
+        if nmad_val == 0 or np.isnan(nmad_val):
+            return None
+        gross = (dh - median_val).abs() <= GROSS_OUTLIER_NMAD * nmad_val
+        core = dh[gross].dropna().values
+        mean_val = np.mean(core)
+        std_val = np.std(core)
         if std_val == 0 or np.isnan(std_val):
             return None
-        mask = (dh - mean_val).abs() <= n_sigma * std_val
+        mask = gross & ((dh - mean_val).abs() <= n_sigma * std_val)
         return mask | dh.isna()
 
     def _write_csv_to_directory(self, df, filename):

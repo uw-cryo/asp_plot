@@ -19,7 +19,7 @@ the same fixed altimetry sample, so the numbers are directly comparable:
 Every DEM is scored with the same recipe the report uses for one DEM: the
 cached ATL06-SR parquet is replayed (no SlideRule request), water returns are
 dropped with the ESA WorldCover classes stored in the cache, and dh outliers
-beyond 3σ are removed per DEM. ``pc_align`` products and translated DEM copies
+beyond 3σ are removed per DEM (after a gross-outlier cut at 30 NMAD). ``pc_align`` products and translated DEM copies
 are kept out of the candidates' folders, under
 ``<directory>/dem_benchmark/<label>/``, so scoring never litters a stereo run.
 
