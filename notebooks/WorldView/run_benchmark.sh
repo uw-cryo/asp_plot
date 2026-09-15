@@ -5,7 +5,7 @@
 #
 # Extends the runs behind worldview_spacenet_atlanta_mvs.ipynb (5-scene
 # bundle_adjust, 3- and 5-scene MVS, pairs 13-10 / 13-16 / 10-16 and their
-# dem_mosaic) to the full matrix scored by worldview_spacenet_atlanta_benchmark.ipynb:
+# dem_mosaic) to the full matrix scored by worldview_spacenet_benchmark.ipynb:
 #
 #   1. the seven remaining pairs           -> all ten pairs, convergence 5-32 deg
 #   2. dem_mosaic of all ten pairs, and of the six pairs with convergence > 15 deg

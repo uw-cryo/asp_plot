@@ -3,7 +3,7 @@
 # (uw-cryo/asp_plot#169): five multi-date winter scenes over a 3 x 3 km crop of
 # Mount Soledad, processed as one multi-view run per reference scene and as all
 # ten pairs plus dem_mosaic blends, then scored in
-# worldview_spacenet_atlanta_benchmark.ipynb next to the Atlanta results.
+# worldview_spacenet_benchmark.ipynb next to the Atlanta results.
 #
 #   bash notebooks/WorldView/run_ucsd_benchmark.sh ~/Desktop/asp-plot-examples/ucsd_mvs
 #

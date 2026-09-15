@@ -15,7 +15,7 @@ Three-scene same-pass multi-view stereo of publicly available SpaceNet Atlanta W
 :::
 
 :::{grid-item-card} WorldView — SpaceNet Atlanta (Scene-Combination Benchmark)
-:link: notebooks/worldview_spacenet_atlanta_benchmark
+:link: notebooks/worldview_spacenet_benchmark
 :link-type: doc
 
 Given N scenes, which combination and which flow give the best DEM? Atlanta: all ten pairs of five same-pass scenes (5–32°), six `dem_mosaic` blends and six multi-view runs, 21 DEMs on one ICESat-2 sample. Then the same experiment at UCSD — multi-date WorldView-3 over steep, built-up, tree-covered Mount Soledad — where the convergence rule and the reference-star rule both flip.
@@ -112,7 +112,7 @@ Mars Reconnaissance Orbiter High Resolution Imaging Science Experiment processin
 :hidden:
 
 notebooks/worldview_spacenet_atlanta_mvs
-notebooks/worldview_spacenet_atlanta_benchmark
+notebooks/worldview_spacenet_benchmark
 notebooks/worldview_spacenet_atlanta_stereo_scene_selection
 notebooks/worldview_spacenet_ucsd_stereo
 notebooks/worldview_spacenet_ucsd_stereo_scene_selection
