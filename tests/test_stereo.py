@@ -577,3 +577,18 @@ class TestStereoPlotterMultiview:
         assert plotter.plot_disparity(save_dir=str(tmp_path), fig_fn="d.png") == [
             "d.png"
         ]
+
+
+def test_read_match_file_needs_no_stereo_directory(tmp_path):
+    """A match file reads on its own — a bundle_adjust match file, or a stereo
+    run whose images were cleaned up, has no L.tif for StereoPlotter to open."""
+    import shutil
+
+    from asp_plot.stereo import read_match_file
+
+    fn = tmp_path / "some.match"
+    shutil.copy("tests/test_data/stereo/date_time_left_right-L__R.match", fn)
+    df = read_match_file(str(fn))
+    assert list(df.columns) == ["x1", "y1", "x2", "y2"]
+    assert len(df) > 0
+    assert (tmp_path / "some.csv").exists()  # the binary file's CSV cache

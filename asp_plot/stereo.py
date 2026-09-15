@@ -370,6 +370,54 @@ class StereoFiles:
         )
 
 
+def read_match_file(match_point_fn):
+    """Read an ASP match file into a DataFrame of match points.
+
+    The binary ``.match`` format or the plain-text format ASP writes with
+    ``--matches-as-txt`` (issue #147), detected from the file's bytes rather
+    than its extension. A binary file is converted once to a CSV of the same
+    base name (read directly on later calls); a text file is read directly and
+    never consults that cache, so a stale CSV left by an earlier binary run
+    next to it cannot shadow it.
+
+    Needs nothing but the file: a stereo directory whose images have been
+    cleaned up, or a ``bundle_adjust`` match file with no stereo run at all,
+    reads the same way. :meth:`StereoPlotter.get_match_point_df` delegates
+    here.
+
+    Parameters
+    ----------
+    match_point_fn : str
+        Match file to read.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Columns 'x1', 'y1', 'x2', 'y2': the coordinates of matched points in
+        the first and second image.
+    """
+    if StereoPlotter._is_text_match_file(match_point_fn):
+        return StereoPlotter._read_text_match_file(match_point_fn)
+    out_csv = os.path.splitext(match_point_fn)[0] + ".csv"
+    if not os.path.exists(out_csv):
+        with (
+            open(match_point_fn, "rb") as match_file,
+            open(out_csv, "w") as out,
+        ):
+            size1 = np.frombuffer(match_file.read(8), dtype=np.uint64)[0]
+            size2 = np.frombuffer(match_file.read(8), dtype=np.uint64)[0]
+            out.write("x1 y1 x2 y2\n")
+            im1_ip = [StereoPlotter.read_ip_record(match_file) for i in range(size1)]
+            im2_ip = [StereoPlotter.read_ip_record(match_file) for i in range(size2)]
+            for i in range(len(im1_ip)):
+                out.write(
+                    "{} {} {} {}\n".format(
+                        im1_ip[i][0], im1_ip[i][1], im2_ip[i][0], im2_ip[i][1]
+                    )
+                )
+    return pd.read_csv(out_csv, sep=r"\s+")
+
+
 class StereoPlotter(Plotter):
     """
     Visualize and analyze stereo processing results from ASP.
@@ -531,7 +579,8 @@ class StereoPlotter(Plotter):
     def pairs(self):
         return self.files.pairs
 
-    def read_ip_record(self, match_file):
+    @staticmethod
+    def read_ip_record(match_file):
         """
         Read an interest point record from a binary match file.
 
@@ -554,7 +603,7 @@ class StereoPlotter(Plotter):
 
         Notes
         -----
-        This method is used to parse the binary ASP match file format,
+        This parses the binary ASP match file format,
         which contains interest points from both images in a stereo pair.
         """
         x, y = np.frombuffer(match_file.read(8), dtype=np.float32)
@@ -655,28 +704,7 @@ class StereoPlotter(Plotter):
             match_point_fn = self.match_point_fn
         if not match_point_fn:
             return None
-        if self._is_text_match_file(match_point_fn):
-            return self._read_text_match_file(match_point_fn)
-
-        out_csv = os.path.splitext(match_point_fn)[0] + ".csv"
-        if not os.path.exists(out_csv):
-            with (
-                open(match_point_fn, "rb") as match_file,
-                open(out_csv, "w") as out,
-            ):
-                size1 = np.frombuffer(match_file.read(8), dtype=np.uint64)[0]
-                size2 = np.frombuffer(match_file.read(8), dtype=np.uint64)[0]
-                out.write("x1 y1 x2 y2\n")
-                im1_ip = [self.read_ip_record(match_file) for i in range(size1)]
-                im2_ip = [self.read_ip_record(match_file) for i in range(size2)]
-                for i in range(len(im1_ip)):
-                    out.write(
-                        "{} {} {} {}\n".format(
-                            im1_ip[i][0], im1_ip[i][1], im2_ip[i][0], im2_ip[i][1]
-                        )
-                    )
-
-        return pd.read_csv(out_csv, sep=r"\s+")
+        return read_match_file(match_point_fn)
 
     def get_vwip_df(self, vwip_fn):
         """

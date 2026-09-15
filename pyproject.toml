@@ -46,6 +46,7 @@ bundle_adjust_cameras = "asp_plot.cli.bundle_adjust_cameras:main"
 stereo_geom = "asp_plot.cli.stereo_geom:main"
 request_planetary_altimetry = "asp_plot.cli.request_planetary_altimetry:main"
 gallery = "asp_plot.cli.gallery:main"
+dem_benchmark = "asp_plot.cli.dem_benchmark:main"
 
 [project.optional-dependencies]
 dev = [
