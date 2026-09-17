@@ -51,6 +51,42 @@ sphinx-autobuild docs docs/_build/html --open-browser   # or sphinx-build for a 
 - **Airbus DIMAP quaternions are scalar-first** (`Q0` = scalar); they are reordered to the scalar-last `q1..q4` layout the roll/pitch/yaw code expects in `PleiadesMetadata.getAtt_df()`. Don't "fix" the reorder.
 - **ASP multiview triangulation of mapprojected images needs `ISISROOT`** (observed with ASP 3.8.0-alpha, non-ISIS `-t pleiades` session): the joint triangulation aborts with an uncatchable `Isis::IException` (`$ISISROOT/IsisPreferences was not found`) that surfaces as a generic "Failed to run"/killed job. Workaround: `export ISISROOT=<ASP install root>` (the release bundles `IsisPreferences` there). Pair runs and raw-image multiview runs are unaffected; full write-up in a PR #155 comment.
 
+## Committed Artifacts (reports and notebooks)
+
+`reports/*.pdf` and the executed `notebooks/**/*.ipynb` are **build outputs that
+happen to be committed**, because ReadTheDocs renders them without access to the
+example datasets (`.readthedocs.yaml` copies both into the docs tree). They are
+also, by a wide margin, the largest thing in this repository's history: 846 MB
+of PDF and 756 MB of notebook across all commits, against a ~275 MB checkout.
+Neither format deltas — a regenerated report is a wholly new blob every time, so
+7 report files have become 116 immortal objects — and nothing but a history
+rewrite ever removes one. Treat every commit that touches them as permanent.
+
+- **Only commit a report when its content actually changed.** Regenerating all
+  seven for an unrelated PR adds ~76 MB to history and buys nothing. The
+  `reports/regenerate_reports.sh` helper (gitignored) rebuilds them all; commit
+  just the ones a change actually affects.
+- **Always regenerate with `--reuse-selections`** so figures stay comparable and
+  the run works offline (issue #121). Every report has a matching
+  `*_figure_selections.yml` next to it.
+- **Reports are capped at 200 effective dpi** when embedded
+  (`asp_plot.report.FIGURE_MAX_DPI`, `--figure-max-dpi`). Don't raise the plot
+  dpi to "fix" a figure that looks soft — the ceiling is applied at the size the
+  figure occupies on the page, so extra dpi is stored and never displayed.
+- **Notebook outputs are ~99.9% of notebook bytes** (the largest example is
+  28 MB, of which 21 KB is source). After re-executing a notebook, run
+  `python tools/shrink_notebook_outputs.py notebooks/` before committing, which
+  downsamples the embedded PNGs without re-running anything.
+- **Cloning is expensive; tell people the cheap way.** A full clone is ~1 GB. A
+  blobless sparse clone keeps full `git log`/`blame` and lands at ~86 MB:
+
+  ```bash
+  git clone --filter=blob:none --no-checkout https://github.com/uw-cryo/asp_plot.git
+  cd asp_plot
+  git sparse-checkout set --no-cone '/*' '!/reports' '!/notebooks' '!/original_code'
+  git checkout main
+  ```
+
 ## External Data Sources
 
 - **ICESat-2 ATL06-SR** (Earth): requested through the SlideRule API; results cached as parquet next to the report.
