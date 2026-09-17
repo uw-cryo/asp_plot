@@ -33,6 +33,7 @@ from asp_plot.bundle_adjust import (
 )
 from asp_plot.processing_parameters import ProcessingParameters
 from asp_plot.report import (
+    FIGURE_MAX_DPI,
     AlignmentReportPage,
     ReportMetadata,
     ReportSection,
@@ -79,6 +80,9 @@ class ReportConfig:
     reuse_selections: Optional[str] = None
     report_filename: Optional[str] = None
     report_title: Optional[str] = None
+    # Resolution ceiling for figures embedded in the PDF, applied at the size
+    # each figure is placed on the page. See asp_plot.report.FIGURE_MAX_DPI.
+    figure_max_dpi: Optional[int] = FIGURE_MAX_DPI
     # Reconstructed "asp_report --flag ..." string recorded in the report. The
     # CLI builds this from the Click context; non-CLI callers may leave it None.
     report_command: Optional[str] = None
@@ -1079,6 +1083,7 @@ def run_report(config: ReportConfig) -> str:
         report_title=ctx.report_title,
         report_metadata=ctx.report_metadata,
         report_command=config.report_command,
+        figure_max_dpi=config.figure_max_dpi,
     )
 
     _write_figure_selections(ctx)

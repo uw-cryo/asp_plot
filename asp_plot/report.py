@@ -10,6 +10,20 @@ from PIL import Image
 
 logger = logging.getLogger(__name__)
 
+# Figures are rendered at 220 dpi (see the ``dpi=220`` calls in the plotting
+# modules) and then scaled down to fit the page width, so the resolution that
+# actually lands in the PDF is set by the *placed* size, not the save dpi. A
+# wide multi-panel figure squeezed into 186 mm of page can arrive at 400+
+# effective dpi -- detail no screen shows and no printer reproduces, but every
+# pixel of it is stored. Since a report is ~99% image data by byte count,
+# capping the embedded resolution at what the page can actually show is the
+# single biggest lever on report file size. 200 dpi comfortably exceeds the
+# ~150 dpi that /ebook-class PDF compressors target while staying visibly
+# crisp for axis labels and colorbar ticks.
+FIGURE_MAX_DPI = 200
+
+MM_PER_INCH = 25.4
+
 
 @dataclass
 class ReportSection:
@@ -152,6 +166,7 @@ def compile_report(
     report_title="ASP Output Quality Report",
     report_metadata=None,
     report_command=None,
+    figure_max_dpi=FIGURE_MAX_DPI,
 ):
     """
     Compile a PDF report with ASP processing results and plots.
@@ -174,6 +189,10 @@ def compile_report(
         DEM metadata for the title page summary table. Default is None.
     report_command : str, optional
         The asp_report CLI command used to generate this report. Default is None.
+    figure_max_dpi : int or None, optional
+        Resolution ceiling for embedded figures, applied at the size each
+        figure is placed on the page. Default is :data:`FIGURE_MAX_DPI`; pass
+        ``None`` or 0 to embed the full-resolution PNGs.
 
     Returns
     -------
@@ -249,7 +268,7 @@ def compile_report(
     for i, section in enumerate(sections, start=1):
         section.figure_number = i
         if isinstance(section, AlignmentReportPage):
-            _render_alignment_report_page(pdf, section)
+            _render_alignment_report_page(pdf, section, max_dpi=figure_max_dpi)
             continue
 
         if not os.path.exists(section.image_path):
@@ -262,13 +281,53 @@ def compile_report(
         pdf.ln(2)
 
         _render_figure_with_caption(
-            pdf, section.image_path, section.caption, section.figure_number
+            pdf,
+            section.image_path,
+            section.caption,
+            section.figure_number,
+            max_dpi=figure_max_dpi,
         )
 
     pdf.output(report_pdf_path)
 
 
-def _render_figure_with_caption(pdf, image_path, caption, figure_number):
+def _downsampled_for_page(image_path, render_w_mm, max_dpi):
+    """Return the figure at no more resolution than the page can show.
+
+    Parameters
+    ----------
+    image_path : str
+        Path to the PNG written by the plotting code.
+    render_w_mm : float
+        Width the image will occupy on the PDF page, in millimeters.
+    max_dpi : int or None
+        Resolution ceiling at that placed width. ``None`` or a non-positive
+        value disables downsampling and the original file is embedded.
+
+    Returns
+    -------
+    str or PIL.Image.Image
+        ``image_path`` unchanged when the figure is already at or below
+        ``max_dpi``, otherwise an in-memory resized copy. Both are accepted by
+        ``fpdf.FPDF.image``.
+    """
+    if not max_dpi or max_dpi <= 0 or render_w_mm <= 0:
+        return image_path
+
+    max_px = int(round(render_w_mm / MM_PER_INCH * max_dpi))
+    with Image.open(image_path) as img:
+        if img.width <= max_px:
+            return image_path
+        target_h = max(1, int(round(img.height * max_px / img.width)))
+        # load() before the context manager closes the file handle, and LANCZOS
+        # because nearest/bilinear visibly chew up 1 px axis lines and text.
+        img.load()
+        return img.resize((max_px, target_h), Image.LANCZOS)
+
+
+def _render_figure_with_caption(
+    pdf, image_path, caption, figure_number, max_dpi=FIGURE_MAX_DPI
+):
     """Render a figure scaled to the remaining page, with optional caption.
 
     Parameters
@@ -277,6 +336,9 @@ def _render_figure_with_caption(pdf, image_path, caption, figure_number):
     image_path : str
     caption : str
     figure_number : int
+    max_dpi : int or None, optional
+        Resolution ceiling for the embedded raster, applied at the size the
+        figure is placed on the page. Default is :data:`FIGURE_MAX_DPI`.
     """
     usable_width = pdf.w - pdf.l_margin - pdf.r_margin
     if caption:
@@ -297,7 +359,7 @@ def _render_figure_with_caption(pdf, image_path, caption, figure_number):
         render_w = render_h / aspect
 
     pdf.image(
-        image_path,
+        _downsampled_for_page(image_path, render_w, max_dpi),
         x=pdf.l_margin + (usable_width - render_w) / 2,
         w=render_w,
     )
@@ -308,7 +370,7 @@ def _render_figure_with_caption(pdf, image_path, caption, figure_number):
         pdf.multi_cell(0, 5, f"Figure {figure_number}: {caption}")
 
 
-def _render_alignment_report_page(pdf, page):
+def _render_alignment_report_page(pdf, page, max_dpi=FIGURE_MAX_DPI):
     """Render an AlignmentReportPage: header + optional tables + status + figure.
 
     Parameters
@@ -341,7 +403,11 @@ def _render_alignment_report_page(pdf, page):
 
     if page.image_path and os.path.exists(page.image_path):
         _render_figure_with_caption(
-            pdf, page.image_path, page.caption, page.figure_number
+            pdf,
+            page.image_path,
+            page.caption,
+            page.figure_number,
+            max_dpi=max_dpi,
         )
 
 
