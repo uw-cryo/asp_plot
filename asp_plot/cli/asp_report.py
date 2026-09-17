@@ -1,5 +1,6 @@
 import click
 
+from asp_plot.report import FIGURE_MAX_DPI
 from asp_plot.report_pipeline import ReportConfig, run_report
 
 
@@ -128,6 +129,14 @@ def _reconstruct_command():
     default=None,
     help="Title for the report. Default: Directory name of ASP processing.",
 )
+@click.option(
+    "--figure-max-dpi",
+    prompt=False,
+    default=FIGURE_MAX_DPI,
+    show_default=True,
+    type=int,
+    help="Resolution ceiling for figures embedded in the PDF, applied at the size each figure is placed on the page. Figures are plotted at 220 dpi and then scaled down to the page, so wide multi-panel figures otherwise land at 400+ effective dpi and inflate the file for detail no screen or printer shows. Pass 0 to embed the full-resolution figures.",
+)
 def main(
     directory,
     bundle_adjust_prefix,
@@ -146,6 +155,7 @@ def main(
     reuse_selections,
     report_filename,
     report_title,
+    figure_max_dpi,
 ):
     """
     Generate a comprehensive report of ASP processing results.
@@ -172,6 +182,7 @@ def main(
         reuse_selections=reuse_selections,
         report_filename=report_filename,
         report_title=report_title,
+        figure_max_dpi=figure_max_dpi,
         report_command=_reconstruct_command(),
     )
     run_report(config)
