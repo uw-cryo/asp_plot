@@ -29,6 +29,37 @@ repos:
                   args: ["--config=.flake8", "--extend-ignore=E501,E722,E203,E207"]
                   exclude: ^original_code/|^tests/test_data/
 
+        # ---- Committed-artifact size guards (see AGENTS.md) ----
+        # reports/ and the executed notebooks never delta-compress, so every
+        # oversized one committed is permanent. These enforce what AGENTS.md
+        # asks for, rather than trusting anyone to remember it.
+        - repo: local
+          hooks:
+                - id: shrink-notebook-outputs
+                  name: downsample notebook output images
+                  entry: python tools/shrink_notebook_outputs.py
+                  language: python
+                  additional_dependencies: ["pillow"]
+                  files: ^notebooks/.*\.ipynb$
+                  exclude: ^original_code/|\.ipynb_checkpoints/
+
+                - id: check-report-figure-dpi
+                  name: check report figures are within the dpi cap
+                  entry: python tools/check_report_figure_dpi.py
+                  language: python
+                  additional_dependencies: ["pypdf"]
+                  files: ^reports/.*\.pdf$
+
+        # Backstop for binaries that slip in somewhere unexpected. The example
+        # reports are legitimately large, so the limit sits above them rather
+        # than at pre-commit's 500 kB default.
+        - repo: https://github.com/pre-commit/pre-commit-hooks
+          rev: v4.3.0
+          hooks:
+                - id: check-added-large-files
+                  args: ["--maxkb=25000"]
+                  exclude: ^original_code/|^tests/test_data/
+
         # Sort imports using isort
         - repo: https://github.com/PyCQA/isort
           rev: 5.12.0
