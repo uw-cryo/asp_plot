@@ -287,7 +287,8 @@ class PlanetarySource(AltimetrySource):
         ``aligned_dem_fn`` is set, also populates ``aligned_dem_height``
         and ``altimetry_minus_aligned_dem`` so pre/post-alignment plots can
         share a single sample. Outliers beyond ``n_sigma`` × std from the
-        mean (computed on the unaligned dh) are removed by default.
+        mean (computed on the unaligned dh, after gross outliers more than
+        30 NMAD from the median are dropped) are removed by default.
 
         Parameters
         ----------
@@ -310,12 +311,20 @@ class PlanetarySource(AltimetrySource):
                 "aligned_dem_height",
                 "altimetry_minus_aligned_dem",
             )
+            # Same points before and after alignment: a translated DEM's holes
+            # and edges move, and a point that sampled NaN on the unaligned DEM
+            # never went through the outlier cut (see icesat2_source).
+            self.planetary_points["altimetry_minus_aligned_dem"] = (
+                self.planetary_points["altimetry_minus_aligned_dem"].where(
+                    self.planetary_points["altimetry_minus_dem"].notna()
+                )
+            )
 
         valid = self.planetary_points["altimetry_minus_dem"].dropna()
         print(f"Computed dh for {len(valid)} of {len(self.planetary_points)} points")
 
         if n_sigma is not None and not valid.empty:
-            mask = self._std_outlier_mask(
+            mask = self._outlier_mask(
                 self.planetary_points["altimetry_minus_dem"], n_sigma
             )
             if mask is not None:

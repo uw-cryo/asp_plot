@@ -170,3 +170,61 @@ class TestRequestAtl06srMultiProcessing:
         )
         assert src.atl06sr_request_parms["processing_levels"] == ["all", "ground"]
         assert set(src.atl06sr_parquet_paths.keys()) == {"all", "ground"}
+
+
+class TestAlignedResidualsShareThePointsOfTheUnaligned:
+    """A translated DEM's holes move; the aligned residuals must not gain points.
+
+    Two 10 x 10 m rasters at 1 m: the "unaligned" DEM has a NaN hole under one
+    point, the "aligned" copy has its hole one pixel over, so that point is
+    NaN before alignment and valid after. Its ICESat-2 height is a cloud
+    return 200 m up, which the outlier cut never saw because NaN rows pass it.
+    """
+
+    @staticmethod
+    def _write(fn, z):
+        import rasterio
+        from rasterio.transform import from_origin
+
+        with rasterio.open(
+            fn,
+            "w",
+            driver="GTiff",
+            height=z.shape[0],
+            width=z.shape[1],
+            count=1,
+            dtype="float32",
+            crs="EPSG:32611",
+            transform=from_origin(0, 10, 1, 1),
+            nodata=-9999,
+        ) as dst:
+            dst.write(np.where(np.isnan(z), -9999, z).astype("float32"), 1)
+
+    def test_aligned_dh_is_nan_where_unaligned_dh_is_nan(self, tmp_path):
+        z = np.full((10, 10), 100.0)
+        hole_before = z.copy()
+        hole_before[4:6, 4:6] = np.nan  # covers the point at (4.5, 5.5)
+        hole_after = z.copy()
+        hole_after[4:6, 7:9] = np.nan  # hole moved; the point now samples 100 m
+        self._write(tmp_path / "dem.tif", hole_before)
+        self._write(tmp_path / "dem_aligned.tif", hole_after)
+
+        pts = gpd.GeoDataFrame(
+            {"h_mean": [100.2, 99.9, 300.0]},
+            geometry=[Point(1.5, 8.5), Point(2.5, 8.5), Point(4.5, 5.5)],
+            crs="EPSG:32611",
+        )
+        alt = Altimetry(
+            directory=str(tmp_path),
+            dem_fn=str(tmp_path / "dem.tif"),
+            aligned_dem_fn=str(tmp_path / "dem_aligned.tif"),
+            atl06sr_processing_levels={"all": pts},
+            atl06sr_processing_levels_filtered={"all": pts.copy()},
+        )
+        alt.atl06sr_to_dem_dh(n_sigma=None)
+        got = alt.atl06sr_processing_levels_filtered["all"]
+
+        assert np.isnan(got["icesat_minus_dem"].iloc[2])
+        assert np.isfinite(got["aligned_dem_height"].iloc[2])  # it did sample
+        assert np.isnan(got["icesat_minus_aligned_dem"].iloc[2])  # but is not scored
+        assert np.allclose(got["icesat_minus_aligned_dem"].iloc[:2], [0.2, -0.1])

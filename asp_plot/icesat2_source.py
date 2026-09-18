@@ -765,6 +765,11 @@ class Icesat2Source(AltimetrySource):
         """
         Remove dh outliers beyond *n_sigma* × standard deviation from the mean.
 
+        Gross outliers — more than ``GROSS_OUTLIER_NMAD`` (30) normalized
+        median absolute deviations from the median, e.g. a cloud-contaminated
+        ICESat-2 pass — are dropped first, so that a large cluster of them
+        cannot inflate the standard deviation and defeat the cut.
+
         Parameters
         ----------
         column : str, optional
@@ -775,7 +780,7 @@ class Icesat2Source(AltimetrySource):
         for key, atl06sr in self.atl06sr_processing_levels_filtered.items():
             if column not in atl06sr.columns:
                 continue
-            mask = self._std_outlier_mask(atl06sr[column], n_sigma)
+            mask = self._outlier_mask(atl06sr[column], n_sigma)
             if mask is None:
                 continue
             n_before = len(atl06sr)
@@ -971,7 +976,8 @@ class Icesat2Source(AltimetrySource):
         the difference between ICESat-2 heights and DEM heights. If an aligned
         DEM is available, also calculates differences against it. Outliers
         beyond ``n_sigma`` × standard deviation from the mean are removed by
-        default (via :meth:`filter_outliers`).
+        default (via :meth:`filter_outliers`, which first drops gross
+        outliers more than 30 NMAD from the median).
 
         Parameters
         ----------
@@ -1010,9 +1016,15 @@ class Icesat2Source(AltimetrySource):
             for key, atl06sr in self.atl06sr_processing_levels_filtered.items():
                 sample, atl06sr = self._interp_dem_at_points(aligned_dem, atl06sr)
                 atl06sr["aligned_dem_height"] = sample
+                # Score the aligned DEM on the points the unaligned one was
+                # scored on. The translation moves the DEM's holes and edges
+                # by a few metres, so a point that sampled NaN before (and so
+                # passed the outlier cut untested) can land on valid data
+                # after; when that point is a cloud return it enters the
+                # aligned residuals as a 200 m error the cut never saw.
                 atl06sr["icesat_minus_aligned_dem"] = (
                     atl06sr["h_mean"] - atl06sr["aligned_dem_height"]
-                )
+                ).where(atl06sr["icesat_minus_dem"].notna())
                 self.atl06sr_processing_levels_filtered[key] = atl06sr
 
         if n_sigma is not None:
