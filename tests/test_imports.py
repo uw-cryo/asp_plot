@@ -16,6 +16,7 @@ class TestImports:
         import asp_plot.bodies
         import asp_plot.bundle_adjust
         import asp_plot.csm_camera
+        import asp_plot.dem_benchmark
         import asp_plot.gallery
         import asp_plot.mapproject
         import asp_plot.processing_parameters
@@ -32,6 +33,7 @@ class TestImports:
         assert asp_plot.report_captions is not None
         assert asp_plot.selections is not None
         assert asp_plot.gallery is not None
+        assert asp_plot.dem_benchmark is not None
         assert asp_plot.stereo_geometry is not None
         assert asp_plot.utils is not None
         assert asp_plot.stereopair_metadata_parser is not None
@@ -50,6 +52,7 @@ class TestImports:
         from asp_plot.altimetry import Altimetry
         from asp_plot.bodies import BODIES, Body, body_for_dem
         from asp_plot.bundle_adjust import PlotBundleAdjustFiles, ReadBundleAdjustFiles
+        from asp_plot.dem_benchmark import DEMBenchmark
         from asp_plot.gallery import GalleryPlotter
         from asp_plot.mapproject import (
             find_mapproject_commands,
@@ -73,6 +76,7 @@ class TestImports:
         assert StereoGeometryPlotter is not None
         assert FigureSelections is not None
         assert GalleryPlotter is not None
+        assert DEMBenchmark is not None
         assert ColorBar is not None
         assert Raster is not None
         assert Plotter is not None

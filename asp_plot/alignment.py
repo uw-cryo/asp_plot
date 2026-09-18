@@ -386,7 +386,7 @@ class Alignment:
 
         return report
 
-    def apply_dem_translation(self, output_prefix="pc_align/pc_align"):
+    def apply_dem_translation(self, output_prefix="pc_align/pc_align", output_fn=None):
         """
         Apply the pc_align translation to the DEM.
 
@@ -398,6 +398,13 @@ class Alignment:
         ----------
         output_prefix : str, optional
             Prefix for pc_align output files, default is "pc_align/pc_align"
+        output_fn : str, optional
+            Where to write the translated DEM. Default is None, which writes
+            ``<dem_fn without .tif>_pc_align_translated.tif`` next to the
+            source DEM (the report convention). Pass an explicit path to
+            keep the translated copy elsewhere, e.g. when many candidate
+            DEMs are aligned side by side and their folders should stay
+            untouched (:class:`asp_plot.dem_benchmark.DEMBenchmark`).
 
         Returns
         -------
@@ -479,7 +486,11 @@ class Alignment:
         t_srs.ImportFromWkt(src.ds.crs.to_wkt())
         proj_shift = self.get_proj_shift(src_c, src_shift, s_srs, t_srs, inv_trans=True)
 
-        aligned_dem_fn = self.dem_fn.replace(".tif", "_pc_align_translated.tif")
+        if output_fn is None:
+            aligned_dem_fn = self.dem_fn.replace(".tif", "_pc_align_translated.tif")
+        else:
+            aligned_dem_fn = output_fn
+            os.makedirs(os.path.dirname(os.path.abspath(aligned_dem_fn)), exist_ok=True)
         print(f"\nWriting out: {aligned_dem_fn}\n")
 
         gdal_opt = ["COMPRESS=LZW", "TILED=YES", "PREDICTOR=3", "BIGTIFF=IF_SAFER"]
