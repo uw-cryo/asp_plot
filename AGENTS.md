@@ -30,13 +30,49 @@ Flake8 config is in `.flake8` (extends ignore: E203, E701); pre-commit further i
 To build the docs locally (Sphinx + MyST; hosted on ReadTheDocs, auto-built on push to `main`):
 
 ```bash
-# One-time: copy notebooks, reports, and figures for local preview
+# One-time: copy notebooks and figures, fetch the reports, for local preview
 mkdir -p docs/examples/notebooks && cp notebooks/**/*.ipynb docs/examples/notebooks/
-mkdir -p docs/_static/reports && cp reports/*.pdf docs/_static/reports/
 mkdir -p docs/_extra/examples/figures && cp notebooks/figures/* docs/_extra/examples/figures/
+bash docs/fetch_example_reports.sh       # downloads the reports from their Release
 
 sphinx-autobuild docs docs/_build/html --open-browser   # or sphinx-build for a one-off
 ```
+
+## Example Reports Are Release Assets, Not Committed Files
+
+`reports/*.pdf` is gitignored. PDFs do not delta-compress, so every regeneration
+was a wholly new permanent blob — seven report files had become 116 immortal
+objects and 846 MB of history, most of a 1.8 GB clone (issue #201). They are
+published as GitHub Release assets instead, on a dated `reports-<date>` tag that
+is bumped only when the reports change — deliberately *not* the per-version
+releases, since `release.yml` creates one per `pyproject.toml` bump and the
+reports do not change per version.
+
+To publish a regenerated set:
+
+```bash
+bash reports/regenerate_reports.sh          # gitignored; needs ~/Desktop/asp-plot-examples
+gh release create reports-$(date +%F) reports/*.pdf reports/*_figure_selections.yml \
+    --target main --latest=false \
+    --title "Example reports, $(date +%F)" --notes "What changed and why."
+# then bump REPORTS_RELEASE in docs/fetch_example_reports.sh and commit that one line
+```
+
+Three things matter here:
+
+- **Publish the release before pushing the commit** that points at it. The docs
+  build uses `curl -f`, so a tag that does not exist yet fails the build.
+- **`--latest=false`**, or the reports release takes the "Latest" badge from the
+  current version release.
+- **Attach the `*_figure_selections.yml` sidecars too.** They are gitignored (they
+  hardcode absolute local paths) but they are what makes regeneration
+  figure-stable and offline (issue #121), so keeping them with the PDFs they
+  produced makes a release self-describing.
+
+Always regenerate with `--reuse-selections` so pages stay figure-for-figure
+comparable and no SlideRule request is made. Reports are capped at 200 effective
+dpi at their placed width (`asp_report --figure-max-dpi`, `0` disables), which is
+what keeps the assets small.
 
 ## Gotchas
 

@@ -15,8 +15,8 @@ build:
       - cp notebooks/Mars_MRO/*.ipynb docs/examples/notebooks/
       - mkdir -p docs/_extra/examples/figures
       - cp notebooks/figures/* docs/_extra/examples/figures/
-      - mkdir -p docs/_static/reports
-      - cp reports/*.pdf docs/_static/reports/
+      # Reports are GitHub Release assets, not committed to git (issue #201).
+      - bash docs/fetch_example_reports.sh
 
 sphinx:
   configuration: docs/conf.py

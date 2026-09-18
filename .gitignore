@@ -146,6 +146,12 @@ reports/regenerate_reports.sh
 # Figure-selections sidecars written next to each report by `asp_report`. These are
 # regeneration byproducts that hardcode absolute local paths (dem_filename,
 # parquet_cache), so they are not committed; a sanitized example is documented in
-# docs/cli/asp_report.md instead.
+# docs/cli/asp_report.md instead. They are attached to each reports-<date>
+# release alongside the PDFs they generated.
 reports/*_figure_selections.yml
+# The example reports themselves. PDFs do not delta-compress, so every
+# regeneration became a permanent new blob -- 7 files, 116 objects, 846 MB of
+# history. They are published as GitHub Release assets instead, and the docs
+# build fetches them (docs/fetch_example_reports.sh). See issue #201.
+reports/*.pdf
 *.csv
