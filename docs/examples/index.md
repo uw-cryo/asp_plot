@@ -18,7 +18,7 @@ Three-scene same-pass multi-view stereo of publicly available SpaceNet Atlanta W
 :link: notebooks/worldview_spacenet_benchmark
 :link-type: doc
 
-Given N scenes, which combination and which flow give the best DEM? Atlanta: all ten pairs of five same-pass scenes (5–32°), six `dem_mosaic` blends and six multi-view runs, 21 DEMs on one ICESat-2 sample. Then the same experiment at UCSD — multi-date WorldView-3 over steep, built-up, tree-covered Mount Soledad — where the convergence rule and the reference-star rule both flip.
+Given N scenes, which combination and which flow give the best DEM? Atlanta: all ten pairs of five same-pass scenes (5–32°), six `dem_mosaic` blends and six multi-view runs, 21 DEMs on one ICESat-2 sample. Then the same experiment at UCSD — multi-date WorldView-3 over steep, built-up, tree-covered Mount Soledad — where the point estimates reverse both the convergence rule and the reference-star rule, though a paired track bootstrap ([#199](https://github.com/uw-cryo/asp_plot/issues/199)) shows only the worst of its 17 DEMs is clearly separated from the rest.
 :::
 
 :::{grid-item-card} WorldView — SpaceNet Atlanta (Scene Selection)
