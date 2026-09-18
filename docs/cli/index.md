@@ -51,7 +51,7 @@ Lay out many DEMs as a grid of thumbnails sharing one color scale, for QA'ing a 
 :link: dem_benchmark
 :link-type: doc
 
-Score many DEMs — scene combinations, MVS vs. pairwise + `dem_mosaic`, parameter sweeps — against one ICESat-2 or LOLA/MOLA sample, side by side.
+Score many DEMs against one ICESat-2 or LOLA/MOLA sample, side by side: scene combinations, multi-view vs. pairwise + `dem_mosaic`, parameter sweeps.
 :::
 
 ::::

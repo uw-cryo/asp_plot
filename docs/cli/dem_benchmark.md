@@ -1,33 +1,31 @@
 # dem_benchmark
 
-The `dem_benchmark` command-line tool scores many DEMs against one altimetry sample. The `asp_report` altimetry pages assess *one* DEM; this tool answers the question that needs *many* — which scene combination, which processing flow (joint multi-view triangulation vs. pairwise stereo merged with `dem_mosaic`), which parameter setting produces the best DEM — by scoring every candidate against exactly the same ICESat-2 (or LOLA/MOLA) points and putting the results side by side.
+The `dem_benchmark` command-line tool scores many DEMs against one altimetry sample and puts the results side by side. Where the `asp_report` altimetry pages assess *one* DEM, this answers the questions that need *many*: which scene combination, which processing flow (joint multi-view triangulation vs. pairwise stereo merged with `dem_mosaic`), or which parameter setting gives the best DEM.
 
-Every DEM is scored with the same recipe the report uses for a single DEM: the cached ATL06-SR parquet is replayed (no SlideRule request), water returns are dropped using the ESA WorldCover classes stored in that cache, and residual outliers beyond 3σ are removed per DEM. For each DEM the tool reports:
+Every DEM is scored with the report's recipe — the cached ICESat-2 ATL06-SR parquet replayed, ESA WorldCover water returns dropped, residual outliers removed per DEM — and gets:
 
-- **Coverage** inside a common area of interest — by default the intersection of all the DEM footprints, so runs with different crop windows compare fairly — as percent valid and km².
-- **Triangulation error**, the median and NMAD of the `*-IntersectionErr.tif` that `point2dem --errorimage` writes next to `*-DEM.tif`. A mosaic has none; that blank row is itself a finding.
-- **Altimetry residuals** (altimetry minus DEM): point count, median, NMAD and RMSE, both as produced and after a per-DEM `pc_align --compute-translation-only`, with the translation it applied. A translation cannot change NMAD, so that column separates bias (removable) from noise (not).
-- Optionally, each DEM's **difference against one of the candidates** named as the reference.
+- **Coverage** inside the common footprint of all the DEMs (percent valid and km²), so runs with different crop windows compare fairly.
+- **Triangulation error**, the median and NMAD of the `*-IntersectionErr.tif` from `point2dem --errorimage`. A mosaic has none.
+- **Altimetry residuals** (altimetry minus DEM): count, median, NMAD and RMSE, before and after a per-DEM `pc_align --compute-translation-only`. A translation cannot change NMAD, so the pair of columns separates bias from noise.
+- Optionally, the **difference against one candidate** named as the reference.
 
 ```{figure} ../figures/example_dem_benchmark.png
 :alt: Six Atlanta DEMs scored against the same ICESat-2 points: coverage, triangulation error, and residual median and NMAD before and after pc_align
 :width: 100%
 
-Six same-pass WorldView-2 DEMs of Atlanta — three single pairs at 5°, 22° and 27° convergence, the three pairs merged with `dem_mosaic`, and 3- and 5-scene multi-view runs — scored against one ICESat-2 sample, sorted best-first by post-alignment NMAD. The 5° pair is what drags the mosaic down; the multi-view runs win on bias rather than spread. From `notebooks/WorldView/worldview_spacenet_atlanta_mvs.ipynb`.
+Six same-pass WorldView-2 DEMs of Atlanta — three single pairs at 5°, 22° and 27° convergence, the three pairs merged with `dem_mosaic`, and 3- and 5-scene multi-view runs — scored against one ICESat-2 sample and sorted best-first by post-alignment NMAD. From `notebooks/WorldView/worldview_spacenet_atlanta_mvs.ipynb`.
 ```
 
 ## Basic usage
 
-Point the tool at the DEMs and the ICESat-2 parquet cache a previous `asp_report` run wrote next to its report (or that `Altimetry.request_atl06sr_multi_processing(save_to_parquet=True)` saved):
+Point the tool at the DEMs and the ICESat-2 parquet cache that a previous `asp_report` run wrote next to its report:
 
 ```bash
 dem_benchmark stereo_mvs3/run-DEM.tif stereo_mvs5/run-DEM.tif pairwise_mosaic-DEM.tif \
               --parquet atl06sr_all.parquet
 ```
 
-This writes `dem_benchmark.png` (the summary figure), `dem_benchmark_histogram.png` (overlaid residual histograms) and `dem_benchmark.csv` (the full stats table, one row per DEM) into the working directory, and prints the table.
-
-An unlabelled ASP `run-DEM.tif` is labelled by its folder (`stereo_mvs3`); any other DEM by its filename. Give your own labels as `LABEL=PATH`:
+This prints the stats table and writes `dem_benchmark.png` (summary figure), `dem_benchmark_histogram.png` (overlaid residual histograms) and `dem_benchmark.csv` (one row per DEM) to the working directory. An unlabelled ASP `run-DEM.tif` is labelled by its folder; any other DEM by its filename. Give your own labels as `LABEL=PATH`:
 
 ```bash
 dem_benchmark "MVS 3-scene=stereo_mvs3/run-DEM.tif" \
@@ -37,18 +35,11 @@ dem_benchmark "MVS 3-scene=stereo_mvs3/run-DEM.tif" \
               --title "Atlanta WV2: same-pass scene combinations"
 ```
 
-## Where the pc_align products go
-
-`pc_align` is run once per DEM — its log, transform and the translated DEM copy land under `<directory>/dem_benchmark/<label>/`, never inside the DEMs' own folders, so scoring never litters a stereo run. Existing products there are reused, so a re-run is instant and works offline. Skip alignment entirely with `--no-pc-align`, or if `pc_align` is not on your `PATH` (the tool then reports pre-alignment residuals and says so).
-
-```bash
-dem_benchmark stereo_*/run-DEM.tif --parquet atl06sr_all.parquet \
-              --directory benchmark_runs --output-directory figures
-```
+`pc_align` products go under `<directory>/dem_benchmark/<label>/`, never into the DEMs' own folders, and are reused on a re-run. Skip alignment with `--no-pc-align`.
 
 ## Comparing DEMs to one of them
 
-Name one candidate as the reference to add its difference against every other DEM (`vs_ref_median_m`, `vs_ref_nmad_m`, DEM minus reference):
+Name one candidate as the reference to add its difference against every other DEM (`vs_ref_median_m`, `vs_ref_nmad_m`):
 
 ```bash
 dem_benchmark "MVS 5-scene=stereo_mvs5/run-DEM.tif" "MVS 3-scene=stereo_mvs3/run-DEM.tif" \
@@ -65,10 +56,10 @@ dem_benchmark run_a/run-DEM.tif run_b/run-DEM.tif --altimetry-csv lola_pts_csv.c
 
 ## Reading the figure
 
-- Rows are sorted best-first by post-alignment NMAD (pre-alignment when `--no-pc-align`).
-- **Coverage** bars are percent valid inside the common AOI; the km² printed next to each is the valid area. Use `--own-extent` to score each DEM over its own footprint instead (not comparable across crops, but useful for a single-run sanity check).
-- **IntersectionErr** is the median triangulation error with the NMAD in parentheses. Note that a narrow-convergence pair has a *small* intersection error because its rays barely diverge — it is not a quality ranking on its own; read it next to the residual panels.
-- **dh median / dh NMAD** show altimetry minus DEM with an open marker before `pc_align` and a filled marker after; the connecting line is the change. Translation-only alignment leaves NMAD unchanged by construction, so those markers coincide.
+- Rows are sorted best-first by post-alignment NMAD (pre-alignment with `--no-pc-align`).
+- **Coverage** is percent valid inside the common footprint, with the valid km² printed beside it. `--own-extent` scores each DEM over its own footprint instead.
+- **IntersectionErr** is the median triangulation error, NMAD in parentheses. A narrow-convergence pair has a *small* intersection error because its rays barely diverge, so read it next to the residual panels rather than as a ranking.
+- **dh median / dh NMAD** are altimetry minus DEM, open marker before `pc_align` and filled after. Translation-only alignment leaves NMAD unchanged, so those markers coincide.
 
 ## Full options
 
