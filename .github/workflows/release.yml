@@ -37,7 +37,9 @@ jobs:
       - name: Get previous tag
         id: prev_tag
         run: |
-          PREV_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          # --match 'v*' so the dated reports-<date> tags (issue #201) are not
+          # mistaken for the previous version and compared against in the notes.
+          PREV_TAG=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || echo "")
           echo "prev_tag=$PREV_TAG" >> $GITHUB_OUTPUT
 
       - name: Check if tag exists

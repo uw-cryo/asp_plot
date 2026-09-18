@@ -316,7 +316,7 @@ docs/
   figures/                    # Committed doc figures (e.g. example_gallery.png); referenced from .md via ../figures/
   contributing.md             # Dev setup, testing, release process
   changelog.md                # Includes top-level CHANGELOG.md via MyST include
-  _static/reports/            # .gitignored — copied from reports/ during build
+  _static/reports/            # .gitignored — fetched from the reports-<date> Release during build
   _extra/examples/figures/    # .gitignored — copied from notebooks/figures/ during build
   _templates/footer.html      # RTD ethical ads placement in footer
   requirements.txt            # Docs-only pip dependencies for RTD
@@ -324,7 +324,8 @@ docs/
 
 ### Key Design Decisions
 
-- **Notebooks and reports stay at top level** (`notebooks/`, `reports/`). RTD's `pre_build` jobs in `.readthedocs.yaml` copy them into the docs tree. The `docs/examples/notebooks/`, `docs/_static/reports/`, and `docs/_extra/` directories are `.gitignore`d.
+- **Notebooks stay at top level** (`notebooks/`) and RTD's `pre_build` jobs in `.readthedocs.yaml` copy them into the docs tree. The `docs/examples/notebooks/`, `docs/_static/reports/`, and `docs/_extra/` directories are `.gitignore`d.
+- **Reports are not in git at all.** `reports/*.pdf` is gitignored and published as assets on a dated `reports-<date>` GitHub Release; `docs/fetch_example_reports.sh` downloads them into `_static/reports/` during the build, replacing what used to be a `cp` (issue #201). They must be self-hosted rather than linked directly because GitHub serves release assets as `content-disposition: attachment`, which an `<iframe>` cannot render. The script pins one `REPORTS_RELEASE` tag, so a docs build of an older commit keeps fetching the reports of its era.
 - **sphinx-autoapi** generates API reference from static analysis — no GDAL/rasterio needed on RTD. This is why RTD installs only `docs/requirements.txt` instead of the full package.
 - **`html_extra_path`** is used to serve `notebooks/figures/` at the correct relative path for notebook `<img src>` references.
 - **`docs/` is excluded from sdist** in `pyproject.toml` so docs never ship in the PyPI/conda package.

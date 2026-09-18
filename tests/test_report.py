@@ -3,11 +3,15 @@ import os
 import matplotlib
 import matplotlib.pyplot as plt
 import pytest
+from PIL import Image
 
 from asp_plot.report import (
+    FIGURE_MAX_DPI,
+    MM_PER_INCH,
     AlignmentReportPage,
     ReportMetadata,
     ReportSection,
+    _downsampled_for_page,
     _fmt_sig,
     compile_report,
 )
@@ -207,3 +211,68 @@ class TestAlignmentStatsTables:
                 report_pdf_path=out,
             )
             assert os.path.exists(out) and os.path.getsize(out) > 0
+
+
+@pytest.fixture
+def oversized_image(tmp_path):
+    """A figure whose pixel width far exceeds what a Letter page can show.
+
+    figsize=(16, 4) at 220 dpi is 3520 px wide; placed across the 185.9 mm
+    usable width of a Letter page that is ~480 effective dpi, which is the
+    shape of the real multi-panel report figures.
+    """
+    fig, ax = plt.subplots(1, 1, figsize=(16, 4))
+    ax.plot([1, 2, 3], [1, 4, 2])
+    path = str(tmp_path / "wide.png")
+    fig.savefig(path, dpi=220)
+    plt.close(fig)
+    return path
+
+
+def test_downsample_caps_resolution_at_placed_width(oversized_image):
+    """An over-resolved figure comes back resized to exactly the dpi ceiling."""
+    render_w_mm = 185.9  # Letter width minus 15 mm margins
+    resized = _downsampled_for_page(oversized_image, render_w_mm, 200)
+
+    assert not isinstance(resized, str), "oversized figure should be resized"
+    expected_px = int(round(render_w_mm / MM_PER_INCH * 200))
+    assert resized.width == expected_px
+
+    with Image.open(oversized_image) as original:
+        assert resized.width < original.width
+        # Aspect ratio preserved to within a rounded pixel.
+        assert (
+            abs(resized.height / resized.width - original.height / original.width)
+            < 0.01
+        )
+
+
+def test_downsample_leaves_small_figures_alone(dummy_image):
+    """A figure already under the ceiling is embedded as-is, not re-encoded."""
+    assert _downsampled_for_page(dummy_image, 185.9, 200) == dummy_image
+
+
+@pytest.mark.parametrize("max_dpi", [0, None, -1])
+def test_downsample_disabled(oversized_image, max_dpi):
+    """Falsy or non-positive ceilings pass the original path straight through."""
+    assert _downsampled_for_page(oversized_image, 185.9, max_dpi) == oversized_image
+
+
+def test_compile_report_downsampling_shrinks_pdf(oversized_image, tmp_path):
+    """The dpi cap is wired into compile_report and measurably shrinks output."""
+    sections = [
+        ReportSection(title=f"Wide {i}", image_path=oversized_image, caption=".")
+        for i in range(3)
+    ]
+    capped = str(tmp_path / "capped.pdf")
+    uncapped = str(tmp_path / "uncapped.pdf")
+    for out, dpi in ((capped, FIGURE_MAX_DPI), (uncapped, 0)):
+        compile_report(
+            sections=sections,
+            processing_parameters_dict=_minimal_params_dict(),
+            report_pdf_path=out,
+            report_title="DPI Test",
+            figure_max_dpi=dpi,
+        )
+
+    assert os.path.getsize(capped) < os.path.getsize(uncapped)
