@@ -52,13 +52,14 @@ To publish a regenerated set:
 
 ```bash
 bash reports/regenerate_reports.sh          # gitignored; needs ~/Desktop/asp-plot-examples
-gh release create reports-$(date +%F) reports/*.pdf reports/*_figure_selections.yml \
+gh release create reports-$(date +%F) \
+    reports/*.pdf reports/*_figure_selections.yml reports/regenerate_reports.sh \
     --target main --latest=false \
     --title "Example reports, $(date +%F)" --notes "What changed and why."
 # then bump REPORTS_RELEASE in docs/fetch_example_reports.sh and commit that one line
 ```
 
-Three things matter here:
+Four things matter here:
 
 - **Publish the release before pushing the commit** that points at it. The docs
   build uses `curl -f`, so a tag that does not exist yet fails the build.
@@ -68,6 +69,13 @@ Three things matter here:
   hardcode absolute local paths) but they are what makes regeneration
   figure-stable and offline (issue #121), so keeping them with the PDFs they
   produced makes a release self-describing.
+- **Attach `regenerate_reports.sh` as well, for the same reason and one more.**
+  It is gitignored too, which means it is in no clone *and in no backup* — a
+  mirror of this repository contains zero objects for it, because git never
+  tracked it. The release is therefore its only durable copy, and a release that
+  carries the reports, the selections that shaped them, and the commands that
+  produced them can be reproduced by someone who has the example datasets and
+  nothing else.
 
 Always regenerate with `--reuse-selections` so pages stay figure-for-figure
 comparable and no SlideRule request is made. Reports are capped at 200 effective
