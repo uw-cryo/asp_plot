@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] - 3.3.0
+## [3.3.0] - 2026-09-18
 
 The first piece of the scene-combination benchmark ([#169](https://github.com/uw-cryo/asp_plot/issues/169)): a way to score *many* DEMs against *one* altimetry sample. The report assesses a single DEM; the question of which scene combination, which processing flow (joint multi-view triangulation vs. pairwise stereo merged with `dem_mosaic`), or which parameter setting gives the best DEM needs every candidate scored against exactly the same points, side by side. The Atlanta MVS notebook had been doing that with an ad hoc loop; it is now a class, a figure, and a `dem_benchmark` command, and the notebook uses them to score six DEMs at once, where the single pairs explain the mosaic's result (the 5° pair lowers its accuracy) and the five-scene run has the lowest bias but not the lowest spread. No new dependencies; one new entry point, so the conda-forge feedstock recipe needs `dem_benchmark` added by hand this release.
 
