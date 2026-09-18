@@ -9,7 +9,7 @@ the same fixed altimetry sample, so the numbers are directly comparable:
 - coverage inside a common area of interest (by default the intersection of
   all DEM footprints, so crop windows that differ per run compare fairly)
 - triangulation error, from the ``*-IntersectionErr.tif`` ``point2dem`` writes
-  next to each ``*-DEM.tif`` (absent for a mosaic -- itself a finding)
+  next to each ``*-DEM.tif`` (absent for a mosaic)
 - altimetry residuals (altimetry minus DEM: n, median, NMAD, RMSE) before and,
   optionally, after a ``pc_align --compute-translation-only`` per DEM, with the
   translation that removed
@@ -21,7 +21,7 @@ cached ATL06-SR parquet is replayed (no SlideRule request), water returns are
 dropped with the ESA WorldCover classes stored in the cache, and dh outliers
 beyond 3σ are removed per DEM (after a gross-outlier cut at 30 NMAD). ``pc_align`` products and translated DEM copies
 are kept out of the candidates' folders, under
-``<directory>/dem_benchmark/<label>/``, so scoring never litters a stereo run.
+``<directory>/dem_benchmark/<label>/``, so nothing is written into the stereo runs.
 
 Examples
 --------
@@ -420,7 +420,7 @@ class DEMBenchmark:
             Also run ``pc_align --compute-translation-only`` per DEM and
             re-score against the translated copy. Default True. Existing
             pc_align outputs under the benchmark folder are reused, so a
-            re-run is instant and offline.
+            re-run makes no pc_align call and works offline.
         minimum_points : int, optional
             Skip pc_align for a DEM with fewer valid dh points, default 500
             (the report's threshold).
