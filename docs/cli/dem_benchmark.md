@@ -1,12 +1,12 @@
 # dem_benchmark
 
-The `dem_benchmark` command-line tool scores many DEMs against one altimetry sample and puts the results side by side. Where the `asp_report` altimetry pages assess *one* DEM, this answers the questions that need *many*: which scene combination, which processing flow (joint multi-view triangulation vs. pairwise stereo merged with `dem_mosaic`), or which parameter setting gives the best DEM.
+The `dem_benchmark` command-line tool scores many DEMs against one altimetry sample and puts the results side by side. The `asp_report` altimetry pages assess a single DEM; this tool compares several, for example different scene combinations, processing flows (joint multi-view triangulation vs. pairwise stereo merged with `dem_mosaic`), or parameter settings.
 
 Every DEM is scored with the report's recipe — the cached ICESat-2 ATL06-SR parquet replayed, ESA WorldCover water returns dropped, residual outliers removed per DEM — and gets:
 
 - **Coverage** inside the common footprint of all the DEMs (percent valid and km²), so runs with different crop windows compare fairly.
 - **Triangulation error**, the median and NMAD of the `*-IntersectionErr.tif` from `point2dem --errorimage`. A mosaic has none.
-- **Altimetry residuals** (altimetry minus DEM): count, median, NMAD and RMSE, before and after a per-DEM `pc_align --compute-translation-only`. A translation cannot change NMAD, so the pair of columns separates bias from noise.
+- **Altimetry residuals** (altimetry minus DEM): count, median, NMAD and RMSE, before and after a per-DEM `pc_align --compute-translation-only`. A translation cannot change NMAD, so the difference between the two columns is the bias that alignment removes.
 - Optionally, the **difference against one candidate** named as the reference.
 
 ```{figure} ../figures/example_dem_benchmark.png

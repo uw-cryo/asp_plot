@@ -18,7 +18,7 @@ Three-scene same-pass multi-view stereo of publicly available SpaceNet Atlanta W
 :link: notebooks/worldview_spacenet_benchmark
 :link-type: doc
 
-Given N scenes, which combination and which processing flow give the best DEM? All ten pairs, six `dem_mosaic` blends and six multi-view runs of five same-pass Atlanta scenes, then the same experiment at UCSD with multi-date WorldView-3 over steep urban terrain — 38 DEMs scored with `dem_benchmark` on one ICESat-2 sample per site.
+Which combination of N scenes and which processing flow give the best DEM: all ten pairs, six `dem_mosaic` blends and six multi-view runs of five same-pass Atlanta scenes, then the same experiment at UCSD with multi-date WorldView-3 over steep urban terrain — 38 DEMs scored with `dem_benchmark` on one ICESat-2 sample per site.
 :::
 
 :::{grid-item-card} WorldView — SpaceNet Atlanta (Scene Selection)
