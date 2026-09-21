@@ -456,6 +456,21 @@ class TestStereoFilesMultiViewLayout:
         except Exception as e:
             pytest.fail(f"figure method raised an exception: {str(e)}")
 
+    def test_files_tolerate_missing_left_image(self, mvs_directory):
+        # A trimmed stereo directory can lack the full-resolution *-L.tif
+        # (#202); discovery treats the run as not mapprojected.
+        for f in (Path(mvs_directory) / "stereo").glob("*-L.tif"):
+            f.unlink()
+        files = StereoFiles(
+            directory=mvs_directory,
+            stereo_directory="stereo",
+            dem_gsd=1,
+            reference_dem="tests/test_data/ref_dem.tif",
+        )
+        assert files.left_image_fn is None
+        assert files.orthos is False
+        assert files.dem_fn is not None
+
 
 class TestStereoFilesMultiview:
     """A multi-view run keeps per-pair products in run-pair*/ subdirectories;

@@ -180,9 +180,15 @@ class StereoFiles:
         pair_directories = find_pair_directories(self.full_directory)
         quiet = bool(pair_directories)
 
-        self.left_image_fn = glob_file(self.full_directory, "*-L.tif")
-        # Set processing flag if the left image is not mapprojected
-        self.orthos = False if Raster(self.left_image_fn).transform is None else True
+        self.left_image_fn = glob_file(self.full_directory, "*-L.tif", quiet=quiet)
+        # Set processing flag if the left image is not mapprojected. With no
+        # top-level left image (a trimmed directory, or a multi-view run whose
+        # aligned images live in the per-pair subdirectories), treat the run
+        # as not mapprojected.
+        self.orthos = (
+            self.left_image_fn is not None
+            and Raster(self.left_image_fn).transform is not None
+        )
         self.left_image_sub_fn = glob_file(
             self.full_directory, "*-L_sub.tif", quiet=quiet
         )

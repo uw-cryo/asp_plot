@@ -18,6 +18,7 @@ Repository size work, part one ([#201](https://github.com/uw-cryo/asp_plot/issue
 
 ### Fixed
 - **`release.yml` no longer picks a `reports-<date>` tag as the previous version.** Its previous-tag step was `git describe --tags --abbrev=0`, which returns the most recent tag reachable from `HEAD` — and the reports releases are tagged on `main`, so the next version release would have linked a changelog comparing `reports-2026-09-18...v3.4.0`. Now `--match 'v*'`. The tag-exists check greps for `v<version>` and was never affected.
+- **`StereoFiles` no longer crashes on a stereo directory with no top-level `*-L.tif`** ([#202](https://github.com/uw-cryo/asp_plot/issues/202)). The constructor passed the result of `glob_file()` straight to `Raster()` to decide whether the run was mapprojected, so a missing left image raised `TypeError: expected str, bytes or os.PathLike object, not NoneType` instead of falling back to the missing-file placeholders the plots already draw. A missing left image now means not mapprojected. This happens in trimmed example directories (it blocked regenerating the Atlanta MVS report) and in multi-view runs, which keep their aligned images in `<prefix>-pairN/`; in that layout the lookup is now quiet, like its neighbours.
 
 ## [3.3.0] - 2026-09-18
 
