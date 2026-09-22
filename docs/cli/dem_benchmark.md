@@ -6,14 +6,15 @@ Every DEM is scored with the report's recipe — the cached ICESat-2 ATL06-SR pa
 
 - **Coverage** inside the common footprint of all the DEMs (percent valid and km²), so runs with different crop windows compare fairly.
 - **Triangulation error**, the median and NMAD of the `*-IntersectionErr.tif` from `point2dem --errorimage`. A mosaic has none.
-- **Altimetry residuals** (altimetry minus DEM): count, median, NMAD and RMSE, before and after a per-DEM `pc_align --compute-translation-only`. A translation cannot change NMAD, so the difference between the two columns is the bias that alignment removes.
+- **Altimetry residuals** (altimetry minus DEM): count, median, NMAD and RMSE, before and after a per-DEM `pc_align --compute-translation-only`. A translation cannot change NMAD, so the difference between the two columns is the bias that alignment removes. The residuals are reported twice: on each DEM's own surviving points (`dh_*` columns) and on the points valid in every DEM (`*_shared_*` columns). The shared-point numbers are the fair comparison and are what the figure shows and the rows are sorted on: each DEM's voids differ and the outlier cut runs per DEM, so a blend that fills voids is otherwise scored on harder ground than a single pair that skips it, and the ranking can change.
+- **Bootstrap intervals** on the shared-point median and NMAD, from a paired block bootstrap that resamples whole ICESat-2 beam tracks (or MOLA orbits) rather than points, because residuals along a beam are spatially correlated. Every DEM is evaluated on the same replicates, so the interval on a DEM's NMAD *difference* to the best DEM (`nmad_vs_best_ci_*`) is a paired estimate; a DEM whose difference interval includes zero is not separable from the best. `p_best` is the fraction of replicates on which the DEM ranks first.
 - Optionally, the **difference against one candidate** named as the reference.
 
 ```{figure} ../figures/example_dem_benchmark.png
 :alt: Six Atlanta DEMs scored against the same ICESat-2 points: coverage, triangulation error, and residual median and NMAD before and after pc_align
 :width: 100%
 
-Six same-pass WorldView-2 DEMs of Atlanta — three single pairs at 5°, 22° and 27° convergence, the three pairs merged with `dem_mosaic`, and 3- and 5-scene multi-view runs — scored against one ICESat-2 sample and sorted best-first by post-alignment NMAD. From `notebooks/WorldView/worldview_spacenet_atlanta_mvs.ipynb`.
+Six same-pass WorldView-2 DEMs of Atlanta — three single pairs at 5°, 22° and 27° convergence, the three pairs merged with `dem_mosaic`, and 3- and 5-scene multi-view runs — scored on the 6 314 ICESat-2 points valid in all six and sorted best-first by post-alignment NMAD. The error bars are 95 % intervals from a bootstrap over whole beam tracks; the five-scene run and the 27° pair are not separable (`≈ best`), every other difference is. From `notebooks/WorldView/worldview_spacenet_atlanta_mvs.ipynb`.
 ```
 
 ## Basic usage
@@ -35,7 +36,7 @@ dem_benchmark "MVS 3-scene=stereo_mvs3/run-DEM.tif" \
               --title "Atlanta WV2: same-pass scene combinations"
 ```
 
-`pc_align` products go under `<directory>/dem_benchmark/<label>/`, never into the DEMs' own folders, and are reused on a re-run. Skip alignment with `--no-pc-align`.
+`pc_align` products go under `<directory>/dem_benchmark/<label>/`, never into the DEMs' own folders, and are reused on a re-run. Skip alignment with `--no-pc-align`. The bootstrap runs 1000 replicates by default; `--n-bootstrap 0` skips it.
 
 ## Comparing DEMs to one of them
 
@@ -56,10 +57,11 @@ dem_benchmark run_a/run-DEM.tif run_b/run-DEM.tif --altimetry-csv lola_pts_csv.c
 
 ## Reading the figure
 
-- Rows are sorted best-first by post-alignment NMAD (pre-alignment with `--no-pc-align`).
+- Rows are sorted best-first by post-alignment NMAD on the shared points (pre-alignment with `--no-pc-align`).
 - **Coverage** is percent valid inside the common footprint, with the valid km² printed beside it. `--own-extent` scores each DEM over its own footprint instead.
 - **IntersectionErr** is the median triangulation error, NMAD in parentheses. A narrow-convergence pair has a *small* intersection error because its rays barely diverge, so read it next to the residual panels rather than as a ranking.
-- **dh median / dh NMAD** are altimetry minus DEM, open marker before `pc_align` and filled after. Translation-only alignment leaves NMAD unchanged, so those markers coincide.
+- **dh median / dh NMAD** are altimetry minus DEM on the points valid in every DEM, open marker before `pc_align` and filled after. Translation-only alignment leaves NMAD unchanged, so those markers coincide. The error bar is the 95 % bootstrap interval on the ranked (post-alignment) value, printed in brackets after it. The subtitle states how many points are shared and how many tracks were resampled.
+- In the NMAD panel the best DEM is labelled `best`, and every DEM whose paired NMAD difference to it includes zero is labelled `≈ best`. Read that label, not the overlap of the error bars: DEMs scored on the same points share most of their sampling variation, so their intervals can overlap while the difference between them is tight.
 
 ## Full options
 
@@ -73,8 +75,9 @@ Usage: dem_benchmark [OPTIONS] DEMS...
   its folder. Every DEM gets: coverage inside the common footprint, the median
   triangulation error from its IntersectionErr raster when present, and the
   altimetry-minus-DEM median / NMAD / RMSE before and (unless --no-pc-align)
-  after a pc_align translation. Writes a one-row-per-DEM summary figure, an
-  overlaid residual histogram, and the stats table as CSV.
+  after a pc_align translation, on its own points and on the points valid in
+  every DEM, with bootstrap intervals on the latter. Writes a one-row-per-DEM
+  summary figure, an overlaid residual histogram, and the stats table as CSV.
 
 Options:
   --parquet TEXT           ICESat-2 ATL06-SR parquet cache to score Earth DEMs
@@ -98,6 +101,11 @@ Options:
   --own-extent             Compute coverage and triangulation-error statistics
                            over each DEM's own extent instead of the
                            intersection of all DEM footprints.
+  --n-bootstrap INTEGER    Replicates of the paired block bootstrap that puts
+                           95 % intervals on the shared-point median and NMAD
+                           of every DEM and on its NMAD difference to the best
+                           DEM (whole ICESat-2 beam tracks, or MOLA orbits,
+                           are resampled). 0 skips it. Default: 1000.
   --title TEXT             Figure title. Default: none.
   --output-directory TEXT  Directory for the figure and stats CSV. Default:
                            --directory.
@@ -129,4 +137,10 @@ stats = bench.run()                    # one row per DEM
 bench.summary_plot(save_dir="atlanta_mvs", fig_fn="dem_benchmark.png")
 bench.histogram_plot()
 bench.altimetry["MVS 5-scene"].histogram_by_landcover(key="all")
+
+# The shared point set and the bootstrap replicates are kept for further use
+bench.shared_ids                       # point ids valid in every DEM
+bench.dh_aligned["MVS 5-scene"].reindex(bench.shared_ids)   # residuals on them
+bench.bootstrap["nmad"]                # (replicates x DEMs) NMAD per replicate
+not_separable = stats[~(stats["nmad_vs_best_ci_low_m"] > 0)]["label"]
 ```
