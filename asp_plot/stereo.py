@@ -55,6 +55,7 @@ class PairStereoFiles:
     directory: str
     label: str
     left_image_fn: Optional[str]
+    left_mask_fn: Optional[str]
     left_image_sub_fn: Optional[str]
     right_image_sub_fn: Optional[str]
     align_left_fn: Optional[str]
@@ -91,6 +92,11 @@ class StereoFiles:
         Path to the reference DEM (supplied or recovered from the stereo log).
     left_image_fn, left_image_sub_fn, right_image_sub_fn : str or None
         Left/right (sub-sampled) image paths.
+    left_mask_fn : str or None
+        Full-resolution left mask (``*-lMask.tif``). ASP writes it on the
+        same grid as ``*-L.tif``, so it stands in for the left image's size
+        and GSD when the (much larger) left image has been deleted; see
+        :meth:`full_res_left_fn`.
     orthos : bool
         Whether the left image is map-projected.
     align_left_fn, align_right_fn : str or None
@@ -180,9 +186,22 @@ class StereoFiles:
         pair_directories = find_pair_directories(self.full_directory)
         quiet = bool(pair_directories)
 
-        self.left_image_fn = glob_file(self.full_directory, "*-L.tif")
-        # Set processing flag if the left image is not mapprojected
-        self.orthos = False if Raster(self.left_image_fn).transform is None else True
+        self.left_image_fn = glob_file(self.full_directory, "*-L.tif", quiet=True)
+        self.left_mask_fn = glob_file(self.full_directory, "*-lMask.tif", quiet=True)
+        if not (self.left_image_fn or self.left_mask_fn or quiet):
+            logger.warning(
+                f"Could not find *-L.tif or *-lMask.tif in {self.full_directory}. Some plots may be missing."
+            )
+        # Set processing flag if the left image is not mapprojected. The mask
+        # shares the left image's georeferencing, so it answers the question
+        # when the left image was deleted. With neither at the top level (a
+        # multi-view run keeps them in the per-pair subdirectories), treat the
+        # run as not mapprojected.
+        full_res_left_fn = self.full_res_left_fn(self)
+        self.orthos = (
+            full_res_left_fn is not None
+            and Raster(full_res_left_fn).transform is not None
+        )
         self.left_image_sub_fn = glob_file(
             self.full_directory, "*-L_sub.tif", quiet=quiet
         )
@@ -219,7 +238,8 @@ class StereoFiles:
                     number=number,
                     directory=pair_directory,
                     label=describe_pair(number, pair_directory),
-                    left_image_fn=glob_file(pair_directory, "*-L.tif"),
+                    left_image_fn=glob_file(pair_directory, "*-L.tif", quiet=True),
+                    left_mask_fn=glob_file(pair_directory, "*-lMask.tif", quiet=True),
                     left_image_sub_fn=glob_file(pair_directory, "*-L_sub.tif"),
                     right_image_sub_fn=glob_file(pair_directory, "*-R_sub.tif"),
                     align_left_fn=glob_file(pair_directory, "*-align-L.txt"),
@@ -259,6 +279,19 @@ class StereoFiles:
         self.intersection_error_fn = glob_file(
             self.full_directory, "*-IntersectionErr.tif"
         )
+
+    @staticmethod
+    def full_res_left_fn(files):
+        """A raster on the full-resolution left image grid, or None.
+
+        The match-point and disparity figures need the full-resolution size
+        (or GSD) only to rescale onto the sub-sampled images. ``*-L.tif`` is
+        preferred; ``*-lMask.tif`` has the same size and georeferencing and
+        survives when the left image, one of the largest files ASP writes,
+        is deleted to save disk space. Accepts a :class:`StereoFiles` or
+        :class:`PairStereoFiles`.
+        """
+        return files.left_image_fn or files.left_mask_fn
 
     @staticmethod
     def _find_match_file(directory, quiet=False):
@@ -769,10 +802,15 @@ class StereoPlotter(Plotter):
 
         if not files.match_point_fn:
             return True
-        if not files.left_image_fn:
+        if files.left_image_fn:
+            left_image_name = stem(files.left_image_fn)
+        elif files.left_mask_fn:
+            # <prefix>-lMask.tif sits next to <prefix>-L.tif
+            left_image_name = stem(files.left_mask_fn)[: -len("-lMask")] + "-L"
+        else:
             return False
         left_name = stem(files.match_point_fn).split("__")[0]
-        return left_name == stem(files.left_image_fn)
+        return left_name == left_image_name
 
     def _plot_match_points_figure(self, files, title, save_dir=None, fig_fn=None):
         """One two-panel match-point figure for a :class:`StereoFiles` or
@@ -783,8 +821,9 @@ class StereoPlotter(Plotter):
 
         fig, axa = plt.subplots(1, 2, figsize=(10, 5))
 
+        full_res_left_fn = StereoFiles.full_res_left_fn(files)
         have_images = (
-            files.left_image_fn and files.left_image_sub_fn and files.right_image_sub_fn
+            full_res_left_fn and files.left_image_sub_fn and files.right_image_sub_fn
         )
         have_points = (
             match_point_df is not None
@@ -796,7 +835,7 @@ class StereoPlotter(Plotter):
             # space of the images interest points were found on, so one
             # transform per side maps either onto the sub-sampled images.
             if self.orthos:
-                full_gsd = Raster(files.left_image_fn).get_gsd()
+                full_gsd = Raster(full_res_left_fn).get_gsd()
                 sub_gsd = Raster(files.left_image_sub_fn).get_gsd()
                 rescale_factor = sub_gsd / full_gsd
 
@@ -804,7 +843,7 @@ class StereoPlotter(Plotter):
                     return x / rescale_factor, y / rescale_factor
 
             else:
-                full_width = Raster(files.left_image_fn).ds.width
+                full_width = Raster(full_res_left_fn).ds.width
                 sub_width = Raster(files.left_image_sub_fn).ds.width
                 rescale_factor = full_width / sub_width
 
@@ -971,7 +1010,10 @@ class StereoPlotter(Plotter):
         fig, axa = plt.subplots(1, 3, figsize=(10, 3), dpi=220)
         fig.suptitle(title, size=10)
 
-        if files.disparity_sub_fn and files.disparity_fn:
+        # The full-resolution grid is only needed for the GSD ratio of a
+        # mapprojected run; D.tif, L.tif and lMask.tif all share it.
+        full_res_fn = files.disparity_fn or StereoFiles.full_res_left_fn(files)
+        if files.disparity_sub_fn and (full_res_fn or not self.orthos):
             raster = Raster(files.disparity_sub_fn)
             dx = raster.read_array(b=1)
             dy = raster.read_array(b=2)
@@ -992,7 +1034,7 @@ class StereoPlotter(Plotter):
                 )
             if self.orthos:
                 sub_gsd = raster.get_gsd()
-                full_gsd = Raster(files.disparity_fn).get_gsd()
+                full_gsd = Raster(full_res_fn).get_gsd()
                 rescale_factor = sub_gsd / full_gsd
                 dx = dx * rescale_factor
                 dy = dy * rescale_factor
@@ -1293,8 +1335,10 @@ class StereoPlotter(Plotter):
         gsd = raster.get_gsd()
         hs = raster.hillshade()
         ie = Raster(self.intersection_error_fn).read_array()
-        # We only show the corresponding image if it is mapprojected
-        if self.orthos:
+        # We only show the corresponding image if it is mapprojected (and
+        # still on disk: orthos can be known from the mask alone)
+        show_image = self.orthos and self.left_image_fn is not None
+        if show_image:
             image = Raster(self.left_image_fn)
 
         # Full hillshade with DEM overlay
@@ -1405,8 +1449,7 @@ class StereoPlotter(Plotter):
                 col_px + subset_size,
             )
 
-            # We only show the corresponding image if it is mapprojected
-            if self.orthos:
+            if show_image:
                 image_subset = image.read_raster_subset((ul_x, lr_y, lr_x, ul_y))
                 # Use masked array operations to exclude nodata values from clim calculation
                 clim = [
