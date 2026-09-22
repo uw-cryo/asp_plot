@@ -607,3 +607,87 @@ def test_read_match_file_needs_no_stereo_directory(tmp_path):
     assert list(df.columns) == ["x1", "y1", "x2", "y2"]
     assert len(df) > 0
     assert (tmp_path / "some.csv").exists()  # the binary file's CSV cache
+
+
+class TestLeftMaskFallback:
+    """With the full-resolution *-L.tif and *-D.tif deleted, *-lMask.tif (same
+    grid, same georeferencing) supplies the size and GSD the match-point and
+    disparity figures rescale with, so they still draw instead of falling back
+    to the missing-files placeholder (#202)."""
+
+    @staticmethod
+    def _trim(stereo_dir):
+        # ASP writes <prefix>-lMask.tif on the <prefix>-L.tif grid; a copy of
+        # the fixture's L.tif stands in for it.
+        for left in list(stereo_dir.rglob("*-L.tif")):
+            shutil.copy(left, str(left).replace("-L.tif", "-lMask.tif"))
+            left.unlink()
+        for disparity in stereo_dir.rglob("*-D.tif"):
+            disparity.unlink()
+
+    @staticmethod
+    def _figures(plotter, monkeypatch):
+        figures = []
+        monkeypatch.setattr(
+            plotter, "save", lambda fig, *args, **kwargs: figures.append(fig)
+        )
+        return figures
+
+    @pytest.fixture
+    def mvs_plotter(self, tmp_path):
+        stereo_dir = tmp_path / "mvs" / "stereo"
+        shutil.copytree("tests/test_data/mvs/stereo", stereo_dir)
+        self._trim(stereo_dir)
+        return StereoPlotter(
+            directory=str(tmp_path),
+            stereo_directory="mvs/stereo",
+            reference_dem="tests/test_data/ref_dem.tif",
+            title="Multiview",
+        )
+
+    @pytest.fixture
+    def mapprojected_plotter(self, tmp_path):
+        stereo_dir = tmp_path / "stereo"
+        shutil.copytree("tests/test_data/stereo", stereo_dir)
+        self._trim(stereo_dir)
+        return StereoPlotter(
+            directory=str(tmp_path),
+            stereo_directory="stereo",
+            dem_gsd=1,
+            reference_dem="tests/test_data/ref_dem.tif",
+            title="Mapprojected",
+        )
+
+    def test_mask_discovered_in_place_of_left_image(self, mvs_plotter):
+        for pair in mvs_plotter.pairs:
+            assert pair.left_image_fn is None
+            assert pair.disparity_fn is None
+            assert pair.left_mask_fn.endswith("-lMask.tif")
+
+    def test_orthos_from_mask(self, mvs_plotter, mapprojected_plotter):
+        assert mvs_plotter.orthos is False
+        assert mapprojected_plotter.left_image_fn is None
+        assert mapprojected_plotter.orthos is True
+
+    @pytest.mark.parametrize("which", ["mvs_plotter", "mapprojected_plotter"])
+    def test_match_points_drawn(self, which, request, monkeypatch):
+        plotter = request.getfixturevalue(which)
+        figures = self._figures(plotter, monkeypatch)
+        plotter.plot_match_points()
+        assert figures
+        for fig in figures:
+            for ax in fig.axes[:2]:
+                assert ax.collections, "match points were not drawn"
+
+    @pytest.mark.parametrize("which", ["mvs_plotter", "mapprojected_plotter"])
+    def test_disparity_drawn(self, which, request, monkeypatch):
+        plotter = request.getfixturevalue(which)
+        figures = self._figures(plotter, monkeypatch)
+        plotter.plot_disparity()
+        assert figures
+        for fig in figures:
+            assert fig.axes[0].images, "disparity was not drawn"
+
+    def test_mapprojected_hillshade_without_left_image(self, mapprojected_plotter):
+        # orthos is known from the mask, but there is no image to show.
+        mapprojected_plotter.plot_detailed_hillshade(subset_km=10)
