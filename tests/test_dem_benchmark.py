@@ -305,6 +305,29 @@ class TestRun:
         bench.run(pc_align=True, minimum_points=10)
         assert len(fake_pc_align) == 2
 
+    def test_unreadable_translated_dem_does_not_empty_shared_set(
+        self, bench, fake_pc_align, monkeypatch
+    ):
+        # If the translated copy samples NaN everywhere (unreadable, or being
+        # rewritten by a concurrent run), that DEM is scored without
+        # alignment and the other DEMs keep their shared points.
+        from asp_plot.alignment import Alignment
+
+        real = Alignment.apply_dem_translation
+
+        def far_away(self, output_prefix, output_fn=None):
+            real(self, output_prefix=output_prefix, output_fn=output_fn)
+            return DEM_FAR if "stereo" in output_fn else output_fn
+
+        monkeypatch.setattr(Alignment, "apply_dem_translation", far_away)
+        df = bench.run(pc_align=True, minimum_points=10).set_index("label")
+        assert "stereo" not in bench.dh_aligned
+        assert "ref" in bench.dh_aligned
+        assert np.isnan(df.loc["stereo", "dh_aligned_nmad_m"])
+        assert np.isfinite(df.loc["ref", "dh_aligned_shared_nmad_m"])
+        assert df["n_shared"].gt(0).all()
+        assert len(bench.shared_ids) == df.loc["stereo", "n_shared"]
+
     def test_minimum_points_skips_alignment(self, bench, fake_pc_align):
         df = bench.run(pc_align=True, minimum_points=10**9)
         assert not fake_pc_align
@@ -372,11 +395,15 @@ class TestOutput:
         labels = [t.get_text() for t in fig.axes[0].get_yticklabels()]
         expected = list(bench.stats_df.sort_values("dh_aligned_shared_nmad_m")["label"])
         assert labels == expected
-        # Coverage, IntersectionErr (the stereo DEM has one), median, NMAD.
-        assert len(fig.axes) == 4
+        # Coverage, median, NMAD. IntersectionErr stays in the table only.
+        assert len(fig.axes) == 3
+        assert "IntersectionErr" not in [ax.get_title() for ax in fig.axes]
+        assert np.isfinite(
+            bench.stats_df.set_index("label").loc["stereo", "ie_median_m"]
+        )
         # The NMAD panel prints the interval and names the best DEM; the
         # subtitle says what the error bars are.
-        nmad_texts = [t.get_text() for t in fig.axes[3].texts]
+        nmad_texts = [t.get_text() for t in fig.axes[2].texts]
         assert any("best" in t for t in nmad_texts)
         assert all("[" in t for t in nmad_texts)
         assert "resampling" in fig._suptitle.get_text()

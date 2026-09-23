@@ -9,7 +9,8 @@ the same fixed altimetry sample, so the numbers are directly comparable:
 - coverage inside a common area of interest (by default the intersection of
   all DEM footprints, so crop windows that differ per run compare fairly)
 - triangulation error, from the ``*-IntersectionErr.tif`` ``point2dem`` writes
-  next to each ``*-DEM.tif`` (absent for a mosaic)
+  next to each ``*-DEM.tif`` (absent for a mosaic), in the table only: it is
+  a consistency check on a run, not a quality ranking across geometries
 - altimetry residuals (altimetry minus DEM: n, median, NMAD, RMSE) before and,
   optionally, after a ``pc_align --compute-translation-only`` per DEM, with the
   translation that removed -- on each DEM's own points and on the points
@@ -361,6 +362,8 @@ class DEMBenchmark:
     directory : str
         Working folder. pc_align products, the pc_align CSV and the translated
         DEM copy for each candidate go under ``<directory>/dem_benchmark/<label>/``.
+        The translated copy is rewritten on every run, so two benchmarks
+        sharing a directory and a label must not run at the same time.
     dems : dict or list
         ``{label: dem_fn}`` (order preserved), or a list of paths /
         ``"label=path"`` strings (see :func:`parse_dem_specs`).
@@ -830,6 +833,16 @@ class DEMBenchmark:
             alt.planetary_to_dem_dh(n_sigma=None)
             points = alt.planetary_points
         dh_aligned = self._series_by_point(points, aligned_col)
+        if dh_aligned.empty:
+            # The translated DEM sampled NaN everywhere: unreadable, or being
+            # rewritten by another benchmark on the same label folder. Score
+            # this DEM without alignment rather than let an empty aligned
+            # series empty the shared point set for every DEM.
+            logger.warning(
+                f"No aligned residuals for '{label}' (is {aligned_fn} readable?); "
+                "scoring it without alignment."
+            )
+            return row
         self.dh_aligned[label] = dh_aligned
         row.update(
             {
@@ -1019,10 +1032,9 @@ class DEMBenchmark:
         """
         One row per DEM, one panel per metric.
 
-        Panels: coverage (% valid inside the AOI, area printed), triangulation
-        error (median, NMAD printed; omitted when no DEM has an
-        IntersectionErr raster), and altimetry-minus-DEM median and NMAD on
-        the points every DEM shares -- as dumbbells from before (open) to
+        Panels: coverage (% valid inside the AOI, area printed) and
+        altimetry-minus-DEM median and NMAD on the points every DEM shares
+        -- as dumbbells from before (open) to
         after (filled) pc_align when alignment ran, with the 95 % bootstrap
         interval as an error bar on the ranked marker. A translation-only
         pc_align leaves NMAD essentially unchanged by construction, so that
@@ -1032,6 +1044,12 @@ class DEMBenchmark:
         best DEM's NMAD is labelled ``best`` and every DEM whose paired NMAD
         difference to it includes zero is labelled ``≈ best``.
 
+        The IntersectionErr columns are not drawn. Across DEMs of different
+        geometry the triangulation error ranks opposite to accuracy (a
+        narrow pair's rays intersect precisely, at the wrong height), so a
+        panel of it next to the residuals misleads; the columns stay in the
+        table as a consistency check on a run.
+
         Returns
         -------
         matplotlib.figure.Figure
@@ -1040,11 +1058,10 @@ class DEMBenchmark:
         n = len(df)
         y = np.arange(n)[::-1]
         has_aligned = df["dh_aligned_shared_nmad_m"].notna().any()
-        has_ie = df["ie_median_m"].notna().any()
         has_ci = df["nmad_ci_low_m"].notna().any()
         best = self.bootstrap["best"] if self.bootstrap else None
 
-        panels = ["coverage"] + (["ie"] if has_ie else []) + ["median", "nmad"]
+        panels = ["coverage", "median", "nmad"]
         fig, axes = plt.subplots(
             1,
             len(panels),
@@ -1105,22 +1122,6 @@ class DEMBenchmark:
                 ax.set_xticks([0, 25, 50, 75, 100])
                 ax.set_xlabel("Valid inside AOI (%)", fontsize=8)
                 ax.set_title("Coverage", fontsize=9)
-            elif panel == "ie":
-                v = df["ie_median_m"].to_numpy(dtype=float)
-                ax.barh(
-                    y, np.nan_to_num(v), color="tab:orange", alpha=0.75, height=0.62
-                )
-                ax.set_xlim(0, ax.get_xlim()[1])
-                annotate(
-                    ax,
-                    v,
-                    [
-                        f"{m:.2f} (NMAD {s:.2f})" if np.isfinite(m) else ""
-                        for m, s in zip(v, df["ie_nmad_m"])
-                    ],
-                )
-                ax.set_xlabel("Triangulation error, median (m)", fontsize=8)
-                ax.set_title("IntersectionErr", fontsize=9)
             else:
                 before = df[f"dh_shared_{panel}_m"].to_numpy(dtype=float)
                 after = df[f"dh_aligned_shared_{panel}_m"].to_numpy(dtype=float)
