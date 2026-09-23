@@ -52,6 +52,16 @@ from asp_plot.dem_benchmark import DEMBenchmark
     "own extent instead of the intersection of all DEM footprints.",
 )
 @click.option(
+    "--n-bootstrap",
+    prompt=False,
+    default=1000,
+    type=int,
+    help="Replicates of the paired block bootstrap that puts 95 % intervals on "
+    "the shared-point median and NMAD of every DEM and on its NMAD difference "
+    "to the best DEM (whole ICESat-2 beam tracks, or MOLA orbits, are "
+    "resampled). 0 skips it. Default: 1000.",
+)
+@click.option(
     "--title",
     prompt=False,
     default=None,
@@ -79,6 +89,7 @@ def main(
     reference,
     no_pc_align,
     own_extent,
+    n_bootstrap,
     title,
     output_directory,
     output_filename,
@@ -89,10 +100,13 @@ def main(
     DEMS are paths, optionally labelled as LABEL=PATH (e.g.
     "MVS=stereo_mvs3/run-DEM.tif"); an unlabelled ASP run-DEM.tif is labelled
     by its folder. Every DEM gets: coverage inside the common footprint, the
-    median triangulation error from its IntersectionErr raster when present,
-    and the altimetry-minus-DEM median / NMAD / RMSE before and (unless
-    --no-pc-align) after a pc_align translation. Writes a one-row-per-DEM
-    summary figure, an overlaid residual histogram, and the stats table as CSV.
+    median triangulation error from its IntersectionErr raster when present
+    (table only; it is a consistency check, not a quality ranking), and the
+    altimetry-minus-DEM median / NMAD / RMSE before and (unless
+    --no-pc-align) after a pc_align translation, on its own points and on the
+    points valid in every DEM, with bootstrap intervals on the latter. Writes
+    a one-row-per-DEM summary figure, an overlaid residual histogram, and the
+    stats table as CSV.
     """
     directory = os.path.expanduser(directory)
     if output_directory is None:
@@ -106,6 +120,7 @@ def main(
         altimetry_csv=altimetry_csv,
         reference=reference,
         aoi=None if own_extent else "intersection",
+        n_bootstrap=n_bootstrap,
         title=title,
     )
     stats = bench.run(pc_align=not no_pc_align)
@@ -115,7 +130,24 @@ def main(
     bench.summary_plot(save_dir=output_directory, fig_fn=output_filename)
     bench.histogram_plot(save_dir=output_directory, fig_fn=f"{stem}_histogram.png")
 
-    shown = stats.drop(columns=["dem_fn"])
+    # The headline columns; the CSV has every column of STATS_COLUMNS.
+    shown = stats[
+        [
+            "label",
+            "valid_pct",
+            "ie_median_m",
+            "n_points",
+            "n_shared",
+            "dh_shared_median_m",
+            "dh_shared_nmad_m",
+            "dh_aligned_shared_median_m",
+            "dh_aligned_shared_nmad_m",
+            "nmad_ci_low_m",
+            "nmad_ci_high_m",
+            "p_best",
+        ]
+    ]
+    shown = shown.dropna(axis=1, how="all")
     print("\n" + shown.to_string(index=False, float_format=lambda v: f"{v:.2f}"))
     print(
         f"\nSummary figure: {os.path.join(output_directory, output_filename)}"
