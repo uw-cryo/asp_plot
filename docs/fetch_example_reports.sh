@@ -15,7 +15,7 @@
 # or the docs build fails on a missing asset. See AGENTS.md.
 set -euo pipefail
 
-REPORTS_RELEASE="reports-2026-09-18"
+REPORTS_RELEASE="reports-2026-09-29"
 BASE="https://github.com/uw-cryo/asp_plot/releases/download/${REPORTS_RELEASE}"
 OUT="$(cd "$(dirname "$0")" && pwd)/_static/reports"
 

@@ -52,15 +52,35 @@ To publish a regenerated set:
 
 ```bash
 bash reports/regenerate_reports.sh          # gitignored; needs ~/Desktop/asp-plot-examples
+
+# Switch the Zenodo webhook off for the publish (needs repo admin; see below)
+HOOK=$(gh api repos/uw-cryo/asp_plot/hooks \
+    --jq '.[] | select(.config.url | contains("zenodo.org")) | .id')
+gh api -X PATCH repos/uw-cryo/asp_plot/hooks/$HOOK -F active=false --jq .active
+
 gh release create reports-$(date +%F) \
     reports/*.pdf reports/*_figure_selections.yml reports/regenerate_reports.sh \
     --target main --latest=false \
     --title "Example reports, $(date +%F)" --notes "What changed and why."
+
+# Confirm nothing was delivered for the new release, then switch it back on
+gh api "repos/uw-cryo/asp_plot/hooks/$HOOK/deliveries?per_page=3" \
+    --jq '.[] | "\(.delivered_at) \(.event) \(.action)"'
+gh api -X PATCH repos/uw-cryo/asp_plot/hooks/$HOOK -F active=true --jq .active
 # then bump REPORTS_RELEASE in docs/fetch_example_reports.sh and commit that one line
 ```
 
-Four things matter here:
+Five things matter here:
 
+- **Keep the release off Zenodo.** The repository has a Zenodo webhook on
+  `release` events, and Zenodo archives every published release as a version of
+  the software: it cannot tell a reports release from a version release. The
+  `reports-2026-09-18` release was archived that way and, being the newest
+  record, became what the DOI badge in the README resolves to. Switch the
+  webhook off before publishing and back on afterwards, as above; GitHub does
+  not re-send the events it skipped. Always pass `--jq` when reading the hook,
+  because its URL embeds an access token that must not end up in a log or a
+  comment. A published Zenodo record can only be removed by Zenodo support.
 - **Publish the release before pushing the commit** that points at it. The docs
   build uses `curl -f`, so a tag that does not exist yet fails the build.
 - **`--latest=false`**, or the reports release takes the "Latest" badge from the
