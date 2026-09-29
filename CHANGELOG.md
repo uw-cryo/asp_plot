@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- **The example reports are regenerated under 3.4.0** and published as [`reports-2026-09-29`](https://github.com/uw-cryo/asp_plot/releases/tag/reports-2026-09-29); the docs build fetches that set. All seven carry the intersection error captions of 3.4.0. `WorldView_Atlanta_MVS` is rebuilt for the first time since the 200 dpi cap, which the fix for deleted `*-L.tif` files ([#202](https://github.com/uw-cryo/asp_plot/issues/202)) made possible, and goes from 22.4 MB to 12.4 MB. Every report was rebuilt with `--reuse-selections`, so each page shows the same altimetry points and clips as before.
+- **A reports release is kept off Zenodo.** Zenodo archives every published GitHub release as a version of the software, and the first reports release had become what the DOI badge resolves to. `AGENTS.md` now has the step that prevents it: the Zenodo webhook is switched off while a reports release is published.
+
 ## [3.4.0] - 2026-09-29
 
 In this release:
