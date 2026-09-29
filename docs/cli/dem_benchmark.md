@@ -142,5 +142,5 @@ bench.altimetry["MVS 5-scene"].histogram_by_landcover(key="all")
 bench.shared_ids                       # point ids valid in every DEM
 bench.dh_aligned["MVS 5-scene"].reindex(bench.shared_ids)   # residuals on them
 bench.bootstrap["nmad"]                # (replicates x DEMs) NMAD per replicate
-not_separable = stats[~(stats["nmad_vs_best_ci_low_m"] > 0)]["label"]
+not_separable = stats[stats["nmad_vs_best_ci_low_m"] <= 0]["label"]  # includes the best
 ```

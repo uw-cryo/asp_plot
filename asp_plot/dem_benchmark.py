@@ -514,6 +514,7 @@ class DEMBenchmark:
         self.dh_aligned = {}
         self.blocks = None
         self.block_name = None
+        self._blocks_recorded = False
         self.shared_ids = None
         self.bootstrap = None
         self._pc_align_available = True
@@ -874,7 +875,7 @@ class DEMBenchmark:
         if table is None or POINT_ID in table.columns:
             return
         tables[key] = table.assign(**{POINT_ID: np.arange(len(table))})
-        if self.blocks is None:
+        if not self._blocks_recorded:
             cols = {c.strip().lower(): c for c in table.columns}
             found = [cols[c] for c in ICESAT2_BLOCK_COLUMNS if c in cols]
             if len(found) < len(ICESAT2_BLOCK_COLUMNS):
@@ -892,13 +893,19 @@ class DEMBenchmark:
         if table is None or POINT_ID in table.columns:
             return
         alt.planetary_points = table.assign(**{POINT_ID: np.arange(len(table))})
-        if self.blocks is None:
+        if not self._blocks_recorded:
             cols = {c.strip().lower(): c for c in table.columns}
             found = [cols[c] for c in PLANETARY_BLOCK_COLUMNS if c in cols][:1]
             self._record_blocks(alt.planetary_points, found, "orbit")
 
     def _record_blocks(self, table, columns, name):
-        """Store the block id of every tagged point, from ``columns`` of ``table``."""
+        """
+        Store the block id of every tagged point, from ``columns`` of ``table``.
+
+        Runs for the first DEM only: every DEM replays the same altimetry
+        file, so the blocks (or their absence, and the warning) are the same.
+        """
+        self._blocks_recorded = True
         if not columns:
             self.blocks = None
             self.block_name = None
@@ -1182,7 +1189,9 @@ class DEMBenchmark:
                     if panel == "nmad" and best is not None:
                         if df.loc[i, "label"] == best:
                             txt += "  best"
-                        elif not df.loc[i, "nmad_vs_best_ci_low_m"] > 0:
+                        elif df.loc[i, "nmad_vs_best_ci_low_m"] <= 0:
+                            # NaN (a DEM outside the bootstrap) compares
+                            # False, so it gets no label.
                             txt += "  ≈ best"
                     texts.append(txt)
                 right_edge = np.fmax(

@@ -327,6 +327,14 @@ class TestRun:
         assert np.isfinite(df.loc["ref", "dh_aligned_shared_nmad_m"])
         assert df["n_shared"].gt(0).all()
         assert len(bench.shared_ids) == df.loc["stereo", "n_shared"]
+        # The DEM that lost its alignment is outside the bootstrap: it has no
+        # interval, and the figure must not call it "≈ best".
+        assert bench.bootstrap["labels"] == ["ref"]
+        assert np.isnan(df.loc["stereo", "nmad_vs_best_ci_low_m"])
+        fig = bench.summary_plot()
+        texts = [t.get_text() for t in fig.axes[2].texts]
+        assert sum("best" in t for t in texts) == 1
+        assert not any("≈" in t for t in texts)
 
     def test_minimum_points_skips_alignment(self, bench, fake_pc_align):
         df = bench.run(pc_align=True, minimum_points=10**9)
@@ -381,6 +389,48 @@ class TestRun:
             aoi=(575608, 7908286, 594558, 7923768),
         )
         assert bench.aoi_bounds == (575608, 7908286, 594558, 7923768)
+
+
+class TestPlanetaryBlocks:
+    """The resampling block of LOLA/MOLA points, without a planetary DEM:
+    the tagging runs on the point table alone."""
+
+    @staticmethod
+    def _alt(columns):
+        from types import SimpleNamespace
+
+        n = 6
+        table = pd.DataFrame(
+            {
+                "lon": np.linspace(0, 1, n),
+                "lat": np.linspace(0, 1, n),
+                "height": np.zeros(n),
+                **columns,
+            }
+        )
+        return SimpleNamespace(planetary_points=table)
+
+    def test_mola_orbit_is_the_block(self, bench):
+        # ODE GDS pads its header names with spaces.
+        alt = self._alt({"          ORBIT": [11, 11, 12, 12, 12, 13]})
+        bench._tag_planetary_points(alt)
+        assert list(alt.planetary_points["benchmark_point_id"]) == list(range(6))
+        assert bench.block_name == "orbit"
+        assert bench.blocks.nunique() == 3
+        assert list(bench.blocks.index) == list(range(6))
+        assert bench.blocks.iloc[0] == bench.blocks.iloc[1]
+        assert bench.blocks.iloc[1] != bench.blocks.iloc[2]
+
+    def test_lola_has_no_block_and_warns_once(self, bench, caplog):
+        with caplog.at_level("WARNING", logger="asp_plot.dem_benchmark"):
+            for _ in range(3):  # one table per DEM
+                alt = self._alt({"Pt_Radius": np.full(6, 1737.4)})
+                bench._tag_planetary_points(alt)
+                assert "benchmark_point_id" in alt.planetary_points.columns
+        assert bench.blocks is None
+        assert bench.block_name is None
+        warnings = [r for r in caplog.records if "no orbit id" in r.getMessage()]
+        assert len(warnings) == 1
 
 
 class TestOutput:
