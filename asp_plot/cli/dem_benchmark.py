@@ -3,6 +3,7 @@ import os
 import click
 
 from asp_plot.dem_benchmark import DEMBenchmark
+from asp_plot.icesat2_source import WORLDCOVER_GROUPS
 
 
 @click.command()
@@ -52,6 +53,18 @@ from asp_plot.dem_benchmark import DEMBenchmark
     "own extent instead of the intersection of all DEM footprints.",
 )
 @click.option(
+    "--filter-out",
+    prompt=False,
+    multiple=True,
+    default=("water",),
+    type=click.Choice(sorted(WORLDCOVER_GROUPS) + ["none"]),
+    help="ESA WorldCover group to drop from the ICESat-2 points before "
+    "differencing; repeat the option for several. '--filter-out water "
+    "--filter-out trees' is the stable-terrain choice when years separate the "
+    "imagery from the ICESat-2 passes. 'none' keeps every return. Earth DEMs "
+    "only. Default: water.",
+)
+@click.option(
     "--n-bootstrap",
     prompt=False,
     default=1000,
@@ -89,6 +102,7 @@ def main(
     reference,
     no_pc_align,
     own_extent,
+    filter_out,
     n_bootstrap,
     title,
     output_directory,
@@ -120,6 +134,7 @@ def main(
         altimetry_csv=altimetry_csv,
         reference=reference,
         aoi=None if own_extent else "intersection",
+        filter_out=[g for g in filter_out if g != "none"] or None,
         n_bootstrap=n_bootstrap,
         title=title,
     )

@@ -73,6 +73,33 @@ class TestAltimetry:
         except Exception as e:
             pytest.fail(f"filter_esa_worldcover() method raised an exception: {str(e)}")
 
+    def test_filter_esa_worldcover_accepts_a_list(self, icesat):
+        col = "esa_worldcover.value"
+        before = icesat.atl06sr_processing_levels_filtered["all"]
+        assert before[col].isin([80]).any() and before[col].isin([50]).any()
+
+        icesat.filter_esa_worldcover(filter_out=["water", "built_up"])
+        after = icesat.atl06sr_processing_levels_filtered["all"]
+        assert not after[col].isin([80, 50]).any()
+        assert len(after) == (~before[col].isin([80, 50])).sum()
+
+    def test_filter_esa_worldcover_retain_a_list(self, icesat):
+        col = "esa_worldcover.value"
+        icesat.filter_esa_worldcover(retain_only=("water", "built_up"))
+        after = icesat.atl06sr_processing_levels_filtered["all"]
+        assert len(after) and after[col].isin([80, 50]).all()
+
+    def test_filter_esa_worldcover_unknown_group(self, icesat, caplog):
+        before = len(icesat.atl06sr_processing_levels_filtered["all"])
+        with caplog.at_level("WARNING", logger="asp_plot.icesat2_source"):
+            icesat.filter_esa_worldcover(filter_out="tree")
+        assert "filter value not found: tree" in caplog.text
+        assert len(icesat.atl06sr_processing_levels_filtered["all"]) == before
+        # A known group beside an unknown one is still applied.
+        icesat.filter_esa_worldcover(filter_out=["tree", "water"])
+        after = icesat.atl06sr_processing_levels_filtered["all"]
+        assert not after["esa_worldcover.value"].isin([80]).any()
+
     def test_generic_temporal_filter_atl06sr(self, icesat):
         try:
             icesat.generic_temporal_filter_atl06sr(

@@ -82,6 +82,15 @@ class TestValidation:
         assert bench.body == "earth"
         assert bench.aoi_bounds is not None
 
+    def test_unknown_filter_group_raises(self, tmp_path):
+        with pytest.raises(ValueError, match="Unknown ESA WorldCover group"):
+            DEMBenchmark(
+                str(tmp_path),
+                {"ref": DEM_REF},
+                parquet=PARQUET,
+                filter_out=["water", "tree"],
+            )
+
     def test_stats_required_before_plotting(self, tmp_path):
         bench = DEMBenchmark(str(tmp_path), [DEM_STEREO], parquet=PARQUET)
         with pytest.raises(ValueError, match="run\\(\\)"):
@@ -248,6 +257,39 @@ class TestRun:
         # Blocks resampled are the beam tracks among the shared points.
         tracks = bench.blocks.reindex(bench.shared_ids).nunique()
         assert bench.bootstrap["n_blocks"] == tracks
+
+    def test_filter_out_list(self, bench, tmp_path):
+        # Dropping a second land-cover group leaves fewer points, for every
+        # DEM alike, and the figure says which groups were dropped.
+        default = bench.run(pc_align=False).set_index("label")
+        assert "without" not in bench.summary_plot()._suptitle.get_text()
+
+        both = DEMBenchmark(
+            str(tmp_path),
+            {"ref": DEM_REF, "stereo": DEM_STEREO},
+            parquet=PARQUET,
+            filter_out=["water", "low_vegetation"],
+            n_bootstrap=0,
+        )
+        df = both.run(pc_align=False).set_index("label")
+        assert (df["n_points"] < default["n_points"]).all()
+        assert df["n_shared"].iloc[0] < default["n_shared"].iloc[0]
+        classes = both.altimetry["ref"].atl06sr_processing_levels_filtered["all"][
+            "esa_worldcover.value"
+        ]
+        assert not classes.isin([80, 90, 30, 100]).any()
+        title = both.summary_plot()._suptitle.get_text()
+        assert "without water, low vegetation" in title
+
+        unfiltered = DEMBenchmark(
+            str(tmp_path),
+            {"ref": DEM_REF},
+            parquet=PARQUET,
+            filter_out=None,
+            n_bootstrap=0,
+        )
+        unfiltered.run(pc_align=False)
+        assert "no land-cover filter" in unfiltered.summary_plot()._suptitle.get_text()
 
     def test_bootstrap_off(self, tmp_path):
         bench = DEMBenchmark(
@@ -518,3 +560,39 @@ class TestCLI:
         assert "dh_shared_nmad_m" in result.output
         assert "p_best" in result.output
         assert "Paired bootstrap (50 replicates" in result.output
+
+    def test_cli_filter_out(self, tmp_path):
+        from click.testing import CliRunner
+
+        from asp_plot.cli.dem_benchmark import main
+
+        def run(name, *options):
+            result = CliRunner().invoke(
+                main,
+                [
+                    DEM_REF,
+                    "--parquet",
+                    PARQUET,
+                    "--directory",
+                    str(tmp_path),
+                    "--no-pc-align",
+                    "--n-bootstrap",
+                    "0",
+                    "--output-filename",
+                    f"{name}.png",
+                    *options,
+                ],
+            )
+            assert result.exit_code == 0, result.output
+            return int(pd.read_csv(tmp_path / f"{name}.csv")["n_points"].iloc[0])
+
+        default = run("default")
+        two = run("two", "--filter-out", "water", "--filter-out", "low_vegetation")
+        everything = run("everything", "--filter-out", "none")
+        assert two < default < everything
+
+        result = CliRunner().invoke(
+            main, [DEM_REF, "--parquet", PARQUET, "--filter-out", "tree"]
+        )
+        assert result.exit_code != 0
+        assert "tree" in result.output

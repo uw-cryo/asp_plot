@@ -52,9 +52,9 @@ BUNDLE_ADJUST_CAMERAS = (
 
 DISPARITY = "Horizontal and vertical disparity maps in pixels with quiver overlay."
 
-DEM_RESULTS = "Output DEM with intersection error map and difference relative to the reference DEM used in processing."
+DEM_RESULTS = "Output DEM with intersection error map and difference relative to the reference DEM used in processing. The intersection error is the closest distance between the rays at the triangulated point (for a multi-view run, twice the mean distance from the point to its rays). It measures how consistently the rays intersect, not how accurate the height is: it does not reflect the convergence angle, and a narrow-angle pair can have a small intersection error and a large height error. Use it to find camera or correlation problems within a run, not to compare runs of different geometry."
 
-DETAILED_HILLSHADE = "DEM hillshade. If the intersection error is available, zoomed subsets selected from low, medium, and high (left to right) uncertainty areas are displayed in the second row. If the mapprojected image is available, corresponding ortho image subsets are displayed in the bottom row."
+DETAILED_HILLSHADE = "DEM hillshade. If the intersection error is available, zoomed subsets selected from areas of low, medium, and high intersection error (left to right) are displayed in the second row. If the mapprojected image is available, corresponding ortho image subsets are displayed in the bottom row."
 
 # ---- ICESat-2 (Earth) captions ----
 
