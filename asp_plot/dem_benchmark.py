@@ -395,7 +395,9 @@ class DEMBenchmark:
         forest. The groups are those of
         :data:`asp_plot.icesat2_source.WORLDCOVER_GROUPS`; a choice other
         than the default is printed in the figure subtitle. None keeps
-        every return. Earth only.
+        every return. The filter applies to Earth DEMs only (LOLA and MOLA
+        points carry no land cover), but the names are checked on every
+        body and an unknown one raises ``ValueError``.
     n_sigma : float or None, optional
         Per-DEM dh outlier cut, default 3 (the report's setting).
     n_bootstrap : int, optional

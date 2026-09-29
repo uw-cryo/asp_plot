@@ -40,7 +40,7 @@ dem_benchmark "MVS 3-scene=stereo_mvs3/run-DEM.tif" \
 
 ## Choosing the land cover to drop
 
-By default only water returns are dropped, as in the report. Repeat `--filter-out` to drop several ESA WorldCover groups (`water`, `trees`, `low_vegetation`, `built_up`, `snow_ice`), or pass `--filter-out none` to keep every return:
+By default only water returns are dropped, as in the report. Repeat `--filter-out` to drop several ESA WorldCover groups (`water`, `trees`, `low_vegetation`, `built_up`, `snow_ice`), or pass `--filter-out none` to keep every return. Giving the option replaces the default rather than adding to it: `--filter-out trees` alone drops trees and keeps water, so name `water` as well to keep dropping it. `none` cannot be combined with a group.
 
 ```bash
 dem_benchmark stereo_mvs3/run-DEM.tif stereo_mvs5/run-DEM.tif \
@@ -119,11 +119,14 @@ Options:
   --filter-out [built_up|low_vegetation|snow_ice|trees|water|none]
                                   ESA WorldCover group to drop from the
                                   ICESat-2 points before differencing; repeat
-                                  the option for several. '--filter-out water
+                                  the option for several. Giving the option
+                                  replaces the default, so name water as well
+                                  to keep dropping it: '--filter-out water
                                   --filter-out trees' is the stable-terrain
                                   choice when years separate the imagery from
                                   the ICESat-2 passes. 'none' keeps every
-                                  return. Earth DEMs only. Default: water.
+                                  return and cannot be combined with a group.
+                                  Earth DEMs only. Default: water.
   --n-bootstrap INTEGER           Replicates of the paired block bootstrap
                                   that puts 95 % intervals on the shared-point
                                   median and NMAD of every DEM and on its NMAD

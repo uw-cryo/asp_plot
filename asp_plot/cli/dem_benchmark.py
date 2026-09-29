@@ -59,10 +59,11 @@ from asp_plot.icesat2_source import WORLDCOVER_GROUPS
     default=("water",),
     type=click.Choice(sorted(WORLDCOVER_GROUPS) + ["none"]),
     help="ESA WorldCover group to drop from the ICESat-2 points before "
-    "differencing; repeat the option for several. '--filter-out water "
-    "--filter-out trees' is the stable-terrain choice when years separate the "
-    "imagery from the ICESat-2 passes. 'none' keeps every return. Earth DEMs "
-    "only. Default: water.",
+    "differencing; repeat the option for several. Giving the option replaces "
+    "the default, so name water as well to keep dropping it: '--filter-out "
+    "water --filter-out trees' is the stable-terrain choice when years "
+    "separate the imagery from the ICESat-2 passes. 'none' keeps every return "
+    "and cannot be combined with a group. Earth DEMs only. Default: water.",
 )
 @click.option(
     "--n-bootstrap",
@@ -122,6 +123,11 @@ def main(
     a one-row-per-DEM summary figure, an overlaid residual histogram, and the
     stats table as CSV.
     """
+    if "none" in filter_out and len(set(filter_out)) > 1:
+        raise click.UsageError(
+            "--filter-out none keeps every return and cannot be combined with "
+            "a land-cover group."
+        )
     directory = os.path.expanduser(directory)
     if output_directory is None:
         output_directory = directory

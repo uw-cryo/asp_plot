@@ -7,7 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [3.4.0] - 2026-09-29
 
-Two things in this release. The DEM benchmark now compares DEMs on the same altimetry points, reports which differences between them are distinguishable, and can drop more than one land-cover group from the reference sample ([#199](https://github.com/uw-cryo/asp_plot/issues/199)). The example reports moved out of git and into release assets ([#201](https://github.com/uw-cryo/asp_plot/issues/201)).
+In this release:
+
+- The DEM benchmark compares DEMs on the same altimetry points, reports which differences between them are distinguishable, and can drop more than one land-cover group from the reference sample ([#199](https://github.com/uw-cryo/asp_plot/issues/199)).
+- The report states what the intersection error measures ([#199](https://github.com/uw-cryo/asp_plot/issues/199)).
+- The example reports moved out of git and into release assets, and figures embedded in a report are capped at 200 dpi ([#201](https://github.com/uw-cryo/asp_plot/issues/201)).
+- The report no longer fails on a stereo directory whose `*-L.tif` or `*-D.tif` has been deleted ([#202](https://github.com/uw-cryo/asp_plot/issues/202)).
 
 Repository size work, part one ([#201](https://github.com/uw-cryo/asp_plot/issues/201)). A `git clone` of this repository is 1.8 GB against a ~275 MB checkout, and the largest single cause is the committed example reports: PDFs do not delta-compress, so every regeneration is a wholly new permanent object, and seven report files had become 116 of them and 846 MB of history. This stops that growing. It does not shrink what is already there — that needs a history rewrite, which is the other half of #201.
 

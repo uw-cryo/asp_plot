@@ -586,6 +586,15 @@ class TestCLI:
             assert result.exit_code == 0, result.output
             return int(pd.read_csv(tmp_path / f"{name}.csv")["n_points"].iloc[0])
 
+        # The comparison below needs both classes in the fixture.
+        classes = pd.read_parquet(PARQUET, columns=["esa_worldcover.value"])[
+            "esa_worldcover.value"
+        ]
+        assert classes.isin([80]).any(), "fixture has no water points"
+        assert classes.isin(
+            [20, 30, 40, 90, 95, 100]
+        ).any(), "fixture has no low-vegetation points"
+
         default = run("default")
         two = run("two", "--filter-out", "water", "--filter-out", "low_vegetation")
         everything = run("everything", "--filter-out", "none")
@@ -596,3 +605,24 @@ class TestCLI:
         )
         assert result.exit_code != 0
         assert "tree" in result.output
+
+        # Giving the option replaces the default: trees alone keeps water.
+        trees_only = run("trees_only", "--filter-out", "trees")
+        assert trees_only == everything  # the fixture has no tree points
+        assert not classes.isin([10]).any()
+
+        # 'none' means no filter, so it cannot sit beside a group.
+        result = CliRunner().invoke(
+            main,
+            [
+                DEM_REF,
+                "--parquet",
+                PARQUET,
+                "--filter-out",
+                "none",
+                "--filter-out",
+                "trees",
+            ],
+        )
+        assert result.exit_code != 0
+        assert "cannot be combined" in result.output
