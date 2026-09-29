@@ -731,3 +731,14 @@ class TestRunReportReturn:
         out = run_report(cfg)
         assert out.endswith("my_report.pdf")
         assert captured["compile_kwargs"]["report_title"] == "test_data"
+
+
+def test_intersection_error_captions_say_what_it_is():
+    from asp_plot import report_captions as captions
+
+    assert "not how accurate the height is" in captions.DEM_RESULTS
+    assert "not to compare runs of different geometry" in captions.DEM_RESULTS
+    # The hillshade subsets are picked by intersection error, which is not
+    # an uncertainty.
+    assert "uncertainty" not in captions.DETAILED_HILLSHADE
+    assert "intersection error" in captions.DETAILED_HILLSHADE

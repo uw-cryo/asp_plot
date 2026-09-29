@@ -2,7 +2,7 @@
 
 The `dem_benchmark` command-line tool scores many DEMs against one altimetry sample and puts the results side by side. The `asp_report` altimetry pages assess a single DEM; this tool compares several, for example different scene combinations, processing flows (joint multi-view triangulation vs. pairwise stereo merged with `dem_mosaic`), or parameter settings.
 
-Every DEM is scored with the report's recipe — the cached ICESat-2 ATL06-SR parquet replayed, ESA WorldCover water returns dropped, residual outliers removed per DEM — and gets:
+Every DEM is scored with the report's recipe — the cached ICESat-2 ATL06-SR parquet replayed, ESA WorldCover water returns dropped (or the groups named with `--filter-out`), residual outliers removed per DEM — and gets:
 
 - **Coverage** inside the common footprint of all the DEMs (percent valid and km²), so runs with different crop windows compare fairly.
 - **Triangulation error**, the median and NMAD of the `*-IntersectionErr.tif` from `point2dem --errorimage`, in the table only. A mosaic has none. It is a consistency check on a run (a misaligned camera shows as a jump from centimetres to metres), not a quality ranking: across DEMs of different geometry it runs opposite to accuracy, because a narrow pair's rays intersect precisely at the wrong height, so it is not drawn.
@@ -37,6 +37,18 @@ dem_benchmark "MVS 3-scene=stereo_mvs3/run-DEM.tif" \
 ```
 
 `pc_align` products go under `<directory>/dem_benchmark/<label>/`, never into the DEMs' own folders, and are reused on a re-run. Skip alignment with `--no-pc-align`. The bootstrap runs 1000 replicates by default; `--n-bootstrap 0` skips it.
+
+## Choosing the land cover to drop
+
+By default only water returns are dropped, as in the report. Repeat `--filter-out` to drop several ESA WorldCover groups (`water`, `trees`, `low_vegetation`, `built_up`, `snow_ice`), or pass `--filter-out none` to keep every return. Giving the option replaces the default rather than adding to it: `--filter-out trees` alone drops trees and keeps water, so name `water` as well to keep dropping it. `none` cannot be combined with a group.
+
+```bash
+dem_benchmark stereo_mvs3/run-DEM.tif stereo_mvs5/run-DEM.tif \
+              --parquet atl06sr_all.parquet \
+              --filter-out water --filter-out trees
+```
+
+Dropping water and trees is the stable-terrain choice. Years usually separate the imagery from the ICESat-2 passes and canopy height changes over that time, and in a forest a stereo DSM and a 40 m ICESat-2 segment do not measure the same surface, so the residuals there say more about the reference than about the DEM. The filter is applied to the altimetry sample before any DEM is scored, so every DEM is still compared on the same points. A choice other than the default is printed in the figure subtitle.
 
 ## Comparing DEMs to one of them
 
@@ -73,47 +85,62 @@ Usage: dem_benchmark [OPTIONS] DEMS...
   "MVS=stereo_mvs3/run-DEM.tif"); an unlabelled ASP run-DEM.tif is labelled by
   its folder. Every DEM gets: coverage inside the common footprint, the median
   triangulation error from its IntersectionErr raster when present (table
-  only; it is a consistency check, not a quality ranking), and the
-  altimetry-minus-DEM median / NMAD / RMSE before and (unless --no-pc-align)
-  after a pc_align translation, on its own points and on the points valid in
-  every DEM, with bootstrap intervals on the latter. Writes a one-row-per-DEM
+  only; it is a consistency check, not a quality ranking), and the altimetry-
+  minus-DEM median / NMAD / RMSE before and (unless --no-pc-align) after a
+  pc_align translation, on its own points and on the points valid in every
+  DEM, with bootstrap intervals on the latter. Writes a one-row-per-DEM
   summary figure, an overlaid residual histogram, and the stats table as CSV.
 
 Options:
-  --parquet TEXT           ICESat-2 ATL06-SR parquet cache to score Earth DEMs
-                           against (the atl06sr_all.parquet a previous
-                           asp_report run wrote next to its report, or from Al
-                           timetry.request_atl06sr_multi_processing(save_to_pa
-                           rquet=True)). The same points are replayed for
-                           every DEM; no SlideRule request is made.
-  --altimetry-csv TEXT     LOLA/MOLA CSV to score Moon/Mars DEMs against (see
-                           request_planetary_altimetry). Use instead of
-                           --parquet for planetary DEMs.
-  --directory TEXT         Working directory. pc_align products and the
-                           translated DEM copies go under
-                           <directory>/dem_benchmark/<label>/, never into the
-                           DEMs' own folders. Default: current directory.
-  --reference TEXT         Label of one of the DEMs to difference the others
-                           against (vs_ref columns of the stats table).
-                           Default: none.
-  --no-pc-align            Skip the per-DEM pc_align translation; report pre-
-                           alignment residuals only.
-  --own-extent             Compute coverage and triangulation-error statistics
-                           over each DEM's own extent instead of the
-                           intersection of all DEM footprints.
-  --n-bootstrap INTEGER    Replicates of the paired block bootstrap that puts
-                           95 % intervals on the shared-point median and NMAD
-                           of every DEM and on its NMAD difference to the best
-                           DEM (whole ICESat-2 beam tracks, or MOLA orbits,
-                           are resampled). 0 skips it. Default: 1000.
-  --title TEXT             Figure title. Default: none.
-  --output-directory TEXT  Directory for the figure and stats CSV. Default:
-                           --directory.
-  --output-filename TEXT   Figure filename; the stats CSV takes the same name
-                           with a .csv extension, and the residual histogram
-                           figure a _histogram suffix. Default:
-                           dem_benchmark.png.
-  --help                   Show this message and exit.
+  --parquet TEXT                  ICESat-2 ATL06-SR parquet cache to score
+                                  Earth DEMs against (the atl06sr_all.parquet
+                                  a previous asp_report run wrote next to its
+                                  report, or from Altimetry.request_atl06sr_mu
+                                  lti_processing(save_to_parquet=True)). The
+                                  same points are replayed for every DEM; no
+                                  SlideRule request is made.
+  --altimetry-csv TEXT            LOLA/MOLA CSV to score Moon/Mars DEMs
+                                  against (see request_planetary_altimetry).
+                                  Use instead of --parquet for planetary DEMs.
+  --directory TEXT                Working directory. pc_align products and the
+                                  translated DEM copies go under
+                                  <directory>/dem_benchmark/<label>/, never
+                                  into the DEMs' own folders. Default: current
+                                  directory.
+  --reference TEXT                Label of one of the DEMs to difference the
+                                  others against (vs_ref columns of the stats
+                                  table). Default: none.
+  --no-pc-align                   Skip the per-DEM pc_align translation;
+                                  report pre-alignment residuals only.
+  --own-extent                    Compute coverage and triangulation-error
+                                  statistics over each DEM's own extent
+                                  instead of the intersection of all DEM
+                                  footprints.
+  --filter-out [built_up|low_vegetation|snow_ice|trees|water|none]
+                                  ESA WorldCover group to drop from the
+                                  ICESat-2 points before differencing; repeat
+                                  the option for several. Giving the option
+                                  replaces the default, so name water as well
+                                  to keep dropping it: '--filter-out water
+                                  --filter-out trees' is the stable-terrain
+                                  choice when years separate the imagery from
+                                  the ICESat-2 passes. 'none' keeps every
+                                  return and cannot be combined with a group.
+                                  Earth DEMs only. Default: water.
+  --n-bootstrap INTEGER           Replicates of the paired block bootstrap
+                                  that puts 95 % intervals on the shared-point
+                                  median and NMAD of every DEM and on its NMAD
+                                  difference to the best DEM (whole ICESat-2
+                                  beam tracks, or MOLA orbits, are resampled).
+                                  0 skips it. Default: 1000.
+  --title TEXT                    Figure title. Default: none.
+  --output-directory TEXT         Directory for the figure and stats CSV.
+                                  Default: --directory.
+  --output-filename TEXT          Figure filename; the stats CSV takes the
+                                  same name with a .csv extension, and the
+                                  residual histogram figure a _histogram
+                                  suffix. Default: dem_benchmark.png.
+  --help                          Show this message and exit.
 ```
 
 ## Python API
@@ -132,6 +159,7 @@ bench = DEMBenchmark(
     },
     parquet="atlanta_mvs/atl06sr_all.parquet",
     reference="MVS 5-scene",
+    filter_out=["water", "trees"],     # default "water"; None keeps every return
 )
 stats = bench.run()                    # one row per DEM
 bench.summary_plot(save_dir="atlanta_mvs", fig_fn="dem_benchmark.png")

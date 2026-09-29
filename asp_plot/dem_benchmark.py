@@ -68,6 +68,7 @@ from rasterio.windows import Window, from_bounds, intersection
 
 from asp_plot.alignment import Alignment
 from asp_plot.altimetry import Altimetry
+from asp_plot.icesat2_source import WORLDCOVER_GROUPS, worldcover_group_values
 from asp_plot.utils import Raster, detect_planetary_body, glob_file, nmad, save_figure
 
 logger = logging.getLogger(__name__)
@@ -385,9 +386,18 @@ class DEMBenchmark:
         ``"intersection"`` (default) uses the common footprint of all DEMs;
         a ``(left, bottom, right, top)`` tuple is taken in the first DEM's
         CRS; None uses each DEM's own extent (not comparable across crops).
-    filter_out : str or None, optional
-        ESA WorldCover group dropped before differencing, default
-        ``"water"`` (the report's setting). None keeps every return.
+    filter_out : str, list of str or None, optional
+        ESA WorldCover group, or groups, dropped before differencing, default
+        ``"water"`` (the report's setting). ``["water", "trees"]`` is the
+        stable-terrain choice: years usually separate the imagery from the
+        ICESat-2 passes, canopy height changes over that time, and a DSM
+        and a 40 m ICESat-2 segment do not see the same surface in a
+        forest. The groups are those of
+        :data:`asp_plot.icesat2_source.WORLDCOVER_GROUPS`; a choice other
+        than the default is printed in the figure subtitle. None keeps
+        every return. The filter applies to Earth DEMs only (LOLA and MOLA
+        points carry no land cover), but the names are checked on every
+        body and an unknown one raises ``ValueError``.
     n_sigma : float or None, optional
         Per-DEM dh outlier cut, default 3 (the report's setting).
     n_bootstrap : int, optional
@@ -498,6 +508,15 @@ class DEMBenchmark:
                 f"{list(self.dems)}"
             )
         self.reference = reference
+        if filter_out is not None:
+            _, unknown = worldcover_group_values(filter_out)
+            if unknown:
+                raise ValueError(
+                    f"Unknown ESA WorldCover group(s) {unknown}; "
+                    f"choose from {sorted(WORLDCOVER_GROUPS)}."
+                )
+            if not isinstance(filter_out, str):
+                filter_out = list(filter_out) or None
         self.filter_out = filter_out
         self.n_sigma = n_sigma
         if n_bootstrap < 0:
@@ -1015,6 +1034,17 @@ class DEMBenchmark:
         df.to_csv(csv_fn, index=False, float_format="%.4f")
         return csv_fn
 
+    def _filter_note(self):
+        """The land-cover filter, for the figure subtitle, when not the default."""
+        if self.filter_out == "water" or self.filter_out == ["water"]:
+            return ""
+        if not self.filter_out:
+            return " (no land-cover filter)"
+        groups = (
+            [self.filter_out] if isinstance(self.filter_out, str) else self.filter_out
+        )
+        return f" (without {', '.join(g.replace('_', ' ') for g in groups)})"
+
     def _sorted_stats(self, sort):
         df = self._require_stats()
         if not sort:
@@ -1222,7 +1252,7 @@ class DEMBenchmark:
         n_pts = df["n_points"].to_numpy(dtype=float)
         parts = [
             (
-                "ICESat-2 ATL06-SR"
+                "ICESat-2 ATL06-SR" + self._filter_note()
                 if self.body == "earth"
                 else f"{self.body.capitalize()} altimetry"
             )

@@ -29,6 +29,42 @@ from asp_plot.utils import nmad as _nmad
 
 logger = logging.getLogger(__name__)
 
+#: ESA WorldCover class codes (see ``WORLDCOVER_NAMES``) grouped under the
+#: names :meth:`Icesat2Source.filter_esa_worldcover` accepts.
+WORLDCOVER_GROUPS = {
+    "water": [80],
+    "snow_ice": [70],
+    "trees": [10],
+    "low_vegetation": [20, 30, 40, 90, 95, 100],
+    "built_up": [50],
+}
+
+
+def worldcover_group_values(groups):
+    """
+    Class codes of one or several ESA WorldCover groups.
+
+    Parameters
+    ----------
+    groups : str or iterable of str
+        Group name(s) from :data:`WORLDCOVER_GROUPS`.
+
+    Returns
+    -------
+    tuple of (list of int, list of str)
+        The class codes of the known groups, and the names that are not
+        groups.
+    """
+    names = [groups] if isinstance(groups, str) or groups is None else list(groups)
+    values, unknown = [], []
+    for name in names:
+        if name in WORLDCOVER_GROUPS:
+            values.extend(WORLDCOVER_GROUPS[name])
+        else:
+            unknown.append(name)
+    return values, unknown
+
+
 ICESAT2_MISSION_START = datetime(2018, 10, 14, tzinfo=timezone.utc)
 
 
@@ -614,12 +650,16 @@ class Icesat2Source(AltimetrySource):
 
         Parameters
         ----------
-        filter_out : str, optional
-            Land cover group to filter out, default is "water".
+        filter_out : str or list of str, optional
+            Land cover group, or groups, to filter out, default is "water".
             Options: "water", "snow_ice", "trees", "low_vegetation", "built_up"
-        retain_only : str or None, optional
-            If specified, retain only points matching this land cover group,
-            default is None. Same options as ``filter_out``.
+            (:data:`WORLDCOVER_GROUPS`). ``["water", "trees"]`` is the
+            stable-terrain choice when years separate the imagery from the
+            ICESat-2 passes, since canopy height changes over that time.
+        retain_only : str, list of str or None, optional
+            If specified, retain only points matching this land cover group
+            (or these groups), default is None. Same options as
+            ``filter_out``.
 
         Returns
         -------
@@ -630,39 +670,25 @@ class Icesat2Source(AltimetrySource):
         -----
         This method uses the ESA WorldCover land cover classification
         (see ``WORLDCOVER_NAMES``), which was sampled when requesting the
-        ATL06-SR data.
+        ATL06-SR data. A name that is not a group is reported and skipped;
+        when no name is a group, nothing is filtered.
         """
-        # Groups of WORLDCOVER_NAMES codes for convenient filtering
-        value_dict = {
-            "water": [80],
-            "snow_ice": [70],
-            "trees": [10],
-            "low_vegetation": [20, 30, 40, 90, 95, 100],
-            "built_up": [50],
-        }
-
-        if retain_only is not None:
-            if retain_only in value_dict:
-                values_to_keep = value_dict[retain_only]
-                for key, atl06sr in self.atl06sr_processing_levels_filtered.items():
-                    if "esa_worldcover.value" in atl06sr.columns:
-                        mask = atl06sr["esa_worldcover.value"].isin(values_to_keep)
-                        self.atl06sr_processing_levels_filtered[key] = atl06sr[mask]
-            else:
-                logger.warning(
-                    f"\nESA WorldCover retain value not found: {retain_only}\n"
-                )
-                return
-
-        elif filter_out in value_dict:
-            values_to_filter = value_dict[filter_out]
-            for key, atl06sr in self.atl06sr_processing_levels_filtered.items():
-                if "esa_worldcover.value" in atl06sr.columns:
-                    mask = ~atl06sr["esa_worldcover.value"].isin(values_to_filter)
-                    self.atl06sr_processing_levels_filtered[key] = atl06sr[mask]
-        else:
-            logger.warning(f"\nESA WorldCover filter value not found: {filter_out}\n")
+        retain = retain_only is not None
+        values, unknown = worldcover_group_values(retain_only if retain else filter_out)
+        for name in unknown:
+            logger.warning(
+                f"\nESA WorldCover {'retain' if retain else 'filter'} value "
+                f"not found: {name}\n"
+            )
+        if not values:
             return
+
+        for key, atl06sr in self.atl06sr_processing_levels_filtered.items():
+            if "esa_worldcover.value" in atl06sr.columns:
+                mask = atl06sr["esa_worldcover.value"].isin(values)
+                self.atl06sr_processing_levels_filtered[key] = atl06sr[
+                    mask if retain else ~mask
+                ]
 
     @staticmethod
     def _worldcover_tile_url(lat, lon):
