@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **The example reports are regenerated under 3.4.0** and published as [`reports-2026-09-29`](https://github.com/uw-cryo/asp_plot/releases/tag/reports-2026-09-29); the docs build fetches that set. All seven carry the intersection error captions of 3.4.0. `WorldView_Atlanta_MVS` is rebuilt for the first time since the 200 dpi cap, which the fix for deleted `*-L.tif` files ([#202](https://github.com/uw-cryo/asp_plot/issues/202)) made possible, and goes from 22.4 MB to 12.4 MB. Every report was rebuilt with `--reuse-selections`, so each page shows the same altimetry points and clips as before.
 - **A reports release is kept off Zenodo.** Zenodo archives every published GitHub release as a version of the software, and the first reports release had become what the DOI badge resolves to. `AGENTS.md` now has the step that prevents it: the Zenodo webhook is switched off while a reports release is published.
 
+### Added
+- **The Atlanta scene-combination benchmark on full strips: `notebooks/WorldView/worldview_spacenet_atlanta_full_benchmark.ipynb`** ([#207](https://github.com/uw-cryo/asp_plot/issues/207)).
+    - **Setup.** The five same-pass WorldView-2 scenes of the cropped study, now as full strips: every PAN L1B tile `wv_correct`ed and `dg_mosaic`ked per CATID, one `bundle_adjust` of the five strips, and one ICESat-2 sample over their 421 km² common footprint, which is 11× the crop. Processed on the NASA NAS supercomputer; about 450 SBU in all.
+    - **Runs.** Ten pairs, two five-scene multi-view runs and three `dem_mosaic` blends, all mapprojected onto COP30, plus six of the pairs raw. Twenty-one DEMs, scored on stable terrain (water and trees dropped).
+    - **Results against the cropped study's rules.** The convergence curve holds in both modes. Pairwise + mosaic matches multi-view only without the pairs below 15° or with the median blend (0.86–0.87 m, against 0.87–0.88 m multi-view and 1.08 m for the plain average). The reference scene of a multi-view run, the cropped study's main lever, makes no measurable difference over the whole strip (0.87 against 0.88 m).
+    - **Raw against mapprojected.** The best full-strip DEM is a single wide raw pair (0.76 m). Raw beats mapprojected by 0.11–0.15 m at 22–32° and loses to it at ~5°.
+    - **Same ground as the crop.** Clipped to the cropped study's window, the full-strip DEMs reproduce or improve on the cropped numbers.
+    - **Along track.** The residuals swing by ±0.2–0.3 m over 2–5 km, and each pattern is shared by the DEMs that contain the same scenes: along-track camera errors that a crop averages out and `pc_align` cannot remove.
+    - **Docs.** The notebook gets a docs card and a toctree entry.
+
 ## [3.4.0] - 2026-09-29
 
 In this release:

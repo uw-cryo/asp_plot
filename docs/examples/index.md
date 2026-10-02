@@ -16,9 +16,17 @@ Three-scene same-pass multi-view stereo of publicly available SpaceNet Atlanta W
 
 :::{grid-item-card} WorldView — SpaceNet Atlanta (Scene-Combination Benchmark)
 :link: notebooks/worldview_spacenet_benchmark
+notebooks/worldview_spacenet_atlanta_full_benchmark
 :link-type: doc
 
 Which combination of N scenes and which processing flow give the best DEM: all ten pairs, six `dem_mosaic` blends and six multi-view runs of five same-pass Atlanta scenes, then the same experiment at UCSD with multi-date WorldView-3 over steep urban terrain — 38 DEMs scored with `dem_benchmark` on one ICESat-2 sample per site.
+:::
+
+:::{grid-item-card} WorldView — SpaceNet Atlanta (Full-Scene Benchmark)
+:link: notebooks/worldview_spacenet_atlanta_full_benchmark
+:link-type: doc
+
+The scene-combination benchmark repeated on the full strips of the five Atlanta scenes: 21 DEMs from ten pairs (mapprojected and raw), two multi-view runs and three blends, scored on stable terrain. Tests the cropped study's rules at strip scale, compares raw with mapprojected stereo, and shows along-track camera errors that a crop averages out.
 :::
 
 :::{grid-item-card} WorldView — SpaceNet Atlanta (Scene Selection)
