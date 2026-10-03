@@ -20,6 +20,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - **Same ground as the crop.** Clipped to the cropped study's window, the full-strip DEMs reproduce or improve on the cropped numbers.
     - **Along track.** The residuals swing by ±0.2–0.3 m over 2–5 km, and each pattern is shared by the DEMs that contain the same scenes: along-track camera errors that a crop averages out and `pc_align` cannot remove.
     - **Docs.** The notebook gets a docs card and a toctree entry.
+- **The UCSD scene-combination benchmark on full scenes: `notebooks/WorldView/worldview_spacenet_ucsd_full_benchmark.ipynb`** ([#207](https://github.com/uw-cryo/asp_plot/issues/207)).
+    - **Setup.** The five multi-date WorldView-3 scenes of the cropped study's second site, on the full scenes. The common area is 182 km² with 14,237 stable-terrain ICESat-2 points on 100 beam tracks, against 502 points on 19 tracks for the crop. Processed on the NASA NAS supercomputer; about 265 SBU.
+    - **Runs.** A selective set of 13: all ten pairs and one five-scene multi-view run mapprojected onto COP30, three of the pairs also raw, and four `dem_mosaic` blends. Eighteen DEMs in all.
+    - **Results against the crop.** Two of the crop's findings reverse: its best single pair (8°) is now the worst, and the 2014-11-09 nadir scene does not degrade its pairs. A convergence curve appears up to ~15°.
+    - **Blends.** The plain average of all ten pairs is the best DEM (1.03 m). Dropping the pairs below 15° costs 0.10 m, the opposite of Atlanta's same-pass stack. The multi-view run trails the average by 0.06 m.
+    - **Raw against mapprojected.** A tie within 0.02 m. Mapprojected covers up to 5 % more and is 0.10–0.16 m better on 10–20° slopes for the wide pairs.
+    - **Same ground as the crop.** With their full-scene `pc_align` translation, the DEMs clipped to crop A reproduce the cropped numbers. Refitting `pc_align` on the 9 km² clip is unstable on this steep ground.
+- **Docs.** The UCSD full-scene notebook gets a docs card. Both full-scene notebooks get their toctree entries; the Atlanta entry had landed inside a card's `:link:` field instead.
 
 ## [3.4.0] - 2026-09-29
 
