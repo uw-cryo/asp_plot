@@ -35,6 +35,20 @@ The scene-combination benchmark repeated on the full strips of the five Atlanta 
 The scene-combination benchmark's second site on the full scenes: five multi-date WorldView-3 collects over steep urban terrain, 18 DEMs from ten pairs (mapprojected, three also raw), a multi-view run and four blends, scored on stable terrain. Tests whether the crop's UCSD findings survive a 17× larger sample, compares the blends, and asks whether mapprojection helps on slopes.
 :::
 
+:::{grid-item-card} WorldView — Full-Scene DEMs vs. 3DEP Lidar (Atlanta and UCSD)
+:link: notebooks/worldview_spacenet_lidar_comparison
+:link-type: doc
+
+The 39 full-scene benchmark DEMs of both sites scored against USGS 3DEP 1 m lidar on open ground: about 11 M shared cells per site instead of 14,000–38,000 ICESat-2 points. Checks the ICESat-2 rankings, scores the steep ground ICESat-2 barely samples, and shows along-track ripples at Atlanta.
+:::
+
+:::{grid-item-card} WorldView — SpaceNet Atlanta (Jitter Correction)
+:link: notebooks/worldview_spacenet_atlanta_jitter
+:link-type: doc
+
+ASP `jitter_solve` on the five same-pass Atlanta WorldView-2 strips, with every pair re-triangulated from its archived disparity. Measures how much attitude jitter costs narrow and wide pairs, and whether correcting it changes the benchmark's blends and the separability of its DEMs.
+:::
+
 :::{grid-item-card} WorldView — SpaceNet Atlanta (Scene Selection)
 :link: notebooks/worldview_spacenet_atlanta_stereo_scene_selection
 :link-type: doc
@@ -129,6 +143,8 @@ notebooks/worldview_spacenet_atlanta_mvs
 notebooks/worldview_spacenet_benchmark
 notebooks/worldview_spacenet_atlanta_full_benchmark
 notebooks/worldview_spacenet_ucsd_full_benchmark
+notebooks/worldview_spacenet_lidar_comparison
+notebooks/worldview_spacenet_atlanta_jitter
 notebooks/worldview_spacenet_atlanta_stereo_scene_selection
 notebooks/worldview_spacenet_ucsd_stereo
 notebooks/worldview_spacenet_ucsd_stereo_scene_selection
