@@ -140,7 +140,9 @@ notebooks/**/*.parquet
 notebooks/**/*.csv
 CLAUDE/
 .claude/**
-scripts/
+# Study driver scripts live in a separate repo; scripts is often a symlink to it,
+# which a trailing-slash pattern (directories only) does not match.
+/scripts
 /*.parquet
 reports/regenerate_reports.sh
 # Figure-selections sidecars written next to each report by `asp_report`. These are

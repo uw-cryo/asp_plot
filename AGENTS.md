@@ -89,13 +89,11 @@ Five things matter here:
   hardcode absolute local paths) but they are what makes regeneration
   figure-stable and offline (issue #121), so keeping them with the PDFs they
   produced makes a release self-describing.
-- **Attach `regenerate_reports.sh` as well, for the same reason and one more.**
-  It is gitignored too, which means it is in no clone *and in no backup* — a
-  mirror of this repository contains zero objects for it, because git never
-  tracked it. The release is therefore its only durable copy, and a release that
-  carries the reports, the selections that shaped them, and the commands that
-  produced them can be reproduced by someone who has the example datasets and
-  nothing else.
+- **Attach `regenerate_reports.sh` as well, for the same reason.** It is
+  gitignored too, so no clone of this repository contains it. Attaching it keeps
+  a copy with each set of reports, and a release that carries the reports, the
+  selections that shaped them, and the commands that produced them can be
+  reproduced by someone who has the example datasets and nothing else.
 
 Always regenerate with `--reuse-selections` so pages stay figure-for-figure
 comparable and no SlideRule request is made. Reports are capped at 200 effective
