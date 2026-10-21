@@ -42,6 +42,13 @@ The scene-combination benchmark's second site on the full scenes: five multi-dat
 The 39 full-scene benchmark DEMs of both sites scored against USGS 3DEP 1 m lidar on open ground: about 11 M shared cells per site instead of 14,000–38,000 ICESat-2 points. Checks the ICESat-2 rankings, scores the steep ground ICESat-2 barely samples, and shows along-track ripples at Atlanta.
 :::
 
+:::{grid-item-card} WorldView — Full-Scene DEMs: Hillshades of Good and Poor Results (Atlanta and UCSD)
+:link: notebooks/worldview_spacenet_full_scene_hillshades
+:link-type: doc
+
+Hillshades of four representative full-scene benchmark DEMs per site, from the best to the worst, over the whole scene and in 1.5 km detail windows next to the 3DEP lidar. Adds each site's slope distribution and land cover, with the share of ICESat-2 points on each class.
+:::
+
 :::{grid-item-card} WorldView — SpaceNet Atlanta (Jitter Correction)
 :link: notebooks/worldview_spacenet_atlanta_jitter
 :link-type: doc
@@ -144,6 +151,7 @@ notebooks/worldview_spacenet_benchmark
 notebooks/worldview_spacenet_atlanta_full_benchmark
 notebooks/worldview_spacenet_ucsd_full_benchmark
 notebooks/worldview_spacenet_lidar_comparison
+notebooks/worldview_spacenet_full_scene_hillshades
 notebooks/worldview_spacenet_atlanta_jitter
 notebooks/worldview_spacenet_atlanta_stereo_scene_selection
 notebooks/worldview_spacenet_ucsd_stereo
