@@ -343,9 +343,25 @@ class TestRun:
         )
         # The fixture log reports a 0.859 m translation magnitude.
         assert by.loc["stereo", "translation_m"] == pytest.approx(0.859, abs=0.01)
-        # Second run reuses the existing pc_align products: no new subprocess.
-        bench.run(pc_align=True, minimum_points=10)
+        translated_fn = os.path.join(
+            bench.label_directory("stereo"),
+            os.path.basename(DEM_STEREO).replace(".tif", "_pc_align_translated.tif"),
+        )
+        first = os.path.getmtime(translated_fn)
+        # Second run reuses the existing pc_align products: no new subprocess,
+        # and the translated DEM, newer than its inputs, is not rewritten.
+        df2 = bench.run(pc_align=True, minimum_points=10)
         assert len(fake_pc_align) == 2
+        assert os.path.getmtime(translated_fn) == first
+        pd.testing.assert_frame_equal(df2, df)
+        # A translated DEM older than its pc_align output is rewritten, and
+        # no partial copy is left behind.
+        os.utime(translated_fn, (first - 10, first - 10))
+        bench.run(pc_align=True, minimum_points=10)
+        assert os.path.getmtime(translated_fn) > first - 10
+        assert not [
+            f for f in os.listdir(bench.label_directory("stereo")) if ".partial" in f
+        ]
 
     def test_unreadable_translated_dem_does_not_empty_shared_set(
         self, bench, fake_pc_align, monkeypatch
