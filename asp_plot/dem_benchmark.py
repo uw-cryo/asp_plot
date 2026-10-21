@@ -54,6 +54,7 @@ Examples
 >>> bench.summary_plot(save_dir="atlanta_mvs", fig_fn="dem_benchmark.png")
 """
 
+import glob
 import logging
 import os
 import re
@@ -235,6 +236,14 @@ def _safe_dirname(label):
     return re.sub(r"[^\w.-]+", "_", label).strip("_") or "dem"
 
 
+def _is_newer_than(fn, sources):
+    """True if ``fn`` exists and is at least as new as every existing file in ``sources``."""
+    if not os.path.exists(fn):
+        return False
+    mtime = os.path.getmtime(fn)
+    return all(os.path.getmtime(s) <= mtime for s in sources if os.path.exists(s))
+
+
 def _dh_stats(dh, prefix):
     """median / NMAD / RMSE of a dh series as ``{prefix}_*_m`` keys (NaN when empty)."""
     values = np.asarray(dh, dtype=float)
@@ -363,8 +372,10 @@ class DEMBenchmark:
     directory : str
         Working folder. pc_align products, the pc_align CSV and the translated
         DEM copy for each candidate go under ``<directory>/dem_benchmark/<label>/``.
-        The translated copy is rewritten on every run, so two benchmarks
-        sharing a directory and a label must not run at the same time.
+        The translated copy is reused while it is newer than its DEM and the
+        pc_align output, and otherwise rewritten (under a temporary name, then
+        renamed), so two benchmarks sharing a directory and a label must not
+        run at the same time.
     dems : dict or list
         ``{label: dem_fn}`` (order preserved), or a list of paths /
         ``"label=path"`` strings (see :func:`parse_dem_specs`).
@@ -597,7 +608,8 @@ class DEMBenchmark:
             Also run ``pc_align --compute-translation-only`` per DEM and
             re-score against the translated copy. Default True. Existing
             pc_align outputs under the benchmark folder are reused, so a
-            re-run makes no pc_align call and works offline.
+            re-run makes no pc_align call and works offline; so are translated
+            DEMs newer than their DEM and pc_align output.
         minimum_points : int, optional
             Skip pc_align for a DEM with fewer valid dh points, default 500
             (the report's threshold).
@@ -992,10 +1004,23 @@ class DEMBenchmark:
             )
             return None, None
         stem = os.path.splitext(os.path.basename(dem_fn))[0]
-        aligned_fn = alignment.apply_dem_translation(
-            output_prefix=output_prefix,
-            output_fn=os.path.join(label_dir, f"{stem}_pc_align_translated.tif"),
+        aligned_fn = os.path.join(label_dir, f"{stem}_pc_align_translated.tif")
+        if _is_newer_than(
+            aligned_fn,
+            [dem_fn]
+            + glob.glob(os.path.join(label_dir, "pc_align", f"{prefix_name}-*")),
+        ):
+            print(f"  Reusing translated DEM {aligned_fn}")
+            return report, aligned_fn
+        # Write under a temporary name and rename, so an interrupted run never
+        # leaves a partial copy that the next run would take as current.
+        partial_fn = os.path.join(label_dir, f"{stem}_pc_align_translated.partial.tif")
+        written = alignment.apply_dem_translation(
+            output_prefix=output_prefix, output_fn=partial_fn
         )
+        if written != partial_fn:
+            return report, written
+        os.replace(partial_fn, aligned_fn)
         return report, aligned_fn
 
     def _reference_stats(self, label, dem_fn):
