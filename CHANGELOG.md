@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **A reports release is kept off Zenodo.** Zenodo archives every published GitHub release as a version of the software, and the first reports release had become what the DOI badge resolves to. `AGENTS.md` now has the step that prevents it: the Zenodo webhook is switched off while a reports release is published.
 - **`DEMBenchmark` reuses a translated DEM that is newer than its DEM and its `pc_align` output** instead of rewriting it on every run, so re-scoring from cached `pc_align` runs no longer writes a full-size copy of every DEM. A new copy is written under a temporary name and renamed, so an interrupted run cannot leave a partial file that a later run would reuse.
 
+### Removed
+- **Three study notebooks are no longer examples: `worldview_spacenet_benchmark.ipynb`, `worldview_spacenet_atlanta_stereo_scene_selection.ipynb` and `worldview_spacenet_ucsd_stereo_scene_selection.ipynb`.** Each answered a research question (which scene combination or pair gives the best DEM) rather than showing how to use a feature, and each re-execution added a full new copy of the notebook to the repository's history. `worldview_spacenet_atlanta_mvs.ipynb` remains the worked example of `DEMBenchmark`; `docs/cli/stereo_geom.md` covers assessing the geometry of every pair in a multi-scene delivery; and the UCSD stereo and Atlanta MVS notebooks now say in their text how their pairs were chosen and how the candidates scored (markdown edits only; neither notebook was re-executed).
+
 ## [3.4.0] - 2026-09-29
 
 In this release:
