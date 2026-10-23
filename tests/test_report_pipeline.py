@@ -15,7 +15,7 @@ import pandas as pd
 import pytest
 
 import asp_plot.report_pipeline as rp
-from asp_plot.report import AlignmentReportPage
+from asp_plot.report import AlignmentReportPage, ReportSection
 from asp_plot.report_pipeline import (
     REPORT_SECTIONS,
     ReportConfig,
@@ -731,6 +731,66 @@ class TestRunReportReturn:
         out = run_report(cfg)
         assert out.endswith("my_report.pdf")
         assert captured["compile_kwargs"]["report_title"] == "test_data"
+
+
+class TestKeepFigures:
+    def test_copies_figures_named_by_number_and_title(self, tmp_path, capsys):
+        plots = tmp_path / "plots"
+        plots.mkdir()
+        for fn in ("00.png", "01.png", "02.png"):
+            (plots / fn).write_bytes(fn.encode())
+        sections = [
+            ReportSection("Input Scenes", str(plots / "00.png")),
+            ReportSection("ICESat-2 ATL06-SR Map", str(plots / "01.png")),
+            # Alignment page without a figure: nothing to keep.
+            AlignmentReportPage("DEM Alignment with ICESat-2"),
+            ReportSection("Missing Figure", str(plots / "gone.png")),
+            ReportSection("DEM Results (Aligned DEM)", str(plots / "02.png")),
+        ]
+        for i, section in enumerate(sections, start=1):
+            section.figure_number = i
+
+        out = tmp_path / "figures"
+        rp._keep_figures(sections, str(out))
+
+        assert sorted(p.name for p in out.iterdir()) == [
+            "01_input_scenes.png",
+            "02_icesat_2_atl06_sr_map.png",
+            "05_dem_results_aligned_dem.png",
+        ]
+        assert (out / "05_dem_results_aligned_dem.png").read_bytes() == b"02.png"
+        assert "Kept 3 report figures" in capsys.readouterr().out
+
+    def test_run_report_keeps_figures_before_cleanup(self, monkeypatch, harness):
+        rec, captured = harness
+        monkeypatch.setattr(rp, "detect_planetary_body", lambda dem: "earth")
+        calls = []
+        monkeypatch.setattr(
+            rp, "_keep_figures", lambda sections, d: calls.append(("keep", d))
+        )
+        monkeypatch.setattr(rp.shutil, "rmtree", lambda *a, **k: calls.append("rm"))
+        cfg = ReportConfig(
+            directory="tests/test_data",
+            map_crs="EPSG:32610",
+            add_basemap=False,
+            plot_altimetry=False,
+            figures_directory="figs",
+        )
+        run_report(cfg)
+        assert calls == [("keep", "figs"), "rm"]
+
+    def test_run_report_keeps_nothing_by_default(self, monkeypatch, harness):
+        monkeypatch.setattr(rp, "detect_planetary_body", lambda dem: "earth")
+        monkeypatch.setattr(
+            rp, "_keep_figures", lambda *a: pytest.fail("figures kept by default")
+        )
+        cfg = ReportConfig(
+            directory="tests/test_data",
+            map_crs="EPSG:32610",
+            add_basemap=False,
+            plot_altimetry=False,
+        )
+        run_report(cfg)
 
 
 def test_intersection_error_captions_say_what_it_is():

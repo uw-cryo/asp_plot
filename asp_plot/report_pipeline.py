@@ -14,6 +14,7 @@ Captions live in :mod:`asp_plot.report_captions`.
 """
 
 import os
+import re
 import shutil
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -83,6 +84,9 @@ class ReportConfig:
     # Resolution ceiling for figures embedded in the PDF, applied at the size
     # each figure is placed on the page. See asp_plot.report.FIGURE_MAX_DPI.
     figure_max_dpi: Optional[int] = FIGURE_MAX_DPI
+    # Directory to keep a copy of each report figure in, as NN_<title>.png.
+    # None keeps nothing: the figures are deleted with the plots directory.
+    figures_directory: Optional[str] = None
     # Reconstructed "asp_report --flag ..." string recorded in the report. The
     # CLI builds this from the Click context; non-CLI callers may leave it None.
     report_command: Optional[str] = None
@@ -1052,12 +1056,35 @@ def _write_figure_selections(ctx: ReportContext) -> None:
         print(f"\nCould not write figure selections: {e}\n")
 
 
+def _keep_figures(sections: List[object], figures_directory: str) -> None:
+    """Copy each report figure to ``figures_directory`` as ``NN_<title>.png``.
+
+    ``NN`` is the figure number printed in the PDF and ``<title>`` the page
+    heading in lowercase with runs of other characters replaced by ``_``
+    (e.g. ``05_dem_results.png``), so a figure can be picked by name even when
+    a section is skipped and the numbers shift. Files of the same name are
+    overwritten; nothing else in the directory is touched.
+    """
+    figures_directory = os.path.expanduser(figures_directory)
+    os.makedirs(figures_directory, exist_ok=True)
+    kept = 0
+    for section in sections:
+        if not section.image_path or not os.path.exists(section.image_path):
+            continue
+        slug = re.sub(r"[^a-z0-9]+", "_", section.title.lower()).strip("_")
+        fn = f"{section.figure_number:02}_{slug}.png"
+        shutil.copy2(section.image_path, os.path.join(figures_directory, fn))
+        kept += 1
+    print(f"\nKept {kept} report figures in {figures_directory}\n")
+
+
 def run_report(config: ReportConfig) -> str:
     """Generate the ASP processing report described by ``config``.
 
     Builds the runtime context, iterates the declarative
     :data:`REPORT_SECTIONS` registry to assemble the report body, compiles the
-    PDF, writes the figure-selections sidecar, and cleans up. Returns the path
+    PDF, writes the figure-selections sidecar, keeps a copy of the figures if
+    ``config.figures_directory`` is set, and cleans up. Returns the path
     to the written PDF. Importable and callable without any Click context.
     """
     ctx = _setup_context(config)
@@ -1087,6 +1114,9 @@ def run_report(config: ReportConfig) -> str:
     )
 
     _write_figure_selections(ctx)
+
+    if config.figures_directory:
+        _keep_figures(sections, config.figures_directory)
 
     shutil.rmtree(ctx.plots_directory)
 

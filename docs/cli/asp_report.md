@@ -151,6 +151,28 @@ icesat2:                       # omitted for planetary (LOLA/MOLA) DEMs
     worst: {start_xatc: 5219817.7, end_xatc: 5220817.7, start_km: 21.66, end_km: 22.66}
 ```
 
+## Keeping the figures (`--figures-directory`)
+
+The report's figures are plotted to a temporary directory and deleted once the PDF is written. To show them somewhere else, such as a notebook or slides, pass `--figures-directory` and a copy of each one is kept there:
+
+```bash
+asp_report --directory ./ \
+         --stereo-directory stereo \
+         --figures-directory stereo/report_figures
+```
+
+Each file is named `NN_<title>.png`, where `NN` is the figure number in the PDF and `<title>` is the page heading in lowercase with other characters replaced by `_`: `05_dem_results.png`, `06_detailed_hillshade.png`, `07_icesat_2_atl06_sr_map.png`. The numbers shift when a section is skipped (with `--no-geometry`, for instance), so pick a figure by its title: `glob("*_dem_results.png")`. Figures are kept at the resolution they were plotted at, before the `--figure-max-dpi` cap that applies inside the PDF. A relative path is taken from the current directory, not from `--directory`. Files of the same name are overwritten and nothing else in the directory is touched.
+
+In a Jupyter notebook:
+
+```python
+from pathlib import Path
+from IPython.display import Image, display
+
+for fig in sorted(Path("stereo/report_figures").glob("*_dem_results.png")):
+    display(Image(filename=fig, width=900))
+```
+
 ## Full options
 
 ```
@@ -235,6 +257,24 @@ Options:
                                auto-generated from directory name.
   --report-title TEXT          Title for the report. Default: Directory name
                                of ASP processing.
+  --figure-max-dpi INTEGER     Resolution ceiling for figures embedded in the
+                               PDF, applied at the size each figure is placed
+                               on the page. Figures are plotted at 220 dpi and
+                               then scaled down to the page, so wide multi-
+                               panel figures otherwise land at 400+ effective
+                               dpi and inflate the file for detail no screen
+                               or printer shows. Pass 0 to embed the full-
+                               resolution figures.  [default: 200]
+  --figures-directory TEXT     Directory to keep a copy of each report figure
+                               in, as NN_<title>.png (e.g.
+                               05_dem_results.png), where NN is the figure
+                               number in the PDF. A relative path is taken
+                               from the current directory, not from
+                               --directory. Use this to show figures in a
+                               notebook or slides without extracting them from
+                               the PDF. Files of the same name are
+                               overwritten. Default: None, the figures are not
+                               kept.
   --help                       Show this message and exit.
 ```
 
