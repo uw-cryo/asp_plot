@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.5.0] - 2026-10-23
+
+In this release:
+
+- `asp_report --figures-directory` keeps a copy of each report figure, named by figure number and title, for use in notebooks and slides.
+- `DEMBenchmark` reuses a translated DEM newer than its inputs instead of rewriting it on every run.
+- Three study notebooks are no longer in the examples.
+- The example reports are regenerated under 3.4.0, and a reports release is kept off Zenodo.
+
+### Added
+- **`asp_report --figures-directory DIR` keeps a copy of each report figure** (`ReportConfig.figures_directory`). The report plots every figure to `tmp_asp_report_plots/` and deletes that directory once the PDF is written, so the only way to show a figure in a notebook or slides was to extract it from the PDF. With the option, each figure is also copied to `DIR` as `NN_<title>.png` (`05_dem_results.png`, `07_icesat_2_atl06_sr_map.png`), where `NN` is its figure number in the PDF. The title is in the name because the numbers shift when a section is skipped. Nothing is kept by default, so existing runs are unchanged.
+
 ### Changed
 - **The example reports are regenerated under 3.4.0** and published as [`reports-2026-09-29`](https://github.com/uw-cryo/asp_plot/releases/tag/reports-2026-09-29); the docs build fetches that set. All seven carry the intersection error captions of 3.4.0. `WorldView_Atlanta_MVS` is rebuilt for the first time since the 200 dpi cap, which the fix for deleted `*-L.tif` files ([#202](https://github.com/uw-cryo/asp_plot/issues/202)) made possible, and goes from 22.4 MB to 12.4 MB. Every report was rebuilt with `--reuse-selections`, so each page shows the same altimetry points and clips as before.
 - **A reports release is kept off Zenodo.** Zenodo archives every published GitHub release as a version of the software, and the first reports release had become what the DOI badge resolves to. `AGENTS.md` now has the step that prevents it: the Zenodo webhook is switched off while a reports release is published.

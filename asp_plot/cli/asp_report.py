@@ -137,6 +137,12 @@ def _reconstruct_command():
     type=int,
     help="Resolution ceiling for figures embedded in the PDF, applied at the size each figure is placed on the page. Figures are plotted at 220 dpi and then scaled down to the page, so wide multi-panel figures otherwise land at 400+ effective dpi and inflate the file for detail no screen or printer shows. Pass 0 to embed the full-resolution figures.",
 )
+@click.option(
+    "--figures-directory",
+    prompt=False,
+    default=None,
+    help="Directory to keep a copy of each report figure in, as NN_<title>.png (e.g. 05_dem_results.png), where NN is the figure number in the PDF. A relative path is taken from the current directory, not from --directory. Use this to show figures in a notebook or slides without extracting them from the PDF. Files of the same name are overwritten. Default: None, the figures are not kept.",
+)
 def main(
     directory,
     bundle_adjust_prefix,
@@ -156,6 +162,7 @@ def main(
     report_filename,
     report_title,
     figure_max_dpi,
+    figures_directory,
 ):
     """
     Generate a comprehensive report of ASP processing results.
@@ -183,6 +190,7 @@ def main(
         report_filename=report_filename,
         report_title=report_title,
         figure_max_dpi=figure_max_dpi,
+        figures_directory=figures_directory,
         report_command=_reconstruct_command(),
     )
     run_report(config)
