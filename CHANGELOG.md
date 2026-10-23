@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.5.0] - 2026-10-23
+
+In this release:
+
+- `asp_report --figures-directory` keeps a copy of each report figure, named by figure number and title, for use in notebooks and slides.
+- `DEMBenchmark` reuses a translated DEM newer than its inputs instead of rewriting it on every run.
+- Three study notebooks are no longer in the examples.
+- The example reports are regenerated under 3.4.0, and a reports release is kept off Zenodo.
+
 ### Added
 - **`asp_report --figures-directory DIR` keeps a copy of each report figure** (`ReportConfig.figures_directory`). The report plots every figure to `tmp_asp_report_plots/` and deletes that directory once the PDF is written, so the only way to show a figure in a notebook or slides was to extract it from the PDF. With the option, each figure is also copied to `DIR` as `NN_<title>.png` (`05_dem_results.png`, `07_icesat_2_atl06_sr_map.png`), where `NN` is its figure number in the PDF. The title is in the name because the numbers shift when a section is skipped. Nothing is kept by default, so existing runs are unchanged.
 
