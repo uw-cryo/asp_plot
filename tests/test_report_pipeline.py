@@ -84,6 +84,25 @@ class TestCliOptionStyle:
         result = CliRunner().invoke(cli.main, args)
         return result, captured.get("config")
 
+    def test_pc_align_min_points_reaches_the_config(self, monkeypatch):
+        result, config = self._invoke(
+            monkeypatch,
+            [
+                "--directory",
+                "proc",
+                "--stereo-directory",
+                "st",
+                "--pc-align-min-points",
+                "150",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert config.pc_align_min_points == 150
+        result, config = self._invoke(
+            monkeypatch, ["--directory", "proc", "--stereo-directory", "st"]
+        )
+        assert config.pc_align_min_points is None
+
     def test_hyphenated_flags_parse_and_are_recorded(self, monkeypatch):
         result, config = self._invoke(
             monkeypatch,

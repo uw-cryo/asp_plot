@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.6.0] - 2026-10-30
+
+In this release:
+
+- `asp_report --pc-align-min-points` sets how many altimetry points the `pc_align` step needs before it runs, so small DEMs that ICESat-2 crosses only a few times can still be aligned.
+
+### Added
+- **`asp_report --pc-align-min-points N` sets how many altimetry points the `pc_align` step needs before it runs** (`ReportConfig.pc_align_min_points`). The step skipped itself below a fixed 500 ICESat-2 points (20 for LOLA/MOLA), so a report on a DEM of about 1 km², which ICESat-2 crosses only a few times, compared against the points but never aligned to them. The default is unchanged.
+
 ## [3.5.0] - 2026-10-23
 
 In this release:
