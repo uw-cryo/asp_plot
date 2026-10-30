@@ -83,7 +83,7 @@ The report adds:
 - An **alignment report page**: the kwargs used for `pc_align`, a one-row horizontal stats table (`p16`/`p50`/`p84` before and after, `N`/`E`/`D` shifts, translation magnitude, all in meters), a description of what each column means, and a status line naming the aligned DEM path or explaining why no DEM was retained.
 - On success, three additional full-page figures against the aligned DEM: a pre/post land-cover histogram (shared bin edges, per-landcover stats in stacked text boxes whose outline colors match the bar colors), the full elevation profile, and the best/worst 1 km agreement segments. Segment selection is held fixed so Med/NMAD are directly comparable to the unaligned variants.
 
-Disable with `--no-pc-align`. Automatically skipped when `--no-altimetry` is set.
+Disable with `--no-pc-align`. Automatically skipped when `--no-altimetry` is set. The step also skips itself, with a note on the alignment page, when fewer than 500 ICESat-2 points fall on the DEM (20 for LOLA/MOLA); `--pc-align-min-points N` lowers or raises that count, for example `--pc-align-min-points 150` on a DEM of about 1 km² that ICESat-2 crosses only a few times.
 
 ## ICESat-2 time filtering
 
@@ -235,6 +235,11 @@ Options:
                                MOLA for Mars, LOLA for Moon -- appending the
                                alignment-report pages; skipped automatically
                                with --no-altimetry).
+  --pc-align-min-points INTEGER
+                               Fewest altimetry points on the DEM for the
+                               pc_align step to run; below it the alignment
+                               page says the step was skipped. Default: 500
+                               for ICESat-2, 20 for LOLA/MOLA.
   --no-geometry                Skip the stereo geometry plots (plotted by
                                default).
   --subset-km FLOAT            Size in km of the subset to plot for the

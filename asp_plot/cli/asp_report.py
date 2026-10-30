@@ -93,6 +93,12 @@ def _reconstruct_command():
     help="Skip the pc_align step (run by default against the reference altimetry -- ICESat-2 for Earth, MOLA for Mars, LOLA for Moon -- appending the alignment-report pages; skipped automatically with --no-altimetry).",
 )
 @click.option(
+    "--pc-align-min-points",
+    type=int,
+    default=None,
+    help="Fewest altimetry points on the DEM for the pc_align step to run; below it the alignment page says the step was skipped. Default: 500 for ICESat-2, 20 for LOLA/MOLA.",
+)
+@click.option(
     "--no-geometry",
     is_flag=True,
     default=False,
@@ -155,6 +161,7 @@ def main(
     no_altimetry,
     altimetry_csv,
     no_pc_align,
+    pc_align_min_points,
     no_geometry,
     subset_km,
     atl06sr_time_range,
@@ -183,6 +190,7 @@ def main(
         plot_altimetry=not no_altimetry,
         altimetry_csv=altimetry_csv,
         pc_align=not no_pc_align,
+        pc_align_min_points=pc_align_min_points,
         plot_geometry=not no_geometry,
         subset_km=subset_km,
         atl06sr_time_range=atl06sr_time_range,

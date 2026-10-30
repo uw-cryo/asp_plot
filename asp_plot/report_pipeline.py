@@ -75,6 +75,9 @@ class ReportConfig:
     plot_altimetry: bool = True
     altimetry_csv: Optional[str] = None
     pc_align: bool = True
+    # Fewest altimetry points on the DEM for pc_align to run. None keeps the
+    # alignment methods' own defaults: 500 for ICESat-2, 20 for LOLA/MOLA.
+    pc_align_min_points: Optional[int] = None
     plot_geometry: bool = True
     subset_km: float = 1.0
     atl06sr_time_range: str = "all"
@@ -628,10 +631,10 @@ def _build_altimetry_earth(ctx: ReportContext, ctx_kwargs_altimetry: dict):
 
     # ---- pc_align + ICESat-2 alignment report (Earth only) ----
     if cfg.pc_align:
-        align_result = icesat.align_and_evaluate(
-            processing_level="all",
-            improvement_threshold_pct=5.0,
-        )
+        align_kwargs = {"processing_level": "all", "improvement_threshold_pct": 5.0}
+        if cfg.pc_align_min_points is not None:
+            align_kwargs["minimum_points"] = cfg.pc_align_min_points
+        align_result = icesat.align_and_evaluate(**align_kwargs)
         stats_row = _stats_row_from_result(align_result)
 
         align_title = "DEM Alignment with ICESat-2"
@@ -777,7 +780,10 @@ def _build_altimetry_planetary(ctx: ReportContext, body: str):
 
     # ---- pc_align + planetary alignment report (Moon/Mars) ----
     if cfg.pc_align:
-        align_result = alt.align_and_evaluate_planetary()
+        align_kwargs = {}
+        if cfg.pc_align_min_points is not None:
+            align_kwargs["minimum_points"] = cfg.pc_align_min_points
+        align_result = alt.align_and_evaluate_planetary(**align_kwargs)
         stats_row = _stats_row_from_result(align_result)
 
         align_title = f"DEM Alignment with {instrument}"
