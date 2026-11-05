@@ -604,7 +604,8 @@ class StereoGeometryPlotter:
 
         Very large extents make contextily's auto-zoom resolve to an invalid
         (negative) zoom that errors; fall back to a coarse continental zoom so the
-        overview still gets a basemap instead of silently dropping it.
+        overview still gets a basemap instead of silently dropping it. If that
+        fails too, the figure is drawn without a basemap and a warning says why.
         """
         import contextily as ctx
 
@@ -613,8 +614,8 @@ class StereoGeometryPlotter:
         except Exception:
             try:
                 ctx.add_basemap(ax, crs=map_crs, attribution=False, zoom=6)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Basemap skipped: %r", e)
 
     def _overview_title(self, scenes):
         """Acquisition summary title for the overview figure (no pair metrics)."""
@@ -880,8 +881,8 @@ class StereoGeometryPlotter:
                     import contextily as ctx
 
                     ctx.add_basemap(ax0, crs=map_crs, attribution=False)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning("Basemap skipped: %r", e)
             ax0.tick_params(labelsize=7)
 
             # Row 1: Roll, pitch, yaw, either computed from quaternions or

@@ -235,12 +235,21 @@ def _build_match_points(ctx: ReportContext) -> List[object]:
 def _build_bundle_adjust(ctx: ReportContext) -> List[object]:
     cfg = ctx.config
     sections: List[object] = []
+
+    # Only the file lookup can mean "no bundle adjustment files": a ValueError
+    # from plotting has to be reported as a plotting failure.
     try:
         ba_files = ReadBundleAdjustFiles(
             cfg.directory, ctx.ba_directory, stem=ctx.ba_stem
         )
         resid_initial_gdf, resid_final_gdf = ba_files.get_initial_final_residuals_gdfs()
+    except ValueError:
+        print(
+            f"\n\nNo bundle adjustment files found in directory {os.path.join(cfg.directory, ctx.ba_directory):}. If you want bundle adjustment plots, make sure you run the tool and supply the correct --bundle-adjust-prefix to asp_report.\n\n"
+        )
+        return sections + _build_bundle_adjust_cameras(ctx)
 
+    try:
         plotter = PlotBundleAdjustFiles(
             [resid_initial_gdf, resid_final_gdf],
             lognorm=True,
@@ -288,7 +297,9 @@ def _build_bundle_adjust(ctx: ReportContext) -> List[object]:
         # Map-projected residuals (requires reference DEM in bundle_adjust)
         try:
             resid_mapprojected_gdf = ba_files.get_mapproj_residuals_gdf()
-
+        except ValueError as e:
+            print(f"\n\nSkipping map-projected residuals plot: {e}\n\n")
+        else:
             plotter = PlotBundleAdjustFiles(
                 [resid_mapprojected_gdf],
                 title="Bundle Adjust Midpoint distance between\nfinal interest points projected onto reference DEM",
@@ -310,15 +321,17 @@ def _build_bundle_adjust(ctx: ReportContext) -> List[object]:
                     caption=captions.MAP_PROJECTED_RESIDUALS,
                 )
             )
-        except ValueError as e:
-            print(f"\n\nSkipping map-projected residuals plot: {e}\n\n")
 
         # Geodiff plots (requires reference DEM in bundle_adjust with --mapproj-dem flag)
         try:
             geodiff_initial_gdf, geodiff_final_gdf = (
                 ba_files.get_initial_final_geodiff_gdfs()
             )
-
+        except ValueError as e:
+            print(
+                f"\n\nSkipping geodiff plots (requires --mapproj-dem flag in bundle_adjust): {e}\n\n"
+            )
+        else:
             plotter = PlotBundleAdjustFiles(
                 [geodiff_initial_gdf, geodiff_final_gdf],
                 lognorm=False,
@@ -343,15 +356,10 @@ def _build_bundle_adjust(ctx: ReportContext) -> List[object]:
                     caption=captions.GEODIFF,
                 )
             )
-        except ValueError as e:
-            print(
-                f"\n\nSkipping geodiff plots (requires --mapproj-dem flag in bundle_adjust): {e}\n\n"
-            )
 
-    except ValueError:
-        print(
-            f"\n\nNo bundle adjustment files found in directory {os.path.join(cfg.directory, ctx.ba_directory):}. If you want bundle adjustment plots, make sure you run the tool and supply the correct --bundle-adjust-prefix to asp_report.\n\n"
-        )
+    except ValueError as e:
+        print(f"\n\nBundle adjustment plots stopped by a plotting error: {e}\n\n")
+
     sections.extend(_build_bundle_adjust_cameras(ctx))
     return sections
 

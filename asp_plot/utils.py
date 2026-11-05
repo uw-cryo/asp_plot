@@ -1425,7 +1425,10 @@ class Plotter:
         )
 
         if ctx_kwargs:
-            ctx.add_basemap(ax=ax, **ctx_kwargs)
+            try:
+                ctx.add_basemap(ax=ax, **ctx_kwargs)
+            except Exception as e:
+                logger.warning("Basemap skipped: %r", e)
 
 
 # SATID prefixes for the DigitalGlobe -> Maxar -> Vantor satellite heritage, all

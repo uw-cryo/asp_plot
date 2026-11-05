@@ -205,6 +205,74 @@ class TestRegistry:
 
 
 # ---------------------------------------------------------------------------
+# Bundle adjust residual pages: missing files vs. plotting errors
+# ---------------------------------------------------------------------------
+
+
+class TestBundleAdjustSection:
+    """Only the file lookup may report missing bundle adjustment files; a
+    plotting error is reported as one, and a failed basemap costs only the
+    basemap."""
+
+    ALL_PAGES = [
+        "Bundle Adjust Residuals (Log Scale)",
+        "Bundle Adjust Residuals (Linear Scale)",
+        "Map-Projected Residuals",
+        "Geodiff vs. Reference DEM",
+    ]
+    MISSING = "No bundle adjustment files found"
+
+    @staticmethod
+    def _ba_ctx(tmp_path, directory="tests/test_data", **overrides):
+        return _ctx(
+            config=ReportConfig(directory=directory, bundle_adjust_prefix="ba"),
+            ba_directory="ba",
+            ba_stem="ba",
+            plots_directory=str(tmp_path),
+            map_crs="EPSG:32728",
+            **overrides,
+        )
+
+    def test_all_pages_from_fixture(self, tmp_path, capsys):
+        sections = rp._build_bundle_adjust(self._ba_ctx(tmp_path))
+        assert [s.title for s in sections] == self.ALL_PAGES
+        assert self.MISSING not in capsys.readouterr().out
+
+    def test_missing_files_reported_as_missing(self, tmp_path, capsys):
+        (tmp_path / "ba").mkdir()
+        ctx = self._ba_ctx(tmp_path, directory=str(tmp_path))
+        assert rp._build_bundle_adjust(ctx) == []
+        assert self.MISSING in capsys.readouterr().out
+
+    def test_plotting_error_not_reported_as_missing_files(
+        self, tmp_path, capsys, monkeypatch
+    ):
+        def fail_plot(*args, **kwargs):
+            raise ValueError("bad colour limits")
+
+        monkeypatch.setattr(rp.PlotBundleAdjustFiles, "plot_n_gdfs", fail_plot)
+        assert rp._build_bundle_adjust(self._ba_ctx(tmp_path)) == []
+        out = capsys.readouterr().out
+        assert self.MISSING not in out
+        assert "plotting error: bad colour limits" in out
+
+    def test_failed_basemap_keeps_the_pages(
+        self, tmp_path, capsys, caplog, monkeypatch
+    ):
+        def fail_basemap(*args, **kwargs):
+            raise ValueError("Wrong number of arguments for _fetch_tile")
+
+        monkeypatch.setattr("contextily.add_basemap", fail_basemap)
+        ctx = self._ba_ctx(tmp_path, ctx_kwargs={"crs": "EPSG:32728"})
+        with caplog.at_level("WARNING", logger="asp_plot.utils"):
+            sections = rp._build_bundle_adjust(ctx)
+        assert [s.title for s in sections] == self.ALL_PAGES
+        assert self.MISSING not in capsys.readouterr().out
+        assert "Basemap skipped" in caplog.text
+        assert "Wrong number of arguments" in caplog.text
+
+
+# ---------------------------------------------------------------------------
 # Bundle adjust camera-change figure (issues #95, #43)
 # ---------------------------------------------------------------------------
 
