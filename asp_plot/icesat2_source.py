@@ -483,12 +483,54 @@ class Icesat2Source(AltimetrySource):
         Runs the ``atl03x`` request, samples ESA WorldCover before caching so
         the column is persisted in the parquet (and need not be re-sampled on
         later runs), and optionally writes the parquet to ``fn``.
+
+        Raises
+        ------
+        RuntimeError
+            If SlideRule returns ``None``. The client returns ``None`` whenever
+            it cannot open its output file and discards the reason. That
+            happens for a request with no ICESat-2 granules, one over the
+            server's granule limit, and transient server or client failures.
+
+        Notes
+        -----
+        A request that ran but found no points returns a frame with its columns
+        and no rows. That is a valid result for one level (no canopy points over
+        bare ground, say), so it only logs a warning.
         """
         atl06sr = sliderule_api.run("atl03x", parms)
+        if atl06sr is None:
+            raise RuntimeError(
+                f"SlideRule returned no result for {self._describe_request(parms)}. "
+                "The client does not report the reason, but SlideRule's log "
+                "messages may. Likely causes: no ICESat-2 granules in the region "
+                "and time range; more than the 300 granules the server allows per "
+                "request, which a narrower time range avoids (--atl06sr-time-range "
+                "in asp_report); or a temporary failure, in which case the same "
+                "request may succeed if repeated."
+            )
+        if atl06sr.empty:
+            logger.warning(
+                f"SlideRule found no points for {self._describe_request(parms)}."
+            )
         atl06sr = self._sample_worldcover_into_gdf(atl06sr)
         if save_to_parquet:
             self._save_to_parquet(fn, atl06sr, parms)
         return atl06sr
+
+    @staticmethod
+    def _describe_request(parms):
+        """One-line summary of a SlideRule request for messages to the user."""
+        poly = parms["poly"]
+        region = poly
+        if all(isinstance(point, dict) for point in poly):
+            lons = [point["lon"] for point in poly]
+            lats = [point["lat"] for point in poly]
+            region = (
+                f"lon {min(lons):.4f} to {max(lons):.4f}, "
+                f"lat {min(lats):.4f} to {max(lats):.4f}"
+            )
+        return f"the atl03x request over {region}, from {parms['t0']} to {parms['t1']}"
 
     def _ingest_atl06sr(self, key, atl06sr, h_sigma_quantile=1.0):
         """

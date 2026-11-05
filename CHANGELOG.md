@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **A SlideRule request that returns nothing now raises a clear error.** The client returns `None` when it cannot open its output file, and asp_plot passed that on, so the caller got `AttributeError: 'NoneType' object has no attribute 'columns'`. The new `RuntimeError` names the region and time range and lists the likely causes: no ICESat-2 granules, more than the 300 granules the server allows per request, or a temporary failure. A request that ran and found no points for one processing level still continues, now with a warning.
+
 ## [3.6.0] - 2026-10-30
 
 In this release:

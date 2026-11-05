@@ -112,6 +112,56 @@ class TestParamsMatchCache:
         assert src._params_match_cache({"res": 20}, _synthetic_atl06sr()) is False
 
 
+class TestRequestReturnsNothing:
+    """SlideRule's two ways of returning nothing: ``None`` when the client
+    cannot open its output file, and a frame with columns but no rows when the
+    request ran and found no points."""
+
+    # The form Raster.get_bounds() gives the request when no region is passed.
+    POLY = [
+        {"lon": -149.9, "lat": 70.0},
+        {"lon": -149.9, "lat": 70.1},
+        {"lon": -149.8, "lat": 70.1},
+        {"lon": -149.8, "lat": 70.0},
+        {"lon": -149.9, "lat": 70.0},
+    ]
+
+    def _request(self, src, monkeypatch, result, region=POLY):
+        monkeypatch.setattr(
+            "asp_plot.icesat2_source.sliderule_api.run", lambda api, parms: result
+        )
+        src.request_atl06sr_multi_processing(
+            processing_levels=["canopy"],
+            region=region,
+            time_range="buffered",
+            t0="2019-01-01",
+            t1="2020-01-01",
+        )
+
+    def test_none_raises_error_naming_the_request(self, src, monkeypatch):
+        with pytest.raises(RuntimeError) as excinfo:
+            self._request(src, monkeypatch, None)
+        message = str(excinfo.value)
+        assert "SlideRule returned no result" in message
+        assert "atl03x" in message
+        assert "lon -149.9000 to -149.8000, lat 70.0000 to 70.1000" in message
+        assert "2019-01-01" in message
+        assert "2020-01-01" in message
+        assert "--atl06sr-time-range" in message
+        assert "NoneType" not in message
+
+    def test_none_error_handles_a_region_given_as_bounds(self, src, monkeypatch):
+        with pytest.raises(RuntimeError, match="SlideRule returned no result"):
+            self._request(src, monkeypatch, None, region=REGION)
+
+    def test_no_rows_warns_and_continues(self, src, monkeypatch, caplog):
+        with caplog.at_level("WARNING", logger="asp_plot.icesat2_source"):
+            self._request(src, monkeypatch, _synthetic_atl06sr().iloc[0:0])
+        assert "SlideRule found no points" in caplog.text
+        assert len(src.atl06sr_processing_levels["canopy"]) == 0
+        assert len(src.atl06sr_processing_levels_filtered["canopy"]) == 0
+
+
 class TestRequestAtl06srMultiProcessing:
     """End-to-end through the orchestrator with SlideRule mocked."""
 
