@@ -15,7 +15,7 @@ import pytest
 from shapely.geometry import Point
 
 from asp_plot.altimetry import Altimetry
-from asp_plot.icesat2_source import Icesat2Source
+from asp_plot.icesat2_source import MAX_GRANULES_LISTED, Icesat2Source
 
 DEM_FN = "tests/test_data/stereo/date_time_left_right_1m-DEM.tif"
 REGION = [-149.90, 70.00, -149.80, 70.10]
@@ -53,6 +53,7 @@ def src(tmp_path):
     # Avoid the real SlideRule session init and WorldCover S3 sampling.
     alt.icesat2._sliderule_initialized = True
     alt.icesat2._sample_worldcover_into_gdf = lambda df: df
+    alt.icesat2._list_granules = lambda parms: []
     return alt.icesat2
 
 
@@ -160,6 +161,135 @@ class TestRequestReturnsNothing:
         assert "SlideRule found no points" in caplog.text
         assert len(src.atl06sr_processing_levels["canopy"]) == 0
         assert len(src.atl06sr_processing_levels_filtered["canopy"]) == 0
+
+
+class TestGranuleBatches:
+    """A request over the server's granule limit is split by granule, and the
+    parquet cache sees only the overall request."""
+
+    GRANULES = [f"ATL03_{i:03d}.h5" for i in range(5)]
+
+    @pytest.fixture
+    def calls(self, src, monkeypatch):
+        calls = []
+
+        def fake_run(api, parms):
+            calls.append(parms.get("resources"))
+            return _synthetic_atl06sr(n=2)
+
+        monkeypatch.setattr("asp_plot.icesat2_source.sliderule_api.run", fake_run)
+        monkeypatch.setattr("asp_plot.icesat2_source.MAX_GRANULES_PER_REQUEST", 2)
+        src._list_granules = lambda parms: self.GRANULES
+        return calls
+
+    def _request(self, src):
+        src.request_atl06sr_multi_processing(
+            processing_levels=["all"],
+            region=REGION,
+            save_to_parquet=True,
+            filename="atl06sr",
+        )
+
+    def test_each_granule_in_one_batch(self, src, calls):
+        self._request(src)
+        assert calls == [self.GRANULES[:2], self.GRANULES[2:4], self.GRANULES[4:]]
+
+    def test_results_are_combined(self, src, calls):
+        self._request(src)
+        assert isinstance(src.atl06sr_processing_levels["all"], gpd.GeoDataFrame)
+        assert len(src.atl06sr_processing_levels["all"]) == 6
+
+    def test_repeat_is_a_cache_hit(self, src, calls):
+        self._request(src)
+        assert len(calls) == 3
+        self._request(src)
+        assert len(calls) == 3, "cache hit should not trigger a new request"
+
+    def test_batch_with_no_points_is_left_out(self, src, calls, monkeypatch):
+        results = iter(
+            [
+                _synthetic_atl06sr().iloc[0:0],
+                _synthetic_atl06sr(n=2),
+                _synthetic_atl06sr(n=2),
+            ]
+        )
+        monkeypatch.setattr(
+            "asp_plot.icesat2_source.sliderule_api.run",
+            lambda api, parms: next(results),
+        )
+        self._request(src)
+        assert len(src.atl06sr_processing_levels["all"]) == 4
+
+    def test_all_batches_empty_warns(self, src, calls, monkeypatch, caplog):
+        monkeypatch.setattr(
+            "asp_plot.icesat2_source.sliderule_api.run",
+            lambda api, parms: _synthetic_atl06sr().iloc[0:0],
+        )
+        with caplog.at_level("WARNING", logger="asp_plot.icesat2_source"):
+            self._request(src)
+        assert "SlideRule found no points" in caplog.text
+
+    def test_failed_batch_is_named(self, src, calls, monkeypatch):
+        results = iter([_synthetic_atl06sr(n=2), None])
+        monkeypatch.setattr(
+            "asp_plot.icesat2_source.sliderule_api.run",
+            lambda api, parms: next(results),
+        )
+        with pytest.raises(RuntimeError, match="batch 2 of 3"):
+            self._request(src)
+
+    def test_at_the_limit_is_one_request(self, src, calls):
+        src._list_granules = lambda parms: self.GRANULES[:2]
+        self._request(src)
+        assert calls == [None]
+
+
+class TestListGranules:
+    PARMS = {"poly": REGION, "t0": "2019-01-01", "t1": "2020-01-01"}
+
+    def test_listing_asks_for_more_than_the_request_limit(self, monkeypatch):
+        # The server applies the 300-granule limit to the listing as well,
+        # unless the query asks for more: without this, the listing fails on
+        # exactly the requests that need batching.
+        limits = []
+        monkeypatch.setattr(
+            "asp_plot.icesat2_source.sliderule_earthdata.set_max_resources",
+            limits.append,
+        )
+        monkeypatch.setattr(
+            "asp_plot.icesat2_source.sliderule_earthdata.cmr", lambda **kwargs: []
+        )
+        Icesat2Source._list_granules(self.PARMS)
+        assert limits == [MAX_GRANULES_LISTED]
+        assert MAX_GRANULES_LISTED > 300
+
+    def test_sorted_and_scoped_to_the_request(self, monkeypatch):
+        seen = {}
+
+        def fake_cmr(**kwargs):
+            seen.update(kwargs)
+            return ["ATL03_2.h5", "ATL03_1.h5"]
+
+        monkeypatch.setattr("asp_plot.icesat2_source.sliderule_earthdata.cmr", fake_cmr)
+        assert Icesat2Source._list_granules(self.PARMS) == [
+            "ATL03_1.h5",
+            "ATL03_2.h5",
+        ]
+        assert seen == {
+            "short_name": "ATL03",
+            "polygon": REGION,
+            "time_start": "2019-01-01",
+            "time_end": "2020-01-01",
+        }
+
+    def test_failed_search_means_one_request(self, monkeypatch, caplog):
+        def fail_cmr(**kwargs):
+            raise OSError("CMR is down")
+
+        monkeypatch.setattr("asp_plot.icesat2_source.sliderule_earthdata.cmr", fail_cmr)
+        with caplog.at_level("WARNING", logger="asp_plot.icesat2_source"):
+            assert Icesat2Source._list_granules(self.PARMS) == []
+        assert "CMR is down" in caplog.text
 
 
 class TestRequestAtl06srMultiProcessing:
