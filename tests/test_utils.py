@@ -1,10 +1,12 @@
 import os
 
+import geopandas as gpd
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 from PIL import Image
+from shapely.geometry import Point
 
 from asp_plot.report import ReportMetadata, ReportSection, compile_report
 from asp_plot.utils import (
@@ -351,6 +353,25 @@ class TestPlotter:
         fig, ax = plt.subplots()
         plotter.plot_array(ax, data, add_cbar=False)
         assert not any("Vantor" in t.get_text() for t in ax.texts)
+        plt.close(fig)
+
+    def test_plot_geodataframe_keeps_figure_when_basemap_fails(
+        self, caplog, monkeypatch
+    ):
+        def fail_basemap(*args, **kwargs):
+            raise ValueError("no tiles")
+
+        monkeypatch.setattr("contextily.add_basemap", fail_basemap)
+        gdf = gpd.GeoDataFrame(
+            {"value": [1.0, 2.0]},
+            geometry=[Point(0, 0), Point(1, 1)],
+            crs="EPSG:4326",
+        )
+        fig, ax = plt.subplots()
+        with caplog.at_level("WARNING", logger="asp_plot.utils"):
+            Plotter().plot_geodataframe(ax, gdf, column_name="value", crs="EPSG:4326")
+        assert ax.collections
+        assert "Basemap skipped" in caplog.text
         plt.close(fig)
 
     def test_plot_missing(self):

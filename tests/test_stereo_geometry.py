@@ -167,6 +167,19 @@ class TestStereoGeometryPlotter:
         except Exception as e:
             pytest.fail(f"figure method raised an exception: {str(e)}")
 
+    def test_satellite_position_orientation_plot_warns_on_basemap_failure(
+        self, stereo_geometry_plotter, caplog, monkeypatch
+    ):
+        def fail_basemap(*args, **kwargs):
+            raise ValueError("no tiles")
+
+        monkeypatch.setattr("contextily.add_basemap", fail_basemap)
+        stereo_geometry_plotter.add_basemap = True
+        with caplog.at_level("WARNING", logger="asp_plot.stereo_geometry"):
+            stereo_geometry_plotter.satellite_position_orientation_plot()
+        assert "Basemap skipped" in caplog.text
+        assert "no tiles" in caplog.text
+
     def test_satellite_position_orientation_plot(self, stereo_geometry_plotter):
         try:
             stereo_geometry_plotter.satellite_position_orientation_plot()
@@ -430,3 +443,31 @@ class TestTitleDegradation:
         title = plotter.get_title(p)
         assert "Center datetime: N/A" in title
         assert "Time offset: N/A" in title
+
+
+class TestAddBasemapSafe:
+    """The zoom-6 fallback stays quiet; a warning appears only when it fails too."""
+
+    def test_warns_when_fallback_also_fails(self, caplog, monkeypatch):
+        def fail_basemap(*args, **kwargs):
+            raise ValueError("no tiles")
+
+        monkeypatch.setattr("contextily.add_basemap", fail_basemap)
+        with caplog.at_level("WARNING", logger="asp_plot.stereo_geometry"):
+            StereoGeometryPlotter._add_basemap_safe(None, "EPSG:4326")
+        assert "Basemap skipped" in caplog.text
+        assert "no tiles" in caplog.text
+
+    def test_silent_when_fallback_works(self, caplog, monkeypatch):
+        zooms = []
+
+        def fail_without_zoom(ax, crs, attribution, zoom=None):
+            zooms.append(zoom)
+            if zoom is None:
+                raise ValueError("negative zoom")
+
+        monkeypatch.setattr("contextily.add_basemap", fail_without_zoom)
+        with caplog.at_level("WARNING", logger="asp_plot.stereo_geometry"):
+            StereoGeometryPlotter._add_basemap_safe(None, "EPSG:4326")
+        assert zooms == [None, 6]
+        assert "Basemap skipped" not in caplog.text
