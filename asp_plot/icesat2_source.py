@@ -20,6 +20,7 @@ from datetime import datetime, timedelta, timezone
 import geopandas as gpd
 import numpy as np
 import pandas as pd
+from sliderule import earthdata as sliderule_earthdata
 from sliderule import sliderule as sliderule_api
 
 from asp_plot.altimetry_source import AltimetrySource
@@ -28,6 +29,14 @@ from asp_plot.utils import Raster
 from asp_plot.utils import nmad as _nmad
 
 logger = logging.getLogger(__name__)
+
+# SlideRule's atl03x endpoint rejects a request whose search matches more than
+# 300 granules. The client's own CMR search can differ from the server's by a
+# few granules, so requests are split well below that.
+MAX_GRANULES_PER_REQUEST = 250
+# Listing granules goes through the same server, which applies that 300 limit
+# to the listing too unless the query asks for more.
+MAX_GRANULES_LISTED = 10000
 
 #: ESA WorldCover class codes (see ``WORLDCOVER_NAMES``) grouped under the
 #: names :meth:`Icesat2Source.filter_esa_worldcover` accepts.
@@ -480,9 +489,87 @@ class Icesat2Source(AltimetrySource):
     def _request_atl06sr_level(self, parms, fn, save_to_parquet):
         """Fetch one processing level from SlideRule and sample WorldCover.
 
-        Runs the ``atl03x`` request, samples ESA WorldCover before caching so
-        the column is persisted in the parquet (and need not be re-sampled on
-        later runs), and optionally writes the parquet to ``fn``.
+        Runs the ``atl03x`` request, split into batches of granules if it would
+        pass the server's limit, samples ESA WorldCover before caching so the
+        column is persisted in the parquet (and need not be re-sampled on later
+        runs), and optionally writes the parquet to ``fn``. The parquet records
+        ``parms``, not the batches, so a repeated request is a cache hit.
+
+        Raises
+        ------
+        RuntimeError
+            If SlideRule returns ``None``. See :meth:`_run_atl03x`.
+
+        Notes
+        -----
+        A request that ran but found no points returns a frame with its columns
+        and no rows. That is a valid result for one level (no canopy points over
+        bare ground, say), so it only logs a warning.
+        """
+        granules = self._list_granules(parms)
+        if len(granules) > MAX_GRANULES_PER_REQUEST:
+            atl06sr = self._run_granule_batches(parms, granules)
+        else:
+            atl06sr = self._run_atl03x(parms)
+        if atl06sr.empty:
+            logger.warning(
+                f"SlideRule found no points for {self._describe_request(parms)}."
+            )
+        atl06sr = self._sample_worldcover_into_gdf(atl06sr)
+        if save_to_parquet:
+            self._save_to_parquet(fn, atl06sr, parms)
+        return atl06sr
+
+    @staticmethod
+    def _list_granules(parms):
+        """List the ATL03 granules a request would search, oldest name first.
+
+        Returns an empty list if the search fails, so that the request goes to
+        SlideRule as one request, as it would have without this check.
+        """
+        try:
+            sliderule_earthdata.set_max_resources(MAX_GRANULES_LISTED)
+            return sorted(
+                sliderule_earthdata.cmr(
+                    short_name="ATL03",
+                    polygon=parms["poly"],
+                    time_start=parms["t0"],
+                    time_end=parms["t1"],
+                )
+            )
+        except Exception as e:
+            logger.warning(f"Could not list ATL03 granules for the request: {e!r}")
+            return []
+
+    def _run_granule_batches(self, parms, granules):
+        """Run ``atl03x`` on ``granules`` in batches and combine the results.
+
+        Each granule is in exactly one batch, so no point is returned twice, as
+        it could be from splitting the time range at a date inside a granule.
+        """
+        batches = [
+            granules[i : i + MAX_GRANULES_PER_REQUEST]
+            for i in range(0, len(granules), MAX_GRANULES_PER_REQUEST)
+        ]
+        print(f"Splitting {len(granules)} granules into {len(batches)} requests")
+        frames = []
+        for number, batch in enumerate(batches, start=1):
+            print(f"Request {number} of {len(batches)}")
+            label = f"batch {number} of {len(batches)} of "
+            frames.append(self._run_atl03x({**parms, "resources": batch}, label))
+        # Frames with no rows can lose their dtypes in a concat.
+        with_points = [frame for frame in frames if not frame.empty]
+        return pd.concat(with_points) if with_points else frames[0]
+
+    def _run_atl03x(self, parms, label=""):
+        """Run one ``atl03x`` request, raising an error if nothing comes back.
+
+        Parameters
+        ----------
+        parms : dict
+            SlideRule request parameters.
+        label : str, optional
+            Prefix for the request in the error message.
 
         Raises
         ------
@@ -491,17 +578,12 @@ class Icesat2Source(AltimetrySource):
             it cannot open its output file and discards the reason. That
             happens for a request with no ICESat-2 granules, one over the
             server's granule limit, and transient server or client failures.
-
-        Notes
-        -----
-        A request that ran but found no points returns a frame with its columns
-        and no rows. That is a valid result for one level (no canopy points over
-        bare ground, say), so it only logs a warning.
         """
         atl06sr = sliderule_api.run("atl03x", parms)
         if atl06sr is None:
             raise RuntimeError(
-                f"SlideRule returned no result for {self._describe_request(parms)}. "
+                f"SlideRule returned no result for {label}"
+                f"{self._describe_request(parms)}. "
                 "The client does not report the reason, but SlideRule's log "
                 "messages may. Likely causes: no ICESat-2 granules in the region "
                 "and time range; more than the 300 granules the server allows per "
@@ -509,13 +591,6 @@ class Icesat2Source(AltimetrySource):
                 "in asp_report); or a temporary failure, in which case the same "
                 "request may succeed if repeated."
             )
-        if atl06sr.empty:
-            logger.warning(
-                f"SlideRule found no points for {self._describe_request(parms)}."
-            )
-        atl06sr = self._sample_worldcover_into_gdf(atl06sr)
-        if save_to_parquet:
-            self._save_to_parquet(fn, atl06sr, parms)
         return atl06sr
 
     @staticmethod
