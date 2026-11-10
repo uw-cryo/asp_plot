@@ -734,6 +734,52 @@ class TestRunReportEarth:
         assert not any("Aligned DEM" in t for t in titles)
         assert "DEM Alignment with ICESat-2" not in titles
 
+    @pytest.fixture
+    def sliderule_down(self, monkeypatch, fake_icesat):
+        def fail_request(self, **k):
+            raise rp.SlideRuleRequestError("SlideRule request failed: café")
+
+        monkeypatch.setattr(
+            rp.Altimetry, "request_atl06sr_multi_processing", fail_request
+        )
+        return fake_icesat
+
+    def test_sliderule_failure_skips_icesat2_pages(self, sliderule_down, capsys):
+        rec, captured = sliderule_down
+        cfg = ReportConfig(
+            directory="tests/test_data",
+            map_crs="EPSG:32610",
+            add_basemap=False,
+        )
+        run_report(cfg)
+        sections = captured["sections"]
+        titles = _titles(sections)
+        # The other sections are still written; one text page replaces the
+        # ICESat-2 figures and the alignment pages.
+        assert titles[-2:] == ["Detailed Hillshade", "ICESat-2 ATL06-SR"]
+        page = sections[-1]
+        assert isinstance(page, AlignmentReportPage)
+        assert page.image_path is None
+        assert "SlideRule request failed" in page.status_message
+        assert "DEM alignment with ICESat-2" in page.status_message
+        assert "--reuse-selections" in page.status_message
+        page.status_message.encode("latin-1")
+        assert "mapview_atl06sr" not in rec.calls
+        assert "Skipping the ICESat-2 pages" in capsys.readouterr().out
+
+    def test_sliderule_failure_without_pc_align(self, sliderule_down):
+        rec, captured = sliderule_down
+        cfg = ReportConfig(
+            directory="tests/test_data",
+            map_crs="EPSG:32610",
+            add_basemap=False,
+            pc_align=False,
+        )
+        run_report(cfg)
+        page = captured["sections"][-1]
+        assert page.title == "ICESat-2 ATL06-SR"
+        assert "alignment" not in page.status_message
+
 
 class TestRunReportPlanetary:
     @pytest.fixture

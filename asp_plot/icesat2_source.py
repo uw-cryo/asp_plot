@@ -49,6 +49,18 @@ WORLDCOVER_GROUPS = {
 }
 
 
+class SlideRuleRequestError(RuntimeError):
+    """SlideRule could not be reached or did not return a result.
+
+    Raised for every way an ICESat-2 request can fail on the SlideRule side:
+    the client's connection check at startup fails, ``run()`` raises, or
+    ``run()`` returns ``None`` (#212, #214). The message names the request and
+    says that it may succeed if repeated. A request that ran and found no
+    points is not an error. A subclass of ``RuntimeError``, which was raised
+    for a ``None`` result before this class existed.
+    """
+
+
 def worldcover_group_values(groups):
     """
     Class codes of one or several ESA WorldCover groups.
@@ -113,13 +125,28 @@ class Icesat2Source(AltimetrySource):
         self._sliderule_initialized = False
 
     def _ensure_sliderule(self):
-        """Initialize the SlideRule session on first use."""
+        """Initialize the SlideRule session on first use.
+
+        Raises
+        ------
+        SlideRuleRequestError
+            If the client's version check cannot reach the server. ``init()``
+            logs the reason and returns ``False`` only in that case, so the
+            request is not sent through another round of retries. The next
+            call tries to initialize again.
+        """
         if not self._sliderule_initialized:
-            sliderule_api.init(
+            connected = sliderule_api.init(
                 "slideruleearth.io", verbose=False, loglevel=logging.WARNING
             )
             # Also silence the chatty sliderule.session logger
             logging.getLogger("sliderule.session").setLevel(logging.WARNING)
+            if not connected:
+                raise SlideRuleRequestError(
+                    "Could not connect to SlideRule (slideruleearth.io); its log "
+                    "messages above give the reason. No ICESat-2 request was "
+                    "sent. The service may be available again later."
+                )
             self._sliderule_initialized = True
 
     def _resolve_time_range(
@@ -307,6 +334,12 @@ class Icesat2Source(AltimetrySource):
         None
             Results are stored in the class attributes
 
+        Raises
+        ------
+        SlideRuleRequestError
+            If a level is not cached and SlideRule cannot be reached, the
+            request fails, or it returns nothing.
+
         Notes
         -----
         This method makes SlideRule API calls which require internet connectivity.
@@ -314,8 +347,6 @@ class Icesat2Source(AltimetrySource):
         ICESat-2 data points. The method includes filtering to improve data quality
         by removing points with high uncertainty and from early mission cycles.
         """
-        self._ensure_sliderule()
-
         if not region:
             region = Raster(self.alt.dem_fn).get_bounds(latlon=True)
 
@@ -497,8 +528,9 @@ class Icesat2Source(AltimetrySource):
 
         Raises
         ------
-        RuntimeError
-            If SlideRule returns ``None``. See :meth:`_run_atl03x`.
+        SlideRuleRequestError
+            If SlideRule cannot be reached, the request fails, or it returns
+            ``None``. See :meth:`_ensure_sliderule` and :meth:`_run_atl03x`.
 
         Notes
         -----
@@ -506,6 +538,7 @@ class Icesat2Source(AltimetrySource):
         and no rows. That is a valid result for one level (no canopy points over
         bare ground, say), so it only logs a warning.
         """
+        self._ensure_sliderule()
         granules = self._list_granules(parms)
         if len(granules) > MAX_GRANULES_PER_REQUEST:
             atl06sr = self._run_granule_batches(parms, granules)
@@ -573,15 +606,26 @@ class Icesat2Source(AltimetrySource):
 
         Raises
         ------
-        RuntimeError
-            If SlideRule returns ``None``. The client returns ``None`` whenever
-            it cannot open its output file and discards the reason. That
-            happens for a request with no ICESat-2 granules, one over the
-            server's granule limit, and transient server or client failures.
+        SlideRuleRequestError
+            If ``run()`` raises or returns ``None``. The client raises from its
+            own response handling when the server stays unavailable after its
+            retries, e.g. ``TypeError: 'NoneType' object is not iterable`` from
+            ``procoutputfile`` (#214). It returns ``None`` whenever it cannot
+            open its output file and discards the reason. That happens for a
+            request with no ICESat-2 granules, one over the server's granule
+            limit, and transient server or client failures.
         """
-        atl06sr = sliderule_api.run("atl03x", parms)
+        try:
+            atl06sr = sliderule_api.run("atl03x", parms)
+        except Exception as e:
+            raise SlideRuleRequestError(
+                f"SlideRule request failed for {label}"
+                f"{self._describe_request(parms)}: {e!r}. SlideRule's log "
+                "messages above may give the reason. The same request may "
+                "succeed if repeated later."
+            ) from e
         if atl06sr is None:
-            raise RuntimeError(
+            raise SlideRuleRequestError(
                 f"SlideRule returned no result for {label}"
                 f"{self._describe_request(parms)}. "
                 "The client does not report the reason, but SlideRule's log "

@@ -32,6 +32,7 @@ from asp_plot.bundle_adjust import (
     ReadBundleAdjustCameras,
     ReadBundleAdjustFiles,
 )
+from asp_plot.icesat2_source import SlideRuleRequestError
 from asp_plot.processing_parameters import ProcessingParameters
 from asp_plot.report import (
     FIGURE_MAX_DPI,
@@ -513,6 +514,31 @@ def _build_altimetry(ctx: ReportContext) -> List[object]:
     return []
 
 
+def _icesat2_unavailable_page(
+    cfg: ReportConfig, error: SlideRuleRequestError
+) -> AlignmentReportPage:
+    """Text page that stands in for the ICESat-2 pages when SlideRule fails.
+
+    The PDF's core fonts are Latin-1 only, so other characters in the error
+    message are replaced.
+    """
+    skipped = "ICESat-2 pages"
+    if cfg.pc_align:
+        skipped += " and the DEM alignment with ICESat-2"
+    message = (
+        f"ICESat-2 ATL06-SR points could not be retrieved from SlideRule, so the "
+        f"{skipped} are not in this report.\n\n"
+        f"Cause: {error}\n\n"
+        "To add them, run asp_report again later. Or, if an earlier run on this "
+        "DEM saved its ICESat-2 points, pass that run's *_figure_selections.yml "
+        "to --reuse-selections to use the saved points without SlideRule."
+    )
+    return AlignmentReportPage(
+        title="ICESat-2 ATL06-SR",
+        status_message=message.encode("latin-1", "replace").decode("latin-1"),
+    )
+
+
 def _build_altimetry_earth(ctx: ReportContext, ctx_kwargs_altimetry: dict):
     cfg = ctx.config
     asp_dem = ctx.asp_dem
@@ -549,11 +575,17 @@ def _build_altimetry_earth(ctx: ReportContext, ctx_kwargs_altimetry: dict):
                 "requesting fresh ATL06-SR data.\n"
             )
     if not loaded_from_reuse:
-        icesat.request_atl06sr_multi_processing(
-            processing_levels=["all"],
-            save_to_parquet=True,
-            **atl06sr_time_kwargs,
-        )
+        try:
+            icesat.request_atl06sr_multi_processing(
+                processing_levels=["all"],
+                save_to_parquet=True,
+                **atl06sr_time_kwargs,
+            )
+        except SlideRuleRequestError as e:
+            # The rest of the report does not need ICESat-2, so finish it
+            # without these pages rather than abort (#214).
+            print(f"\nWARNING: Skipping the ICESat-2 pages: {e}\n")
+            return [_icesat2_unavailable_page(cfg, e)]
 
     icesat.filter_esa_worldcover(filter_out="water")
 
