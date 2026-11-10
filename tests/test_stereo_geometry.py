@@ -90,6 +90,29 @@ class TestCameraFilesFromStereoRun:
         assert camera_files_from_stereo_run(None, "stereo") is None
         assert camera_files_from_stereo_run(str(tmp_path), None) is None
 
+    def test_resolves_paths_relative_to_working_directory(self, tmp_path, monkeypatch):
+        # ASP ran from notebooks/ with paths into ../data/run (#223).
+        run = tmp_path / "data" / "run"
+        (run / "crops").mkdir(parents=True)
+        for camera in ("a.xml", "b.xml"):
+            (run / "crops" / camera).write_text("<xml/>")
+        (run / "other.xml").write_text("<xml/>")
+        stereo_dir = run / "stereo"
+        stereo_dir.mkdir()
+        (stereo_dir / "run-log-stereo_tri-01-01-0000-1.txt").write_text(
+            self.LOG_TEMPLATE.format(
+                command="stereo_tri a.tif b.tif ../data/run/crops/a.xml "
+                "../data/run/crops/b.xml ../data/run/stereo/run"
+            )
+        )
+        (tmp_path / "notebooks").mkdir()
+        monkeypatch.chdir(tmp_path / "notebooks")
+        files = camera_files_from_stereo_run("../data/run", "stereo")
+        assert files == [
+            str(run / "crops" / "a.xml"),
+            str(run / "crops" / "b.xml"),
+        ]
+
     def test_newest_log_wins(self, tmp_path):
         # A rerun into the same stereo directory must scope to the current
         # run's cameras: the newest log wins, not the alphabetically-first
