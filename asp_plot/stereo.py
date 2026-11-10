@@ -42,6 +42,19 @@ MATCH_POINT_COLOR = "r"
 MAX_POINTS_DRAWN = 10000
 
 
+def dem_not_found_error(full_directory):
+    """The error raised when something that reads the stereo DEM finds none.
+
+    :class:`StereoFiles` accepts a stereo directory without a DEM (a run
+    before ``point2dem``, or one whose DEM is elsewhere), so the plots that
+    need only the images, match files or disparity still work; the DEM
+    plots, and ``asp_report``, raise this instead (#224).
+    """
+    return ValueError(
+        f"\n\nDEM file not found in {full_directory}. Make sure it is there and possibly specify the GSD with the dem_gsd argument.\n\n"
+    )
+
+
 @dataclass
 class PairStereoFiles:
     """The per-pair stereo products of one multi-view pair.
@@ -118,8 +131,9 @@ class StereoFiles:
         ``<prefix>-pairN/`` subdirectories; empty for a standard stereo run.
     dem_gsd : float or None
         Ground sample distance of the DEM in meters.
-    dem_fn : str
-        Path to the stereo DEM.
+    dem_fn : str or None
+        Path to the stereo DEM; None when the stereo directory has none
+        (e.g. ``point2dem`` has not run yet).
     intersection_error_fn : str or None
         Triangulation intersection-error raster.
     """
@@ -149,10 +163,10 @@ class StereoFiles:
             Path to the reference DEM file, default is None (recovered from the
             stereo log).
 
-        Raises
-        ------
-        ValueError
-            If no DEM file is found in the stereo directory.
+        Notes
+        -----
+        A missing DEM is not an error here: ``dem_fn`` is None and a warning
+        is logged. The plots that read the DEM raise instead.
         """
         self.directory = os.path.expanduser(directory)
         self.stereo_directory = stereo_directory
@@ -271,11 +285,9 @@ class StereoFiles:
         else:
             self.dem_fn = glob_file(self.full_directory, dem_fn)
 
-        if not self.dem_fn:
-            raise ValueError(
-                f"\n\nDEM file not found in {self.full_directory}. Make sure it is there and possibly specify the GSD with the dem_gsd argument.\n\n"
-            )
-        else:
+        # glob_file has already logged the miss. Plots that do not read the
+        # DEM (match points, disparity) work without one (#224).
+        if self.dem_fn:
             print(f"\nASP DEM: {self.dem_fn}\n")
 
         self.intersection_error_fn = glob_file(
@@ -526,6 +538,11 @@ class StereoPlotter(Plotter):
         stereo directory with a pattern like *-DEM.tif or *_dem.tif. File
         discovery is delegated to :class:`StereoFiles`; the resolved paths are
         exposed as read-only properties on this plotter.
+
+        Without a DEM, ``dem_fn`` is None: :meth:`plot_match_points` and
+        :meth:`plot_disparity` still work (e.g. on a run before
+        ``point2dem``), and :meth:`plot_dem_results` and
+        :meth:`plot_detailed_hillshade` raise ``ValueError``.
         """
         self.files = StereoFiles(
             directory,
@@ -605,6 +622,11 @@ class StereoPlotter(Plotter):
     @property
     def dem_fn(self):
         return self.files.dem_fn
+
+    def _require_dem(self):
+        """Raise :func:`dem_not_found_error` when there is no stereo DEM."""
+        if not self.dem_fn:
+            raise dem_not_found_error(self.full_directory)
 
     @property
     def intersection_error_fn(self):
@@ -1287,6 +1309,11 @@ class StereoPlotter(Plotter):
         None
             Displays the plot and optionally saves it
 
+        Raises
+        ------
+        ValueError
+            If the stereo directory has no DEM.
+
         Notes
         -----
         This method creates a detailed visualization with a large overview
@@ -1295,6 +1322,7 @@ class StereoPlotter(Plotter):
         of intersection error, representing areas with different quality
         levels in the DEM.
         """
+        self._require_dem()
         self.detailed_hillshade_clips = []
 
         if not self.intersection_error_fn:
@@ -1494,6 +1522,12 @@ class StereoPlotter(Plotter):
             Masked array containing the difference between the DEM and
             reference DEM, or None if no reference DEM is available
 
+        Raises
+        ------
+        ValueError
+            If the difference has to be computed and the stereo directory
+            has no DEM.
+
         Notes
         -----
         This method first looks for a DEM difference file with a pattern
@@ -1511,6 +1545,7 @@ class StereoPlotter(Plotter):
             if not self.reference_dem:
                 return None
             else:
+                self._require_dem()
                 logger.warning(
                     f"\n\nNo DEM of difference found. Generating now using reference DEM: {self.reference_dem}.\n\n"
                 )
@@ -1586,6 +1621,11 @@ class StereoPlotter(Plotter):
         None
             Displays the plot and optionally saves it
 
+        Raises
+        ------
+        ValueError
+            If the stereo directory has no DEM.
+
         Notes
         -----
         This method creates a comprehensive visualization of the stereo
@@ -1594,21 +1634,19 @@ class StereoPlotter(Plotter):
         2. Triangulation intersection error
         3. Difference with reference DEM (if available)
 
-        If any required files are missing, the corresponding subplot will
-        display a message instead.
+        If the intersection error or the difference is missing, its subplot
+        displays a message instead.
         """
+        self._require_dem()
         print("Plotting DEM results. This can take a minute for large inputs.")
         fig, axa = plt.subplots(1, 3, figsize=(10, 3), dpi=220)
         fig.suptitle(self.title, size=10)
 
-        if self.dem_fn:
-            raster = Raster(self.dem_fn)
-            dem = raster.read_array()
-            gsd = raster.get_gsd()
-            hs = raster.hillshade()
-            self._plot_hillshade_with_overlay(axa[0], dem, hs, gsd, clim=el_clim)
-        else:
-            self.plot_missing(axa[0])
+        raster = Raster(self.dem_fn)
+        dem = raster.read_array()
+        gsd = raster.get_gsd()
+        hs = raster.hillshade()
+        self._plot_hillshade_with_overlay(axa[0], dem, hs, gsd, clim=el_clim)
         axa[0].set_title("Stereo DEM")
 
         if self.intersection_error_fn:
