@@ -97,6 +97,12 @@ The `--atl06sr-time-range` option controls which ICESat-2 data is requested from
 
 For areas with known temporal surface change (e.g. ice sheets, glaciers), consider using `"auto"` or an explicit date range to restrict the ICESat-2 data to a time window that matches the DEM acquisition. Seasonal or multi-temporal filtering is also available via the Python API (`predefined_temporal_filter_atl06sr`, `generic_temporal_filter_atl06sr`).
 
+## ICESat-2 geolocation correction (`--geoloc-corr`)
+
+`--geoloc-corr conus` asks SlideRule to apply its ICESat-2 geolocation correction to the ATL03 photons before the ATL06-SR fit, so the segments the DEM is compared and aligned against come out corrected. The correction is one north/east/up shift per granule and beam, looked up from a table that covers the continental US only; SlideRule labels it a draft. Photons on a beam with no entry in the table are dropped, so a corrected request returns fewer points than an uncorrected one, and none outside the continental US. It needs a SlideRule server at version 5.7.0 or later.
+
+The setting is stored with the request in the parquet cache, so a corrected request and an uncorrected one never reuse each other's points. In Python, pass `geoloc_corr="conus"` to `Altimetry.request_atl06sr_multi_processing`.
+
 ## Comparing re-processing runs (`--reuse-selections`)
 
 When you re-process the same scene with different ASP parameters, several diagnostic figures normally change *what they show* between runs: a fresh ICESat-2 request returns a slightly different point set, the "best" profile track flips, the best/worst agreement segments move, and the detailed-hillshade clip boxes are re-selected from the re-processed intersection-error raster. That makes a true before/after comparison impossible.
@@ -249,6 +255,13 @@ Options:
                                present), or "START,END" for a custom range
                                (e.g. "2020-01-01,2024-12-31"), or "auto" for
                                scene metadata +/- 1 year. Default: all.
+  --geoloc-corr [conus]        Have SlideRule apply an ICESat-2 geolocation
+                               correction to the photons before the ATL06-SR
+                               fit. "conus": one north/east/up shift per
+                               granule and beam, continental US only; photons
+                               on beams with no correction entry are dropped.
+                               Corrected and uncorrected points are cached
+                               separately. Default: None, no correction.
   --reuse-selections PATH      Path to a *_figure_selections.yml written by a
                                previous run. When supplied, replays that run's
                                ICESat-2 points (parquet), profile track,

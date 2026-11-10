@@ -103,6 +103,23 @@ class TestCliOptionStyle:
         )
         assert config.pc_align_min_points is None
 
+    def test_geoloc_corr_reaches_the_config(self, monkeypatch):
+        base = ["--directory", "proc", "--stereo-directory", "st"]
+        result, config = self._invoke(monkeypatch, base + ["--geoloc-corr", "conus"])
+        assert result.exit_code == 0, result.output
+        assert config.geoloc_corr == "conus"
+        assert "--geoloc-corr conus" in config.report_command
+        result, config = self._invoke(monkeypatch, base)
+        assert config.geoloc_corr is None
+
+    def test_geoloc_corr_rejects_unknown_corrections(self, monkeypatch):
+        result, config = self._invoke(
+            monkeypatch,
+            ["--directory", "proc", "--stereo-directory", "st", "--geoloc-corr", "x"],
+        )
+        assert result.exit_code == 2
+        assert config is None
+
     def test_hyphenated_flags_parse_and_are_recorded(self, monkeypatch):
         result, config = self._invoke(
             monkeypatch,
@@ -733,6 +750,24 @@ class TestRunReportEarth:
         assert "ICESat-2 ATL06-SR Agreement Segments" in titles
         assert not any("Aligned DEM" in t for t in titles)
         assert "DEM Alignment with ICESat-2" not in titles
+
+    def test_geoloc_corr_is_passed_to_the_request(self, fake_icesat, monkeypatch):
+        requests = []
+        monkeypatch.setattr(
+            rp.Altimetry,
+            "request_atl06sr_multi_processing",
+            lambda self, **k: requests.append(k),
+        )
+        for geoloc_corr in (None, "conus"):
+            run_report(
+                ReportConfig(
+                    directory="tests/test_data",
+                    map_crs="EPSG:32610",
+                    add_basemap=False,
+                    geoloc_corr=geoloc_corr,
+                )
+            )
+        assert [k["geoloc_corr"] for k in requests] == [None, "conus"]
 
     @pytest.fixture
     def sliderule_down(self, monkeypatch, fake_icesat):

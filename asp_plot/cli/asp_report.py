@@ -117,6 +117,12 @@ def _reconstruct_command():
     help='Time range for ICESat-2 ATL06-SR data requests. "all" for all available data (mission start to present), or "START,END" for a custom range (e.g. "2020-01-01,2024-12-31"), or "auto" for scene metadata +/- 1 year. Default: all.',
 )
 @click.option(
+    "--geoloc-corr",
+    type=click.Choice(["conus"]),
+    default=None,
+    help='Have SlideRule apply an ICESat-2 geolocation correction to the photons before the ATL06-SR fit. "conus": one north/east/up shift per granule and beam, continental US only; photons on beams with no correction entry are dropped. Corrected and uncorrected points are cached separately. Default: None, no correction.',
+)
+@click.option(
     "--reuse-selections",
     prompt=False,
     default=None,
@@ -165,6 +171,7 @@ def main(
     no_geometry,
     subset_km,
     atl06sr_time_range,
+    geoloc_corr,
     reuse_selections,
     report_filename,
     report_title,
@@ -194,6 +201,7 @@ def main(
         plot_geometry=not no_geometry,
         subset_km=subset_km,
         atl06sr_time_range=atl06sr_time_range,
+        geoloc_corr=geoloc_corr,
         reuse_selections=reuse_selections,
         report_filename=report_filename,
         report_title=report_title,
