@@ -12,7 +12,7 @@ from asp_plot.asp_log import AspLog
 from asp_plot.csm_io import estim_satellite_orientation
 from asp_plot.sensors.base import IMAGE_EXTENSIONS
 from asp_plot.stereopair_metadata_parser import StereopairMetadataParser
-from asp_plot.utils import save_figure
+from asp_plot.utils import resolve_logged_path, save_figure
 
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
@@ -35,9 +35,10 @@ def camera_files_from_stereo_run(processing_directory, stereo_directory):
     stereo geometry can be scoped to the scenes the run actually used rather
     than every metadata file in the processing directory — the two differ when
     a directory holds scenes for several runs (e.g. multi-view subsets).
-    Relative tokens are resolved against ``processing_directory`` (ASP logs
-    record the command as typed, and asp_report reports are anchored there),
-    falling back to the token's basename in that directory.
+    Relative tokens are resolved with :func:`asp_plot.utils.resolve_logged_path`
+    (as given from the working directory, then joined to
+    ``processing_directory``), falling back to the token's basename in that
+    directory.
 
     Parameters
     ----------
@@ -98,11 +99,7 @@ def camera_files_from_stereo_run(processing_directory, stereo_directory):
         resolved = []
         for token in tokens:
             candidates = [
-                (
-                    token
-                    if os.path.isabs(token)
-                    else os.path.join(processing_directory, token)
-                ),
+                resolve_logged_path(token, processing_directory),
                 os.path.join(processing_directory, os.path.basename(token)),
             ]
             path = next((c for c in candidates if os.path.isfile(c)), None)

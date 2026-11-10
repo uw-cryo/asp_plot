@@ -24,6 +24,7 @@ from asp_plot.utils import (
     get_planetary_bounds,
     get_utm_epsg,
     resolve_directory_or_prefix,
+    resolve_logged_path,
 )
 
 matplotlib.use("Agg")
@@ -894,4 +895,38 @@ class TestResolveDirectoryOrPrefix:
         assert resolve_directory_or_prefix("tests/test_data", "nope") == (
             "nope",
             None,
+        )
+
+
+class TestResolveLoggedPath:
+    # The layout from #223: ASP ran from notebooks/ with paths into ../data/run,
+    # and the report is anchored at --directory ../data/run.
+    def _make_tree(self, tmp_path):
+        run = tmp_path / "data" / "run"
+        (run / "ref").mkdir(parents=True)
+        (run / "ref" / "dem.tif").write_text("")
+        (tmp_path / "notebooks").mkdir()
+        return run
+
+    def test_absolute_path_unchanged(self, tmp_path):
+        path = str(tmp_path / "missing.tif")
+        assert resolve_logged_path(path, str(tmp_path)) == path
+
+    def test_relative_to_working_directory(self, tmp_path, monkeypatch):
+        run = self._make_tree(tmp_path)
+        monkeypatch.chdir(tmp_path / "notebooks")
+        resolved = resolve_logged_path("../data/run/ref/dem.tif", "../data/run")
+        assert os.path.samefile(resolved, run / "ref" / "dem.tif")
+
+    def test_relative_to_directory(self, tmp_path, monkeypatch):
+        # ASP ran from inside the run directory; the report runs from elsewhere.
+        run = self._make_tree(tmp_path)
+        monkeypatch.chdir(tmp_path / "notebooks")
+        resolved = resolve_logged_path("ref/dem.tif", "../data/run")
+        assert os.path.samefile(resolved, run / "ref" / "dem.tif")
+
+    def test_missing_joins_to_directory(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        assert resolve_logged_path("ref/dem.tif", "run") == os.path.join(
+            "run", "ref/dem.tif"
         )

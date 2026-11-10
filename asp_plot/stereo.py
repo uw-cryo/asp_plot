@@ -24,6 +24,7 @@ from asp_plot.utils import (
     detect_satellite_attribution,
     find_pair_directories,
     glob_file,
+    resolve_logged_path,
 )
 
 logging.basicConfig(level=logging.WARNING)
@@ -171,9 +172,10 @@ class StereoFiles:
                 logger.warning(
                     "\n\nNo reference DEM found in log files. Please supply the reference DEM you used during stereo processing (or another reference DEM) if you would like to see some difference maps.\n\n"
                 )
-            # If the reference DEM path from the log is relative, make it absolute
-            elif not os.path.isabs(self.reference_dem):
-                self.reference_dem = os.path.join(self.directory, self.reference_dem)
+            else:
+                self.reference_dem = resolve_logged_path(
+                    self.reference_dem, self.directory
+                )
         if self.reference_dem:
             print(f"\nReference DEM: {self.reference_dem}\n")
 

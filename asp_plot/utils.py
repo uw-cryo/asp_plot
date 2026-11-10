@@ -120,6 +120,39 @@ def resolve_directory_or_prefix(base_directory, value):
     return value, None
 
 
+def resolve_logged_path(path, directory):
+    """
+    Resolve a file path recorded in an ASP log.
+
+    ASP logs record each command as typed, so a relative path in a log is
+    relative to the directory the command ran in, which the log does not
+    record (#223). Two locations are tried, in order: the path as given,
+    relative to the current working directory (``asp_report`` run from where
+    the ASP command ran), then the path joined to ``directory`` (the ASP
+    command run from inside the report's ``--directory``).
+
+    Parameters
+    ----------
+    path : str
+        Path as it appears in the log.
+    directory : str
+        The report's processing directory.
+
+    Returns
+    -------
+    str
+        ``path`` unchanged if it is absolute; otherwise the first candidate
+        that exists, or the path joined to ``directory`` if neither does.
+    """
+    if os.path.isabs(path):
+        return path
+    joined = os.path.join(os.path.expanduser(directory), path)
+    for candidate in (path, joined):
+        if os.path.exists(candidate):
+            return candidate
+    return joined
+
+
 def find_pair_directories(directory):
     """
     Find the per-pair subdirectories of an ASP multi-view stereo run.

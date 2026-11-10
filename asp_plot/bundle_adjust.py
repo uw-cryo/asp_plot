@@ -25,6 +25,7 @@ from asp_plot.utils import (
     Plotter,
     get_xml_tag,
     glob_file,
+    resolve_logged_path,
     run_subprocess_command,
 )
 
@@ -176,9 +177,7 @@ class ReadBundleAdjustFiles:
             )
             return
 
-        # If the reference DEM path from the log is relative, make it absolute
-        if not os.path.isabs(refdem):
-            refdem = os.path.join(self.directory, refdem)
+        refdem = resolve_logged_path(refdem, self.directory)
 
         try:
             command = [
