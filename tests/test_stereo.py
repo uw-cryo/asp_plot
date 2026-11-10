@@ -472,6 +472,61 @@ class TestStereoFilesMultiViewLayout:
         assert files.dem_fn is not None
 
 
+class TestStereoWithoutDEM:
+    """A stereo run before point2dem has match files and disparity but no
+    DEM. The plots that need only those work; the DEM plots raise (#224)."""
+
+    @pytest.fixture
+    def directory(self, tmp_path):
+        dst = tmp_path / "stereo"
+        shutil.copytree("tests/test_data/stereo", dst)
+        # Remove what point2dem writes: the DEM, the intersection error, the
+        # DEM of difference and its log.
+        for pattern in ["*-DEM*.tif", "*-IntersectionErr.tif", "log-point2dem.txt"]:
+            for f in dst.glob(pattern):
+                f.unlink()
+        return str(tmp_path)
+
+    @pytest.fixture
+    def plotter(self, directory):
+        return StereoPlotter(
+            directory=directory,
+            stereo_directory="stereo",
+            reference_dem="tests/test_data/ref_dem.tif",
+            title="Before point2dem",
+        )
+
+    def test_files_without_dem(self, directory):
+        files = StereoFiles(directory=directory, stereo_directory="stereo")
+        assert files.dem_fn is None
+        assert files.match_point_fn is not None
+        assert files.disparity_sub_fn is not None
+
+    def test_plot_match_points(self, plotter, tmp_path):
+        saved = plotter.plot_match_points(save_dir=str(tmp_path), fig_fn="mp.png")
+        assert saved == ["mp.png"]
+        assert (tmp_path / "mp.png").exists()
+
+    def test_plot_disparity(self, plotter, tmp_path):
+        saved = plotter.plot_disparity(save_dir=str(tmp_path), fig_fn="disp.png")
+        assert saved == ["disp.png"]
+        assert (tmp_path / "disp.png").exists()
+
+    @pytest.mark.parametrize(
+        "method",
+        ["plot_dem_results", "plot_detailed_hillshade", "get_diff_vs_reference"],
+    )
+    def test_dem_methods_raise(self, plotter, method):
+        with pytest.raises(ValueError, match="DEM file not found"):
+            getattr(plotter, method)()
+
+    def test_asp_report_still_requires_dem(self, directory):
+        from asp_plot.report_pipeline import ReportConfig, _setup_context
+
+        with pytest.raises(ValueError, match="DEM file not found"):
+            _setup_context(ReportConfig(directory=directory))
+
+
 class TestStereoFilesMultiview:
     """A multi-view run keeps per-pair products in run-pair*/ subdirectories;
     StereoFiles resolves them alongside the joint top-level products (#160)."""

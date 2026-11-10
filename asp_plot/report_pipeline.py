@@ -47,7 +47,7 @@ from asp_plot.selections import (
     read_selections_yaml,
     write_selections_yaml,
 )
-from asp_plot.stereo import StereoPlotter
+from asp_plot.stereo import StereoPlotter, dem_not_found_error
 from asp_plot.stereo_geometry import StereoGeometryPlotter, camera_files_from_stereo_run
 from asp_plot.utils import (
     Raster,
@@ -982,6 +982,10 @@ def _setup_context(config: ReportConfig) -> ReportContext:
         dem_gsd=config.dem_gsd,
     )
     asp_dem = stereo_plotter.dem_fn
+    # StereoPlotter accepts a stereo directory without a DEM (#224), but
+    # most report pages read it, so the report still stops here.
+    if not asp_dem:
+        raise dem_not_found_error(os.path.join(directory, config.stereo_directory))
 
     # Set map CRS from output DEM and collect DEM metadata
     map_crs = config.map_crs
