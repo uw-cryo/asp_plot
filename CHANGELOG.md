@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **`asp_report` finishes when SlideRule is unavailable** ([#214](https://github.com/uw-cryo/asp_plot/issues/214)). When the server stayed busy after the client's retries, the client raised `TypeError: 'NoneType' object is not iterable` from its own response handling, and the report stopped without writing a PDF. Every SlideRule failure now raises `SlideRuleRequestError` (a `RuntimeError`), which names the request and says that it may succeed later: a failed connection check at startup, an exception from `run()`, or a `None` result. The report catches it, prints the cause, and writes a page in place of the ICESat-2 and alignment pages that gives the cause and how to retry. When the connection check fails, no request is sent, so the report does not wait through a second round of retries. A level already in the parquet cache no longer contacts SlideRule at all.
+
 ## [3.6.1] - 2026-11-06
 
 In this release:

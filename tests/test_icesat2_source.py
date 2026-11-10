@@ -15,7 +15,11 @@ import pytest
 from shapely.geometry import Point
 
 from asp_plot.altimetry import Altimetry
-from asp_plot.icesat2_source import MAX_GRANULES_LISTED, Icesat2Source
+from asp_plot.icesat2_source import (
+    MAX_GRANULES_LISTED,
+    Icesat2Source,
+    SlideRuleRequestError,
+)
 
 DEM_FN = "tests/test_data/stereo/date_time_left_right_1m-DEM.tif"
 REGION = [-149.90, 70.00, -149.80, 70.10]
@@ -161,6 +165,75 @@ class TestRequestReturnsNothing:
         assert "SlideRule found no points" in caplog.text
         assert len(src.atl06sr_processing_levels["canopy"]) == 0
         assert len(src.atl06sr_processing_levels_filtered["canopy"]) == 0
+
+
+class TestSlideRuleUnavailable:
+    """A SlideRule outage: the startup check fails, or ``run()`` raises from
+    inside the client once its retries are used up (#214)."""
+
+    def test_run_raising_becomes_one_error_naming_the_request(self, src, monkeypatch):
+        def fail_run(api, parms):
+            raise TypeError("'NoneType' object is not iterable")
+
+        monkeypatch.setattr("asp_plot.icesat2_source.sliderule_api.run", fail_run)
+        with pytest.raises(SlideRuleRequestError) as excinfo:
+            src.request_atl06sr_multi_processing(
+                processing_levels=["all"],
+                region=REGION,
+                time_range="buffered",
+                t0="2019-01-01",
+                t1="2020-01-01",
+            )
+        message = str(excinfo.value)
+        assert "SlideRule request failed" in message
+        assert "atl03x request over [-149.9, 70.0, -149.8, 70.1]" in message
+        assert "2019-01-01" in message
+        assert "may succeed if repeated" in message
+        assert isinstance(excinfo.value.__cause__, TypeError)
+
+    def test_none_result_is_the_same_error(self, src, monkeypatch):
+        monkeypatch.setattr(
+            "asp_plot.icesat2_source.sliderule_api.run", lambda api, parms: None
+        )
+        with pytest.raises(SlideRuleRequestError, match="returned no result"):
+            src.request_atl06sr_multi_processing(
+                processing_levels=["all"], region=REGION
+            )
+
+    def test_failed_startup_check_sends_no_request(self, src, monkeypatch):
+        src._sliderule_initialized = False
+        monkeypatch.setattr(
+            "asp_plot.icesat2_source.sliderule_api.init", lambda *a, **k: False
+        )
+
+        def unexpected_run(api, parms):
+            raise AssertionError("run() called after a failed startup check")
+
+        monkeypatch.setattr("asp_plot.icesat2_source.sliderule_api.run", unexpected_run)
+        with pytest.raises(SlideRuleRequestError, match="Could not connect"):
+            src.request_atl06sr_multi_processing(
+                processing_levels=["all"], region=REGION
+            )
+        # The next request tries to connect again.
+        assert src._sliderule_initialized is False
+
+    def test_cache_hit_does_not_need_sliderule(self, src, monkeypatch):
+        monkeypatch.setattr(
+            "asp_plot.icesat2_source.sliderule_api.run",
+            lambda api, parms: _synthetic_atl06sr(),
+        )
+        src.request_atl06sr_multi_processing(
+            processing_levels=["all"], region=REGION, save_to_parquet=True
+        )
+
+        src._sliderule_initialized = False
+        monkeypatch.setattr(
+            "asp_plot.icesat2_source.sliderule_api.init", lambda *a, **k: False
+        )
+        src.request_atl06sr_multi_processing(
+            processing_levels=["all"], region=REGION, save_to_parquet=True
+        )
+        assert len(src.atl06sr_processing_levels["all"]) > 0
 
 
 class TestGranuleBatches:
