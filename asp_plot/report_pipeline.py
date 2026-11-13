@@ -82,6 +82,9 @@ class ReportConfig:
     plot_geometry: bool = True
     subset_km: float = 1.0
     atl06sr_time_range: str = "all"
+    # ICESat-2 geolocation correction for SlideRule to apply ("conus"), or
+    # None for none. See Icesat2Source.request_atl06sr_multi_processing.
+    geoloc_corr: Optional[str] = None
     reuse_selections: Optional[str] = None
     report_filename: Optional[str] = None
     report_title: Optional[str] = None
@@ -579,6 +582,7 @@ def _build_altimetry_earth(ctx: ReportContext, ctx_kwargs_altimetry: dict):
             icesat.request_atl06sr_multi_processing(
                 processing_levels=["all"],
                 save_to_parquet=True,
+                geoloc_corr=cfg.geoloc_corr,
                 **atl06sr_time_kwargs,
             )
         except SlideRuleRequestError as e:

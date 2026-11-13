@@ -38,6 +38,13 @@ MAX_GRANULES_PER_REQUEST = 250
 # to the listing too unless the query asks for more.
 MAX_GRANULES_LISTED = 10000
 
+#: ATL03 geolocation corrections SlideRule can apply to the photons before the
+#: ATL06-SR fit (``geoloc_corr`` in the ``atl03x`` request, SlideRule v5.7.0
+#: and later). ``"conus"`` is one north/east/up shift per granule and beam,
+#: covering the continental US. Photons on a beam with no correction entry are
+#: dropped by the server (#217).
+GEOLOC_CORRECTIONS = ("conus",)
+
 #: ESA WorldCover class codes (see ``WORLDCOVER_NAMES``) grouped under the
 #: names :meth:`Icesat2Source.filter_esa_worldcover` accepts.
 WORLDCOVER_GROUPS = {
@@ -277,6 +284,7 @@ class Icesat2Source(AltimetrySource):
         time_buffer_days=365,
         t0=None,
         t1=None,
+        geoloc_corr=None,
     ):
         """
         Request ICESat-2 ATL06-SR data for multiple processing levels.
@@ -328,6 +336,15 @@ class Icesat2Source(AltimetrySource):
         t1 : str or datetime-like, optional
             Explicit end date (e.g. "2024-12-31").
             Defaults to present if only ``t0`` is provided.
+        geoloc_corr : str or None, optional
+            ATL03 geolocation correction for SlideRule to apply to the photons
+            before the fit, default is None (no correction). ``"conus"``
+            applies one north/east/up shift per granule and beam, covering
+            the continental US. Photons on a beam with no correction entry
+            are dropped, so the corrected request returns fewer points, and
+            none outside the continental US. The setting is part of the
+            request recorded in the parquet cache, so a corrected and an
+            uncorrected request do not reuse each other's cache.
 
         Returns
         -------
@@ -336,6 +353,8 @@ class Icesat2Source(AltimetrySource):
 
         Raises
         ------
+        ValueError
+            If ``geoloc_corr`` is not None or one of ``GEOLOC_CORRECTIONS``.
         SlideRuleRequestError
             If a level is not cached and SlideRule cannot be reached, the
             request fails, or it returns nothing.
@@ -347,6 +366,11 @@ class Icesat2Source(AltimetrySource):
         ICESat-2 data points. The method includes filtering to improve data quality
         by removing points with high uncertainty and from early mission cycles.
         """
+        if geoloc_corr is not None and geoloc_corr not in GEOLOC_CORRECTIONS:
+            raise ValueError(
+                f"geoloc_corr must be None or one of {GEOLOC_CORRECTIONS}, "
+                f"not {geoloc_corr!r}."
+            )
         if not region:
             region = Raster(self.alt.dem_fn).get_bounds(latlon=True)
 
@@ -364,7 +388,16 @@ class Icesat2Source(AltimetrySource):
 
         # Build the per-level SlideRule parameter sets (shared + custom).
         level_parms = self._build_level_parms(
-            processing_levels, region, t0_str, t1_str, res, len, ats, maxi, cnt
+            processing_levels,
+            region,
+            t0_str,
+            t1_str,
+            res,
+            len,
+            ats,
+            maxi,
+            cnt,
+            geoloc_corr=geoloc_corr,
         )
 
         # Record the request settings + cache locations so a report run can
@@ -377,6 +410,7 @@ class Icesat2Source(AltimetrySource):
             "time_range": time_range,
             "t0": t0_str,
             "t1": t1_str,
+            "geoloc_corr": geoloc_corr,
         }
         self.atl06sr_parquet_paths = {}
 
@@ -411,13 +445,27 @@ class Icesat2Source(AltimetrySource):
 
     @staticmethod
     def _build_level_parms(
-        processing_levels, region, t0_str, t1_str, res, len, ats, maxi, cnt
+        processing_levels,
+        region,
+        t0_str,
+        t1_str,
+        res,
+        len,
+        ats,
+        maxi,
+        cnt,
+        geoloc_corr=None,
     ):
         """Build the merged SlideRule parameter dict for each requested level.
 
         Returns ``{level_key: parms}`` where ``parms`` is the shared request
         envelope merged with the level-specific confidence/surface-type
         settings. Only levels in ``processing_levels`` are included.
+
+        ``geoloc_corr`` adds ``{"geoloc_corr": {"correction": geoloc_corr}}``
+        to the shared envelope. With the default None the key is left out, so
+        an uncorrected request is the same as before the option existed and
+        still matches parquets cached before then.
 
         See the SlideRule parameter discussion at
         https://github.com/SlideRuleEarth/sliderule/issues/448 — ``"srt": -1``
@@ -436,6 +484,8 @@ class Icesat2Source(AltimetrySource):
             "ats": ats,
             "fit": {"maxi": maxi},
         }
+        if geoloc_corr is not None:
+            shared_parms["geoloc_corr"] = {"correction": geoloc_corr}
 
         # Custom parameters for each processing level
         custom_parms = {
@@ -545,8 +595,16 @@ class Icesat2Source(AltimetrySource):
         else:
             atl06sr = self._run_atl03x(parms)
         if atl06sr.empty:
+            note = ""
+            if "geoloc_corr" in parms:
+                note = (
+                    " With a geolocation correction, SlideRule drops the photons"
+                    " on beams that have no correction entry; the CONUS"
+                    " correction covers the continental US only."
+                )
             logger.warning(
                 f"SlideRule found no points for {self._describe_request(parms)}."
+                f"{note}"
             )
         atl06sr = self._sample_worldcover_into_gdf(atl06sr)
         if save_to_parquet:
@@ -649,7 +707,13 @@ class Icesat2Source(AltimetrySource):
                 f"lon {min(lons):.4f} to {max(lons):.4f}, "
                 f"lat {min(lats):.4f} to {max(lats):.4f}"
             )
-        return f"the atl03x request over {region}, from {parms['t0']} to {parms['t1']}"
+        description = (
+            f"the atl03x request over {region}, from {parms['t0']} to {parms['t1']}"
+        )
+        if "geoloc_corr" in parms:
+            correction = parms["geoloc_corr"]["correction"]
+            description += f", with the {correction} geolocation correction"
+        return description
 
     def _ingest_atl06sr(self, key, atl06sr, h_sigma_quantile=1.0):
         """

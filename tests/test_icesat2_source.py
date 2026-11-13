@@ -8,6 +8,8 @@ GeoDataFrame so the decomposed helpers — ``_build_level_parms``,
 — and the parquet cache round-trip are covered without a network call.
 """
 
+import json
+
 import geopandas as gpd
 import numpy as np
 import pandas as pd
@@ -88,6 +90,30 @@ class TestBuildLevelParms:
         )["ground"]
         assert parms["cnt"] == 5
         assert parms["atl08_class"] == "atl08_ground"
+
+    def test_no_geoloc_corr_key_by_default(self):
+        # Leaving the key out keeps uncorrected requests identical to those
+        # cached before the option existed.
+        parms = Icesat2Source._build_level_parms(
+            ["all", "ground"], REGION, "t0", "t1", 20, 40, 20, 6, 10
+        )
+        assert all("geoloc_corr" not in p for p in parms.values())
+
+    def test_geoloc_corr_added_to_every_level(self):
+        parms = Icesat2Source._build_level_parms(
+            ["all", "ground"],
+            REGION,
+            "t0",
+            "t1",
+            20,
+            40,
+            20,
+            6,
+            10,
+            geoloc_corr="conus",
+        )
+        for p in parms.values():
+            assert p["geoloc_corr"] == {"correction": "conus"}
 
 
 class TestParamsMatchCache:
@@ -423,6 +449,71 @@ class TestRequestAtl06srMultiProcessing:
         )
         assert src.atl06sr_request_parms["processing_levels"] == ["all", "ground"]
         assert set(src.atl06sr_parquet_paths.keys()) == {"all", "ground"}
+        assert src.atl06sr_request_parms["geoloc_corr"] is None
+
+
+class TestGeolocCorr:
+    """The opt-in SlideRule ATL03 geolocation correction (#217)."""
+
+    @pytest.fixture
+    def sent(self, monkeypatch):
+        sent = []
+
+        def fake_run(api, parms):
+            sent.append(parms)
+            return _synthetic_atl06sr()
+
+        monkeypatch.setattr("asp_plot.icesat2_source.sliderule_api.run", fake_run)
+        return sent
+
+    def _request(self, src, geoloc_corr=None):
+        src.request_atl06sr_multi_processing(
+            processing_levels=["all"],
+            region=REGION,
+            save_to_parquet=True,
+            geoloc_corr=geoloc_corr,
+        )
+
+    def test_sent_recorded_and_cached_separately(self, src, sent):
+        self._request(src)
+        assert "geoloc_corr" not in sent[0]
+
+        # A corrected request does not reuse the uncorrected cache ...
+        self._request(src, geoloc_corr="conus")
+        assert len(sent) == 2
+        assert sent[1]["geoloc_corr"] == {"correction": "conus"}
+        assert src.atl06sr_request_parms["geoloc_corr"] == "conus"
+        cached = gpd.read_parquet(src.atl06sr_parquet_paths["all"])
+        recorded = json.loads(cached["sliderule_parameters"].iloc[0])
+        assert recorded["geoloc_corr"] == {"correction": "conus"}
+
+        # ... repeats it from its own cache ...
+        self._request(src, geoloc_corr="conus")
+        assert len(sent) == 2
+
+        # ... and an uncorrected request does not reuse the corrected cache.
+        self._request(src)
+        assert len(sent) == 3
+
+    def test_unknown_correction_raises_before_any_request(self, src, sent):
+        with pytest.raises(ValueError, match="geoloc_corr"):
+            self._request(src, geoloc_corr="global")
+        assert sent == []
+
+    def test_errors_name_the_correction(self, src, monkeypatch):
+        monkeypatch.setattr(
+            "asp_plot.icesat2_source.sliderule_api.run", lambda api, parms: None
+        )
+        with pytest.raises(SlideRuleRequestError, match="conus geolocation correction"):
+            self._request(src, geoloc_corr="conus")
+
+    def test_no_points_warning_explains_dropped_beams(self, src, monkeypatch, caplog):
+        empty = _synthetic_atl06sr().iloc[0:0]
+        monkeypatch.setattr(
+            "asp_plot.icesat2_source.sliderule_api.run", lambda api, parms: empty
+        )
+        self._request(src, geoloc_corr="conus")
+        assert "beams that have no correction entry" in caplog.text
 
 
 class TestAlignedResidualsShareThePointsOfTheUnaligned:
