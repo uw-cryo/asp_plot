@@ -7,7 +7,7 @@ dependencies:
   - rasterio
   - rioxarray
   - fiona
-  - geopandas
+  - geopandas>=1.0
   - pip
   - pip:
     - -e ".[dev,docs]"
