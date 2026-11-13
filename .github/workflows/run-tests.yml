@@ -18,22 +18,21 @@ jobs:
 
     runs-on: ubuntu-latest
 
+    # Login shell so the conda env activated by setup-miniconda is on PATH
+    defaults:
+      run:
+        shell: bash -el {0}
+
     steps:
-    - uses: actions/checkout@v3
-    - name: Set up Python 3.11
-      uses: actions/setup-python@v3
+    - uses: actions/checkout@v4
+    # Install Miniforge rather than relying on a conda bundled with the
+    # runner image: ubuntu-26.04 ships none, so $CONDA is empty there.
+    - name: Set up conda environment
+      uses: conda-incubator/setup-miniconda@v3
       with:
-        python-version: "3.11"
-    - name: Add conda
-      run: |
-        echo $CONDA/bin >> $GITHUB_PATH
-    - name: Install dependencies
-      run: |
-        conda env create -f environment.yml
-        source $CONDA/etc/profile.d/conda.sh
-        conda activate asp_plot
+        miniforge-version: latest
+        environment-file: environment.yml
+        activate-environment: asp_plot
+        conda-remove-defaults: "true"
     - name: Test with pytest
-      run: |
-        source $CONDA/etc/profile.d/conda.sh
-        conda activate asp_plot
-        pytest
+      run: pytest
