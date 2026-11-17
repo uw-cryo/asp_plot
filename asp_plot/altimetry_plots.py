@@ -19,13 +19,22 @@ import contextily as ctx
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 import rioxarray
 from rasterio import plot as rioplot
 
 from asp_plot.bodies import BODIES
+from asp_plot.icesat2_source import ICESAT2_BLOCK_COLUMNS
+from asp_plot.terrain import (
+    SLOPE_BINS,
+    SLOPE_COLUMN,
+    slope_bin_edges,
+    slope_bin_labels,
+    slope_source_label,
+)
 from asp_plot.utils import ColorBar, Raster
 from asp_plot.utils import nmad as _nmad
-from asp_plot.utils import save_figure
+from asp_plot.utils import paired_block_bootstrap, save_figure
 
 logger = logging.getLogger(__name__)
 
@@ -930,6 +939,228 @@ class AltimetryPlotter:
                             f"NMAD={cs['nmad']:.2f}"
                         )
         return "\n".join(lines)
+
+    def nmad_by_slope(
+        self,
+        atl06sr,
+        key="all",
+        bins=SLOPE_BINS,
+        min_points=10,
+        n_bootstrap=1000,
+        seed=0,
+        title="ICESat-2 ATL06-SR vs DEM by slope",
+        plot_aligned=False,
+        save_dir=None,
+        fig_fn=None,
+    ):
+        """
+        Plot the NMAD of dh by terrain slope class.
+
+        Shows the NMAD of the ICESat-2 minus DEM height differences in each
+        slope class, with a 95 % interval from a bootstrap that resamples
+        whole beam tracks within the class
+        (:func:`asp_plot.utils.paired_block_bootstrap`). The tick labels
+        give the number of points and beam tracks in each class. A class
+        with fewer than ``min_points`` points is counted but not plotted.
+
+        Slope steepens the residuals for reasons other than the DEM's
+        height error: a horizontal offset of Δx between the DEM and the
+        ICESat-2 points adds about Δx · tan(slope) to a residual.
+
+        Parameters
+        ----------
+        atl06sr : geopandas.GeoDataFrame
+            Prepared ATL06-SR points with the dh column computed and the
+            ``slope_deg`` column sampled (``Altimetry.sample_slope``).
+        key : str, optional
+            Processing level label, default is "all"
+        bins : sequence of float, optional
+            Edges of the slope classes in degrees, default
+            :data:`asp_plot.terrain.SLOPE_BINS`. Each class includes its
+            lower edge and excludes its upper one.
+        min_points : int, optional
+            Fewest points for a class's statistics to be reported, default 10
+        n_bootstrap : int, optional
+            Replicates of the bootstrap behind the intervals, default 1000.
+            0 skips it: no error bars, and NaN interval columns.
+        seed : int, optional
+            Seed of the bootstrap's random generator, default 0
+        title : str, optional
+            Plot title
+        plot_aligned : bool, optional
+            Whether to add the aligned DEM's statistics alongside the
+            unaligned ones. Requires ``self.alt.aligned_dem_fn`` and the
+            ``icesat_minus_aligned_dem`` column. Default is False.
+        save_dir : str or None, optional
+            Directory to save figure, default is None
+        fig_fn : str or None, optional
+            Filename for saved figure, default is None
+
+        Returns
+        -------
+        pandas.DataFrame or None
+            One row per slope class: ``slope_bin``, ``slope_min_deg``,
+            ``slope_max_deg``, ``n_points``, ``n_tracks`` (NaN when the
+            points carry no rgt/cycle/spot columns), and ``dh_median_m``,
+            ``dh_nmad_m``, ``dh_nmad_ci_low_m``, ``dh_nmad_ci_high_m``;
+            with ``plot_aligned``, the same four as ``dh_aligned_*``. None,
+            with no figure, when no point has both a slope and a dh.
+        """
+        edges = slope_bin_edges(bins)
+        if SLOPE_COLUMN not in atl06sr.columns:
+            raise ValueError(
+                f"No '{SLOPE_COLUMN}' column for key: {key}. Call sample_slope() first."
+            )
+        series = [("icesat_minus_dem", "steelblue", "DEM", "dh")]
+        if plot_aligned:
+            if not self.alt.aligned_dem_fn:
+                logger.warning(
+                    "\nplot_aligned=True but no aligned DEM is available; "
+                    "plotting unaligned statistics only.\n"
+                )
+            elif "icesat_minus_aligned_dem" not in atl06sr.columns:
+                logger.warning(
+                    "\n'icesat_minus_aligned_dem' column missing; call "
+                    "atl06sr_to_dem_dh() after setting aligned_dem_fn.\n"
+                )
+            else:
+                series.append(
+                    (
+                        "icesat_minus_aligned_dem",
+                        "darkorange",
+                        "Aligned DEM",
+                        "dh_aligned",
+                    )
+                )
+
+        # One set of points for every series: those with a slope and a dh.
+        points = atl06sr.dropna(subset=[SLOPE_COLUMN, "icesat_minus_dem"])
+        if points.empty:
+            logger.warning(f"\nNo points with a slope and a dh for key: {key}\n")
+            return None
+        classes = pd.cut(
+            points[SLOPE_COLUMN].to_numpy(), bins=list(edges), right=False, labels=False
+        )
+        # Beam tracks are the bootstrap's blocks: residuals along one track
+        # are correlated, so resampling points would give intervals too narrow.
+        cols = {c.strip().lower(): c for c in points.columns}
+        tracks = None
+        if all(c in cols for c in ICESAT2_BLOCK_COLUMNS):
+            tracks, _ = pd.factorize(
+                pd.MultiIndex.from_frame(
+                    points[[cols[c] for c in ICESAT2_BLOCK_COLUMNS]]
+                )
+            )
+        values = np.vstack([points[col].to_numpy(dtype=float) for col, *_ in series])
+
+        rows = []
+        for k, label in enumerate(slope_bin_labels(edges)):
+            in_class = classes == k
+            n_points = int(in_class.sum())
+            row = {
+                "slope_bin": label,
+                "slope_min_deg": edges[k],
+                "slope_max_deg": edges[k + 1],
+                "n_points": n_points,
+                "n_tracks": (
+                    int(np.unique(tracks[in_class]).size)
+                    if tracks is not None
+                    else np.nan
+                ),
+            }
+            enough = n_points >= min_points
+            ci_low = ci_high = np.full(len(series), np.nan)
+            if enough and n_bootstrap:
+                result = paired_block_bootstrap(
+                    values[:, in_class],
+                    blocks=tracks[in_class] if tracks is not None else None,
+                    n_boot=n_bootstrap,
+                    seed=seed,
+                )
+                ci_low, ci_high = np.nanpercentile(result["nmad"], [2.5, 97.5], axis=0)
+            for i, (_, _, _, prefix) in enumerate(series):
+                dh = values[i, in_class]
+                dh = dh[np.isfinite(dh)]
+                scored = enough and dh.size > 0
+                row[f"{prefix}_median_m"] = float(np.median(dh)) if scored else np.nan
+                row[f"{prefix}_nmad_m"] = float(_nmad(dh)) if scored else np.nan
+                row[f"{prefix}_nmad_ci_low_m"] = float(ci_low[i])
+                row[f"{prefix}_nmad_ci_high_m"] = float(ci_high[i])
+            rows.append(row)
+        stats = pd.DataFrame(rows)
+
+        fig, ax = plt.subplots(1, 1, figsize=(8, 5), dpi=220)
+        x = np.arange(len(stats))
+        # Offset the two series a little so their error bars do not overlap
+        offsets = [0.0] if len(series) == 1 else [-0.05, 0.05]
+        for (_, color, label, prefix), offset in zip(series, offsets):
+            y = stats[f"{prefix}_nmad_m"].to_numpy()
+            ax.plot(
+                x + offset,
+                y,
+                color=color,
+                marker="o",
+                markersize=5,
+                linewidth=1.5,
+                label=label,
+            )
+            low = stats[f"{prefix}_nmad_ci_low_m"].to_numpy()
+            high = stats[f"{prefix}_nmad_ci_high_m"].to_numpy()
+            drawn = np.isfinite(y) & np.isfinite(low) & np.isfinite(high)
+            if drawn.any():
+                ax.errorbar(
+                    (x + offset)[drawn],
+                    y[drawn],
+                    yerr=[
+                        np.clip(y[drawn] - low[drawn], 0, None),
+                        np.clip(high[drawn] - y[drawn], 0, None),
+                    ],
+                    fmt="none",
+                    ecolor=color,
+                    elinewidth=1.0,
+                    capsize=3,
+                )
+        ax.set_ylim(bottom=0)
+        ax.set_ylabel("NMAD of ICESat-2 - DEM (m)")
+        ax.grid(axis="y", color="0.9", linewidth=0.6)
+        ax.set_axisbelow(True)
+        if len(series) > 1:
+            ax.legend(fontsize=8, frameon=False, loc="upper left")
+        ticks = []
+        for row in stats.itertuples():
+            tick = f"{row.slope_bin}\nn = {row.n_points}"
+            if tracks is not None:
+                tick += f"\n{row.n_tracks} tracks"
+            if row.n_points < min_points:
+                tick += "\n(too few)"
+            ticks.append(tick)
+        ax.set_xticks(x)
+        ax.set_xticklabels(ticks, fontsize=8)
+        ax.set_xlim(-0.5, len(stats) - 0.5)
+        source = self.alt.icesat2
+        ax.set_xlabel(
+            (
+                slope_source_label(source.slope_dem_fn, source.slope_scale)
+                if source.slope_dem_fn
+                else "Slope"
+            ),
+            fontsize=8,
+        )
+
+        suptitle = f"{title}\n{key} (n={len(points)})"
+        if self._time_range_label:
+            suptitle += f"\n{self._time_range_label}"
+        if n_bootstrap:
+            resampled = "beam tracks" if tracks is not None else "points"
+            suptitle += (
+                f"\nerror bars: 95 % interval, {n_bootstrap} replicates "
+                f"resampling the {resampled} within each class"
+            )
+        fig.suptitle(suptitle, size=10)
+        fig.tight_layout()
+        if save_dir and fig_fn:
+            save_figure(fig, save_dir, fig_fn)
+        return stats
 
     def _plot_hillshade_map(self, ax, track, seg_info=None):
         """

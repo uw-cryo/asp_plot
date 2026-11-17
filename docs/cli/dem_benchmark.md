@@ -62,7 +62,7 @@ dem_benchmark "MVS 5-scene=stereo_mvs5/run-DEM.tif" "MVS 3-scene=stereo_mvs3/run
 
 ## Accuracy by slope
 
-On steep sites the useful question is often how accuracy changes with slope. By default (`--slope-dem auto`) slope is taken from the reference DEM of the stereo runs, the one `asp_report` finds: the DEM the images were mapprojected onto, named in the stereo logs beside each DEM. A DEM with no logs beside it, such as a lidar DTM, is ignored for this. The breakdown is skipped, with the reason printed, when no log names a reference DEM, when the logs name different ones, or when the file does not exist.
+On steep sites the useful question is often how accuracy changes with slope. By default (`--slope-dem auto`) slope is taken from the reference DEM of the stereo runs, the one `asp_report` finds: the DEM the images were mapprojected onto, named in the stereo logs beside each DEM. A DEM with no logs beside it, such as a lidar DTM, is ignored for this. When no log names a reference DEM, when the logs name different ones, or when the file does not exist, slope is taken from the `--reference` DEM if you gave one. Without one the breakdown is skipped, with the reason printed.
 
 To choose the DEM yourself, pass `--slope-dem` the label of one of the candidates or a path, such as a Copernicus DEM or a lidar DTM. `--slope-dem none` turns the breakdown off.
 
@@ -72,7 +72,14 @@ dem_benchmark stereo_mvs3/run-DEM.tif stereo_mvs5/run-DEM.tif \
               --slope-dem cop30.tif --slope-bins 0,5,10,20,30,90
 ```
 
-Slope is computed as `gdaldem slope` does (Horn's method, from the 3 × 3 pixels around each point) and sampled once per point, so every DEM is binned the same way. Taking slope from each candidate instead would put the same point in different classes for different DEMs. It would also sort each DEM's own noise into the steep classes, which is the reason the default is the reference DEM and not a candidate. The slope is that of the named DEM at its own resolution: a 30 m Copernicus DEM gives the slope of the terrain over about one ICESat-2 segment, a 1 m DSM the slope of roofs and walls. Points in the DEM's edge pixels or next to nodata get no slope and fall in no class. Each class includes its lower edge and excludes its upper one.
+Slope is computed as `gdaldem slope` does (Horn's method, from the 3 × 3 pixels around each point) and sampled once per point, so every DEM is binned the same way. Taking slope from each candidate instead would put the same point in different classes for different DEMs. It would also sort each DEM's own noise into the steep classes, which is the reason the default is the reference DEM and not a candidate. Slope is taken at a scale of about 30 m (`--slope-scale`), the length of one ICESat-2 segment. A 30 m Copernicus DEM is used as it is. A finer DEM is first averaged over whole-pixel blocks of up to 30 m, in memory, because at its own resolution a 1 m DSM gives the slope of roofs and canopy edges and not of the terrain. `--slope-scale 0` uses the DEM's own pixels. The figure's x-axis label names the DEM and the pixel size used. Points in the DEM's edge pixels or next to nodata get no slope and fall in no class. Each class includes its lower edge and excludes its upper one.
+
+```{figure} ../figures/example_dem_benchmark_slope.png
+:alt: NMAD by slope class for four UCSD WorldView-3 DEMs, with bootstrap intervals and the number of points and beam tracks in each class
+:width: 100%
+
+Four WorldView-3 DEMs of the UCSD site (a five-scene multi-view run, two single pairs, and ten pairs merged with `dem_mosaic`) on the 21 208 ICESat-2 points valid in all four, before any alignment. Slope came from the Copernicus reference DEM found in the stereo logs. NMAD rises from about 1.2 m on flat ground to about 2 m at 20–30°, and the 30–90° class, with 32 points on 7 beam tracks, is too uncertain to rank the DEMs.
+```
 
 This adds `dem_benchmark_slope.png`, the shared-point NMAD of every DEM by class, and `dem_benchmark_by_slope.csv`. For each class the table gives the number of points and of beam tracks, the median and NMAD before and after alignment, and the 95 % interval on the NMAD from the bootstrap rerun within the class. The NMAD table is also printed.
 
@@ -160,17 +167,24 @@ Options:
   --slope-dem TEXT                DEM to take slope from for an NMAD-by-slope
                                   breakdown. 'auto' uses the reference DEM
                                   named in the stereo logs beside the DEMS
-                                  (the one asp_report finds) and skips the
-                                  breakdown when there is none or the logs
-                                  disagree. Otherwise the label of one of the
-                                  DEMS, a path such as a Copernicus DEM or a
-                                  lidar DTM, or 'none' for no breakdown. Slope
-                                  (Horn's method, as gdaldem) is sampled once
-                                  per point, so every DEM is binned the same
-                                  way. Writes a <stem>_slope.png figure and a
-                                  <stem>_by_slope.csv table.  [default: auto]
+                                  (the one asp_report finds). When there is
+                                  none or the logs disagree, it uses the
+                                  --reference DEM, and skips the breakdown
+                                  without one. Otherwise the label of one of
+                                  the DEMS, a path such as a Copernicus DEM or
+                                  a lidar DTM, or 'none' for no breakdown.
+                                  Slope (Horn's method, as gdaldem) is sampled
+                                  once per point, so every DEM is binned the
+                                  same way. Writes a <stem>_slope.png figure
+                                  and a <stem>_by_slope.csv table.  [default:
+                                  auto]
   --slope-bins TEXT               Comma-separated slope class edges in
                                   degrees.  [default: 0,5,10,20,30,90]
+  --slope-scale FLOAT             Length scale of the slope in meters, about
+                                  one ATL06-SR segment. A slope DEM with finer
+                                  pixels is averaged to it first; a coarser
+                                  one is used as it is. 0 uses the slope DEM's
+                                  own resolution.  [default: 30]
   --title TEXT                    Figure title. Default: none.
   --output-directory TEXT         Directory for the figure and stats CSV.
                                   Default: --directory.

@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 
 import geopandas as gpd
 import matplotlib
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import pytest
@@ -194,6 +195,75 @@ class TestAltimetry:
             pytest.fail(
                 f"histogram_by_landcover() method raised an exception: {str(e)}"
             )
+
+    def test_sample_slope(self, icesat):
+        icesat.sample_slope()
+        # Default: the DEM being validated, averaged to 30 m
+        assert icesat.icesat2.slope_dem_fn == icesat.dem_fn
+        assert icesat.icesat2.slope_scale == 30
+        for atl06sr in icesat.atl06sr_processing_levels_filtered.values():
+            assert "slope_deg" in atl06sr.columns
+        slope = icesat.atl06sr_processing_levels_filtered["all"]["slope_deg"]
+        assert slope.notna().sum() > 1000
+        assert slope.dropna().between(0, 90).all()
+
+        icesat.sample_slope(slope_dem="tests/test_data/ref_dem.tif", scale=None)
+        assert icesat.icesat2.slope_dem_fn == "tests/test_data/ref_dem.tif"
+        assert icesat.icesat2.slope_scale is None
+
+    def test_nmad_by_slope(self, icesat):
+        # Samples slope (and computes dh) itself when they are missing
+        stats = icesat.nmad_by_slope(key="all", bins=(0, 0.5, 1, 90), n_bootstrap=50)
+        assert list(stats["slope_bin"]) == ["0–0.5°", "0.5–1°", "1–90°"]
+        points = icesat.atl06sr_processing_levels_filtered["all"].dropna(
+            subset=["slope_deg", "icesat_minus_dem"]
+        )
+        assert stats["n_points"].sum() == len(points)
+        flat = points[points["slope_deg"] < 0.5]["icesat_minus_dem"]
+        row = stats.iloc[0]
+        assert row["n_points"] == len(flat)
+        assert row["dh_median_m"] == pytest.approx(flat.median())
+        assert row["n_tracks"] == (
+            points[points["slope_deg"] < 0.5].groupby(["rgt", "cycle", "spot"]).ngroups
+        )
+        assert row["dh_nmad_ci_low_m"] <= row["dh_nmad_m"] <= row["dh_nmad_ci_high_m"]
+        assert "dh_aligned_nmad_m" not in stats.columns
+
+        ax = plt.gcf().axes[0]
+        ticks = [t.get_text() for t in ax.get_xticklabels()]
+        assert all("n = " in t and "tracks" in t for t in ticks)
+        # The fixture DEM has 1.9 km pixels, so nothing is averaged
+        assert ax.get_xlabel() == "Slope from date_time_left_right_1m-DEM.tif (1895 m)"
+        assert "resampling the beam tracks" in plt.gcf()._suptitle.get_text()
+        plt.close("all")
+
+    def test_nmad_by_slope_thin_class_and_no_bootstrap(self, icesat):
+        stats = icesat.nmad_by_slope(
+            key="all", bins=(0, 89.9, 90), min_points=10, n_bootstrap=0
+        )
+        # Nothing is that steep: the class is counted but not scored
+        assert stats.iloc[1]["n_points"] == 0
+        assert np.isnan(stats.iloc[1]["dh_nmad_m"])
+        assert np.isnan(stats.iloc[0]["dh_nmad_ci_low_m"])
+        assert "error bars" not in plt.gcf()._suptitle.get_text()
+        ticks = [t.get_text() for t in plt.gcf().axes[0].get_xticklabels()]
+        assert "(too few)" in ticks[1]
+        plt.close("all")
+
+    def test_nmad_by_slope_plot_aligned_no_aligned_dem(self, icesat):
+        """plot_aligned=True without an aligned DEM should warn but not raise."""
+        stats = icesat.nmad_by_slope(key="all", plot_aligned=True, n_bootstrap=0)
+        assert "dh_aligned_nmad_m" not in stats.columns
+        plt.close("all")
+
+    def test_nmad_by_slope_needs_the_slope_column(self, icesat):
+        icesat.atl06sr_to_dem_dh()
+        with pytest.raises(ValueError, match="sample_slope"):
+            icesat.plotter.nmad_by_slope(
+                icesat.atl06sr_processing_levels_filtered["all"]
+            )
+        with pytest.raises(ValueError, match="slope_bins"):
+            icesat.nmad_by_slope(key="all", bins=(10, 5))
 
     def test_filter_outliers(self, icesat):
         icesat.atl06sr_to_dem_dh()

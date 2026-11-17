@@ -65,21 +65,32 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import rasterio as rio
-from pyproj import CRS
 from rasterio.errors import WindowError
-from rasterio.transform import rowcol
 from rasterio.warp import transform_bounds
 from rasterio.windows import Window, from_bounds, intersection
 
 from asp_plot.alignment import Alignment
 from asp_plot.altimetry import Altimetry
-from asp_plot.icesat2_source import WORLDCOVER_GROUPS, worldcover_group_values
+from asp_plot.icesat2_source import (
+    ICESAT2_BLOCK_COLUMNS,
+    WORLDCOVER_GROUPS,
+    worldcover_group_values,
+)
 from asp_plot.processing_parameters import ProcessingParameters
+from asp_plot.terrain import (
+    SLOPE_BINS,
+    SLOPE_SCALE_M,
+    slope_at_points,
+    slope_bin_edges,
+    slope_bin_labels,
+    slope_source_label,
+)
 from asp_plot.utils import (
     Raster,
     detect_planetary_body,
     glob_file,
     nmad,
+    paired_block_bootstrap,
     resolve_logged_path,
     save_figure,
 )
@@ -164,9 +175,6 @@ _BOOTSTRAP_KEYS = (
     "p_best",
 )
 
-#: Default slope classes in degrees (the classes of the #207 full-scene study).
-SLOPE_BINS = (0, 5, 10, 20, 30, 90)
-
 #: Columns of ``stats_by_slope_df``, one row per DEM and slope class. Every
 #: residual column is on the points valid in every DEM that fall in the class.
 SLOPE_STATS_COLUMNS = [
@@ -187,9 +195,6 @@ SLOPE_STATS_COLUMNS = [
 #: Column added to the altimetry point tables to identify one point across
 #: the per-DEM ``Altimetry`` objects (the tables share a non-unique time index).
 POINT_ID = "benchmark_point_id"
-
-#: ATL06-SR columns identifying one beam track: a resampling block.
-ICESAT2_BLOCK_COLUMNS = ("rgt", "cycle", "spot")
 
 #: Candidate track-id columns in a LOLA/MOLA CSV (matched stripped, lowercase).
 #: MOLA PEDR exports carry ``ORBIT``; LOLA RDR exports carry none, and the
@@ -320,71 +325,6 @@ def _dh_stats(dh, prefix):
     }
 
 
-def _row_nmad(values):
-    """NMAD of each row of a 2-D array (NaN-aware)."""
-    med = np.nanmedian(values, axis=1, keepdims=True)
-    return 1.4826 * np.nanmedian(np.abs(values - med), axis=1)
-
-
-def paired_block_bootstrap(values, blocks=None, n_boot=1000, seed=0):
-    """
-    Bootstrap the median and NMAD of several residual series scored on the
-    same points, resampling blocks of points and keeping the series paired.
-
-    Parameters
-    ----------
-    values : array-like, shape (n_series, n_points)
-        Residuals of each series (DEM) at the same points. NaN is allowed
-        and ignored.
-    blocks : array-like of length n_points, optional
-        Block label of each point (an ICESat-2 beam track, a MOLA orbit).
-        Whole blocks are drawn with replacement; None resamples points,
-        which treats them as independent and gives optimistic intervals
-        when residuals are spatially correlated.
-    n_boot : int, optional
-        Number of replicates, default 1000.
-    seed : int, optional
-        Seed of the random generator, default 0.
-
-    Returns
-    -------
-    dict
-        ``median`` and ``nmad``: arrays of shape (n_boot, n_series) with the
-        statistic of every series on each replicate; ``n_blocks``: the
-        number of blocks resampled (the number of points when ``blocks`` is
-        None).
-
-    Notes
-    -----
-    Every series is evaluated on the same replicate, so a difference between
-    two series computed replicate by replicate is a paired estimate: the
-    shared sampling variation cancels, which is what makes DEMs scored on the
-    same points separable even when their own intervals overlap.
-    """
-    values = np.asarray(values, dtype=float)
-    if values.ndim != 2:
-        raise ValueError("values must be 2-D: (n_series, n_points).")
-    n_points = values.shape[1]
-    if blocks is None:
-        groups = [np.array([i]) for i in range(n_points)]
-    else:
-        codes, _ = pd.factorize(np.asarray(blocks))
-        order = np.argsort(codes, kind="stable")
-        bounds = np.flatnonzero(np.diff(codes[order])) + 1
-        groups = np.split(order, bounds)
-    n_blocks = len(groups)
-    rng = np.random.default_rng(seed)
-    medians = np.full((n_boot, values.shape[0]), np.nan)
-    nmads = np.full((n_boot, values.shape[0]), np.nan)
-    for b in range(n_boot):
-        chosen = rng.integers(0, n_blocks, size=n_blocks)
-        idx = np.concatenate([groups[g] for g in chosen])
-        sample = values[:, idx]
-        medians[b] = np.nanmedian(sample, axis=1)
-        nmads[b] = _row_nmad(sample)
-    return {"median": medians, "nmad": nmads, "n_blocks": n_blocks}
-
-
 def _window_for_bounds(ds, bounds, bounds_crs):
     """
     Pixel window of ``ds`` covering ``bounds`` (in ``bounds_crs``), clipped to
@@ -420,112 +360,6 @@ def _read_window(ds, win):
     else:
         a = ds.read(1, window=win, masked=True)
     return np.ma.masked_invalid(a)
-
-
-def _pixel_size_m(crs, transform, y):
-    """
-    Pixel width and height in meters, as scalars for a projected CRS or as
-    arrays at latitudes ``y`` for a geographic one (from the CRS's ellipsoid,
-    so a Moon or Mars DEM in degrees works too).
-    """
-    dx, dy = abs(transform.a), abs(transform.e)
-    if crs is None or not crs.is_geographic:
-        factor = 1.0
-        if crs is not None:
-            try:
-                factor = float(crs.linear_units_factor[1])
-            except Exception:  # unknown units: take them as meters
-                factor = 1.0
-        return dx * factor, dy * factor
-    ellipsoid = CRS.from_user_input(crs.to_wkt()).ellipsoid
-    a = ellipsoid.semi_major_metre
-    inv_f = ellipsoid.inverse_flattening
-    f = 1.0 / inv_f if inv_f else 0.0
-    e2 = f * (2.0 - f)
-    lat = np.radians(np.asarray(y, dtype=float))
-    w = np.sqrt(1.0 - e2 * np.sin(lat) ** 2)
-    meridional = a * (1.0 - e2) / w**3
-    prime_vertical = a / w
-    return (
-        np.radians(dx) * prime_vertical * np.cos(lat),
-        np.radians(dy) * meridional,
-    )
-
-
-def slope_at_points(dem_fn, points):
-    """
-    Slope of a DEM in degrees at each point, by Horn's method.
-
-    Horn's method is what ``gdaldem slope`` uses: the east and north
-    gradients come from the 3 × 3 pixels around the pixel holding the point,
-    with the centre row and column weighted twice. The DEM is not
-    interpolated, so the slope is that of the DEM at its own resolution: a
-    30 m Copernicus DEM gives the slope of the terrain over about one
-    ATL06-SR segment, a 1 m DSM the slope of roofs and walls.
-
-    Parameters
-    ----------
-    dem_fn : str
-        DEM to take slope from. Heights are taken to be in meters; pixel
-        sizes in degrees are converted to meters at each point's latitude.
-    points : geopandas.GeoDataFrame
-        Points, in any CRS (reprojected to the DEM's).
-
-    Returns
-    -------
-    numpy.ndarray
-        Slope in degrees, NaN for a point outside the DEM or whose 3 × 3
-        neighbourhood touches nodata or the DEM edge (as ``gdaldem`` without
-        ``-compute_edges``).
-    """
-    n = len(points)
-    slope = np.full(n, np.nan)
-    if n == 0:
-        return slope
-    with rio.open(dem_fn) as ds:
-        pts = points.to_crs(ds.crs) if ds.crs is not None else points
-        xs = pts.geometry.x.to_numpy(dtype=float)
-        ys = pts.geometry.y.to_numpy(dtype=float)
-        rows, cols = (np.asarray(v, dtype=int) for v in rowcol(ds.transform, xs, ys))
-        inside = (
-            (rows >= 1) & (rows < ds.height - 1) & (cols >= 1) & (cols < ds.width - 1)
-        )
-        if not inside.any():
-            return slope
-        r, c = rows[inside], cols[inside]
-        r0, c0 = r.min() - 1, c.min() - 1
-        height, width = r.max() - r0 + 2, c.max() - c0 + 2
-        if float(height) * float(width) <= MAX_WINDOW_PIXELS:
-            # One read of the points' bounding box, then index the neighbours.
-            z = _filled(ds.read(1, window=Window(c0, r0, width, height), masked=True))
-            neighbours = np.stack(
-                [z[r - r0 + dr, c - c0 + dc] for dr in (-1, 0, 1) for dc in (-1, 0, 1)]
-            )
-        else:
-            # Points spread over a large DEM: read each 3 × 3 window instead,
-            # rather than a downsampled box that would change the slope.
-            neighbours = np.stack(
-                [
-                    _filled(
-                        ds.read(1, window=Window(ci - 1, ri - 1, 3, 3), masked=True)
-                    ).ravel()
-                    for ri, ci in zip(r, c)
-                ],
-                axis=1,
-            )
-        dx, dy = _pixel_size_m(ds.crs, ds.transform, ys[inside])
-    a, b, c_, d, e, f, g, h, i = neighbours
-    dzdx = ((c_ + 2 * f + i) - (a + 2 * d + g)) / (8.0 * dx)
-    dzdy = ((g + 2 * h + i) - (a + 2 * b + c_)) / (8.0 * dy)
-    values = np.degrees(np.arctan(np.hypot(dzdx, dzdy)))
-    values[~np.isfinite(e)] = np.nan
-    slope[inside] = values
-    return slope
-
-
-def _filled(a):
-    """A masked read as a float array with NaN where masked or non-finite."""
-    return np.ma.masked_invalid(a.astype(float)).filled(np.nan)
 
 
 class DEMBenchmark:
@@ -586,8 +420,9 @@ class DEMBenchmark:
         DEM to take slope from for the breakdown by slope class. The
         default ``"auto"`` uses the reference DEM the stereo logs beside the
         DEMs name (:func:`reference_dem_from_logs`, the DEM ``asp_report``
-        finds), and skips the breakdown when the logs name none, disagree,
-        or name a file that does not exist. Otherwise the label of one of
+        finds). When the logs name none, disagree, or name a file that does
+        not exist, it uses the ``reference`` DEM if one was given and skips
+        the breakdown if not. Otherwise the label of one of
         the candidates, or a path (a Copernicus DEM, a lidar DTM). None: no
         breakdown. Slope comes from :func:`slope_at_points` and is sampled
         once per point, so every candidate is binned the same way; slope
@@ -597,6 +432,13 @@ class DEMBenchmark:
     slope_bins : sequence of float, optional
         Edges of the slope classes in degrees, default :data:`SLOPE_BINS`.
         Each class includes its lower edge and excludes its upper one.
+    slope_scale : float or None, optional
+        Length scale of the slope in meters, default
+        :data:`asp_plot.terrain.SLOPE_SCALE_M` (30 m, about one ATL06-SR
+        segment). A slope DEM with finer pixels is averaged to it first, so
+        a 1 m candidate gives terrain slope and not the slope of roofs and
+        canopy edges; a coarser DEM is used as it is. None or 0 uses the
+        slope DEM's own resolution.
     title : str, optional
         Figure title.
 
@@ -648,6 +490,7 @@ class DEMBenchmark:
         seed=0,
         slope_dem="auto",
         slope_bins=SLOPE_BINS,
+        slope_scale=SLOPE_SCALE_M,
         title=None,
     ):
         self.directory = os.path.expanduser(directory)
@@ -745,18 +588,8 @@ class DEMBenchmark:
                     )
                 self.slope_dem = fn
                 self.slope_dem_name = os.path.basename(fn)
-        edges = tuple(float(b) for b in slope_bins)
-        if (
-            len(edges) < 2
-            or np.any(np.diff(edges) <= 0)
-            or edges[0] < 0
-            or edges[-1] > 90
-        ):
-            raise ValueError(
-                "slope_bins must be at least two increasing edges between 0 and "
-                f"90 degrees; got {slope_bins}."
-            )
-        self.slope_bins = edges
+        self.slope_bins = slope_bin_edges(slope_bins)
+        self.slope_scale = slope_scale or None
 
         self.aoi_bounds, self.aoi_crs = self._resolve_aoi(aoi)
 
@@ -1008,31 +841,34 @@ class DEMBenchmark:
 
         Reads the stereo logs beside each DEM (:func:`reference_dem_from_logs`).
         A DEM without logs, such as a lidar DTM, has no say. Returns the
-        path when the logs found agree on one file that exists, and None
-        (no slope breakdown, with the reason printed) otherwise.
+        path when the logs found agree on one file that exists. Otherwise
+        returns the ``reference`` label when one was given, and failing that
+        None (no slope breakdown), with the reason printed either way.
         """
         found = {}
         for label, fn in self.dems.items():
             reference_dem = reference_dem_from_logs(fn)
             if reference_dem:
                 found.setdefault(os.path.realpath(reference_dem), []).append(label)
-        skipped = "No slope breakdown (pass slope_dem= to name a DEM): "
+        if len(found) == 1 and os.path.exists(next(iter(found))):
+            (reference_dem,) = found
+            print(f"Slope DEM (the reference DEM in the stereo logs): {reference_dem}")
+            return reference_dem
         if not found:
-            print(skipped + "no stereo logs beside the DEMs name a reference DEM.")
-            return None
-        if len(found) > 1:
+            reason = "no stereo logs beside the DEMs name a reference DEM"
+        elif len(found) > 1:
             listed = "; ".join(f"{fn} ({', '.join(v)})" for fn, v in found.items())
-            print(skipped + f"the stereo logs name different reference DEMs: {listed}.")
-            return None
-        (reference_dem,) = found
-        if not os.path.exists(reference_dem):
-            print(
-                skipped + f"the reference DEM in the stereo logs, {reference_dem}, "
-                "does not exist."
+            reason = f"the stereo logs name different reference DEMs: {listed}"
+        else:
+            reason = (
+                f"the reference DEM in the stereo logs, {next(iter(found))}, "
+                "does not exist"
             )
-            return None
-        print(f"Slope DEM (the reference DEM in the stereo logs): {reference_dem}")
-        return reference_dem
+        if self.reference is not None:
+            print(f"Slope DEM: reference='{self.reference}', since {reason}.")
+            return self.reference
+        print(f"No slope breakdown (pass slope_dem= to name a DEM): {reason}.")
+        return None
 
     def _shared_points_table(self):
         """The altimetry table rows of the shared points, ordered by point id."""
@@ -1066,7 +902,8 @@ class DEMBenchmark:
             return None
         table = self._shared_points_table()
         slope = pd.Series(
-            slope_at_points(self.slope_dem, table), index=table[POINT_ID].to_numpy()
+            slope_at_points(self.slope_dem, table, scale=self.slope_scale),
+            index=table[POINT_ID].to_numpy(),
         )
         self.slope = slope.reindex(self.shared_ids)
         if not np.isfinite(self.slope).any():
@@ -1126,7 +963,7 @@ class DEMBenchmark:
             for label in self.dems:
                 row = {
                     "label": label,
-                    "slope_bin": f"{lo:g}–{hi:g}°",
+                    "slope_bin": slope_bin_labels([lo, hi])[0],
                     "slope_min_deg": lo,
                     "slope_max_deg": hi,
                     "n_points": n_points,
@@ -1837,7 +1674,12 @@ class DEMBenchmark:
         ax.grid(axis="y", color="0.9", lw=0.6)
         ax.set_axisbelow(True)
         ax.tick_params(axis="y", labelsize=7)
-        ax.set_xlabel(f"Slope from {self.slope_dem_name}", fontsize=8)
+        ax.set_xlabel(
+            slope_source_label(
+                self.slope_dem, self.slope_scale, name=self.slope_dem_name
+            ),
+            fontsize=8,
+        )
         stage = "after pc_align" if use_aligned else "before pc_align"
         ax.set_ylabel(f"Altimetry − DEM NMAD (m), {stage}", fontsize=8)
         ax.legend(

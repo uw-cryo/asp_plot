@@ -4,6 +4,7 @@ import click
 
 from asp_plot.dem_benchmark import SLOPE_BINS, DEMBenchmark
 from asp_plot.icesat2_source import WORLDCOVER_GROUPS
+from asp_plot.terrain import SLOPE_SCALE_M
 
 
 @click.command()
@@ -82,8 +83,8 @@ from asp_plot.icesat2_source import WORLDCOVER_GROUPS
     show_default=True,
     help="DEM to take slope from for an NMAD-by-slope breakdown. 'auto' uses "
     "the reference DEM named in the stereo logs beside the DEMS (the one "
-    "asp_report finds) and skips the breakdown when there is none or the "
-    "logs disagree. Otherwise the label of one of the DEMS, a path such as "
+    "asp_report finds). When there is none or the logs disagree, it uses "
+    "the --reference DEM, and skips the breakdown without one. Otherwise the label of one of the DEMS, a path such as "
     "a Copernicus DEM or a lidar DTM, or 'none' for no breakdown. Slope "
     "(Horn's method, as gdaldem) is sampled once per point, so every DEM is "
     "binned the same way. Writes a <stem>_slope.png figure and a "
@@ -95,6 +96,16 @@ from asp_plot.icesat2_source import WORLDCOVER_GROUPS
     default=",".join(f"{b:g}" for b in SLOPE_BINS),
     show_default=True,
     help="Comma-separated slope class edges in degrees.",
+)
+@click.option(
+    "--slope-scale",
+    prompt=False,
+    type=float,
+    default=SLOPE_SCALE_M,
+    show_default=True,
+    help="Length scale of the slope in meters, about one ATL06-SR segment. A "
+    "slope DEM with finer pixels is averaged to it first; a coarser one is "
+    "used as it is. 0 uses the slope DEM's own resolution.",
 )
 @click.option(
     "--title",
@@ -128,6 +139,7 @@ def main(
     n_bootstrap,
     slope_dem,
     slope_bins,
+    slope_scale,
     title,
     output_directory,
     output_filename,
@@ -175,6 +187,7 @@ def main(
         n_bootstrap=n_bootstrap,
         slope_dem=None if slope_dem == "none" else slope_dem,
         slope_bins=slope_bins,
+        slope_scale=slope_scale,
         title=title,
     )
     stats = bench.run(pc_align=not no_pc_align)

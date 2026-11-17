@@ -17,6 +17,7 @@ from asp_plot.dem_benchmark import (
     reference_dem_from_logs,
     slope_at_points,
 )
+from asp_plot.terrain import slope_pixel_size, slope_source_label
 
 matplotlib.use("Agg")
 
@@ -758,7 +759,7 @@ class TestSlopeAtPoints:
         ys = 7900600 - rng.uniform(0, 600, 200)
         points = _points(xs, ys, "EPSG:32604")
         boxed = slope_at_points(tilted_plane, points)
-        monkeypatch.setattr("asp_plot.dem_benchmark.MAX_WINDOW_PIXELS", 1)
+        monkeypatch.setattr("asp_plot.terrain.MAX_WINDOW_PIXELS", 1)
         np.testing.assert_array_equal(slope_at_points(tilted_plane, points), boxed)
         assert np.isfinite(boxed).sum() > 100
 
@@ -783,6 +784,50 @@ class TestSlopeAtPoints:
             fn, _points([-156.0 + 20.5 * res], [lat0 + 20.5 * res], "EPSG:4326")
         )
         assert slope[0] == pytest.approx(10.0, abs=0.02)
+
+    def test_scale_averages_a_fine_dem_first(self, tmp_path):
+        # A 20° plane with 5 m of noise on its 10 m pixels: the native slope
+        # is that of the noise, the slope of 5 × 5 block means close to the
+        # plane's.
+        from rasterio.transform import from_origin
+
+        n = 120
+        rng = np.random.default_rng(1)
+        z = np.tan(np.radians(20.0)) * np.arange(n) * 10.0 + rng.normal(0, 5, (n, n))
+        fn = _write_dem(
+            tmp_path / "rough.tif",
+            z,
+            from_origin(500000, 7900600, 10, 10),
+            "EPSG:32604",
+        )
+        xs = 500000 + rng.uniform(200, 1000, 80)
+        ys = 7900600 - rng.uniform(200, 1000, 80)
+        points = _points(xs, ys, "EPSG:32604")
+        native = slope_at_points(fn, points)
+        averaged = slope_at_points(fn, points, scale=50)
+        assert np.abs(native - 20).mean() > 3 * np.abs(averaged - 20).mean()
+        np.testing.assert_allclose(averaged, 20.0, atol=2.0)
+        # A point's slope does not depend on the other points passed
+        np.testing.assert_array_equal(
+            slope_at_points(fn, points.iloc[40:], scale=50), averaged[40:]
+        )
+        # A scale under two pixels leaves the DEM as it is
+        np.testing.assert_array_equal(slope_at_points(fn, points, scale=19), native)
+        # Points off the DEM
+        far = _points([400000.0], [7900000.0], "EPSG:32604")
+        assert np.isnan(slope_at_points(fn, far, scale=50)).all()
+
+    def test_pixel_size_and_label(self, tilted_plane):
+        assert slope_pixel_size(tilted_plane) == (10.0, False)
+        assert slope_pixel_size(tilted_plane, scale=30) == (30.0, True)
+        # Whole pixels only: 25 m holds two 10 m pixels
+        assert slope_pixel_size(tilted_plane, scale=25) == (20.0, True)
+        assert slope_pixel_size(tilted_plane, scale=10) == (10.0, False)
+        assert slope_source_label(tilted_plane, 10) == "Slope from plane.tif (10 m)"
+        assert (
+            slope_source_label(tilted_plane, 30, name="MVS")
+            == "Slope from MVS (averaged to 30 m)"
+        )
 
     def test_no_points(self, tilted_plane):
         assert slope_at_points(tilted_plane, _points([], [], "EPSG:32604")).size == 0
@@ -811,11 +856,15 @@ class TestSlopeBreakdown:
         assert by_label.slope_dem_name == "ref"
         by_path = self._bench(tmp_path, slope_ramp_dem)
         assert by_path.slope_dem_name == "ramp.tif"
+        # A fine slope DEM is averaged to 30 m unless slope_scale says otherwise
+        assert by_label.slope_scale == 30
+        assert self._bench(tmp_path, "ref", slope_scale=0).slope_scale is None
 
-    def test_off_without_a_logged_reference_dem(self, capsys, bench):
-        assert "no stereo logs beside the DEMs name a reference DEM" in (
-            capsys.readouterr().out
-        )
+    def test_off_without_a_logged_reference_dem(self, tmp_path, capsys):
+        bench = self._bench(tmp_path, "auto")
+        out = capsys.readouterr().out
+        assert "No slope breakdown" in out
+        assert "no stereo logs beside the DEMs name a reference DEM" in out
         assert bench.slope_dem is None
         bench.run(pc_align=False)
         assert bench.stats_by_slope_df is None
@@ -874,6 +923,21 @@ class TestSlopeBreakdown:
         logged_reference_dems[DEM_STEREO] = str(tmp_path / "elsewhere" / "cop30.tif")
         assert self._bench(tmp_path, "auto").slope_dem is None
         assert "does not exist" in capsys.readouterr().out
+
+    def test_auto_falls_back_to_the_reference_label(
+        self, tmp_path, logged_reference_dems, capsys
+    ):
+        bench = self._bench(tmp_path, "auto", reference="ref")
+        assert bench.slope_dem == DEM_REF
+        assert bench.slope_dem_name == "ref"
+        assert "Slope DEM: reference='ref', since no stereo logs" in (
+            capsys.readouterr().out
+        )
+        # A logged reference DEM still comes first
+        logged_reference_dems[DEM_STEREO] = DEM_FAR
+        assert self._bench(tmp_path, "auto", reference="ref").slope_dem == (
+            os.path.realpath(DEM_FAR)
+        )
 
     def test_slope_dem_off_the_points_gives_no_breakdown(self, tmp_path, capsys):
         bench = self._bench(tmp_path, DEM_FAR)
@@ -950,6 +1014,7 @@ class TestSlopeBreakdown:
         assert "horizontal pc_align shift 0.61 m" in title  # one fixture log for both
         assert "within each class" in title
         assert "after pc_align" in ax.get_ylabel()
+        assert ax.get_xlabel() == "Slope from ramp.tif (20 m)"
         matplotlib.pyplot.close(fig)
 
         # Before alignment: no error bars (the bootstrap ran on aligned).

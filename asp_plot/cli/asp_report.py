@@ -68,6 +68,12 @@ def _reconstruct_command():
     help="Optional reference DEM used in ASP processing. No default. If not supplied, the logs will be examined to find it. If not found, no difference plots will be generated.",
 )
 @click.option(
+    "--slope-dem",
+    prompt=False,
+    default=None,
+    help="Optional DEM to take terrain slope from for the ICESat-2 statistics by slope class. If not supplied, the reference DEM is used, and if there is none, the report's own DEM averaged to 30 m. A DEM finer than 30 m is averaged to 30 m first.",
+)
+@click.option(
     "--no-basemap",
     is_flag=True,
     default=False,
@@ -163,6 +169,7 @@ def main(
     dem_gsd,
     map_crs,
     reference_dem,
+    slope_dem,
     no_basemap,
     no_altimetry,
     altimetry_csv,
@@ -193,6 +200,7 @@ def main(
         dem_gsd=dem_gsd,
         map_crs=map_crs,
         reference_dem=reference_dem,
+        slope_dem=slope_dem,
         add_basemap=not no_basemap,
         plot_altimetry=not no_altimetry,
         altimetry_csv=altimetry_csv,

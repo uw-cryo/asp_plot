@@ -40,6 +40,7 @@ from asp_plot.planetary_source import (  # noqa: F401
     PlanetarySource,
     gds_query_async,
 )
+from asp_plot.terrain import SLOPE_BINS, SLOPE_COLUMN
 from asp_plot.utils import Raster, detect_planetary_body, glob_file
 
 logging.basicConfig(level=logging.WARNING)
@@ -235,6 +236,9 @@ class Altimetry:
     def filter_outliers(self, *args, **kwargs):
         return self.icesat2.filter_outliers(*args, **kwargs)
 
+    def sample_slope(self, *args, **kwargs):
+        return self.icesat2.sample_slope(*args, **kwargs)
+
     def predefined_temporal_filter_atl06sr(self, *args, **kwargs):
         return self.icesat2.predefined_temporal_filter_atl06sr(*args, **kwargs)
 
@@ -356,6 +360,38 @@ class Altimetry:
             top_n=top_n,
             title=title,
             xlim=xlim,
+            plot_aligned=plot_aligned,
+            save_dir=save_dir,
+            fig_fn=fig_fn,
+        )
+
+    def nmad_by_slope(
+        self,
+        key="all",
+        bins=SLOPE_BINS,
+        min_points=10,
+        n_bootstrap=1000,
+        seed=0,
+        title="ICESat-2 ATL06-SR vs DEM by slope",
+        plot_aligned=False,
+        save_dir=None,
+        fig_fn=None,
+    ):
+        atl06sr = self.icesat2.atl06sr_processing_levels_filtered[key]
+        if "icesat_minus_dem" not in atl06sr.columns:
+            self.atl06sr_to_dem_dh()
+            atl06sr = self.icesat2.atl06sr_processing_levels_filtered[key]
+        if SLOPE_COLUMN not in atl06sr.columns:
+            self.sample_slope()
+            atl06sr = self.icesat2.atl06sr_processing_levels_filtered[key]
+        return self.plotter.nmad_by_slope(
+            atl06sr,
+            key=key,
+            bins=bins,
+            min_points=min_points,
+            n_bootstrap=n_bootstrap,
+            seed=seed,
+            title=title,
             plot_aligned=plot_aligned,
             save_dir=save_dir,
             fig_fn=fig_fn,

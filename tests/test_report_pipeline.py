@@ -24,6 +24,7 @@ from asp_plot.report_pipeline import (
 )
 
 DEM = "tests/test_data/stereo/date_time_left_right_1m-DEM.tif"
+REF_DEM = "tests/test_data/ref_dem.tif"
 
 
 # ---------------------------------------------------------------------------
@@ -452,6 +453,7 @@ class _Recorder:
     def __init__(self):
         self.fig_fns = []
         self.calls = []
+        self.slope_dems = []
 
     def record(self, name, kwargs):
         self.calls.append(name)
@@ -463,6 +465,7 @@ class _FakeStereoPlotter:
     def __init__(self, rec):
         self._rec = rec
         self.dem_fn = DEM
+        self.reference_dem = None
         self.title = None
         self.detailed_hillshade_clips = None
 
@@ -576,6 +579,12 @@ def _make_align_result(status):
     )()
 
 
+def _with_reference(rec, reference_dem):
+    plotter = _FakeStereoPlotter(rec)
+    plotter.reference_dem = reference_dem
+    return plotter
+
+
 @pytest.fixture
 def harness(monkeypatch, tmp_path):
     """Patch every plotter/IO dependency in report_pipeline; capture the
@@ -663,6 +672,13 @@ class TestRunReportEarth:
             def histogram_by_landcover(self, **kwargs):
                 rec.record("hist_landcover", kwargs)
 
+            def sample_slope(self, **kwargs):
+                rec.slope_dems.append(kwargs["slope_dem"])
+
+            def nmad_by_slope(self, **kwargs):
+                rec.record("nmad_by_slope", kwargs)
+                return "stats"
+
             def plot_atl06sr_dem_profile(self, **kwargs):
                 rec.record("profile", kwargs)
 
@@ -697,6 +713,7 @@ class TestRunReportEarth:
             "ICESat-2 ATL06-SR Agreement Segments",
             "DEM Alignment with ICESat-2",
             "ICESat-2 ATL06-SR Histogram (Aligned DEM)",
+            "ICESat-2 ATL06-SR by Slope (Aligned DEM)",
             "ICESat-2 ATL06-SR Profile (Aligned DEM)",
             "ICESat-2 ATL06-SR Agreement Segments (Aligned DEM)",
         ]
@@ -748,8 +765,38 @@ class TestRunReportEarth:
         run_report(cfg)
         titles = _titles(captured["sections"])
         assert "ICESat-2 ATL06-SR Agreement Segments" in titles
+        # Without an alignment the slope page closes the ICESat-2 pages
+        assert titles[-1] == "ICESat-2 ATL06-SR by Slope"
         assert not any("Aligned DEM" in t for t in titles)
         assert "DEM Alignment with ICESat-2" not in titles
+
+    def test_slope_dem_choice(self, fake_icesat, monkeypatch):
+        rec, captured = fake_icesat
+        kwargs = dict(
+            directory="tests/test_data",
+            map_crs="EPSG:32610",
+            add_basemap=False,
+            pc_align=False,
+        )
+        # No reference DEM: the report's own DEM (None to sample_slope)
+        run_report(ReportConfig(**kwargs))
+        # A reference DEM that exists is used; one that does not is not
+        for reference_dem in (REF_DEM, "elsewhere/cop30.tif"):
+            monkeypatch.setattr(
+                rp,
+                "StereoPlotter",
+                lambda *a, ref=reference_dem, **k: _with_reference(rec, ref),
+            )
+            run_report(ReportConfig(**kwargs))
+        # --slope-dem overrides the reference DEM
+        monkeypatch.setattr(
+            rp, "StereoPlotter", lambda *a, **k: _with_reference(rec, REF_DEM)
+        )
+        run_report(ReportConfig(slope_dem=DEM, **kwargs))
+        assert rec.slope_dems == [None, REF_DEM, None, DEM]
+
+        with pytest.raises(ValueError, match="Slope DEM not found"):
+            run_report(ReportConfig(slope_dem="nope.tif", **kwargs))
 
     def test_geoloc_corr_is_passed_to_the_request(self, fake_icesat, monkeypatch):
         requests = []
