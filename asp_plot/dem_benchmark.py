@@ -74,7 +74,15 @@ from rasterio.windows import Window, from_bounds, intersection
 from asp_plot.alignment import Alignment
 from asp_plot.altimetry import Altimetry
 from asp_plot.icesat2_source import WORLDCOVER_GROUPS, worldcover_group_values
-from asp_plot.utils import Raster, detect_planetary_body, glob_file, nmad, save_figure
+from asp_plot.processing_parameters import ProcessingParameters
+from asp_plot.utils import (
+    Raster,
+    detect_planetary_body,
+    glob_file,
+    nmad,
+    resolve_logged_path,
+    save_figure,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -253,6 +261,33 @@ def intersection_error_path(dem_fn):
                 candidate = dem_fn[: -len(suffix)] + "-IntersectionErr.tiff"
             return candidate if os.path.exists(candidate) else None
     return None
+
+
+def reference_dem_from_logs(dem_fn):
+    """
+    The reference DEM named in the stereo logs beside a DEM, or None.
+
+    This is the DEM ``asp_report`` finds for a run: the one the images were
+    mapprojected onto, announced in the stereo logs. The logs are looked for
+    in the DEM's own folder, where ``point2dem`` writes by default. A
+    relative path in a log is resolved as :func:`resolve_logged_path` does,
+    against the folder above the DEM's.
+
+    Returns None when the folder has no stereo logs or they name no DEM. The
+    path returned may not exist (a run copied from another machine).
+    """
+    stereo_directory = os.path.dirname(os.path.abspath(dem_fn))
+    parameters = ProcessingParameters(
+        processing_directory=os.path.dirname(stereo_directory),
+        stereo_directory=os.path.basename(stereo_directory),
+    )
+    try:
+        reference_dem = parameters.from_stereo_log(search_for_reference_dem=True)[-1]
+    except ValueError:
+        return None
+    if not reference_dem:
+        return None
+    return resolve_logged_path(reference_dem, os.path.dirname(stereo_directory))
 
 
 def _safe_dirname(label):
@@ -548,12 +583,17 @@ class DEMBenchmark:
     seed : int, optional
         Seed of the bootstrap's random generator, default 0.
     slope_dem : str, optional
-        DEM to take slope from for the breakdown by slope class: the label
-        of one of the candidates, or a path (a Copernicus DEM, a lidar DTM).
-        Slope comes from :func:`slope_at_points` and is sampled once per
-        point, so every candidate is binned the same way; slope from each
-        candidate would put a point in different classes for different
-        DEMs. Default None: no breakdown.
+        DEM to take slope from for the breakdown by slope class. The
+        default ``"auto"`` uses the reference DEM the stereo logs beside the
+        DEMs name (:func:`reference_dem_from_logs`, the DEM ``asp_report``
+        finds), and skips the breakdown when the logs name none, disagree,
+        or name a file that does not exist. Otherwise the label of one of
+        the candidates, or a path (a Copernicus DEM, a lidar DTM). None: no
+        breakdown. Slope comes from :func:`slope_at_points` and is sampled
+        once per point, so every candidate is binned the same way; slope
+        from each candidate would put a point in different classes for
+        different DEMs, and would sort a DEM's own noise into the steep
+        classes.
     slope_bins : sequence of float, optional
         Edges of the slope classes in degrees, default :data:`SLOPE_BINS`.
         Each class includes its lower edge and excludes its upper one.
@@ -606,7 +646,7 @@ class DEMBenchmark:
         n_sigma=3,
         n_bootstrap=1000,
         seed=0,
-        slope_dem=None,
+        slope_dem="auto",
         slope_bins=SLOPE_BINS,
         title=None,
     ):
@@ -690,6 +730,8 @@ class DEMBenchmark:
 
         self.slope_dem = None
         self.slope_dem_name = None
+        if slope_dem == "auto" and "auto" not in self.dems:
+            slope_dem = self._reference_dem_for_slope()
         if slope_dem is not None:
             if slope_dem in self.dems:
                 self.slope_dem = self.dems[slope_dem]
@@ -960,6 +1002,38 @@ class DEMBenchmark:
         )
         return out
 
+    def _reference_dem_for_slope(self):
+        """
+        The slope DEM for ``slope_dem="auto"``: the runs' reference DEM.
+
+        Reads the stereo logs beside each DEM (:func:`reference_dem_from_logs`).
+        A DEM without logs, such as a lidar DTM, has no say. Returns the
+        path when the logs found agree on one file that exists, and None
+        (no slope breakdown, with the reason printed) otherwise.
+        """
+        found = {}
+        for label, fn in self.dems.items():
+            reference_dem = reference_dem_from_logs(fn)
+            if reference_dem:
+                found.setdefault(os.path.realpath(reference_dem), []).append(label)
+        skipped = "No slope breakdown (pass slope_dem= to name a DEM): "
+        if not found:
+            print(skipped + "no stereo logs beside the DEMs name a reference DEM.")
+            return None
+        if len(found) > 1:
+            listed = "; ".join(f"{fn} ({', '.join(v)})" for fn, v in found.items())
+            print(skipped + f"the stereo logs name different reference DEMs: {listed}.")
+            return None
+        (reference_dem,) = found
+        if not os.path.exists(reference_dem):
+            print(
+                skipped + f"the reference DEM in the stereo logs, {reference_dem}, "
+                "does not exist."
+            )
+            return None
+        print(f"Slope DEM (the reference DEM in the stereo logs): {reference_dem}")
+        return reference_dem
+
     def _shared_points_table(self):
         """The altimetry table rows of the shared points, ordered by point id."""
         label = next(label for label, dh in self.dh.items() if len(dh))
@@ -995,6 +1069,13 @@ class DEMBenchmark:
             slope_at_points(self.slope_dem, table), index=table[POINT_ID].to_numpy()
         )
         self.slope = slope.reindex(self.shared_ids)
+        if not np.isfinite(self.slope).any():
+            print(
+                f"No slope breakdown: {self.slope_dem_name} gives no slope at any "
+                "of the shared points."
+            )
+            self.slope = None
+            return None
         edges = self.slope_bins
         classes = pd.cut(
             self.slope.to_numpy(), bins=list(edges), right=False, labels=False

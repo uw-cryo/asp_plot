@@ -14,6 +14,7 @@ from asp_plot.dem_benchmark import (
     label_from_dem_path,
     paired_block_bootstrap,
     parse_dem_specs,
+    reference_dem_from_logs,
     slope_at_points,
 )
 
@@ -27,6 +28,25 @@ DEM_STEREO = "tests/test_data/stereo/date_time_left_right_1m-DEM.tif"
 DEM_FAR = "tests/test_data/no_mapproj/stereo/run-DEM.tif"
 PARQUET = "tests/test_data/icesat_data/atl06sr_all.parquet"
 PC_ALIGN_FIXTURES = "tests/test_data/pc_align"
+# The reference DEM the stereo logs beside DEM_STEREO name.
+LOGGED_REFERENCE_DEM = (
+    "/nobackup/bpurint1/data/utqiagvik/COP/COP30_utqiagvik_lzw-adj_proj.tif"
+)
+
+
+@pytest.fixture(autouse=True)
+def logged_reference_dems(monkeypatch):
+    """
+    Stand in for the reference DEMs read from stereo logs: {DEM path: path}.
+
+    Empty unless a test fills it, so slope_dem="auto" finds nothing and the
+    tests do not depend on whether LOGGED_REFERENCE_DEM exists on the machine.
+    """
+    found = {}
+    monkeypatch.setattr(
+        "asp_plot.dem_benchmark.reference_dem_from_logs", lambda fn: found.get(fn)
+    )
+    return found
 
 
 class TestLabels:
@@ -792,12 +812,75 @@ class TestSlopeBreakdown:
         by_path = self._bench(tmp_path, slope_ramp_dem)
         assert by_path.slope_dem_name == "ramp.tif"
 
-    def test_off_by_default(self, bench):
+    def test_off_without_a_logged_reference_dem(self, capsys, bench):
+        assert "no stereo logs beside the DEMs name a reference DEM" in (
+            capsys.readouterr().out
+        )
+        assert bench.slope_dem is None
         bench.run(pc_align=False)
         assert bench.stats_by_slope_df is None
         assert bench.slope is None
         with pytest.raises(ValueError, match="slope_dem"):
             bench.slope_plot()
+
+    def test_reference_dem_from_logs(self, tmp_path):
+        assert reference_dem_from_logs(DEM_STEREO) == LOGGED_REFERENCE_DEM
+        # No stereo logs in the folder
+        assert reference_dem_from_logs(DEM_REF) is None
+        # Stereo logs that name no DEM (images not mapprojected)
+        assert reference_dem_from_logs(DEM_FAR) is None
+
+        # A relative path in the log is relative to the folder above the DEM's
+        stereo = tmp_path / "proc" / "stereo"
+        stereo.mkdir(parents=True)
+        (tmp_path / "proc" / "ref").mkdir()
+        shutil.copy(DEM_REF, tmp_path / "proc" / "ref" / "cop30.tif")
+        shutil.copy(DEM_REF, stereo / "run-DEM.tif")
+        with open("tests/test_data/stereo/log-stereo_pprc.txt") as f:
+            log = f.read()
+        assert LOGGED_REFERENCE_DEM in log
+        (stereo / "run-log-stereo_pprc.txt").write_text(
+            log.replace(LOGGED_REFERENCE_DEM, "ref/cop30.tif")
+        )
+        assert reference_dem_from_logs(str(stereo / "run-DEM.tif")) == str(
+            tmp_path / "proc" / "ref" / "cop30.tif"
+        )
+
+    def test_auto_uses_the_logged_reference_dem(
+        self, tmp_path, slope_ramp_dem, logged_reference_dems, capsys
+    ):
+        # DEM_REF has no logs and so no say
+        logged_reference_dems[DEM_STEREO] = slope_ramp_dem
+        bench = self._bench(tmp_path, "auto")
+        assert bench.slope_dem == os.path.realpath(slope_ramp_dem)
+        assert bench.slope_dem_name == "ramp.tif"
+        assert "Slope DEM (the reference DEM in the stereo logs)" in (
+            capsys.readouterr().out
+        )
+        bench.run(pc_align=False)
+        assert bench.stats_by_slope_df is not None
+
+        assert self._bench(tmp_path, None).slope_dem is None
+
+    def test_auto_skips_when_logs_disagree_or_file_is_missing(
+        self, tmp_path, slope_ramp_dem, logged_reference_dems, capsys
+    ):
+        logged_reference_dems[DEM_STEREO] = slope_ramp_dem
+        logged_reference_dems[DEM_REF] = DEM_FAR
+        assert self._bench(tmp_path, "auto").slope_dem is None
+        assert "different reference DEMs" in capsys.readouterr().out
+
+        logged_reference_dems.clear()
+        logged_reference_dems[DEM_STEREO] = str(tmp_path / "elsewhere" / "cop30.tif")
+        assert self._bench(tmp_path, "auto").slope_dem is None
+        assert "does not exist" in capsys.readouterr().out
+
+    def test_slope_dem_off_the_points_gives_no_breakdown(self, tmp_path, capsys):
+        bench = self._bench(tmp_path, DEM_FAR)
+        bench.run(pc_align=False)
+        assert bench.stats_by_slope_df is None
+        assert bench.slope is None
+        assert "gives no slope at any of the shared points" in capsys.readouterr().out
 
     def test_classes_and_stats(self, tmp_path, slope_ramp_dem):
         bench = self._bench(tmp_path, slope_ramp_dem)
@@ -913,3 +996,30 @@ class TestSlopeBreakdown:
         )
         assert result.exit_code != 0
         assert "--slope-bins" in result.output
+
+    def test_cli_auto_and_none(self, tmp_path, slope_ramp_dem, logged_reference_dems):
+        from click.testing import CliRunner
+
+        from asp_plot.cli.dem_benchmark import main
+
+        logged_reference_dems[DEM_STEREO] = slope_ramp_dem
+        args = [
+            DEM_REF,
+            DEM_STEREO,
+            "--parquet",
+            PARQUET,
+            "--no-pc-align",
+            "--n-bootstrap",
+            "20",
+        ]
+        result = CliRunner().invoke(main, args + ["--directory", str(tmp_path / "a")])
+        assert result.exit_code == 0, result.output
+        assert "by slope class (slope from ramp.tif)" in result.output
+        assert os.path.exists(tmp_path / "a" / "dem_benchmark_slope.png")
+
+        result = CliRunner().invoke(
+            main, args + ["--directory", str(tmp_path / "b"), "--slope-dem", "none"]
+        )
+        assert result.exit_code == 0, result.output
+        assert "by slope class" not in result.output
+        assert not os.path.exists(tmp_path / "b" / "dem_benchmark_slope.png")

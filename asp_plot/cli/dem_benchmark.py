@@ -78,19 +78,23 @@ from asp_plot.icesat2_source import WORLDCOVER_GROUPS
 @click.option(
     "--slope-dem",
     prompt=False,
-    default=None,
-    help="DEM to take slope from for an NMAD-by-slope breakdown: the label of "
-    "one of the DEMS, or a path such as a Copernicus DEM or a lidar DTM. Slope "
+    default="auto",
+    show_default=True,
+    help="DEM to take slope from for an NMAD-by-slope breakdown. 'auto' uses "
+    "the reference DEM named in the stereo logs beside the DEMS (the one "
+    "asp_report finds) and skips the breakdown when there is none or the "
+    "logs disagree. Otherwise the label of one of the DEMS, a path such as "
+    "a Copernicus DEM or a lidar DTM, or 'none' for no breakdown. Slope "
     "(Horn's method, as gdaldem) is sampled once per point, so every DEM is "
     "binned the same way. Writes a <stem>_slope.png figure and a "
-    "<stem>_by_slope.csv table. Default: no breakdown.",
+    "<stem>_by_slope.csv table.",
 )
 @click.option(
     "--slope-bins",
     prompt=False,
     default=",".join(f"{b:g}" for b in SLOPE_BINS),
     show_default=True,
-    help="Comma-separated slope class edges in degrees, for --slope-dem.",
+    help="Comma-separated slope class edges in degrees.",
 )
 @click.option(
     "--title",
@@ -140,8 +144,8 @@ def main(
     --no-pc-align) after a pc_align translation, on its own points and on the
     points valid in every DEM, with bootstrap intervals on the latter. Writes
     a one-row-per-DEM summary figure, an overlaid residual histogram, and the
-    stats table as CSV. With --slope-dem, the shared-point NMAD by slope
-    class is added as a figure and a second CSV.
+    stats table as CSV. When a slope DEM is found or named (--slope-dem), the
+    shared-point NMAD by slope class is added as a figure and a second CSV.
     """
     if "none" in filter_out and len(set(filter_out)) > 1:
         raise click.UsageError(
@@ -169,7 +173,7 @@ def main(
         aoi=None if own_extent else "intersection",
         filter_out=[g for g in filter_out if g != "none"] or None,
         n_bootstrap=n_bootstrap,
-        slope_dem=slope_dem,
+        slope_dem=None if slope_dem == "none" else slope_dem,
         slope_bins=slope_bins,
         title=title,
     )
