@@ -7,12 +7,14 @@ import pandas as pd
 import pytest
 
 from asp_plot.dem_benchmark import (
+    SLOPE_STATS_COLUMNS,
     STATS_COLUMNS,
     DEMBenchmark,
     intersection_error_path,
     label_from_dem_path,
     paired_block_bootstrap,
     parse_dem_specs,
+    slope_at_points,
 )
 
 matplotlib.use("Agg")
@@ -642,3 +644,272 @@ class TestCLI:
         )
         assert result.exit_code != 0
         assert "cannot be combined" in result.output
+
+
+def _write_dem(path, z, transform, crs, nodata=-9999.0):
+    import rasterio as rio
+
+    z = np.asarray(z, dtype="float32")
+    with rio.open(
+        path,
+        "w",
+        driver="GTiff",
+        width=z.shape[1],
+        height=z.shape[0],
+        count=1,
+        dtype="float32",
+        crs=crs,
+        transform=transform,
+        nodata=nodata,
+    ) as ds:
+        ds.write(z, 1)
+    return str(path)
+
+
+def _points(xs, ys, crs):
+    import geopandas as gpd
+
+    return gpd.GeoDataFrame(geometry=gpd.points_from_xy(xs, ys), crs=crs)
+
+
+@pytest.fixture
+def tilted_plane(tmp_path):
+    """A 20° plane rising to the north-east at 10 m pixels, in UTM 4N, with
+    one nodata pixel."""
+    from rasterio.transform import from_origin
+
+    theta = np.radians(20.0)
+    n = 60
+    centres = (np.arange(n) + 0.5) * 10.0
+    east, north = np.meshgrid(centres, centres[::-1])
+    # Gradient of tan(20°), split equally between east and north.
+    z = np.tan(theta) / np.sqrt(2) * (east + north)
+    z[30, 30] = -9999.0
+    fn = _write_dem(
+        tmp_path / "plane.tif", z, from_origin(500000, 7900600, 10, 10), "EPSG:32604"
+    )
+    return fn
+
+
+@pytest.fixture
+def slope_ramp_dem(tmp_path):
+    """A DEM over the ICESat-2 fixture whose slope climbs from 0° to 60° and
+    drops back every 2 km west to east, so points anywhere on it fall in
+    every class."""
+    import rasterio as rio
+    from rasterio.transform import from_origin
+
+    # Over the stereo DEM, which holds every shared point.
+    with rio.open(DEM_STEREO) as ds:
+        left, bottom, right, top = ds.bounds
+        crs = ds.crs
+    res = 20.0
+    width = int(np.ceil((right - left) / res)) + 2
+    height = int(np.ceil((top - bottom) / res)) + 2
+    x = (np.arange(width) + 0.5) * res
+    slope = np.radians(60.0) * ((x / 2000.0) % 1.0)
+    z = np.tile(np.cumsum(np.tan(slope)) * res, (height, 1))
+    return _write_dem(
+        tmp_path / "ramp.tif", z, from_origin(left - res, top + res, res, res), crs
+    )
+
+
+class TestSlopeAtPoints:
+    def test_plane_matches_its_slope(self, tilted_plane):
+        xs = 500000 + np.array([105.0, 255.0, 455.0, 305.0, 305.0, 5.0, 800.0])
+        ys = 7900600 - np.array([105.0, 255.0, 455.0, 305.0, 295.0, 5.0, 100.0])
+        slope = slope_at_points(tilted_plane, _points(xs, ys, "EPSG:32604"))
+        np.testing.assert_allclose(slope[:3], 20.0, atol=1e-4)
+        # Next to the nodata pixel, on the DEM edge, and outside it: NaN.
+        assert np.isnan(slope[3:]).all()
+
+    def test_points_in_another_crs(self, tilted_plane):
+        from pyproj import Transformer
+
+        lon, lat = Transformer.from_crs(
+            "EPSG:32604", "EPSG:4326", always_xy=True
+        ).transform(500105.0, 7900495.0)
+        slope = slope_at_points(tilted_plane, _points([lon], [lat], "EPSG:4326"))
+        assert slope[0] == pytest.approx(20.0, abs=1e-4)
+
+    def test_per_point_reads_match_one_box_read(self, tilted_plane, monkeypatch):
+        rng = np.random.default_rng(0)
+        xs = 500000 + rng.uniform(0, 600, 200)
+        ys = 7900600 - rng.uniform(0, 600, 200)
+        points = _points(xs, ys, "EPSG:32604")
+        boxed = slope_at_points(tilted_plane, points)
+        monkeypatch.setattr("asp_plot.dem_benchmark.MAX_WINDOW_PIXELS", 1)
+        np.testing.assert_array_equal(slope_at_points(tilted_plane, points), boxed)
+        assert np.isfinite(boxed).sum() > 100
+
+    def test_geographic_dem(self, tmp_path):
+        # Heights rising north at tan(10°), with pixel sizes in degrees at
+        # 70° N: the slope needs the pixel converted to meters.
+        from rasterio.transform import from_origin
+
+        res = 0.0005
+        n = 40
+        lat0 = 70.0
+        lats = lat0 + (np.arange(n)[::-1] + 0.5) * res
+        meters_north = (lats - lat0) * 111694.0  # meridian arc per degree at 70° N
+        z = np.tile((np.tan(np.radians(10.0)) * meters_north)[:, None], (1, n))
+        fn = _write_dem(
+            tmp_path / "geo.tif",
+            z,
+            from_origin(-156.0, lat0 + n * res, res, res),
+            "EPSG:4326",
+        )
+        slope = slope_at_points(
+            fn, _points([-156.0 + 20.5 * res], [lat0 + 20.5 * res], "EPSG:4326")
+        )
+        assert slope[0] == pytest.approx(10.0, abs=0.02)
+
+    def test_no_points(self, tilted_plane):
+        assert slope_at_points(tilted_plane, _points([], [], "EPSG:32604")).size == 0
+
+
+class TestSlopeBreakdown:
+    @staticmethod
+    def _bench(tmp_path, slope_dem, **kwargs):
+        kwargs.setdefault("n_bootstrap", 50)
+        return DEMBenchmark(
+            str(tmp_path / "work"),
+            {"ref": DEM_REF, "stereo": DEM_STEREO},
+            parquet=PARQUET,
+            slope_dem=slope_dem,
+            **kwargs,
+        )
+
+    def test_validation(self, tmp_path, slope_ramp_dem):
+        with pytest.raises(ValueError, match="neither one of the DEM labels"):
+            self._bench(tmp_path, "nope.tif")
+        for bins in [(5,), (0, 10, 5), (-1, 5), (0, 95)]:
+            with pytest.raises(ValueError, match="slope_bins"):
+                self._bench(tmp_path, slope_ramp_dem, slope_bins=bins)
+        by_label = self._bench(tmp_path, "ref")
+        assert by_label.slope_dem == DEM_REF
+        assert by_label.slope_dem_name == "ref"
+        by_path = self._bench(tmp_path, slope_ramp_dem)
+        assert by_path.slope_dem_name == "ramp.tif"
+
+    def test_off_by_default(self, bench):
+        bench.run(pc_align=False)
+        assert bench.stats_by_slope_df is None
+        assert bench.slope is None
+        with pytest.raises(ValueError, match="slope_dem"):
+            bench.slope_plot()
+
+    def test_classes_and_stats(self, tmp_path, slope_ramp_dem):
+        bench = self._bench(tmp_path, slope_ramp_dem)
+        bench.run(pc_align=False)
+        df = bench.stats_by_slope_df
+        assert list(df.columns) == SLOPE_STATS_COLUMNS
+        assert len(df) == 2 * 5
+        assert list(df["slope_bin"].unique()) == [
+            "0–5°",
+            "5–10°",
+            "10–20°",
+            "20–30°",
+            "30–90°",
+        ]
+        # One slope per shared point, the same classes for both DEMs.
+        assert bench.slope.index.equals(bench.shared_ids)
+        counts = df.groupby("slope_bin", sort=False)["n_points"].agg(["min", "max"])
+        assert (counts["min"] == counts["max"]).all()
+        assert (counts["min"] > 0).all(), "the ramp should put points in every class"
+        assert counts["min"].sum() == np.isfinite(bench.slope).sum()
+        # Each class is scored on exactly its points.
+        for row in df.itertuples():
+            in_class = (bench.slope >= row.slope_min_deg) & (
+                bench.slope < row.slope_max_deg
+            )
+            dh = bench.dh[row.label].reindex(bench.shared_ids)[in_class.to_numpy()]
+            assert row.dh_shared_median_m == pytest.approx(np.median(dh))
+            assert row.n_blocks == bench.blocks.reindex(dh.index).nunique()
+            assert row.nmad_ci_low_m <= row.dh_shared_nmad_m <= row.nmad_ci_high_m
+        assert df["dh_aligned_shared_nmad_m"].isna().all()
+
+    def test_points_without_slope_are_left_out(self, tmp_path):
+        # The ref fixture is 5 x 5 pixels: points in its edge pixels get no
+        # slope and fall in no class.
+        bench = self._bench(tmp_path, "ref", slope_bins=(0, 1, 90), n_bootstrap=0)
+        bench.run(pc_align=False)
+        df = bench.stats_by_slope_df
+        assert df["nmad_ci_low_m"].isna().all()
+        n_with = np.isfinite(bench.slope).sum()
+        assert 0 < n_with
+        assert df.drop_duplicates("slope_bin")["n_points"].sum() == n_with
+
+    def test_with_pc_align_and_outputs(self, tmp_path, slope_ramp_dem, fake_pc_align):
+        bench = self._bench(tmp_path, slope_ramp_dem, title="slope test")
+        bench.run(pc_align=True, minimum_points=10)
+        df = bench.stats_by_slope_df
+        assert np.isfinite(df["dh_aligned_shared_nmad_m"]).all()
+        # Intervals are on the aligned stage, the one the bootstrap ranks.
+        assert (df["nmad_ci_low_m"] <= df["dh_aligned_shared_nmad_m"]).all()
+        assert (df["dh_aligned_shared_nmad_m"] <= df["nmad_ci_high_m"]).all()
+
+        csv_fn = bench.save_stats(str(tmp_path / "out" / "bench.csv"))
+        by_slope = pd.read_csv(tmp_path / "out" / "bench_by_slope.csv")
+        assert bench.slope_csv_path(csv_fn).endswith("bench_by_slope.csv")
+        assert list(by_slope.columns) == SLOPE_STATS_COLUMNS
+
+        fig = bench.slope_plot(save_dir=str(tmp_path), fig_fn="slope.png")
+        assert os.path.exists(tmp_path / "slope.png")
+        ax = fig.axes[0]
+        ticks = [t.get_text() for t in ax.get_xticklabels()]
+        assert len(ticks) == 5
+        assert all("n = " in t and "tracks" in t for t in ticks)
+        legend = [t.get_text() for t in ax.get_legend().get_texts()]
+        assert legend == list(bench._sorted_stats(True)["label"])
+        title = fig._suptitle.get_text()
+        assert "slope test" in title
+        assert "horizontal pc_align shift 0.61 m" in title  # one fixture log for both
+        assert "within each class" in title
+        assert "after pc_align" in ax.get_ylabel()
+        matplotlib.pyplot.close(fig)
+
+        # Before alignment: no error bars (the bootstrap ran on aligned).
+        fig = bench.slope_plot(aligned=False)
+        assert "before pc_align" in fig.axes[0].get_ylabel()
+        assert "within each class" not in fig._suptitle.get_text()
+        matplotlib.pyplot.close(fig)
+
+    def test_cli(self, tmp_path, slope_ramp_dem):
+        from click.testing import CliRunner
+
+        from asp_plot.cli.dem_benchmark import main
+
+        result = CliRunner().invoke(
+            main,
+            [
+                DEM_REF,
+                DEM_STEREO,
+                "--parquet",
+                PARQUET,
+                "--directory",
+                str(tmp_path),
+                "--no-pc-align",
+                "--n-bootstrap",
+                "20",
+                "--slope-dem",
+                slope_ramp_dem,
+                "--slope-bins",
+                "0,10,30,90",
+                "--output-filename",
+                "bench.png",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        for fn in ("bench_slope.png", "bench_by_slope.csv"):
+            assert os.path.exists(tmp_path / fn), fn
+        df = pd.read_csv(tmp_path / "bench_by_slope.csv")
+        assert list(df["slope_bin"].unique()) == ["0–10°", "10–30°", "30–90°"]
+        assert "by slope class" in result.output
+        assert "n points" in result.output
+
+        result = CliRunner().invoke(
+            main, [DEM_REF, "--parquet", PARQUET, "--slope-bins", "0,a"]
+        )
+        assert result.exit_code != 0
+        assert "--slope-bins" in result.output

@@ -20,6 +20,8 @@ the same fixed altimetry sample, so the numbers are directly comparable:
   probability that it ranks first (issue #199)
 - optionally, each DEM's difference against one of the candidates named as
   the reference (DEM minus reference median / NMAD)
+- optionally, the shared-point median and NMAD by slope class, with slope
+  taken from one common DEM at every point (issue #211)
 
 Every DEM is scored with the same recipe the report uses for one DEM: the
 cached ATL06-SR parquet is replayed (no SlideRule request), water returns are
@@ -63,7 +65,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import rasterio as rio
+from pyproj import CRS
 from rasterio.errors import WindowError
+from rasterio.transform import rowcol
 from rasterio.warp import transform_bounds
 from rasterio.windows import Window, from_bounds, intersection
 
@@ -151,6 +155,26 @@ _BOOTSTRAP_KEYS = (
     "nmad_vs_best_ci_high_m",
     "p_best",
 )
+
+#: Default slope classes in degrees (the classes of the #207 full-scene study).
+SLOPE_BINS = (0, 5, 10, 20, 30, 90)
+
+#: Columns of ``stats_by_slope_df``, one row per DEM and slope class. Every
+#: residual column is on the points valid in every DEM that fall in the class.
+SLOPE_STATS_COLUMNS = [
+    "label",
+    "slope_bin",
+    "slope_min_deg",
+    "slope_max_deg",
+    "n_points",
+    "n_blocks",
+    "dh_shared_median_m",
+    "dh_shared_nmad_m",
+    "dh_aligned_shared_median_m",
+    "dh_aligned_shared_nmad_m",
+    "nmad_ci_low_m",
+    "nmad_ci_high_m",
+]
 
 #: Column added to the altimetry point tables to identify one point across
 #: the per-DEM ``Altimetry`` objects (the tables share a non-unique time index).
@@ -363,6 +387,112 @@ def _read_window(ds, win):
     return np.ma.masked_invalid(a)
 
 
+def _pixel_size_m(crs, transform, y):
+    """
+    Pixel width and height in meters, as scalars for a projected CRS or as
+    arrays at latitudes ``y`` for a geographic one (from the CRS's ellipsoid,
+    so a Moon or Mars DEM in degrees works too).
+    """
+    dx, dy = abs(transform.a), abs(transform.e)
+    if crs is None or not crs.is_geographic:
+        factor = 1.0
+        if crs is not None:
+            try:
+                factor = float(crs.linear_units_factor[1])
+            except Exception:  # unknown units: take them as meters
+                factor = 1.0
+        return dx * factor, dy * factor
+    ellipsoid = CRS.from_user_input(crs.to_wkt()).ellipsoid
+    a = ellipsoid.semi_major_metre
+    inv_f = ellipsoid.inverse_flattening
+    f = 1.0 / inv_f if inv_f else 0.0
+    e2 = f * (2.0 - f)
+    lat = np.radians(np.asarray(y, dtype=float))
+    w = np.sqrt(1.0 - e2 * np.sin(lat) ** 2)
+    meridional = a * (1.0 - e2) / w**3
+    prime_vertical = a / w
+    return (
+        np.radians(dx) * prime_vertical * np.cos(lat),
+        np.radians(dy) * meridional,
+    )
+
+
+def slope_at_points(dem_fn, points):
+    """
+    Slope of a DEM in degrees at each point, by Horn's method.
+
+    Horn's method is what ``gdaldem slope`` uses: the east and north
+    gradients come from the 3 × 3 pixels around the pixel holding the point,
+    with the centre row and column weighted twice. The DEM is not
+    interpolated, so the slope is that of the DEM at its own resolution: a
+    30 m Copernicus DEM gives the slope of the terrain over about one
+    ATL06-SR segment, a 1 m DSM the slope of roofs and walls.
+
+    Parameters
+    ----------
+    dem_fn : str
+        DEM to take slope from. Heights are taken to be in meters; pixel
+        sizes in degrees are converted to meters at each point's latitude.
+    points : geopandas.GeoDataFrame
+        Points, in any CRS (reprojected to the DEM's).
+
+    Returns
+    -------
+    numpy.ndarray
+        Slope in degrees, NaN for a point outside the DEM or whose 3 × 3
+        neighbourhood touches nodata or the DEM edge (as ``gdaldem`` without
+        ``-compute_edges``).
+    """
+    n = len(points)
+    slope = np.full(n, np.nan)
+    if n == 0:
+        return slope
+    with rio.open(dem_fn) as ds:
+        pts = points.to_crs(ds.crs) if ds.crs is not None else points
+        xs = pts.geometry.x.to_numpy(dtype=float)
+        ys = pts.geometry.y.to_numpy(dtype=float)
+        rows, cols = (np.asarray(v, dtype=int) for v in rowcol(ds.transform, xs, ys))
+        inside = (
+            (rows >= 1) & (rows < ds.height - 1) & (cols >= 1) & (cols < ds.width - 1)
+        )
+        if not inside.any():
+            return slope
+        r, c = rows[inside], cols[inside]
+        r0, c0 = r.min() - 1, c.min() - 1
+        height, width = r.max() - r0 + 2, c.max() - c0 + 2
+        if float(height) * float(width) <= MAX_WINDOW_PIXELS:
+            # One read of the points' bounding box, then index the neighbours.
+            z = _filled(ds.read(1, window=Window(c0, r0, width, height), masked=True))
+            neighbours = np.stack(
+                [z[r - r0 + dr, c - c0 + dc] for dr in (-1, 0, 1) for dc in (-1, 0, 1)]
+            )
+        else:
+            # Points spread over a large DEM: read each 3 × 3 window instead,
+            # rather than a downsampled box that would change the slope.
+            neighbours = np.stack(
+                [
+                    _filled(
+                        ds.read(1, window=Window(ci - 1, ri - 1, 3, 3), masked=True)
+                    ).ravel()
+                    for ri, ci in zip(r, c)
+                ],
+                axis=1,
+            )
+        dx, dy = _pixel_size_m(ds.crs, ds.transform, ys[inside])
+    a, b, c_, d, e, f, g, h, i = neighbours
+    dzdx = ((c_ + 2 * f + i) - (a + 2 * d + g)) / (8.0 * dx)
+    dzdy = ((g + 2 * h + i) - (a + 2 * b + c_)) / (8.0 * dy)
+    values = np.degrees(np.arctan(np.hypot(dzdx, dzdy)))
+    values[~np.isfinite(e)] = np.nan
+    slope[inside] = values
+    return slope
+
+
+def _filled(a):
+    """A masked read as a float array with NaN where masked or non-finite."""
+    return np.ma.masked_invalid(a.astype(float)).filled(np.nan)
+
+
 class DEMBenchmark:
     """
     Score many DEMs against one altimetry sample.
@@ -417,6 +547,16 @@ class DEMBenchmark:
         columns stay NaN).
     seed : int, optional
         Seed of the bootstrap's random generator, default 0.
+    slope_dem : str, optional
+        DEM to take slope from for the breakdown by slope class: the label
+        of one of the candidates, or a path (a Copernicus DEM, a lidar DTM).
+        Slope comes from :func:`slope_at_points` and is sampled once per
+        point, so every candidate is binned the same way; slope from each
+        candidate would put a point in different classes for different
+        DEMs. Default None: no breakdown.
+    slope_bins : sequence of float, optional
+        Edges of the slope classes in degrees, default :data:`SLOPE_BINS`.
+        Each class includes its lower edge and excludes its upper one.
     title : str, optional
         Figure title.
 
@@ -441,6 +581,16 @@ class DEMBenchmark:
     the residual series scored, indexed by point id (aligned only when
     pc_align ran for it); ``blocks`` maps point id to the resampling block
     (beam track, or orbit) the bootstrap draws.
+
+    With ``slope_dem``, ``stats_by_slope_df`` holds one row per DEM and slope
+    class (columns :data:`SLOPE_STATS_COLUMNS`), on the shared points in that
+    class, with the bootstrap run again within each class; ``slope`` maps
+    each shared point id to its slope in degrees. Steep classes are often
+    thin, so read ``n_points`` and ``n_blocks`` with them. A horizontal
+    offset between a DEM and the altimetry of Δx raises the residual by
+    about Δx · tan(slope), so steep-class NMAD includes the altimetry's
+    geolocation error and, after alignment, the horizontal part of the
+    ``pc_align`` translation, as well as the DEM's own error.
     """
 
     def __init__(
@@ -456,6 +606,8 @@ class DEMBenchmark:
         n_sigma=3,
         n_bootstrap=1000,
         seed=0,
+        slope_dem=None,
+        slope_bins=SLOPE_BINS,
         title=None,
     ):
         self.directory = os.path.expanduser(directory)
@@ -536,6 +688,34 @@ class DEMBenchmark:
         self.seed = seed
         self.title = title
 
+        self.slope_dem = None
+        self.slope_dem_name = None
+        if slope_dem is not None:
+            if slope_dem in self.dems:
+                self.slope_dem = self.dems[slope_dem]
+                self.slope_dem_name = slope_dem
+            else:
+                fn = os.path.expanduser(slope_dem)
+                if not os.path.exists(fn):
+                    raise ValueError(
+                        f"slope_dem '{slope_dem}' is neither one of the DEM labels "
+                        f"{list(self.dems)} nor an existing file."
+                    )
+                self.slope_dem = fn
+                self.slope_dem_name = os.path.basename(fn)
+        edges = tuple(float(b) for b in slope_bins)
+        if (
+            len(edges) < 2
+            or np.any(np.diff(edges) <= 0)
+            or edges[0] < 0
+            or edges[-1] > 90
+        ):
+            raise ValueError(
+                "slope_bins must be at least two increasing edges between 0 and "
+                f"90 degrees; got {slope_bins}."
+            )
+        self.slope_bins = edges
+
         self.aoi_bounds, self.aoi_crs = self._resolve_aoi(aoi)
 
         self.stats_df = None
@@ -547,6 +727,9 @@ class DEMBenchmark:
         self._blocks_recorded = False
         self.shared_ids = None
         self.bootstrap = None
+        self.slope = None
+        self.stats_by_slope_df = None
+        self._slope_stage = None
         self._pc_align_available = True
 
     # ------------------------------------------------------------------ #
@@ -644,6 +827,7 @@ class DEMBenchmark:
         for row in rows:
             row.update(shared[row["label"]])
         self.stats_df = pd.DataFrame(rows, columns=STATS_COLUMNS)
+        self.stats_by_slope_df = self._slope_stats()
         return self.stats_df
 
     def _shared_stats(self):
@@ -775,6 +959,124 @@ class DEMBenchmark:
             "other DEMs are not separable from it."
         )
         return out
+
+    def _shared_points_table(self):
+        """The altimetry table rows of the shared points, ordered by point id."""
+        label = next(label for label, dh in self.dh.items() if len(dh))
+        alt = self.altimetry[label]
+        if self.body == "earth":
+            table = alt.atl06sr_processing_levels_filtered.get(self.key)
+        else:
+            table = alt.planetary_points
+        table = table[table[POINT_ID].isin(self.shared_ids)]
+        return table.sort_values(POINT_ID)
+
+    def _slope_stats(self):
+        """
+        Shared-point median and NMAD of every DEM by slope class.
+
+        Slope is sampled from ``slope_dem`` once per shared point (``slope``).
+        Each class is scored like the headline columns, before and after
+        alignment, and the paired block bootstrap runs again on the class's
+        points at the ranked stage, for its NMAD interval. Returns the
+        ``stats_by_slope_df`` table, or None without ``slope_dem`` or shared
+        points.
+        """
+        self.slope = None
+        self._slope_stage = None
+        if (
+            self.slope_dem is None
+            or self.shared_ids is None
+            or not len(self.shared_ids)
+        ):
+            return None
+        table = self._shared_points_table()
+        slope = pd.Series(
+            slope_at_points(self.slope_dem, table), index=table[POINT_ID].to_numpy()
+        )
+        self.slope = slope.reindex(self.shared_ids)
+        edges = self.slope_bins
+        classes = pd.cut(
+            self.slope.to_numpy(), bins=list(edges), right=False, labels=False
+        )
+
+        scored = [label for label, dh in self.dh.items() if len(dh)]
+        before = {
+            label: self.dh[label].reindex(self.shared_ids).to_numpy(dtype=float)
+            for label in scored
+        }
+        aligned = {
+            label: self.dh_aligned[label].reindex(self.shared_ids).to_numpy(dtype=float)
+            for label in scored
+            if label in self.dh_aligned
+        }
+        # Bootstrap the stage _shared_stats ranks: aligned when any DEM has it.
+        self._slope_stage = "aligned" if aligned else "before"
+        series = aligned if aligned else before
+        racing = list(series)
+        blocks = None
+        if self.blocks is not None:
+            blocks = self.blocks.reindex(self.shared_ids).to_numpy()
+            if pd.isna(blocks).any():
+                blocks = None
+
+        rows = []
+        for k, (lo, hi) in enumerate(zip(edges[:-1], edges[1:])):
+            in_class = classes == k
+            n_points = int(in_class.sum())
+            n_blocks = (
+                int(pd.unique(blocks[in_class]).size)
+                if blocks is not None
+                else n_points
+            )
+            ci = {}
+            if self.n_bootstrap and racing and n_points > 1:
+                result = paired_block_bootstrap(
+                    np.vstack([series[label][in_class] for label in racing]),
+                    blocks=blocks[in_class] if blocks is not None else None,
+                    n_boot=self.n_bootstrap,
+                    seed=self.seed,
+                )
+                nmad_lo, nmad_hi = np.nanpercentile(result["nmad"], [2.5, 97.5], axis=0)
+                ci = {
+                    label: (float(nmad_lo[i]), float(nmad_hi[i]))
+                    for i, label in enumerate(racing)
+                }
+            for label in self.dems:
+                row = {
+                    "label": label,
+                    "slope_bin": f"{lo:g}–{hi:g}°",
+                    "slope_min_deg": lo,
+                    "slope_max_deg": hi,
+                    "n_points": n_points,
+                    "n_blocks": n_blocks,
+                }
+                stats = {}
+                if label in before:
+                    stats.update(_dh_stats(before[label][in_class], "dh_shared"))
+                if label in aligned:
+                    stats.update(
+                        _dh_stats(aligned[label][in_class], "dh_aligned_shared")
+                    )
+                row.update({k_: v for k_, v in stats.items() if "rmse" not in k_})
+                row["nmad_ci_low_m"], row["nmad_ci_high_m"] = ci.get(
+                    label, (np.nan, np.nan)
+                )
+                rows.append(row)
+        df = pd.DataFrame(rows, columns=SLOPE_STATS_COLUMNS)
+
+        n_with = int(np.isfinite(self.slope).sum())
+        counts = ", ".join(
+            f"{b} {n}"
+            for b, n in df.drop_duplicates("slope_bin")[
+                ["slope_bin", "n_points"]
+            ].itertuples(index=False)
+        )
+        print(
+            f"Slope from {self.slope_dem_name}: {n_with} of {len(self.shared_ids)} "
+            f"shared points have one; points per class: {counts}"
+        )
+        return df
 
     def _coverage_stats(self, dem_fn):
         with rio.open(dem_fn) as ds:
@@ -1053,11 +1355,25 @@ class DEMBenchmark:
         return self.stats_df
 
     def save_stats(self, csv_fn):
-        """Write ``stats_df`` to ``csv_fn`` (creating its folder) and return the path."""
+        """
+        Write ``stats_df`` to ``csv_fn`` (creating its folder) and return the path.
+
+        With a slope breakdown, ``stats_by_slope_df`` is written next to it
+        as ``<stem>_by_slope.csv``.
+        """
         df = self._require_stats()
         os.makedirs(os.path.dirname(os.path.abspath(csv_fn)), exist_ok=True)
         df.to_csv(csv_fn, index=False, float_format="%.4f")
+        if self.stats_by_slope_df is not None:
+            self.stats_by_slope_df.to_csv(
+                self.slope_csv_path(csv_fn), index=False, float_format="%.4f"
+            )
         return csv_fn
+
+    @staticmethod
+    def slope_csv_path(csv_fn):
+        """Where :meth:`save_stats` writes the slope table for ``csv_fn``."""
+        return f"{os.path.splitext(csv_fn)[0]}_by_slope.csv"
 
     def _filter_note(self):
         """The land-cover filter, for the figure subtitle, when not the default."""
@@ -1311,6 +1627,172 @@ class DEMBenchmark:
         # fraction, so a tall figure (many DEMs) has no gap under them and a
         # short one is not cramped: ~0.2 in per line plus a little air.
         fig.subplots_adjust(top=1 - (0.25 + 0.2 * len(lines)) / fig.get_figheight())
+        fig.suptitle("\n".join(lines), fontsize=10 if self.title else 9)
+        if save_dir and fig_fn:
+            save_figure(fig, save_dir, fig_fn, dpi=dpi)
+        return fig
+
+    def slope_plot(
+        self, aligned="auto", sort=True, save_dir=None, fig_fn=None, dpi=None
+    ):
+        """
+        Shared-point NMAD of every DEM by slope class, one line per DEM.
+
+        Each class is labelled with its number of points and of resampling
+        blocks (beam tracks), and the error bars are the 95 % interval from
+        the paired block bootstrap run within the class. Steep classes are
+        usually thin, so their intervals are wide.
+
+        A horizontal offset Δx between a DEM and the altimetry adds about
+        Δx · tan(slope) to a residual, so NMAD rises with slope for reasons
+        other than the DEM: the altimetry's own geolocation error and, after
+        alignment, the horizontal part of each DEM's ``pc_align``
+        translation, whose range the subtitle prints. Compare with
+        ``aligned=False`` to see how much of the steep-class NMAD the
+        alignment contributes.
+
+        Parameters
+        ----------
+        aligned : {"auto", True, False}, optional
+            Plot post-alignment NMAD when any DEM has it (``"auto"``,
+            default), always (True, DEMs without it fall back to
+            pre-alignment), or never (False). Error bars are drawn only for
+            the stage the bootstrap ran on (post-alignment when any DEM was
+            aligned).
+        sort : bool, optional
+            Order the legend best-first as in :meth:`summary_plot`, default True.
+
+        Returns
+        -------
+        matplotlib.figure.Figure
+        """
+        self._require_stats()
+        df = self.stats_by_slope_df
+        if df is None:
+            raise ValueError(
+                "No slope breakdown: pass slope_dem= to DEMBenchmark and call run()."
+            )
+        order = list(self._sorted_stats(sort)["label"])
+        if aligned == "auto":
+            use_aligned = df["dh_aligned_shared_nmad_m"].notna().any()
+        else:
+            use_aligned = bool(aligned)
+        show_ci = (
+            df["nmad_ci_low_m"].notna().any()
+            and (self._slope_stage == "aligned") == use_aligned
+        )
+        classes = df.drop_duplicates("slope_bin").reset_index(drop=True)
+        x = np.arange(len(classes))
+        n_dems = len(order)
+        colors = plt.get_cmap("tab10" if n_dems <= 10 else "tab20")
+        # Spread the DEMs a little within each class so error bars stay apart.
+        half = min(0.18, 0.06 * (n_dems - 1))
+        offsets = (
+            np.linspace(-half, half, n_dems)
+            if show_ci and n_dems > 1
+            else [0.0] * n_dems
+        )
+
+        fig, ax = plt.subplots(
+            1,
+            1,
+            figsize=(max(6.0, 1.2 * len(classes) + 4.0), 4.4),
+            dpi=220 if dpi is None else dpi,
+            layout="constrained",
+        )
+        for j, label in enumerate(order):
+            rows = (
+                df[df["label"] == label]
+                .set_index("slope_bin")
+                .reindex(classes["slope_bin"])
+            )
+            before = rows["dh_shared_nmad_m"].to_numpy(dtype=float)
+            after = rows["dh_aligned_shared_nmad_m"].to_numpy(dtype=float)
+            fell_back = use_aligned and not np.isfinite(after).any()
+            values = before if not use_aligned or fell_back else after
+            if not np.isfinite(values).any():
+                continue
+            color = colors(j % colors.N)
+            xs = x + offsets[j]
+            ax.plot(
+                xs,
+                values,
+                marker="o",
+                ms=4,
+                lw=1.3,
+                color=color,
+                label=f"{label} (before pc_align)" if fell_back else label,
+                zorder=2,
+            )
+            if show_ci and not fell_back:
+                lo = rows["nmad_ci_low_m"].to_numpy(dtype=float)
+                hi = rows["nmad_ci_high_m"].to_numpy(dtype=float)
+                ok = np.isfinite(lo) & np.isfinite(hi) & np.isfinite(values)
+                ax.errorbar(
+                    xs[ok],
+                    values[ok],
+                    yerr=[values[ok] - lo[ok], hi[ok] - values[ok]],
+                    fmt="none",
+                    ecolor=color,
+                    elinewidth=0.9,
+                    capsize=2,
+                    alpha=0.8,
+                    zorder=1,
+                )
+
+        block = (
+            "track" if self.block_name == "beam track" else (self.block_name or "point")
+        )
+        ticks = []
+        for _, c in classes.iterrows():
+            tick = f"{c['slope_bin']}\nn = {int(c['n_points'])}"
+            if self.block_name is not None:
+                tick += f"\n{int(c['n_blocks'])} {block}s"
+            ticks.append(tick)
+        ax.set_xticks(x)
+        ax.set_xticklabels(ticks, fontsize=7)
+        ax.set_xlim(-0.5, len(classes) - 0.5)
+        ax.set_ylim(0, ax.get_ylim()[1])
+        ax.grid(axis="y", color="0.9", lw=0.6)
+        ax.set_axisbelow(True)
+        ax.tick_params(axis="y", labelsize=7)
+        ax.set_xlabel(f"Slope from {self.slope_dem_name}", fontsize=8)
+        stage = "after pc_align" if use_aligned else "before pc_align"
+        ax.set_ylabel(f"Altimetry − DEM NMAD (m), {stage}", fontsize=8)
+        ax.legend(
+            loc="upper left",
+            bbox_to_anchor=(1.01, 1.0),
+            fontsize=6.5,
+            frameon=False,
+        )
+
+        n_with = int(np.isfinite(self.slope).sum()) if self.slope is not None else 0
+        source = (
+            "ICESat-2 ATL06-SR" + self._filter_note()
+            if self.body == "earth"
+            else f"{self.body.capitalize()} altimetry"
+        )
+        lines = [
+            f"{source}, {n_with} of {len(self.shared_ids)} points valid in every "
+            "DEM have a slope"
+        ]
+        if use_aligned:
+            stats = self.stats_df
+            shift = np.hypot(stats["north_shift_m"], stats["east_shift_m"]).dropna()
+            if len(shift):
+                lo, hi = f"{shift.min():.2f}", f"{shift.max():.2f}"
+                lines.append(
+                    f"horizontal pc_align shift {lo} m"
+                    if lo == hi
+                    else f"horizontal pc_align shifts {lo}–{hi} m"
+                )
+        if show_ci:
+            lines.append(
+                f"error bars: 95 % interval, {self.n_bootstrap} replicates "
+                f"resampling the {block}s within each class"
+            )
+        if self.title:
+            lines.insert(0, self.title)
         fig.suptitle("\n".join(lines), fontsize=10 if self.title else 9)
         if save_dir and fig_fn:
             save_figure(fig, save_dir, fig_fn, dpi=dpi)
