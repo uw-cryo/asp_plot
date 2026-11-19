@@ -257,31 +257,13 @@ def _build_bundle_adjust(ctx: ReportContext) -> List[object]:
         return sections + _build_bundle_adjust_cameras(ctx)
 
     try:
+        # One linear-scale page: a log-scale copy of the same residuals was
+        # dropped as a repeat (#236).
         plotter = PlotBundleAdjustFiles(
             [resid_initial_gdf, resid_final_gdf],
-            lognorm=True,
-            title="Bundle Adjust Initial and Final Residuals (Log Scale)",
+            lognorm=False,
+            title="Bundle Adjust Initial and Final Residuals",
         )
-
-        fig_fn = ctx.next_fig_fn()
-        plotter.plot_n_gdfs(
-            column_name="mean_residual",
-            cbar_label="Mean residual (px)",
-            map_crs=ctx.map_crs,
-            save_dir=ctx.plots_directory,
-            fig_fn=fig_fn,
-            **ctx.ctx_kwargs,
-        )
-        sections.append(
-            ReportSection(
-                title="Bundle Adjust Residuals (Log Scale)",
-                image_path=ctx.fig_path(fig_fn),
-                caption=captions.BUNDLE_RESIDUALS_LOG,
-            )
-        )
-
-        plotter.lognorm = False
-        plotter.title = "Bundle Adjust Initial and Final Residuals (Linear Scale)"
 
         fig_fn = ctx.next_fig_fn()
         plotter.plot_n_gdfs(
@@ -295,9 +277,9 @@ def _build_bundle_adjust(ctx: ReportContext) -> List[object]:
         )
         sections.append(
             ReportSection(
-                title="Bundle Adjust Residuals (Linear Scale)",
+                title="Bundle Adjust Residuals",
                 image_path=ctx.fig_path(fig_fn),
-                caption=captions.BUNDLE_RESIDUALS_LINEAR,
+                caption=captions.BUNDLE_RESIDUALS,
             )
         )
 
@@ -652,6 +634,7 @@ def _build_altimetry_earth(ctx: ReportContext, ctx_kwargs_altimetry: dict):
     fig_fn = ctx.next_fig_fn()
     icesat.mapview_plot_atl06sr_to_dem(
         key="all",
+        plot_aligned=aligned,
         save_dir=ctx.plots_directory,
         fig_fn=fig_fn,
         map_crs=ctx.map_crs,
@@ -659,9 +642,9 @@ def _build_altimetry_earth(ctx: ReportContext, ctx_kwargs_altimetry: dict):
     )
     sections.append(
         ReportSection(
-            title="ICESat-2 ATL06-SR Map",
+            title="ICESat-2 ATL06-SR Map" + suffix,
             image_path=ctx.fig_path(fig_fn),
-            caption=captions.ICESAT2_MAP,
+            caption=captions.ICESAT2_MAP_ALIGNED if aligned else captions.ICESAT2_MAP,
         )
     )
 

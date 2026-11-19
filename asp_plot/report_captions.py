@@ -19,12 +19,9 @@ STEREO_GEOMETRY = "Stereo acquisition geometry skyplot and map view showing sate
 
 MATCH_POINTS = "Interest point matches between left and right images (red), overlaid on the raw interest points detected on each image individually (blue, when the .vwip files are present in the stereo directory). These are produced by stereo_corr during its initial interest point matching step, which is used to set the search windows for subsequent dense correlation (not the dense correlation matches themselves). Comparing the raw interest points against the matches shows whether sparse matching traces back to poor matching or to areas with no detected interest points at all (e.g., limited texture, clouds, water). Some ASP configurations only write a .vwip file for the left image (the right image's interest points are detected on a temporary aligned image and not saved), in which case only matches are shown on the right."
 
-BUNDLE_RESIDUALS_LOG = (
-    "Initial and final bundle adjustment residuals on a logarithmic scale."
-)
-
-BUNDLE_RESIDUALS_LINEAR = (
-    "Initial and final bundle adjustment residuals on a linear scale."
+BUNDLE_RESIDUALS = (
+    "Initial and final bundle adjustment residuals (mean per point, in "
+    "pixels), each panel on its own linear color scale."
 )
 
 MAP_PROJECTED_RESIDUALS = "Midpoint distance between final interest points projected onto the reference DEM used in processing."
@@ -95,6 +92,12 @@ _SEGMENT_SCORING = (
 ICESAT2_SEGMENTS = (
     "1 km segments along the ICESat-2 track with better "
     "(left) and worse (right) agreement with the DEM. " + _SEGMENT_SCORING
+)
+
+ICESAT2_MAP_ALIGNED = (
+    "ICESat-2 ATL06-SR minus ASP DEM height differences before (left) and "
+    "after (right) pc_align. Each panel has its own color scale, symmetric "
+    "about 0, and gives its number of points, median and NMAD in its title."
 )
 
 ICESAT2_HISTOGRAM_ALIGNED = (

@@ -233,8 +233,7 @@ class TestBundleAdjustSection:
     basemap."""
 
     ALL_PAGES = [
-        "Bundle Adjust Residuals (Log Scale)",
-        "Bundle Adjust Residuals (Linear Scale)",
+        "Bundle Adjust Residuals",
         "Map-Projected Residuals",
         "Geodiff vs. Reference DEM",
     ]
@@ -714,7 +713,7 @@ class TestRunReportEarth:
             "DEM Results",
             "Detailed Hillshade",
             "DEM Alignment with ICESat-2",
-            "ICESat-2 ATL06-SR Map",
+            "ICESat-2 ATL06-SR Map (Aligned DEM)",
             "ICESat-2 ATL06-SR Histogram (Aligned DEM)",
             "ICESat-2 ATL06-SR by Slope (Aligned DEM)",
             "ICESat-2 ATL06-SR Profile (Aligned DEM)",
@@ -722,6 +721,7 @@ class TestRunReportEarth:
         ]
         # Each figure is drawn once, with both DEMs (#236).
         assert rec.plot_aligned == {
+            "mapview_atl06sr": True,
             "hist_landcover": True,
             "dh_by_slope": True,
             "profile": True,

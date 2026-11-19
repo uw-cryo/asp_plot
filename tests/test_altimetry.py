@@ -318,6 +318,24 @@ class TestAltimetry:
                 f"plot_atl06sr_dem_profile() method raised an exception: {str(e)}"
             )
 
+    def test_mapview_plot_atl06sr_to_dem_aligned_has_both_panels(self, icesat):
+        """With an aligned DEM the map shows the differences before and after
+        alignment side by side, each panel on its own color scale."""
+        icesat.atl06sr_to_dem_dh()
+        points = icesat.atl06sr_processing_levels_filtered["all"]
+        points["icesat_minus_aligned_dem"] = points["icesat_minus_dem"] - 5.0
+        icesat.aligned_dem_fn = icesat.dem_fn
+        plt.close("all")
+        icesat.mapview_plot_atl06sr_to_dem(key="all", plot_aligned=True)
+        fig = plt.gcf()
+        before, after = (ax for ax in fig.axes if ax.get_title())
+        assert before.get_title().startswith("DEM: n=")
+        assert after.get_title().startswith("Aligned DEM: n=")
+        limits = [c.get_clim() for ax in (before, after) for c in ax.collections]
+        assert limits[0] != limits[1]
+        assert all(lo == pytest.approx(-hi) for lo, hi in limits)
+        plt.close("all")
+
     def test_plot_atl06sr_dem_profile_aligned_gives_both_stats(self, icesat):
         """The aligned profile is the only profile in a report whose
         alignment succeeded (#236), so its residual panel also gives the

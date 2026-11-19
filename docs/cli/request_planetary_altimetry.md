@@ -15,7 +15,7 @@ Planetary altimetry data requires an asynchronous request/download workflow beca
 
 1. **Submit request** — run `request_planetary_altimetry` with your DEM and email
 2. **Wait for email** — you will receive a download link (may take minutes to hours)
-3. **Download and unzip** — extract the `*_topo_csv.csv` file from the zip
+3. **Download and unzip** — the zip holds a `*_pts_csv.csv` file, the one to use. A MOLA download also holds a `*_topo_csv.csv`, which is rejected: its heights are above the MOLA areoid, not the spherical datum of ASP's Mars DEMs, and the difference reaches about 10 km.
 4. **Generate report** — pass the CSV to `asp_report` via `--altimetry-csv`
 
 ## Basic usage
@@ -31,7 +31,7 @@ Then, once the data is downloaded and unzipped:
 ```bash
 asp_report --directory ./ \
          --stereo-directory stereo \
-         --altimetry-csv /path/to/MolaPEDR_*_topo_csv.csv \
+         --altimetry-csv /path/to/MolaPEDR_*_pts_csv.csv \
          --no-basemap \
          --no-geometry
 ```
@@ -66,12 +66,12 @@ Usage: request_planetary_altimetry [OPTIONS]
     1. Run this command with your DEM and email
     2. Wait for the email notification (may take minutes to hours)
     3. Download and unzip the result
-    4. Pass the *_topo_csv.csv to asp_plot via --altimetry-csv
+    4. Pass the *_pts_csv.csv to asp_report via --altimetry-csv
 
   Example:
     request_planetary_altimetry --dem stereo/output-DEM.tif --email user@example.com
     # ... wait for email, download and unzip ...
-    asp_report --directory ./ --altimetry-csv /path/to/*_topo_csv.csv
+    asp_report --directory ./ --altimetry-csv /path/to/*_pts_csv.csv
 
 Options:
   --dem PATH       Path to the ASP DEM file. The planetary body (Moon/Mars) is

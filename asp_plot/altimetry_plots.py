@@ -639,15 +639,19 @@ class AltimetryPlotter:
         Notes
         -----
         The plot uses a divergent colormap (RdBu) to highlight
-        positive and negative differences.
+        positive and negative differences. With ``plot_aligned`` the map
+        has two panels, the differences before (left) and after (right)
+        alignment, each with its own color scale and with its n, median
+        and NMAD in its title.
         """
         if plot_aligned:
-            column_name = "icesat_minus_aligned_dem"
             if not self.alt.aligned_dem_fn:
                 print("\nAligned DEM not found.\n")
                 return
-        else:
-            column_name = "icesat_minus_dem"
+            return self._mapview_before_after(
+                atl06sr, key, clim, save_dir, fig_fn, map_crs, **ctx_kwargs
+            )
+        column_name = "icesat_minus_dem"
 
         if clim is None:
             # Symmetric ±3σ centered on 0 (data has already been filtered
@@ -661,10 +665,7 @@ class AltimetryPlotter:
         else:
             cbar_label = "ICESat-2 minus DEM (m)"
 
-        if not map_crs:
-            dem = rioxarray.open_rasterio(self.alt.dem_fn, masked=True).squeeze()
-            epsg = dem.rio.crs.to_epsg()
-            map_crs = f"EPSG:{epsg}"
+        map_crs = self._map_crs(map_crs)
 
         self.plot_atl06sr(
             atl06sr,
@@ -679,6 +680,76 @@ class AltimetryPlotter:
             fig_fn=fig_fn,
             **ctx_kwargs,
         )
+
+    def _map_crs(self, map_crs):
+        """``map_crs``, or the DEM's CRS as ``EPSG:XXXX`` when it is None."""
+        if map_crs:
+            return map_crs
+        dem = rioxarray.open_rasterio(self.alt.dem_fn, masked=True).squeeze()
+        return f"EPSG:{dem.rio.crs.to_epsg()}"
+
+    def _mapview_before_after(
+        self, atl06sr, key, clim, save_dir, fig_fn, map_crs, **ctx_kwargs
+    ):
+        """
+        The ICESat-2 minus DEM map before (left) and after (right) alignment.
+
+        The report shows only this map when the alignment succeeds (#236).
+        Each panel has its own color scale, symmetric about 0 (``clim`` for
+        both when given): before alignment a DEM is often offset by meters,
+        and one scale for both panels would wash out the differences that
+        remain after it.
+        """
+        map_crs = self._map_crs(map_crs)
+        points = atl06sr.to_crs(map_crs)
+        minx, miny, maxx, maxy = points.total_bounds
+        aspect = (maxy - miny) / max(maxx - minx, 1e-9)
+        height = float(np.clip(5.2 * aspect + 1.4, 4, 10))
+        fig, axes = plt.subplots(1, 2, figsize=(12, height), dpi=220)
+        panels = [
+            ("icesat_minus_dem", "DEM"),
+            ("icesat_minus_aligned_dem", "Aligned DEM"),
+        ]
+        for ax, (column, label) in zip(axes, panels):
+            pts = points.dropna(subset=[column]).sort_values(by=column)
+            dh = pts[column].to_numpy()
+            if dh.size == 0:
+                ax.set_axis_off()
+                continue
+            if clim is None:
+                abs_max = float(np.max(np.abs(dh)))
+                panel_clim, cbar_label = (-abs_max, abs_max), "[±3σ]"
+            else:
+                panel_clim, cbar_label = clim, ""
+            cb = ColorBar(perc_range=(2, 98), symm=False)
+            cb.clim = panel_clim
+            pts.plot(
+                ax=ax,
+                column=column,
+                cmap="RdBu",
+                norm=cb.get_norm(lognorm=False),
+                s=1,
+                legend=True,
+                legend_kwds={
+                    "label": f"ICESat-2 minus {label} (m)\n{cbar_label}".rstrip()
+                },
+            )
+            if ctx_kwargs:
+                ctx.add_basemap(ax=ax, **ctx_kwargs)
+            ax.set_xticks([])
+            ax.set_yticks([])
+            ax.set_title(
+                f"{label}: n={dh.size}, Med={np.median(dh):+.2f} m, "
+                f"NMAD={_nmad(dh):.2f} m",
+                size=9,
+            )
+        suptitle = f"ICESat-2 ATL06-SR\n{key} (n={atl06sr.shape[0]})"
+        if self._time_range_label:
+            suptitle += f"\n{self._time_range_label}"
+        fig.suptitle(suptitle, size=10)
+        fig.tight_layout()
+        if save_dir and fig_fn:
+            save_figure(fig, save_dir, fig_fn)
 
     def histogram(
         self,

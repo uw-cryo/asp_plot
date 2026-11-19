@@ -67,7 +67,7 @@ request_planetary_altimetry --dem stereo/output-DEM.tif --email user@example.com
 # Step 2: After downloading and unzipping the result
 asp_report --directory ./ \
          --stereo-directory stereo \
-         --altimetry-csv /path/to/MolaPEDR_*_topo_csv.csv \
+         --altimetry-csv /path/to/MolaPEDR_*_pts_csv.csv \
          --no-basemap \
          --no-geometry
 ```
@@ -82,13 +82,14 @@ The **alignment page** opens the altimetry pages. It gives the kwargs used for `
 
 Each altimetry figure then appears once. When the alignment succeeds, every figure that can show both DEMs does, and its title ends in "(Aligned DEM)":
 
+- The **map** shows the differences before and after alignment side by side, each panel on its own color scale, with its number of points, median and NMAD in its title. A DEM is often offset by meters before alignment, and one scale for both panels would wash out the differences that remain after it.
 - The **land-cover histogram** overlays the distributions before and after alignment, with a statistics box for each.
 - The **slope page** shows the NMAD before and after alignment and the median after it.
 - The **profile** overlays the aligned DEM on the track, plots the differences against the aligned DEM, and gives the median and NMAD before and after alignment in its legend.
 - The **agreement segments** overlay the aligned DEM, with the median and NMAD before and after alignment in each title. The segments are chosen on the DEM before alignment, so they are the same segments whether or not the alignment succeeds.
-- On the Moon and Mars, the **map** shows the differences before and after alignment side by side and the **histogram** overlays them.
+- On the Moon and Mars, the **map** and **histogram** show the differences before and after alignment in the same way, though the map uses one color scale for both panels.
 
-The ICESat-2 map shows the DEM before alignment only. When the alignment is turned off, is skipped or keeps no DEM, every figure shows the DEM before alignment.
+When the alignment is turned off, is skipped or keeps no DEM, every figure shows the DEM before alignment.
 
 Disable with `--no-pc-align`. Automatically skipped when `--no-altimetry` is set. The step also skips itself, with a note on the alignment page, when fewer than 500 ICESat-2 points fall on the DEM (20 for LOLA/MOLA); `--pc-align-min-points N` lowers or raises that count, for example `--pc-align-min-points 150` on a DEM of about 1 km² that ICESat-2 crosses only a few times.
 
@@ -226,115 +227,124 @@ Usage: asp_report [OPTIONS]
   single PDF report with processing parameters and summary information.
 
 Options:
-  --directory TEXT             Required directory of ASP processing with
-                               scenes and sub-directories for stereo and
-                               optionally bundle adjustment. Default: current
-                               directory.
-  --bundle-adjust-prefix TEXT  Optional bundle adjustment output location,
-                               relative to --directory. Accepts either a
-                               directory (e.g. 'ba') or an ASP-style output
-                               prefix as passed to --bundle-adjust-prefix in
-                               stereo/mapproject (e.g. 'ba/run'). If expected
-                               *residuals_pointmap.csv files are not found
-                               there, no bundle adjustment plots will be
-                               generated. Default: None.
-  --stereo-directory TEXT      Required directory of stereo files. Default:
-                               stereo.
-  --dem-filename TEXT          Optional DEM filename in the stereo directory.
-                               Default: None, which will search for the
-                               *-DEM.tif file in the stereo directory. Specify
-                               it as the basename with extension, e.g. my-
-                               custom-dem-name.tif.
-  --dem-gsd TEXT               Optional ground sample distance of the DEM.
-                               Default: None, which will search for the
-                               *-DEM.tif file in the stereo directory. If
-                               there is a GSD in the name of the file, specify
-                               it here as a float or integer, e.g. 1, 1.5,
-                               etc.
-  --map-crs TEXT               Projection for altimetry and bundle adjustment
-                               plots. As EPSG:XXXX. Default: None, which will
-                               use the projection of the ASP DEM, and fall
-                               back on EPSG:4326 if not found.
-  --reference-dem TEXT         Optional reference DEM used in ASP processing.
-                               No default. If not supplied, the logs will be
-                               examined to find it. If not found, no
-                               difference plots will be generated.
-  --slope-dem TEXT             Optional DEM to take terrain slope from for the
-                               ICESat-2 statistics by slope class. If not
-                               supplied, the reference DEM is used, and if
-                               there is none, the report's own DEM averaged to
-                               30 m. A DEM finer than 30 m is averaged to 30 m
-                               first.
-  --no-basemap                 Skip the figure basemaps (basemaps are added by
-                               default, which requires an internet
-                               connection).
-  --no-altimetry               Skip the altimetry comparisons (plotted by
-                               default: ICESat-2 for Earth, LOLA for Moon,
-                               MOLA for Mars; planetary DEMs require
-                               --altimetry-csv).
-  --altimetry-csv PATH         Path to a LOLA/MOLA *_topo_csv.csv file from
-                               the ODE GDS API. Required for planetary
-                               altimetry plots. Obtain via:
-                               request_planetary_altimetry --dem <dem> --email
-                               <email>, then download and unzip the result.
-  --no-pc-align                Skip the pc_align step (run by default against
-                               the reference altimetry -- ICESat-2 for Earth,
-                               MOLA for Mars, LOLA for Moon -- appending the
-                               alignment-report pages; skipped automatically
-                               with --no-altimetry).
-  --pc-align-min-points INTEGER
-                               Fewest altimetry points on the DEM for the
-                               pc_align step to run; below it the alignment
-                               page says the step was skipped. Default: 500
-                               for ICESat-2, 20 for LOLA/MOLA.
-  --no-geometry                Skip the stereo geometry plots (plotted by
-                               default).
-  --subset-km FLOAT            Size in km of the subset to plot for the
-                               detailed hillshade. Default: 1 km.
-  --atl06sr-time-range TEXT    Time range for ICESat-2 ATL06-SR data requests.
-                               "all" for all available data (mission start to
-                               present), or "START,END" for a custom range
-                               (e.g. "2020-01-01,2024-12-31"), or "auto" for
-                               scene metadata +/- 1 year. Default: all.
-  --geoloc-corr [conus]        Have SlideRule apply an ICESat-2 geolocation
-                               correction to the photons before the ATL06-SR
-                               fit. "conus": one north/east/up shift per
-                               granule and beam, continental US only; photons
-                               on beams with no correction entry are dropped.
-                               Corrected and uncorrected points are cached
-                               separately. Default: None, no correction.
-  --reuse-selections PATH      Path to a *_figure_selections.yml written by a
-                               previous run. When supplied, replays that run's
-                               ICESat-2 points (parquet), profile track,
-                               best/worst segments, and detailed-hillshade
-                               clip boxes so figures are directly comparable
-                               across re-processing runs. Default: None.
-  --report-filename TEXT       PDF report filename or path. A bare filename
-                               (e.g. 'report.pdf') is saved in the stereo
-                               directory. A path (e.g. 'reports/report.pdf' or
-                               '/tmp/report.pdf') is used as-is. Default:
-                               auto-generated from directory name.
-  --report-title TEXT          Title for the report. Default: Directory name
-                               of ASP processing.
-  --figure-max-dpi INTEGER     Resolution ceiling for figures embedded in the
-                               PDF, applied at the size each figure is placed
-                               on the page. Figures are plotted at 220 dpi and
-                               then scaled down to the page, so wide multi-
-                               panel figures otherwise land at 400+ effective
-                               dpi and inflate the file for detail no screen
-                               or printer shows. Pass 0 to embed the full-
-                               resolution figures.  [default: 200]
-  --figures-directory TEXT     Directory to keep a copy of each report figure
-                               in, as NN_<title>.png (e.g.
-                               05_dem_results.png), where NN is the figure
-                               number in the PDF. A relative path is taken
-                               from the current directory, not from
-                               --directory. Use this to show figures in a
-                               notebook or slides without extracting them from
-                               the PDF. Files of the same name are
-                               overwritten. Default: None, the figures are not
-                               kept.
-  --help                       Show this message and exit.
+  --directory TEXT               Required directory of ASP processing with
+                                 scenes and sub-directories for stereo and
+                                 optionally bundle adjustment. Default:
+                                 current directory.
+  --bundle-adjust-prefix TEXT    Optional bundle adjustment output location,
+                                 relative to --directory. Accepts either a
+                                 directory (e.g. 'ba') or an ASP-style output
+                                 prefix as passed to --bundle-adjust-prefix in
+                                 stereo/mapproject (e.g. 'ba/run'). If
+                                 expected *residuals_pointmap.csv files are
+                                 not found there, no bundle adjustment plots
+                                 will be generated. Default: None.
+  --stereo-directory TEXT        Required directory of stereo files. Default:
+                                 stereo.
+  --dem-filename TEXT            Optional DEM filename in the stereo
+                                 directory. Default: None, which will search
+                                 for the *-DEM.tif file in the stereo
+                                 directory. Specify it as the basename with
+                                 extension, e.g. my-custom-dem-name.tif.
+  --dem-gsd TEXT                 Optional ground sample distance of the DEM.
+                                 Default: None, which will search for the
+                                 *-DEM.tif file in the stereo directory. If
+                                 there is a GSD in the name of the file,
+                                 specify it here as a float or integer, e.g.
+                                 1, 1.5, etc.
+  --map-crs TEXT                 Projection for altimetry and bundle
+                                 adjustment plots. As EPSG:XXXX. Default:
+                                 None, which will use the projection of the
+                                 ASP DEM, and fall back on EPSG:4326 if not
+                                 found.
+  --reference-dem TEXT           Optional reference DEM used in ASP
+                                 processing. No default. If not supplied, the
+                                 logs will be examined to find it. If not
+                                 found, no difference plots will be generated.
+  --slope-dem TEXT               Optional DEM to take terrain slope from for
+                                 the ICESat-2 statistics by slope class. If
+                                 not supplied, the reference DEM is used, and
+                                 if there is none, the report's own DEM
+                                 averaged to 30 m. A DEM finer than 30 m is
+                                 averaged to 30 m first.
+  --no-basemap                   Skip the figure basemaps (basemaps are added
+                                 by default, which requires an internet
+                                 connection).
+  --no-altimetry                 Skip the altimetry comparisons (plotted by
+                                 default: ICESat-2 for Earth, LOLA for Moon,
+                                 MOLA for Mars; planetary DEMs require
+                                 --altimetry-csv).
+  --altimetry-csv PATH           Path to the *_pts_csv.csv file of a LOLA/MOLA
+                                 download from the ODE GDS API. Required for
+                                 planetary altimetry plots. Obtain via:
+                                 request_planetary_altimetry --dem <dem>
+                                 --email <email>, then download and unzip the
+                                 result. For Mars the *_topo_csv.csv in the
+                                 same download is rejected: its heights are
+                                 above the MOLA areoid, not the DEM's datum.
+  --no-pc-align                  Skip the pc_align step (run by default
+                                 against the reference altimetry -- ICESat-2
+                                 for Earth, MOLA for Mars, LOLA for Moon --
+                                 which adds an alignment page and, when the
+                                 alignment succeeds, draws the altimetry
+                                 figures with the aligned DEM too; skipped
+                                 automatically with --no-altimetry).
+  --pc-align-min-points INTEGER  Fewest altimetry points on the DEM for the
+                                 pc_align step to run; below it the alignment
+                                 page says the step was skipped. Default: 500
+                                 for ICESat-2, 20 for LOLA/MOLA.
+  --no-geometry                  Skip the stereo geometry plots (plotted by
+                                 default).
+  --subset-km FLOAT              Size in km of the subset to plot for the
+                                 detailed hillshade. Default: 1 km.
+  --atl06sr-time-range TEXT      Time range for ICESat-2 ATL06-SR data
+                                 requests. "all" for all available data
+                                 (mission start to present), or "START,END"
+                                 for a custom range (e.g.
+                                 "2020-01-01,2024-12-31"), or "auto" for scene
+                                 metadata +/- 1 year. Default: all.
+  --geoloc-corr [conus]          Have SlideRule apply an ICESat-2 geolocation
+                                 correction to the photons before the ATL06-SR
+                                 fit. "conus": one north/east/up shift per
+                                 granule and beam, continental US only;
+                                 photons on beams with no correction entry are
+                                 dropped. Corrected and uncorrected points are
+                                 cached separately. Default: None, no
+                                 correction.
+  --reuse-selections PATH        Path to a *_figure_selections.yml written by
+                                 a previous run. When supplied, replays that
+                                 run's ICESat-2 points (parquet), profile
+                                 track, best/worst segments, and detailed-
+                                 hillshade clip boxes so figures are directly
+                                 comparable across re-processing runs.
+                                 Default: None.
+  --report-filename TEXT         PDF report filename or path. A bare filename
+                                 (e.g. 'report.pdf') is saved in the stereo
+                                 directory. A path (e.g. 'reports/report.pdf'
+                                 or '/tmp/report.pdf') is used as-is. Default:
+                                 auto-generated from directory name.
+  --report-title TEXT            Title for the report. Default: Directory name
+                                 of ASP processing.
+  --figure-max-dpi INTEGER       Resolution ceiling for figures embedded in
+                                 the PDF, applied at the size each figure is
+                                 placed on the page. Figures are plotted at
+                                 220 dpi and then scaled down to the page, so
+                                 wide multi-panel figures otherwise land at
+                                 400+ effective dpi and inflate the file for
+                                 detail no screen or printer shows. Pass 0 to
+                                 embed the full-resolution figures.  [default:
+                                 200]
+  --figures-directory TEXT       Directory to keep a copy of each report
+                                 figure in, as NN_<title>.png (e.g.
+                                 05_dem_results.png), where NN is the figure
+                                 number in the PDF. A relative path is taken
+                                 from the current directory, not from
+                                 --directory. Use this to show figures in a
+                                 notebook or slides without extracting them
+                                 from the PDF. Files of the same name are
+                                 overwritten. Default: None, the figures are
+                                 not kept.
+  --help                         Show this message and exit.
 ```
 
 During the `stereo` or `parallel_stereo` steps, add this flag to retain the files needed for plotting:
