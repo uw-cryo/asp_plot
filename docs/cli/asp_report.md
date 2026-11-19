@@ -90,10 +90,10 @@ Disable with `--no-pc-align`. Automatically skipped when `--no-altimetry` is set
 On Earth the report includes one page with the median and NMAD of the ICESat-2 minus DEM height differences by terrain slope class (0–5°, 5–10°, 10–20°, 20–30° and 30–90°). When `pc_align` succeeds, the page shows the NMAD before and after alignment and the median after it (an unaligned DEM is often offset by meters, which the land-cover histogram already shows) and sits with the other aligned-DEM pages. Otherwise it shows the unaligned DEM and closes the ICESat-2 pages.
 
 ```{figure} ../figures/example_icesat2_by_slope.png
-:alt: NMAD of ICESat-2 minus DEM by slope class before and after pc_align, with bootstrap intervals
+:alt: Median of ICESat-2 minus the aligned DEM by slope class, above the NMAD before and after pc_align, with bootstrap intervals
 :width: 100%
 
-A five-scene WorldView-3 DEM of the UCSD site against 26 330 ICESat-2 points, before and after `pc_align`, with slope from the Copernicus reference DEM. NMAD rises from about 1.3 m at 0–5° to about 2.3 m at 20–30°. The 30–90° class has 35 points on 9 beam tracks, and its interval shows that its NMAD is not known well.
+A five-scene WorldView-3 DEM of the UCSD site against 26 330 ICESat-2 points, before and after `pc_align`, with slope from the Copernicus reference DEM. After alignment the median falls from 0.65 m at 0–5° to about 0 m at 20–30°, a bias that changes with slope. NMAD rises from about 1.3 m at 0–5° to about 2.3 m at 20–30°. The 30–90° class has 35 points on 9 beam tracks, and its intervals show that neither statistic is known well there.
 ```
 
 Slope is taken from, in order:
