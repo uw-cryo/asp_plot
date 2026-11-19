@@ -87,7 +87,7 @@ Disable with `--no-pc-align`. Automatically skipped when `--no-altimetry` is set
 
 ## ICESat-2 statistics by slope
 
-On Earth the report includes one page with the NMAD of the ICESat-2 minus DEM height differences by terrain slope class (0–5°, 5–10°, 10–20°, 20–30° and 30–90°). When `pc_align` succeeds, the page shows the NMAD before and after alignment and sits with the other aligned-DEM pages. Otherwise it shows the unaligned DEM and closes the ICESat-2 pages.
+On Earth the report includes one page with the median and NMAD of the ICESat-2 minus DEM height differences by terrain slope class (0–5°, 5–10°, 10–20°, 20–30° and 30–90°). When `pc_align` succeeds, the page shows the NMAD before and after alignment and the median after it (an unaligned DEM is often offset by meters, which the land-cover histogram already shows) and sits with the other aligned-DEM pages. Otherwise it shows the unaligned DEM and closes the ICESat-2 pages.
 
 ```{figure} ../figures/example_icesat2_by_slope.png
 :alt: NMAD of ICESat-2 minus DEM by slope class before and after pc_align, with bootstrap intervals
@@ -107,10 +107,11 @@ In every case slope is taken at a scale of about 30 m, the length of one ICESat-
 Read the figure with these points in mind:
 
 - **Error bars** are 95 % intervals from a bootstrap that resamples whole beam tracks within each class. The tick labels give the number of points and beam tracks. A class with fewer than 10 points is counted but not plotted.
-- **NMAD rises with slope for reasons other than the DEM's height error.** A horizontal offset of Δx between the DEM and the ICESat-2 points adds about Δx · tan(slope) to a difference.
+- **NMAD rises with slope for reasons other than the DEM's height error.** A horizontal offset of Δx between the DEM and the ICESat-2 points adds about Δx · tan(slope) to a difference. Its sign depends on which way the ground faces, so across a class it mostly widens the spread and moves the median less.
+- **A median that changes with slope is a bias** that one `pc_align` translation cannot remove, since the translation shifts every class by the same amount.
 - **Slope and land cover are often related.** Steep ground may be mostly forest and flat ground mostly built-up, so compare this page with the land-cover histogram.
 
-In Python, `Altimetry.sample_slope()` adds the `slope_deg` column and `Altimetry.nmad_by_slope()` draws the figure and returns the per-class table, which also holds the medians.
+In Python, `Altimetry.sample_slope()` adds the `slope_deg` column and `Altimetry.dh_by_slope()` draws the figure and returns the per-class table.
 
 ## ICESat-2 time filtering
 

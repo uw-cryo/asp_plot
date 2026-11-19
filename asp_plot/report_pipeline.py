@@ -800,7 +800,7 @@ def _slope_section(ctx: ReportContext, icesat, plot_aligned: bool) -> List[objec
             slope_dem = reference_dem
     icesat.sample_slope(slope_dem=slope_dem)
     fig_fn = ctx.next_fig_fn()
-    stats = icesat.nmad_by_slope(
+    stats = icesat.dh_by_slope(
         key="all",
         plot_aligned=plot_aligned,
         save_dir=ctx.plots_directory,

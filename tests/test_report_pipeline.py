@@ -675,8 +675,8 @@ class TestRunReportEarth:
             def sample_slope(self, **kwargs):
                 rec.slope_dems.append(kwargs["slope_dem"])
 
-            def nmad_by_slope(self, **kwargs):
-                rec.record("nmad_by_slope", kwargs)
+            def dh_by_slope(self, **kwargs):
+                rec.record("dh_by_slope", kwargs)
                 return "stats"
 
             def plot_atl06sr_dem_profile(self, **kwargs):

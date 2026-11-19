@@ -40,7 +40,7 @@ from asp_plot.planetary_source import (  # noqa: F401
     PlanetarySource,
     gds_query_async,
 )
-from asp_plot.terrain import SLOPE_BINS, SLOPE_COLUMN
+from asp_plot.terrain import SLOPE_BINS, SLOPE_COLUMN, SLOPE_MIN_POINTS
 from asp_plot.utils import Raster, detect_planetary_body, glob_file
 
 logging.basicConfig(level=logging.WARNING)
@@ -365,11 +365,11 @@ class Altimetry:
             fig_fn=fig_fn,
         )
 
-    def nmad_by_slope(
+    def dh_by_slope(
         self,
         key="all",
         bins=SLOPE_BINS,
-        min_points=10,
+        min_points=SLOPE_MIN_POINTS,
         n_bootstrap=1000,
         seed=0,
         title="ICESat-2 ATL06-SR vs DEM by slope",
@@ -384,7 +384,7 @@ class Altimetry:
         if SLOPE_COLUMN not in atl06sr.columns:
             self.sample_slope()
             atl06sr = self.icesat2.atl06sr_processing_levels_filtered[key]
-        return self.plotter.nmad_by_slope(
+        return self.plotter.dh_by_slope(
             atl06sr,
             key=key,
             bins=bins,

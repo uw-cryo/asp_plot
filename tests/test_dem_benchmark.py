@@ -17,7 +17,7 @@ from asp_plot.dem_benchmark import (
     reference_dem_from_logs,
     slope_at_points,
 )
-from asp_plot.terrain import slope_pixel_size, slope_source_label
+from asp_plot.terrain import SLOPE_MIN_POINTS, slope_pixel_size, slope_source_label
 
 matplotlib.use("Agg")
 
@@ -974,7 +974,36 @@ class TestSlopeBreakdown:
             assert row.dh_shared_median_m == pytest.approx(np.median(dh))
             assert row.n_blocks == bench.blocks.reindex(dh.index).nunique()
             assert row.nmad_ci_low_m <= row.dh_shared_nmad_m <= row.nmad_ci_high_m
+            assert row.median_ci_low_m <= row.dh_shared_median_m <= row.median_ci_high_m
         assert df["dh_aligned_shared_nmad_m"].isna().all()
+
+    def test_thin_class_is_counted_not_scored(self, tmp_path, slope_ramp_dem):
+        # Find a slope value held by fewer than SLOPE_MIN_POINTS points and
+        # put a class around just that value.
+        probe = self._bench(tmp_path, slope_ramp_dem, n_bootstrap=0)
+        probe.run(pc_align=False)
+        values, counts = np.unique(probe.slope.dropna().to_numpy(), return_counts=True)
+        i = next(
+            i
+            for i in range(1, len(values) - 1)
+            if counts[i] < SLOPE_MIN_POINTS and 0 < values[i - 1]
+        )
+        lo = (values[i - 1] + values[i]) / 2
+        hi = (values[i] + values[i + 1]) / 2
+        bench = self._bench(tmp_path, slope_ramp_dem, slope_bins=(0, lo, hi, 90))
+        bench.run(pc_align=False)
+        df = bench.stats_by_slope_df
+        n = df.drop_duplicates("slope_bin")["n_points"].to_numpy()
+        assert 0 < n[1] < SLOPE_MIN_POINTS
+        thin = df[df["slope_min_deg"] == lo]
+        scored = [c for c in SLOPE_STATS_COLUMNS if c.endswith("_m")]
+        assert thin[scored].isna().all().all()
+        assert df[df["slope_min_deg"] == 0][scored[:2]].notna().all().all()
+        fig = bench.slope_plot()
+        ticks = [t.get_text() for t in fig.axes[-1].get_xticklabels()]
+        assert "(too few)" in ticks[1]
+        assert "(too few)" not in ticks[0]
+        matplotlib.pyplot.close(fig)
 
     def test_points_without_slope_are_left_out(self, tmp_path):
         # The ref fixture is 5 x 5 pixels: points in its edge pixels get no
@@ -1003,11 +1032,13 @@ class TestSlopeBreakdown:
 
         fig = bench.slope_plot(save_dir=str(tmp_path), fig_fn="slope.png")
         assert os.path.exists(tmp_path / "slope.png")
-        ax = fig.axes[0]
+        median_ax, ax = fig.axes
+        assert "median" in median_ax.get_ylabel()
+        assert "NMAD" in ax.get_ylabel()
         ticks = [t.get_text() for t in ax.get_xticklabels()]
         assert len(ticks) == 5
         assert all("n = " in t and "tracks" in t for t in ticks)
-        legend = [t.get_text() for t in ax.get_legend().get_texts()]
+        legend = [t.get_text() for t in median_ax.get_legend().get_texts()]
         assert legend == list(bench._sorted_stats(True)["label"])
         title = fig._suptitle.get_text()
         assert "slope test" in title
@@ -1053,7 +1084,8 @@ class TestSlopeBreakdown:
             assert os.path.exists(tmp_path / fn), fn
         df = pd.read_csv(tmp_path / "bench_by_slope.csv")
         assert list(df["slope_bin"].unique()) == ["0–10°", "10–30°", "30–90°"]
-        assert "by slope class" in result.output
+        assert "dh_shared_median_m by slope class" in result.output
+        assert "dh_shared_nmad_m by slope class" in result.output
         assert "n points" in result.output
 
         result = CliRunner().invoke(

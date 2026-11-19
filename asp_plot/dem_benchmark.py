@@ -79,6 +79,7 @@ from asp_plot.icesat2_source import (
 from asp_plot.processing_parameters import ProcessingParameters
 from asp_plot.terrain import (
     SLOPE_BINS,
+    SLOPE_MIN_POINTS,
     SLOPE_SCALE_M,
     slope_at_points,
     slope_bin_edges,
@@ -176,7 +177,8 @@ _BOOTSTRAP_KEYS = (
 )
 
 #: Columns of ``stats_by_slope_df``, one row per DEM and slope class. Every
-#: residual column is on the points valid in every DEM that fall in the class.
+#: residual column is on the points valid in every DEM that fall in the class;
+#: in a class with fewer than ``SLOPE_MIN_POINTS`` points they are NaN.
 SLOPE_STATS_COLUMNS = [
     "label",
     "slope_bin",
@@ -188,6 +190,8 @@ SLOPE_STATS_COLUMNS = [
     "dh_shared_nmad_m",
     "dh_aligned_shared_median_m",
     "dh_aligned_shared_nmad_m",
+    "median_ci_low_m",
+    "median_ci_high_m",
     "nmad_ci_low_m",
     "nmad_ci_high_m",
 ]
@@ -888,7 +892,9 @@ class DEMBenchmark:
         Slope is sampled from ``slope_dem`` once per shared point (``slope``).
         Each class is scored like the headline columns, before and after
         alignment, and the paired block bootstrap runs again on the class's
-        points at the ranked stage, for its NMAD interval. Returns the
+        points at the ranked stage, for its median and NMAD intervals. A
+        class with fewer than :data:`SLOPE_MIN_POINTS` points is counted
+        but not scored. Returns the
         ``stats_by_slope_df`` table, or None without ``slope_dem`` or shared
         points.
         """
@@ -947,17 +953,24 @@ class DEMBenchmark:
                 if blocks is not None
                 else n_points
             )
+            enough = n_points >= SLOPE_MIN_POINTS
             ci = {}
-            if self.n_bootstrap and racing and n_points > 1:
+            if self.n_bootstrap and racing and enough:
                 result = paired_block_bootstrap(
                     np.vstack([series[label][in_class] for label in racing]),
                     blocks=blocks[in_class] if blocks is not None else None,
                     n_boot=self.n_bootstrap,
                     seed=self.seed,
                 )
+                med_lo, med_hi = np.nanpercentile(result["median"], [2.5, 97.5], axis=0)
                 nmad_lo, nmad_hi = np.nanpercentile(result["nmad"], [2.5, 97.5], axis=0)
                 ci = {
-                    label: (float(nmad_lo[i]), float(nmad_hi[i]))
+                    label: {
+                        "median_ci_low_m": float(med_lo[i]),
+                        "median_ci_high_m": float(med_hi[i]),
+                        "nmad_ci_low_m": float(nmad_lo[i]),
+                        "nmad_ci_high_m": float(nmad_hi[i]),
+                    }
                     for i, label in enumerate(racing)
                 }
             for label in self.dems:
@@ -970,16 +983,14 @@ class DEMBenchmark:
                     "n_blocks": n_blocks,
                 }
                 stats = {}
-                if label in before:
+                if enough and label in before:
                     stats.update(_dh_stats(before[label][in_class], "dh_shared"))
-                if label in aligned:
+                if enough and label in aligned:
                     stats.update(
                         _dh_stats(aligned[label][in_class], "dh_aligned_shared")
                     )
                 row.update({k_: v for k_, v in stats.items() if "rmse" not in k_})
-                row["nmad_ci_low_m"], row["nmad_ci_high_m"] = ci.get(
-                    label, (np.nan, np.nan)
-                )
+                row.update(ci.get(label, {}))
                 rows.append(row)
         df = pd.DataFrame(rows, columns=SLOPE_STATS_COLUMNS)
 
@@ -1554,12 +1565,17 @@ class DEMBenchmark:
         self, aligned="auto", sort=True, save_dir=None, fig_fn=None, dpi=None
     ):
         """
-        Shared-point NMAD of every DEM by slope class, one line per DEM.
+        Shared-point median (top) and NMAD (bottom) of every DEM by slope
+        class, one line per DEM.
 
         Each class is labelled with its number of points and of resampling
         blocks (beam tracks), and the error bars are the 95 % interval from
         the paired block bootstrap run within the class. Steep classes are
-        usually thin, so their intervals are wide.
+        usually thin, so their intervals are wide; a class with fewer than
+        :data:`SLOPE_MIN_POINTS` points is marked "too few" and not drawn.
+
+        The median shows a bias that changes with slope, which one
+        ``pc_align`` translation cannot remove and the NMAD does not show.
 
         A horizontal offset Δx between a DEM and the altimetry adds about
         Δx · tan(slope) to a residual, so NMAD rises with slope for reasons
@@ -1572,7 +1588,7 @@ class DEMBenchmark:
         Parameters
         ----------
         aligned : {"auto", True, False}, optional
-            Plot post-alignment NMAD when any DEM has it (``"auto"``,
+            Plot post-alignment statistics when any DEM has them (``"auto"``,
             default), always (True, DEMs without it fall back to
             pre-alignment), or never (False). Error bars are drawn only for
             the stage the bootstrap ran on (post-alignment when any DEM was
@@ -1611,52 +1627,69 @@ class DEMBenchmark:
             else [0.0] * n_dems
         )
 
-        fig, ax = plt.subplots(
+        fig, axes = plt.subplots(
+            2,
             1,
-            1,
-            figsize=(max(6.0, 1.2 * len(classes) + 4.0), 4.4),
+            sharex=True,
+            figsize=(max(6.0, 1.2 * len(classes) + 4.0), 6.6),
             dpi=220 if dpi is None else dpi,
             layout="constrained",
         )
-        for j, label in enumerate(order):
-            rows = (
-                df[df["label"] == label]
-                .set_index("slope_bin")
-                .reindex(classes["slope_bin"])
-            )
-            before = rows["dh_shared_nmad_m"].to_numpy(dtype=float)
-            after = rows["dh_aligned_shared_nmad_m"].to_numpy(dtype=float)
-            fell_back = use_aligned and not np.isfinite(after).any()
-            values = before if not use_aligned or fell_back else after
-            if not np.isfinite(values).any():
-                continue
-            color = colors(j % colors.N)
-            xs = x + offsets[j]
-            ax.plot(
-                xs,
-                values,
-                marker="o",
-                ms=4,
-                lw=1.3,
-                color=color,
-                label=f"{label} (before pc_align)" if fell_back else label,
-                zorder=2,
-            )
-            if show_ci and not fell_back:
-                lo = rows["nmad_ci_low_m"].to_numpy(dtype=float)
-                hi = rows["nmad_ci_high_m"].to_numpy(dtype=float)
-                ok = np.isfinite(lo) & np.isfinite(hi) & np.isfinite(values)
-                ax.errorbar(
-                    xs[ok],
-                    values[ok],
-                    yerr=[values[ok] - lo[ok], hi[ok] - values[ok]],
-                    fmt="none",
-                    ecolor=color,
-                    elinewidth=0.9,
-                    capsize=2,
-                    alpha=0.8,
-                    zorder=1,
+        panels = (
+            ("median", "dh_shared_median_m", "dh_aligned_shared_median_m", "median"),
+            ("NMAD", "dh_shared_nmad_m", "dh_aligned_shared_nmad_m", "nmad"),
+        )
+        for ax, (name, before_col, after_col, ci) in zip(axes, panels):
+            for j, label in enumerate(order):
+                rows = (
+                    df[df["label"] == label]
+                    .set_index("slope_bin")
+                    .reindex(classes["slope_bin"])
                 )
+                before = rows[before_col].to_numpy(dtype=float)
+                after = rows[after_col].to_numpy(dtype=float)
+                fell_back = use_aligned and not np.isfinite(after).any()
+                values = before if not use_aligned or fell_back else after
+                if not np.isfinite(values).any():
+                    continue
+                color = colors(j % colors.N)
+                xs = x + offsets[j]
+                ax.plot(
+                    xs,
+                    values,
+                    marker="o",
+                    ms=4,
+                    lw=1.3,
+                    color=color,
+                    label=f"{label} (before pc_align)" if fell_back else label,
+                    zorder=2,
+                )
+                if show_ci and not fell_back:
+                    lo = rows[f"{ci}_ci_low_m"].to_numpy(dtype=float)
+                    hi = rows[f"{ci}_ci_high_m"].to_numpy(dtype=float)
+                    ok = np.isfinite(lo) & np.isfinite(hi) & np.isfinite(values)
+                    ax.errorbar(
+                        xs[ok],
+                        values[ok],
+                        yerr=[
+                            np.clip(values[ok] - lo[ok], 0, None),
+                            np.clip(hi[ok] - values[ok], 0, None),
+                        ],
+                        fmt="none",
+                        ecolor=color,
+                        elinewidth=0.9,
+                        capsize=2,
+                        alpha=0.8,
+                        zorder=1,
+                    )
+            ax.grid(axis="y", color="0.9", lw=0.6)
+            ax.set_axisbelow(True)
+            ax.tick_params(axis="y", labelsize=7)
+            stage = "after pc_align" if use_aligned else "before pc_align"
+            ax.set_ylabel(f"Altimetry − DEM {name} (m),\n{stage}", fontsize=8)
+        median_ax, nmad_ax = axes
+        median_ax.axhline(0, color="0.5", lw=0.8, zorder=0)
+        nmad_ax.set_ylim(0, nmad_ax.get_ylim()[1])
 
         block = (
             "track" if self.block_name == "beam track" else (self.block_name or "point")
@@ -1666,23 +1699,19 @@ class DEMBenchmark:
             tick = f"{c['slope_bin']}\nn = {int(c['n_points'])}"
             if self.block_name is not None:
                 tick += f"\n{int(c['n_blocks'])} {block}s"
+            if c["n_points"] < SLOPE_MIN_POINTS:
+                tick += "\n(too few)"
             ticks.append(tick)
-        ax.set_xticks(x)
-        ax.set_xticklabels(ticks, fontsize=7)
-        ax.set_xlim(-0.5, len(classes) - 0.5)
-        ax.set_ylim(0, ax.get_ylim()[1])
-        ax.grid(axis="y", color="0.9", lw=0.6)
-        ax.set_axisbelow(True)
-        ax.tick_params(axis="y", labelsize=7)
-        ax.set_xlabel(
+        nmad_ax.set_xticks(x)
+        nmad_ax.set_xticklabels(ticks, fontsize=7)
+        nmad_ax.set_xlim(-0.5, len(classes) - 0.5)
+        nmad_ax.set_xlabel(
             slope_source_label(
                 self.slope_dem, self.slope_scale, name=self.slope_dem_name
             ),
             fontsize=8,
         )
-        stage = "after pc_align" if use_aligned else "before pc_align"
-        ax.set_ylabel(f"Altimetry − DEM NMAD (m), {stage}", fontsize=8)
-        ax.legend(
+        median_ax.legend(
             loc="upper left",
             bbox_to_anchor=(1.01, 1.0),
             fontsize=6.5,

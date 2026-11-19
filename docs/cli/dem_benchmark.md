@@ -81,12 +81,14 @@ Slope is computed as `gdaldem slope` does (Horn's method, from the 3 × 3 pixels
 Four WorldView-3 DEMs of the UCSD site (a five-scene multi-view run, two single pairs, and ten pairs merged with `dem_mosaic`) on the 21 208 ICESat-2 points valid in all four, before any alignment. Slope came from the Copernicus reference DEM found in the stereo logs. NMAD rises from about 1.2 m on flat ground to about 2 m at 20–30°, and the 30–90° class, with 32 points on 7 beam tracks, is too uncertain to rank the DEMs.
 ```
 
-This adds `dem_benchmark_slope.png`, the shared-point NMAD of every DEM by class, and `dem_benchmark_by_slope.csv`. For each class the table gives the number of points and of beam tracks, the median and NMAD before and after alignment, and the 95 % interval on the NMAD from the bootstrap rerun within the class. The NMAD table is also printed.
+This adds `dem_benchmark_slope.png`, the shared-point median (top) and NMAD (bottom) of every DEM by class, and `dem_benchmark_by_slope.csv`. For each class the table gives the number of points and of beam tracks, the median and NMAD before and after alignment, and the 95 % intervals on the median and the NMAD from the bootstrap rerun within the class. The median and NMAD tables are also printed. A class with fewer than 10 points is counted but has no statistics, and the figure marks it "too few".
+
+The median shows a bias that changes with slope. One `pc_align` translation shifts every class by the same amount, so a median that still differs between classes after alignment is a bias the translation cannot remove. Land cover is a common cause, since flat ground is often built-up and steep ground often forest.
 
 Read the steep classes with two caveats:
 
 - **They are thin.** A few hundred points on a handful of beam tracks is common above 20°, and the intervals show it.
-- **NMAD rises with slope for reasons other than the DEM.** A horizontal offset of Δx between a DEM and the altimetry adds about Δx · tan(slope) to a residual: 0.35 m at 5° and 1.5 m at 20° for a 4 m offset. ICESat-2 geolocation error is such an offset, and so is the horizontal part of each DEM's `pc_align` translation, whose range the figure's subtitle prints. Comparing the breakdown before alignment (`bench.slope_plot(aligned=False)`) shows how much of the steep-class NMAD the alignment contributes.
+- **NMAD rises with slope for reasons other than the DEM.** A horizontal offset of Δx between a DEM and the altimetry adds about Δx · tan(slope) to a residual: 0.35 m at 5° and 1.5 m at 20° for a 4 m offset. Its sign depends on which way the ground faces, so across a class it mostly widens the spread and moves the median less. ICESat-2 geolocation error is such an offset, and so is the horizontal part of each DEM's `pc_align` translation, whose range the figure's subtitle prints. Comparing the breakdown before alignment (`bench.slope_plot(aligned=False)`) shows how much of the steep-class NMAD the alignment contributes.
 
 ## Planetary DEMs
 
@@ -119,8 +121,8 @@ Usage: dem_benchmark [OPTIONS] DEMS...
   pc_align translation, on its own points and on the points valid in every
   DEM, with bootstrap intervals on the latter. Writes a one-row-per-DEM
   summary figure, an overlaid residual histogram, and the stats table as CSV.
-  When a slope DEM is found or named (--slope-dem), the shared-point NMAD by
-  slope class is added as a figure and a second CSV.
+  When a slope DEM is found or named (--slope-dem), the shared-point median
+  and NMAD by slope class are added as a figure and a second CSV.
 
 Options:
   --parquet TEXT                  ICESat-2 ATL06-SR parquet cache to score
@@ -164,8 +166,8 @@ Options:
                                   difference to the best DEM (whole ICESat-2
                                   beam tracks, or MOLA orbits, are resampled).
                                   0 skips it. Default: 1000.
-  --slope-dem TEXT                DEM to take slope from for an NMAD-by-slope
-                                  breakdown. 'auto' uses the reference DEM
+  --slope-dem TEXT                DEM to take slope from for a breakdown by
+                                  slope class. 'auto' uses the reference DEM
                                   named in the stereo logs beside the DEMS
                                   (the one asp_report finds). When there is
                                   none or the logs disagree, it uses the

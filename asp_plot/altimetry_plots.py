@@ -28,6 +28,7 @@ from asp_plot.icesat2_source import ICESAT2_BLOCK_COLUMNS
 from asp_plot.terrain import (
     SLOPE_BINS,
     SLOPE_COLUMN,
+    SLOPE_MIN_POINTS,
     slope_bin_edges,
     slope_bin_labels,
     slope_source_label,
@@ -940,12 +941,12 @@ class AltimetryPlotter:
                         )
         return "\n".join(lines)
 
-    def nmad_by_slope(
+    def dh_by_slope(
         self,
         atl06sr,
         key="all",
         bins=SLOPE_BINS,
-        min_points=10,
+        min_points=SLOPE_MIN_POINTS,
         n_bootstrap=1000,
         seed=0,
         title="ICESat-2 ATL06-SR vs DEM by slope",
@@ -954,18 +955,24 @@ class AltimetryPlotter:
         fig_fn=None,
     ):
         """
-        Plot the NMAD of dh by terrain slope class.
+        Plot the median and NMAD of dh by terrain slope class.
 
-        Shows the NMAD of the ICESat-2 minus DEM height differences in each
-        slope class, with a 95 % interval from a bootstrap that resamples
-        whole beam tracks within the class
+        Shows the median (top) and NMAD (bottom) of the ICESat-2 minus DEM
+        height differences in each slope class, each with a 95 % interval
+        from a bootstrap that resamples whole beam tracks within the class.
+        With ``plot_aligned``, the NMAD panel shows the DEM before and after
+        alignment and the median panel the aligned DEM only, since an
+        unaligned DEM is often offset by meters
         (:func:`asp_plot.utils.paired_block_bootstrap`). The tick labels
         give the number of points and beam tracks in each class. A class
         with fewer than ``min_points`` points is counted but not plotted.
 
         Slope steepens the residuals for reasons other than the DEM's
         height error: a horizontal offset of Δx between the DEM and the
-        ICESat-2 points adds about Δx · tan(slope) to a residual.
+        ICESat-2 points adds about Δx · tan(slope) to a residual. Across
+        the slope directions in a class that mostly widens the spread (the
+        NMAD). A median that changes with slope is a bias that one
+        ``pc_align`` translation cannot remove.
 
         Parameters
         ----------
@@ -979,7 +986,8 @@ class AltimetryPlotter:
             :data:`asp_plot.terrain.SLOPE_BINS`. Each class includes its
             lower edge and excludes its upper one.
         min_points : int, optional
-            Fewest points for a class's statistics to be reported, default 10
+            Fewest points for a class's statistics to be reported, default
+            :data:`asp_plot.terrain.SLOPE_MIN_POINTS` (10)
         n_bootstrap : int, optional
             Replicates of the bootstrap behind the intervals, default 1000.
             0 skips it: no error bars, and NaN interval columns.
@@ -1002,8 +1010,9 @@ class AltimetryPlotter:
             One row per slope class: ``slope_bin``, ``slope_min_deg``,
             ``slope_max_deg``, ``n_points``, ``n_tracks`` (NaN when the
             points carry no rgt/cycle/spot columns), and ``dh_median_m``,
-            ``dh_nmad_m``, ``dh_nmad_ci_low_m``, ``dh_nmad_ci_high_m``;
-            with ``plot_aligned``, the same four as ``dh_aligned_*``. None,
+            ``dh_median_ci_low_m``, ``dh_median_ci_high_m``, ``dh_nmad_m``,
+            ``dh_nmad_ci_low_m``, ``dh_nmad_ci_high_m``; with
+            ``plot_aligned``, the same six as ``dh_aligned_*``. None,
             with no figure, when no point has both a slope and a dh.
         """
         edges = slope_bin_edges(bins)
@@ -1069,7 +1078,8 @@ class AltimetryPlotter:
                 ),
             }
             enough = n_points >= min_points
-            ci_low = ci_high = np.full(len(series), np.nan)
+            nan = np.full(len(series), np.nan)
+            ci = {"median": (nan, nan), "nmad": (nan, nan)}
             if enough and n_bootstrap:
                 result = paired_block_bootstrap(
                     values[:, in_class],
@@ -1077,53 +1087,67 @@ class AltimetryPlotter:
                     n_boot=n_bootstrap,
                     seed=seed,
                 )
-                ci_low, ci_high = np.nanpercentile(result["nmad"], [2.5, 97.5], axis=0)
+                for stat in ci:
+                    ci[stat] = np.nanpercentile(result[stat], [2.5, 97.5], axis=0)
             for i, (_, _, _, prefix) in enumerate(series):
                 dh = values[i, in_class]
                 dh = dh[np.isfinite(dh)]
                 scored = enough and dh.size > 0
                 row[f"{prefix}_median_m"] = float(np.median(dh)) if scored else np.nan
+                row[f"{prefix}_median_ci_low_m"] = float(ci["median"][0][i])
+                row[f"{prefix}_median_ci_high_m"] = float(ci["median"][1][i])
                 row[f"{prefix}_nmad_m"] = float(_nmad(dh)) if scored else np.nan
-                row[f"{prefix}_nmad_ci_low_m"] = float(ci_low[i])
-                row[f"{prefix}_nmad_ci_high_m"] = float(ci_high[i])
+                row[f"{prefix}_nmad_ci_low_m"] = float(ci["nmad"][0][i])
+                row[f"{prefix}_nmad_ci_high_m"] = float(ci["nmad"][1][i])
             rows.append(row)
         stats = pd.DataFrame(rows)
 
-        fig, ax = plt.subplots(1, 1, figsize=(8, 5), dpi=220)
+        fig, axes = plt.subplots(2, 1, sharex=True, figsize=(8, 7.5), dpi=220)
         x = np.arange(len(stats))
         # Offset the two series a little so their error bars do not overlap
         offsets = [0.0] if len(series) == 1 else [-0.05, 0.05]
-        for (_, color, label, prefix), offset in zip(series, offsets):
-            y = stats[f"{prefix}_nmad_m"].to_numpy()
-            ax.plot(
-                x + offset,
-                y,
-                color=color,
-                marker="o",
-                markersize=5,
-                linewidth=1.5,
-                label=label,
-            )
-            low = stats[f"{prefix}_nmad_ci_low_m"].to_numpy()
-            high = stats[f"{prefix}_nmad_ci_high_m"].to_numpy()
-            drawn = np.isfinite(y) & np.isfinite(low) & np.isfinite(high)
-            if drawn.any():
-                ax.errorbar(
-                    (x + offset)[drawn],
-                    y[drawn],
-                    yerr=[
-                        np.clip(y[drawn] - low[drawn], 0, None),
-                        np.clip(high[drawn] - y[drawn], 0, None),
-                    ],
-                    fmt="none",
-                    ecolor=color,
-                    elinewidth=1.0,
-                    capsize=3,
+        # Before alignment a DEM is often offset by meters, which would flatten
+        # both median lines on one axis; the median panel shows the last
+        # series (the aligned DEM when there is one), the table keeps both.
+        panels = (
+            ("median", "Median", [(series[-1], 0.0)]),
+            ("nmad", "NMAD", list(zip(series, offsets))),
+        )
+        for ax, (stat, name, drawn_series) in zip(axes, panels):
+            for (_, color, label, prefix), offset in drawn_series:
+                y = stats[f"{prefix}_{stat}_m"].to_numpy()
+                ax.plot(
+                    x + offset,
+                    y,
+                    color=color,
+                    marker="o",
+                    markersize=5,
+                    linewidth=1.5,
+                    label=label,
                 )
+                low = stats[f"{prefix}_{stat}_ci_low_m"].to_numpy()
+                high = stats[f"{prefix}_{stat}_ci_high_m"].to_numpy()
+                drawn = np.isfinite(y) & np.isfinite(low) & np.isfinite(high)
+                if drawn.any():
+                    ax.errorbar(
+                        (x + offset)[drawn],
+                        y[drawn],
+                        yerr=[
+                            np.clip(y[drawn] - low[drawn], 0, None),
+                            np.clip(high[drawn] - y[drawn], 0, None),
+                        ],
+                        fmt="none",
+                        ecolor=color,
+                        elinewidth=1.0,
+                        capsize=3,
+                    )
+            target = "aligned DEM" if stat == "median" and len(series) > 1 else "DEM"
+            ax.set_ylabel(f"{name} of ICESat-2 - {target} (m)")
+            ax.grid(axis="y", color="0.9", linewidth=0.6)
+            ax.set_axisbelow(True)
+        median_ax, ax = axes
+        median_ax.axhline(0, color="0.5", linewidth=0.8, zorder=0)
         ax.set_ylim(bottom=0)
-        ax.set_ylabel("NMAD of ICESat-2 - DEM (m)")
-        ax.grid(axis="y", color="0.9", linewidth=0.6)
-        ax.set_axisbelow(True)
         if len(series) > 1:
             ax.legend(fontsize=8, frameon=False, loc="upper left")
         ticks = []

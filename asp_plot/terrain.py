@@ -27,6 +27,11 @@ SLOPE_BINS = (0, 5, 10, 20, 30, 90)
 #: ATL06-SR segment (40 m long, 20 m apart), and the Copernicus DEM posting.
 SLOPE_SCALE_M = 30
 
+#: Fewest points for a slope class to be scored: a thinner class is counted
+#: but has no statistics, since a median or NMAD of a handful of points, and
+#: a bootstrap interval on it, mean nothing.
+SLOPE_MIN_POINTS = 10
+
 
 #: Column holding the slope in degrees sampled at altimetry points.
 SLOPE_COLUMN = "slope_deg"

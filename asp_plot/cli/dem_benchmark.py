@@ -81,7 +81,7 @@ from asp_plot.terrain import SLOPE_SCALE_M
     prompt=False,
     default="auto",
     show_default=True,
-    help="DEM to take slope from for an NMAD-by-slope breakdown. 'auto' uses "
+    help="DEM to take slope from for a breakdown by slope class. 'auto' uses "
     "the reference DEM named in the stereo logs beside the DEMS (the one "
     "asp_report finds). When there is none or the logs disagree, it uses "
     "the --reference DEM, and skips the breakdown without one. Otherwise the label of one of the DEMS, a path such as "
@@ -157,7 +157,8 @@ def main(
     points valid in every DEM, with bootstrap intervals on the latter. Writes
     a one-row-per-DEM summary figure, an overlaid residual histogram, and the
     stats table as CSV. When a slope DEM is found or named (--slope-dem), the
-    shared-point NMAD by slope class is added as a figure and a second CSV.
+    shared-point median and NMAD by slope class are added as a figure and a
+    second CSV.
     """
     if "none" in filter_out and len(set(filter_out)) > 1:
         raise click.UsageError(
@@ -225,21 +226,23 @@ def main(
     )
     by_slope = bench.stats_by_slope_df
     if by_slope is not None:
-        column = (
-            "dh_aligned_shared_nmad_m"
+        stage = (
+            "dh_aligned_shared"
             if by_slope["dh_aligned_shared_nmad_m"].notna().any()
-            else "dh_shared_nmad_m"
-        )
-        table = by_slope.pivot(index="label", columns="slope_bin", values=column)
-        table = table.reindex(
-            index=list(stats["label"]), columns=by_slope["slope_bin"].unique()
+            else "dh_shared"
         )
         counts = by_slope.drop_duplicates("slope_bin").set_index("slope_bin")[
             "n_points"
         ]
-        table.loc["n points"] = counts
-        print(f"\n{column} by slope class (slope from {bench.slope_dem_name}):")
-        print(table.to_string(float_format=lambda v: f"{v:.2f}"))
+        for column in (f"{stage}_median_m", f"{stage}_nmad_m"):
+            table = by_slope.pivot(index="label", columns="slope_bin", values=column)
+            table = table.reindex(
+                index=list(stats["label"]), columns=by_slope["slope_bin"].unique()
+            )
+            table = table.map(lambda v: f"{v:.2f}")
+            table.loc["n points"] = counts.astype(int).astype(str)
+            print(f"\n{column} by slope class (slope from {bench.slope_dem_name}):")
+            print(table.to_string())
         outputs += (
             f"\nSlope figure:   {os.path.join(output_directory, stem + '_slope.png')}"
             f"\nSlope table:    {bench.slope_csv_path(csv_fn)}"
