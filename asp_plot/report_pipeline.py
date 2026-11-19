@@ -72,6 +72,9 @@ class ReportConfig:
     dem_gsd: Optional[float] = None
     map_crs: Optional[str] = None
     reference_dem: Optional[str] = None
+    # DEM to take slope from for the ICESat-2 statistics by slope class. None:
+    # the reference DEM when there is one, else the report's DEM at 30 m.
+    slope_dem: Optional[str] = None
     add_basemap: bool = True
     plot_altimetry: bool = True
     altimetry_csv: Optional[str] = None
@@ -673,6 +676,10 @@ def _build_altimetry_earth(ctx: ReportContext, ctx_kwargs_altimetry: dict):
         )
     )
 
+    # The slope figure is drawn once: with the aligned DEM's series when
+    # the alignment below succeeds, otherwise at the end of these pages.
+    slope_drawn = False
+
     # ---- pc_align + ICESat-2 alignment report (Earth only) ----
     if cfg.pc_align:
         align_kwargs = {"processing_level": "all", "improvement_threshold_pct": 5.0}
@@ -733,6 +740,10 @@ def _build_altimetry_earth(ctx: ReportContext, ctx_kwargs_altimetry: dict):
                 )
             )
 
+            # Statistics by slope class, before and after alignment
+            sections += _slope_section(ctx, icesat, plot_aligned=True)
+            slope_drawn = True
+
             # Page C: profile with aligned DEM
             fig_fn = ctx.next_fig_fn()
             icesat.plot_atl06sr_dem_profile(
@@ -769,7 +780,46 @@ def _build_altimetry_earth(ctx: ReportContext, ctx_kwargs_altimetry: dict):
                 )
             )
 
+    if not slope_drawn:
+        sections += _slope_section(ctx, icesat, plot_aligned=False)
+
     return sections
+
+
+def _slope_section(ctx: ReportContext, icesat, plot_aligned: bool) -> List[object]:
+    """The ICESat-2 statistics-by-slope page, or nothing when no point has a slope.
+
+    Slope comes from ``--slope-dem``, else the run's reference DEM when there
+    is one (independent of the DEM being validated), else the DEM itself; in
+    every case at the scale of an ATL06-SR segment.
+    """
+    slope_dem = ctx.config.slope_dem
+    if not slope_dem:
+        reference_dem = ctx.stereo_plotter.reference_dem
+        if reference_dem and os.path.exists(reference_dem):
+            slope_dem = reference_dem
+    icesat.sample_slope(slope_dem=slope_dem)
+    fig_fn = ctx.next_fig_fn()
+    stats = icesat.dh_by_slope(
+        key="all",
+        plot_aligned=plot_aligned,
+        save_dir=ctx.plots_directory,
+        fig_fn=fig_fn,
+    )
+    if stats is None:
+        return []
+    return [
+        ReportSection(
+            title="ICESat-2 ATL06-SR by Slope"
+            + (" (Aligned DEM)" if plot_aligned else ""),
+            image_path=ctx.fig_path(fig_fn),
+            caption=(
+                captions.ICESAT2_SLOPE_ALIGNED
+                if plot_aligned
+                else captions.ICESAT2_SLOPE
+            ),
+        )
+    ]
 
 
 def _build_altimetry_planetary(ctx: ReportContext, body: str):
@@ -932,6 +982,10 @@ def _setup_context(config: ReportConfig) -> ReportContext:
     )
     if config.reference_dem:
         config.reference_dem = os.path.expanduser(config.reference_dem)
+    if config.slope_dem:
+        config.slope_dem = os.path.expanduser(config.slope_dem)
+        if not os.path.exists(config.slope_dem):
+            raise ValueError(f"Slope DEM not found: {config.slope_dem}")
     if config.altimetry_csv:
         config.altimetry_csv = os.path.expanduser(config.altimetry_csv)
 

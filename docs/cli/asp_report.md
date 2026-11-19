@@ -4,7 +4,7 @@ The main CLI tool generates a comprehensive PDF report of ASP processing results
 
 ## What the report contains
 
-Each report opens with a title page of DEM metadata and a processing-parameters page that reconstructs the ASP commands from the logs, then one figure per page in processing order: input scenes, stereo geometry, match points, bundle adjustment residuals and camera changes (when `--bundle-adjust-prefix` is given), disparity, DEM results (DEM, triangulation intersection error, difference to the reference DEM), a hillshade with zoomed details, and the altimetry comparison — ICESat-2 on Earth, LOLA on the Moon, MOLA on Mars — before and after the optional `pc_align` step. Seven complete reports are on the [Example Reports](../examples/reports.md) page.
+Each report opens with a title page of DEM metadata and a processing-parameters page that reconstructs the ASP commands from the logs, then one figure per page in processing order: input scenes, stereo geometry, match points, bundle adjustment residuals and camera changes (when `--bundle-adjust-prefix` is given), disparity, DEM results (DEM, triangulation intersection error, difference to the reference DEM), a hillshade with zoomed details, and the altimetry comparison — ICESat-2 on Earth, LOLA on the Moon, MOLA on Mars — before and after the optional `pc_align` step. On Earth the comparison is also broken down by land cover and by terrain slope. Seven complete reports are on the [Example Reports](../examples/reports.md) page.
 
 ```{figure} ../figures/example_detailed_hillshade.jpg
 :alt: DEM hillshade with three zoomed detail subsets
@@ -84,6 +84,34 @@ The report adds:
 - On success, three additional full-page figures against the aligned DEM: a pre/post land-cover histogram (shared bin edges, per-landcover stats in stacked text boxes whose outline colors match the bar colors), the full elevation profile, and the best/worst 1 km agreement segments. Segment selection is held fixed so Med/NMAD are directly comparable to the unaligned variants.
 
 Disable with `--no-pc-align`. Automatically skipped when `--no-altimetry` is set. The step also skips itself, with a note on the alignment page, when fewer than 500 ICESat-2 points fall on the DEM (20 for LOLA/MOLA); `--pc-align-min-points N` lowers or raises that count, for example `--pc-align-min-points 150` on a DEM of about 1 km² that ICESat-2 crosses only a few times.
+
+## ICESat-2 statistics by slope
+
+On Earth the report includes one page with the median and NMAD of the ICESat-2 minus DEM height differences by terrain slope class (0–5°, 5–10°, 10–20°, 20–30° and 30–90°). When `pc_align` succeeds, the page shows the NMAD before and after alignment and the median after it (an unaligned DEM is often offset by meters, which the land-cover histogram already shows) and sits with the other aligned-DEM pages. Otherwise it shows the unaligned DEM and closes the ICESat-2 pages.
+
+```{figure} ../figures/example_icesat2_by_slope.png
+:alt: Median of ICESat-2 minus the aligned DEM by slope class, above the NMAD before and after pc_align, with bootstrap intervals
+:width: 100%
+
+A five-scene WorldView-3 DEM of the UCSD site against 26 330 ICESat-2 points, before and after `pc_align`, with slope from the Copernicus reference DEM. After alignment the median falls from 0.65 m at 0–5° to about 0 m at 20–30°, a bias that changes with slope. NMAD rises from about 1.3 m at 0–5° to about 2.3 m at 20–30°. The 30–90° class has 35 points on 9 beam tracks, and its intervals show that neither statistic is known well there.
+```
+
+Slope is taken from, in order:
+
+1. the DEM given with `--slope-dem`;
+2. the reference DEM (`--reference-dem`, or the one found in the logs), if the file exists;
+3. the report's own DEM.
+
+In every case slope is taken at a scale of about 30 m, the length of one ICESat-2 segment: a DEM with finer pixels is averaged over whole-pixel blocks of up to 30 m first, in memory. The reference DEM comes first because it is independent of the DEM being validated, whose own errors raise its slope where they are large. The x-axis label names the DEM and the pixel size used.
+
+Read the figure with these points in mind:
+
+- **Error bars** are 95 % intervals from a bootstrap that resamples whole beam tracks within each class. The tick labels give the number of points and beam tracks. A class with fewer than 10 points is counted but not plotted.
+- **NMAD rises with slope for reasons other than the DEM's height error.** A horizontal offset of Δx between the DEM and the ICESat-2 points adds about Δx · tan(slope) to a difference. Its sign depends on which way the ground faces, so across a class it mostly widens the spread and moves the median less.
+- **A median that changes with slope is a bias** that one `pc_align` translation cannot remove, since the translation shifts every class by the same amount.
+- **Slope and land cover are often related.** Steep ground may be mostly forest and flat ground mostly built-up, so compare this page with the land-cover histogram.
+
+In Python, `Altimetry.sample_slope()` adds the `slope_deg` column and `Altimetry.dh_by_slope()` draws the figure and returns the per-class table.
 
 ## ICESat-2 time filtering
 
@@ -224,6 +252,12 @@ Options:
                                No default. If not supplied, the logs will be
                                examined to find it. If not found, no
                                difference plots will be generated.
+  --slope-dem TEXT             Optional DEM to take terrain slope from for the
+                               ICESat-2 statistics by slope class. If not
+                               supplied, the reference DEM is used, and if
+                               there is none, the report's own DEM averaged to
+                               30 m. A DEM finer than 30 m is averaged to 30 m
+                               first.
   --no-basemap                 Skip the figure basemaps (basemaps are added by
                                default, which requires an internet
                                connection).

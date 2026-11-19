@@ -9,6 +9,7 @@ Every DEM is scored with the report's recipe — the cached ICESat-2 ATL06-SR pa
 - **Altimetry residuals** (altimetry minus DEM): count, median, NMAD and RMSE, before and after a per-DEM `pc_align --compute-translation-only`. A translation cannot change NMAD, so the difference between the two columns is the bias that alignment removes. The residuals are reported twice: on each DEM's own surviving points (`dh_*` columns) and on the points valid in every DEM (`*_shared_*` columns). The shared-point numbers are the fair comparison and are what the figure shows and the rows are sorted on: each DEM's voids differ and the outlier cut runs per DEM, so a blend that fills voids is otherwise scored on harder ground than a single pair that skips it, and the ranking can change.
 - **Bootstrap intervals** on the shared-point median and NMAD, from a paired block bootstrap that resamples whole ICESat-2 beam tracks (or MOLA orbits) rather than points, because residuals along a beam are spatially correlated. Every DEM is evaluated on the same replicates, so the interval on a DEM's NMAD *difference* to the best DEM (`nmad_vs_best_ci_*`) is a paired estimate; a DEM whose difference interval includes zero is not separable from the best. `p_best` is the fraction of replicates on which the DEM ranks first.
 - Optionally, the **difference against one candidate** named as the reference.
+- The shared-point **median and NMAD by slope class**, with slope taken from the reference DEM of the stereo runs when the logs name one, or from a DEM you name.
 
 ```{figure} ../figures/example_dem_benchmark.png
 :alt: Six Atlanta DEMs scored against the same ICESat-2 points: coverage, and residual median and NMAD before and after pc_align with bootstrap intervals
@@ -59,6 +60,36 @@ dem_benchmark "MVS 5-scene=stereo_mvs5/run-DEM.tif" "MVS 3-scene=stereo_mvs3/run
               --parquet atl06sr_all.parquet --reference "MVS 5-scene"
 ```
 
+## Accuracy by slope
+
+On steep sites the useful question is often how accuracy changes with slope. By default (`--slope-dem auto`) slope is taken from the reference DEM of the stereo runs, the one `asp_report` finds: the DEM the images were mapprojected onto, named in the stereo logs beside each DEM. A DEM with no logs beside it, such as a lidar DTM, is ignored for this. When no log names a reference DEM, when the logs name different ones, or when the file does not exist, slope is taken from the `--reference` DEM if you gave one. Without one the breakdown is skipped, with the reason printed.
+
+To choose the DEM yourself, pass `--slope-dem` the label of one of the candidates or a path, such as a Copernicus DEM or a lidar DTM. `--slope-dem none` turns the breakdown off.
+
+```bash
+dem_benchmark stereo_mvs3/run-DEM.tif stereo_mvs5/run-DEM.tif \
+              --parquet atl06sr_all.parquet \
+              --slope-dem cop30.tif --slope-bins 0,5,10,20,30,90
+```
+
+Slope is computed as `gdaldem slope` does (Horn's method, from the 3 × 3 pixels around each point) and sampled once per point, so every DEM is binned the same way. Taking slope from each candidate instead would put the same point in different classes for different DEMs. It would also sort each DEM's own noise into the steep classes, which is the reason the default is the reference DEM and not a candidate. Slope is taken at a scale of about 30 m (`--slope-scale`), the length of one ICESat-2 segment. A 30 m Copernicus DEM is used as it is. A finer DEM is first averaged over whole-pixel blocks of up to 30 m, in memory, because at its own resolution a 1 m DSM gives the slope of roofs and canopy edges and not of the terrain. `--slope-scale 0` uses the DEM's own pixels. The figure's x-axis label names the DEM and the pixel size used. Points in the DEM's edge pixels or next to nodata get no slope and fall in no class. Each class includes its lower edge and excludes its upper one.
+
+```{figure} ../figures/example_dem_benchmark_slope.png
+:alt: Median and NMAD by slope class for four UCSD WorldView-3 DEMs, with bootstrap intervals and the number of points and beam tracks in each class
+:width: 100%
+
+Four WorldView-3 DEMs of the UCSD site (a five-scene multi-view run, two single pairs, and ten pairs merged with `dem_mosaic`) on the 21 208 ICESat-2 points valid in all four, before any alignment. Slope came from the Copernicus reference DEM found in the stereo logs. With no alignment every median is near 10.5 m, the vertical offset of the DEMs, and it changes little with slope. NMAD rises from about 1.2 m on flat ground to about 2 m at 20–30°, and the 30–90° class, with 32 points on 7 beam tracks, is too uncertain to rank the DEMs.
+```
+
+This adds `dem_benchmark_slope.png`, the shared-point median (top) and NMAD (bottom) of every DEM by class, and `dem_benchmark_by_slope.csv`. For each class the table gives the number of points and of beam tracks, the median and NMAD before and after alignment, and the 95 % intervals on the median and the NMAD from the bootstrap rerun within the class. The median and NMAD tables are also printed. A class with fewer than 10 points is counted but has no statistics, and the figure marks it "too few".
+
+The median shows a bias that changes with slope. One `pc_align` translation shifts every class by the same amount, so a median that still differs between classes after alignment is a bias the translation cannot remove. Land cover is a common cause, since flat ground is often built-up and steep ground often forest.
+
+Read the steep classes with two caveats:
+
+- **They are thin.** A few hundred points on a handful of beam tracks is common above 20°, and the intervals show it.
+- **NMAD rises with slope for reasons other than the DEM.** A horizontal offset of Δx between a DEM and the altimetry adds about Δx · tan(slope) to a residual: 0.35 m at 5° and 1.5 m at 20° for a 4 m offset. Its sign depends on which way the ground faces, so across a class it mostly widens the spread and moves the median less. ICESat-2 geolocation error is such an offset, and so is the horizontal part of each DEM's `pc_align` translation, whose range the figure's subtitle prints. Comparing the breakdown before alignment (`bench.slope_plot(aligned=False)`) shows how much of the steep-class NMAD the alignment contributes.
+
 ## Planetary DEMs
 
 For Moon or Mars DEMs pass the LOLA/MOLA CSV from `request_planetary_altimetry` instead of a parquet; the body is detected from the DEMs:
@@ -90,6 +121,8 @@ Usage: dem_benchmark [OPTIONS] DEMS...
   pc_align translation, on its own points and on the points valid in every
   DEM, with bootstrap intervals on the latter. Writes a one-row-per-DEM
   summary figure, an overlaid residual histogram, and the stats table as CSV.
+  When a slope DEM is found or named (--slope-dem), the shared-point median
+  and NMAD by slope class are added as a figure and a second CSV.
 
 Options:
   --parquet TEXT                  ICESat-2 ATL06-SR parquet cache to score
@@ -133,6 +166,27 @@ Options:
                                   difference to the best DEM (whole ICESat-2
                                   beam tracks, or MOLA orbits, are resampled).
                                   0 skips it. Default: 1000.
+  --slope-dem TEXT                DEM to take slope from for a breakdown by
+                                  slope class. 'auto' uses the reference DEM
+                                  named in the stereo logs beside the DEMS
+                                  (the one asp_report finds). When there is
+                                  none or the logs disagree, it uses the
+                                  --reference DEM, and skips the breakdown
+                                  without one. Otherwise the label of one of
+                                  the DEMS, a path such as a Copernicus DEM or
+                                  a lidar DTM, or 'none' for no breakdown.
+                                  Slope (Horn's method, as gdaldem) is sampled
+                                  once per point, so every DEM is binned the
+                                  same way. Writes a <stem>_slope.png figure
+                                  and a <stem>_by_slope.csv table.  [default:
+                                  auto]
+  --slope-bins TEXT               Comma-separated slope class edges in
+                                  degrees.  [default: 0,5,10,20,30,90]
+  --slope-scale FLOAT             Length scale of the slope in meters, about
+                                  one ATL06-SR segment. A slope DEM with finer
+                                  pixels is averaged to it first; a coarser
+                                  one is used as it is. 0 uses the slope DEM's
+                                  own resolution.  [default: 30]
   --title TEXT                    Figure title. Default: none.
   --output-directory TEXT         Directory for the figure and stats CSV.
                                   Default: --directory.
@@ -165,6 +219,12 @@ stats = bench.run()                    # one row per DEM
 bench.summary_plot(save_dir="atlanta_mvs", fig_fn="dem_benchmark.png")
 bench.histogram_plot()
 bench.altimetry["MVS 5-scene"].histogram_by_landcover(key="all")
+
+# When a slope DEM is found in the stereo logs (slope_dem="auto", the default)
+# or named (slope_dem="cop30.tif", or a candidate's label):
+bench.stats_by_slope_df                # one row per DEM and slope class
+bench.slope                            # slope in degrees at each shared point
+bench.slope_plot(save_dir="atlanta_mvs", fig_fn="dem_benchmark_slope.png")
 
 # The shared point set and the bootstrap replicates are kept for further use
 bench.shared_ids                       # point ids valid in every DEM

@@ -25,6 +25,7 @@ from sliderule import sliderule as sliderule_api
 
 from asp_plot.altimetry_source import AltimetrySource
 from asp_plot.stereopair_metadata_parser import StereopairMetadataParser
+from asp_plot.terrain import SLOPE_COLUMN, SLOPE_SCALE_M, slope_at_points
 from asp_plot.utils import Raster
 from asp_plot.utils import nmad as _nmad
 
@@ -44,6 +45,9 @@ MAX_GRANULES_LISTED = 10000
 #: covering the continental US. Photons on a beam with no correction entry are
 #: dropped by the server (#217).
 GEOLOC_CORRECTIONS = ("conus",)
+
+#: ATL06-SR columns identifying one beam track: a resampling block.
+ICESAT2_BLOCK_COLUMNS = ("rgt", "cycle", "spot")
 
 #: ESA WorldCover class codes (see ``WORLDCOVER_NAMES``) grouped under the
 #: names :meth:`Icesat2Source.filter_esa_worldcover` accepts.
@@ -130,6 +134,9 @@ class Icesat2Source(AltimetrySource):
 
         # Lazy SlideRule initialization — only needed for ICESat-2 methods
         self._sliderule_initialized = False
+        # DEM and length scale of the slope column, set by sample_slope()
+        self.slope_dem_fn = None
+        self.slope_scale = None
 
     def _ensure_sliderule(self):
         """Initialize the SlideRule session on first use.
@@ -1011,6 +1018,36 @@ class Icesat2Source(AltimetrySource):
             self.atl06sr_processing_levels_filtered[key] = (
                 self._sample_worldcover_into_gdf(atl06sr)
             )
+
+    def sample_slope(self, slope_dem=None, scale=SLOPE_SCALE_M):
+        """
+        Sample terrain slope into every filtered processing level.
+
+        Adds a ``slope_deg`` column (:data:`SLOPE_COLUMN`) from
+        :func:`asp_plot.terrain.slope_at_points`, and records the DEM and
+        scale used in ``slope_dem_fn`` and ``slope_scale``.
+
+        Parameters
+        ----------
+        slope_dem : str, optional
+            DEM to take slope from, such as the reference DEM of the stereo
+            run. Default None: the DEM being validated. A DEM independent of
+            the one validated is the better choice, since the validated
+            DEM's own errors raise its slope where they are large.
+        scale : float or None, optional
+            Length scale of the slope in meters, default
+            :data:`asp_plot.terrain.SLOPE_SCALE_M` (30 m, about one ATL06-SR
+            segment). A finer DEM is averaged to it first, so a 1 m DSM
+            gives terrain slope and not the slope of roofs and canopy edges.
+            None uses the DEM's own resolution.
+        """
+        slope_dem = os.path.expanduser(slope_dem) if slope_dem else self.alt.dem_fn
+        for key, atl06sr in self.atl06sr_processing_levels_filtered.items():
+            atl06sr = atl06sr.copy()
+            atl06sr[SLOPE_COLUMN] = slope_at_points(slope_dem, atl06sr, scale=scale)
+            self.atl06sr_processing_levels_filtered[key] = atl06sr
+        self.slope_dem_fn = slope_dem
+        self.slope_scale = scale
 
     def filter_outliers(self, column="icesat_minus_dem", n_sigma=3):
         """

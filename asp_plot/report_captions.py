@@ -62,6 +62,18 @@ ICESAT2_MAP = "ICESat-2 ATL06-SR elevation differences vs. ASP DEM."
 
 ICESAT2_HISTOGRAM = "Distribution of elevation differences between ICESat-2 ATL06-SR and ASP DEM with per-landcover statistics."
 
+ICESAT2_SLOPE = (
+    "Median (top) and NMAD (bottom) of the ICESat-2 ATL06-SR minus ASP "
+    "DEM height differences by terrain slope class, with 95 % intervals "
+    "from resampling beam tracks within each class. The x-axis label "
+    "names the DEM the slope was taken from, and the tick labels give "
+    "the number of points and beam tracks in each class. A horizontal "
+    "offset between the DEM and the ICESat-2 points adds about "
+    "offset x tan(slope) to a difference, so NMAD rises with slope for "
+    "reasons other than the DEM's height error. A median that changes "
+    "with slope is a bias that one pc_align translation cannot remove."
+)
+
 ICESAT2_PROFILE = (
     "Elevation profile along the ICESat-2 track with the "
     "most valid points, comparing ATL06-SR and DEM heights "
@@ -87,6 +99,18 @@ ICESAT2_HISTOGRAM_ALIGNED = (
     "differences, with per-landcover statistics in "
     "the two stacked text boxes. Box outline color "
     "matches the bar color."
+)
+
+ICESAT2_SLOPE_ALIGNED = (
+    "ICESat-2 minus DEM height differences by terrain slope class: the "
+    "median after pc_align (top) and the NMAD before (steelblue) and "
+    "after (orange) pc_align (bottom), on the same points and classes, "
+    "with 95 % intervals from resampling beam tracks within each class. "
+    "A horizontal offset between the DEM and the ICESat-2 points adds "
+    "about offset x tan(slope) to a difference, so NMAD rises with slope "
+    "for reasons other than the DEM's height error. A median that "
+    "changes with slope is a bias that the pc_align translation did not "
+    "remove."
 )
 
 ICESAT2_PROFILE_ALIGNED = (

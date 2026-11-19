@@ -12,6 +12,7 @@ import matplotlib.colors
 import matplotlib.image as mpimg
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 import rasterio as rio
 import rioxarray
 from mpl_toolkits.axes_grid1 import make_axes_locatable
@@ -1694,3 +1695,68 @@ def add_copyright_overlay(ax, attribution="Vantor"):
         va="bottom",
         bbox=dict(boxstyle="round,pad=0.3", facecolor="black", alpha=0.5),
     )
+
+
+def _row_nmad(values):
+    """NMAD of each row of a 2-D array (NaN-aware)."""
+    med = np.nanmedian(values, axis=1, keepdims=True)
+    return 1.4826 * np.nanmedian(np.abs(values - med), axis=1)
+
+
+def paired_block_bootstrap(values, blocks=None, n_boot=1000, seed=0):
+    """
+    Bootstrap the median and NMAD of several residual series scored on the
+    same points, resampling blocks of points and keeping the series paired.
+
+    Parameters
+    ----------
+    values : array-like, shape (n_series, n_points)
+        Residuals of each series (DEM) at the same points. NaN is allowed
+        and ignored.
+    blocks : array-like of length n_points, optional
+        Block label of each point (an ICESat-2 beam track, a MOLA orbit).
+        Whole blocks are drawn with replacement; None resamples points,
+        which treats them as independent and gives optimistic intervals
+        when residuals are spatially correlated.
+    n_boot : int, optional
+        Number of replicates, default 1000.
+    seed : int, optional
+        Seed of the random generator, default 0.
+
+    Returns
+    -------
+    dict
+        ``median`` and ``nmad``: arrays of shape (n_boot, n_series) with the
+        statistic of every series on each replicate; ``n_blocks``: the
+        number of blocks resampled (the number of points when ``blocks`` is
+        None).
+
+    Notes
+    -----
+    Every series is evaluated on the same replicate, so a difference between
+    two series computed replicate by replicate is a paired estimate: the
+    shared sampling variation cancels, which is what makes DEMs scored on the
+    same points separable even when their own intervals overlap.
+    """
+    values = np.asarray(values, dtype=float)
+    if values.ndim != 2:
+        raise ValueError("values must be 2-D: (n_series, n_points).")
+    n_points = values.shape[1]
+    if blocks is None:
+        groups = [np.array([i]) for i in range(n_points)]
+    else:
+        codes, _ = pd.factorize(np.asarray(blocks))
+        order = np.argsort(codes, kind="stable")
+        bounds = np.flatnonzero(np.diff(codes[order])) + 1
+        groups = np.split(order, bounds)
+    n_blocks = len(groups)
+    rng = np.random.default_rng(seed)
+    medians = np.full((n_boot, values.shape[0]), np.nan)
+    nmads = np.full((n_boot, values.shape[0]), np.nan)
+    for b in range(n_boot):
+        chosen = rng.integers(0, n_blocks, size=n_blocks)
+        idx = np.concatenate([groups[g] for g in chosen])
+        sample = values[:, idx]
+        medians[b] = np.nanmedian(sample, axis=1)
+        nmads[b] = _row_nmad(sample)
+    return {"median": medians, "nmad": nmads, "n_blocks": n_blocks}
