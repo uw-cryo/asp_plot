@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import pytest
+import rasterio as rio
 from shapely.geometry import Point
 
 from asp_plot.altimetry import ICESAT2_MISSION_START, AlignmentResult, Altimetry
@@ -316,6 +317,24 @@ class TestAltimetry:
             pytest.fail(
                 f"plot_atl06sr_dem_profile() method raised an exception: {str(e)}"
             )
+
+    def test_plot_atl06sr_dem_profile_aligned_gives_both_stats(self, icesat):
+        """The aligned profile is the only profile in a report whose
+        alignment succeeded (#236), so its residual panel also gives the
+        median and NMAD before alignment."""
+        icesat.atl06sr_to_dem_dh()
+        points = icesat.atl06sr_processing_levels_filtered["all"]
+        points["icesat_minus_aligned_dem"] = points["icesat_minus_dem"] - 5.0
+        points["aligned_dem_height"] = points["dem_height"] + 5.0
+        icesat.aligned_dem_fn = icesat.dem_fn
+        plt.close("all")
+        icesat.plot_atl06sr_dem_profile(key="all", plot_aligned=True)
+        ax_dh = plt.gcf().axes[1]
+        labels = [t.get_text() for t in ax_dh.get_legend().get_texts()]
+        assert labels[0].startswith("DEM: Med=")
+        assert labels[0].endswith("(not plotted)")
+        assert labels[1].startswith("Aligned DEM: Med=")
+        plt.close("all")
 
     def test_plot_best_worst_segments(self, icesat):
         try:
@@ -704,6 +723,23 @@ class TestPlanetaryDh:
             alt_with_points.mapview_plot_planetary_to_dem()
         except Exception as e:
             pytest.fail(f"mapview_plot_planetary_to_dem raised: {e}")
+
+    def test_mapview_plot_planetary_to_dem_aligned_size(self, alt_with_points):
+        """The two-panel map is the only map in a report whose alignment
+        succeeded (#236); its height follows the DEM's shape."""
+        alt_with_points.planetary_to_dem_dh()
+        points = alt_with_points.planetary_points
+        points["altimetry_minus_aligned_dem"] = points["altimetry_minus_dem"] - 1.0
+        alt_with_points.aligned_dem_fn = alt_with_points.dem_fn
+        with rio.open(alt_with_points.dem_fn) as ds:
+            b = ds.bounds
+            aspect = (b.top - b.bottom) / (b.right - b.left)
+        plt.close("all")
+        alt_with_points.mapview_plot_planetary_to_dem(plot_aligned=True)
+        width, height = plt.gcf().get_size_inches()
+        assert width == 16
+        assert height == pytest.approx(np.clip(6.5 * aspect + 1.5, 6, 12), abs=0.05)
+        plt.close("all")
 
     def test_histogram_planetary_to_dem(self, alt_with_points):
         """Test that histogram plot runs without error."""

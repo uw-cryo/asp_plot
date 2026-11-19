@@ -454,11 +454,17 @@ class _Recorder:
         self.fig_fns = []
         self.calls = []
         self.slope_dems = []
+        # plot_aligned passed to each plotter, by call name
+        self.plot_aligned = {}
+        # What the fake alignment returns
+        self.align_status = "success"
 
     def record(self, name, kwargs):
         self.calls.append(name)
         if "fig_fn" in kwargs:
             self.fig_fns.append(kwargs["fig_fn"])
+        if "plot_aligned" in kwargs:
+            self.plot_aligned[name] = kwargs["plot_aligned"]
 
 
 class _FakeStereoPlotter:
@@ -686,7 +692,7 @@ class TestRunReportEarth:
                 rec.record("segments", kwargs)
 
             def align_and_evaluate(self, **k):
-                return _make_align_result("success")
+                return _make_align_result(rec.align_status)
 
         monkeypatch.setattr(rp, "Altimetry", _FakeAltimetry)
         return rec, captured
@@ -707,16 +713,20 @@ class TestRunReportEarth:
             "Disparity",
             "DEM Results",
             "Detailed Hillshade",
-            "ICESat-2 ATL06-SR Map",
-            "ICESat-2 ATL06-SR Histogram",
-            "ICESat-2 ATL06-SR Profile",
-            "ICESat-2 ATL06-SR Agreement Segments",
             "DEM Alignment with ICESat-2",
+            "ICESat-2 ATL06-SR Map",
             "ICESat-2 ATL06-SR Histogram (Aligned DEM)",
             "ICESat-2 ATL06-SR by Slope (Aligned DEM)",
             "ICESat-2 ATL06-SR Profile (Aligned DEM)",
             "ICESat-2 ATL06-SR Agreement Segments (Aligned DEM)",
         ]
+        # Each figure is drawn once, with both DEMs (#236).
+        assert rec.plot_aligned == {
+            "hist_landcover": True,
+            "dh_by_slope": True,
+            "profile": True,
+            "segments": True,
+        }
         # Figures are numbered sequentially in draw order, no gaps.
         assert rec.fig_fns == [f"{i:02}.png" for i in range(len(rec.fig_fns))]
         # The alignment page is an AlignmentReportPage, not a figure section.
@@ -764,11 +774,42 @@ class TestRunReportEarth:
         )
         run_report(cfg)
         titles = _titles(captured["sections"])
-        assert "ICESat-2 ATL06-SR Agreement Segments" in titles
-        # Without an alignment the slope page closes the ICESat-2 pages
-        assert titles[-1] == "ICESat-2 ATL06-SR by Slope"
-        assert not any("Aligned DEM" in t for t in titles)
+        assert titles[titles.index("ICESat-2 ATL06-SR Map") :] == [
+            "ICESat-2 ATL06-SR Map",
+            "ICESat-2 ATL06-SR Histogram",
+            "ICESat-2 ATL06-SR by Slope",
+            "ICESat-2 ATL06-SR Profile",
+            "ICESat-2 ATL06-SR Agreement Segments",
+        ]
         assert "DEM Alignment with ICESat-2" not in titles
+        assert not any(rec.plot_aligned.values())
+
+    @pytest.mark.parametrize("status", ["no_improvement", "insufficient_points"])
+    def test_failed_alignment_draws_each_figure_once_unaligned(
+        self, fake_icesat, status
+    ):
+        rec, captured = fake_icesat
+        rec.align_status = status
+        cfg = ReportConfig(
+            directory="tests/test_data",
+            map_crs="EPSG:32610",
+            add_basemap=False,
+        )
+        run_report(cfg)
+        titles = _titles(captured["sections"])
+        assert titles[titles.index("DEM Alignment with ICESat-2") :] == [
+            "DEM Alignment with ICESat-2",
+            "ICESat-2 ATL06-SR Map",
+            "ICESat-2 ATL06-SR Histogram",
+            "ICESat-2 ATL06-SR by Slope",
+            "ICESat-2 ATL06-SR Profile",
+            "ICESat-2 ATL06-SR Agreement Segments",
+        ]
+        assert not any(rec.plot_aligned.values())
+        assert rec.fig_fns == [f"{i:02}.png" for i in range(len(rec.fig_fns))]
+        align = captured["sections"][titles.index("DEM Alignment with ICESat-2")]
+        # No statistics without an alignment to report on
+        assert bool(align.stats_row) == (status == "no_improvement")
 
     def test_slope_dem_choice(self, fake_icesat, monkeypatch):
         rec, captured = fake_icesat
@@ -886,7 +927,7 @@ class TestRunReportPlanetary:
                 rec.record("hist_planetary", kwargs)
 
             def align_and_evaluate_planetary(self):
-                return _make_align_result("success")
+                return _make_align_result(rec.align_status)
 
         monkeypatch.setattr(rp, "Altimetry", _FakeAltimetry)
         csv = tmp_path / "mola.csv"
@@ -909,13 +950,32 @@ class TestRunReportPlanetary:
             "Disparity",
             "DEM Results",
             "Detailed Hillshade",
-            "MOLA Altimetry Map",
-            "MOLA Altimetry Histogram",
             "DEM Alignment with MOLA",
             "MOLA Altimetry Map (Aligned DEM)",
             "MOLA Altimetry Histogram (Aligned DEM)",
         ]
         assert rec.fig_fns == [f"{i:02}.png" for i in range(len(rec.fig_fns))]
+        assert rec.plot_aligned == {"mapview_planetary": True, "hist_planetary": True}
+
+    def test_mars_failed_alignment_draws_each_figure_once_unaligned(self, fake_mars):
+        rec, captured, csv = fake_mars
+        rec.align_status = "no_improvement"
+        cfg = ReportConfig(
+            directory="tests/test_data",
+            map_crs="IAU:49900",
+            add_basemap=False,
+            altimetry_csv=csv,
+        )
+        run_report(cfg)
+        assert _titles(captured["sections"])[-3:] == [
+            "DEM Alignment with MOLA",
+            "MOLA Altimetry Map",
+            "MOLA Altimetry Histogram",
+        ]
+        assert rec.plot_aligned == {
+            "mapview_planetary": False,
+            "hist_planetary": False,
+        }
 
     def test_mars_without_csv_skips_altimetry_plots(self, fake_mars):
         rec, captured, csv = fake_mars

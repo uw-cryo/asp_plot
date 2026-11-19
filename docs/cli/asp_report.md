@@ -76,18 +76,25 @@ Altimetry comparisons are on by default (skip with `--no-altimetry`). If the DEM
 
 ## Automatic pc_align with ICESat-2
 
-Unless `--no-altimetry` or `--no-pc-align` is passed, when the DEM is on Earth the report appends a `pc_align`-based alignment step after the standard ICESat-2 diagnostics. The aligned DEM is only retained on disk when `pc_align` reduces the median absolute error (`p50`) toward 0 by more than 5% **and** the translation magnitude exceeds the minimum threshold relative to the DEM GSD; otherwise the intermediate DEM file is removed so its presence is a truthy signal that the alignment is worth using.
+Unless `--no-altimetry` or `--no-pc-align` is passed, the report aligns the DEM to the altimetry with `pc_align` before it draws the altimetry figures (ICESat-2 on Earth, LOLA or MOLA on the Moon or Mars). The aligned DEM is only retained on disk when `pc_align` reduces the median absolute error (`p50`) toward 0 by more than 5% **and** the translation magnitude exceeds the minimum threshold relative to the DEM GSD; otherwise the intermediate DEM file is removed so its presence is a truthy signal that the alignment is worth using.
 
-The report adds:
+The **alignment page** opens the altimetry pages. It gives the kwargs used for `pc_align`, a stats table (median, NMAD and RMSE before and after, or `p16`/`p50`/`p84` from logs older than ASP 3.7.0, the `N`/`E`/`D` shifts and the translation magnitude, in meters), a description of each column, and a status line naming the aligned DEM or saying why none was kept.
 
-- An **alignment report page**: the kwargs used for `pc_align`, a one-row horizontal stats table (`p16`/`p50`/`p84` before and after, `N`/`E`/`D` shifts, translation magnitude, all in meters), a description of what each column means, and a status line naming the aligned DEM path or explaining why no DEM was retained.
-- On success, three additional full-page figures against the aligned DEM: a pre/post land-cover histogram (shared bin edges, per-landcover stats in stacked text boxes whose outline colors match the bar colors), the full elevation profile, and the best/worst 1 km agreement segments. Segment selection is held fixed so Med/NMAD are directly comparable to the unaligned variants.
+Each altimetry figure then appears once. When the alignment succeeds, every figure that can show both DEMs does, and its title ends in "(Aligned DEM)":
+
+- The **land-cover histogram** overlays the distributions before and after alignment, with a statistics box for each.
+- The **slope page** shows the NMAD before and after alignment and the median after it.
+- The **profile** overlays the aligned DEM on the track, plots the differences against the aligned DEM, and gives the median and NMAD before and after alignment in its legend.
+- The **agreement segments** overlay the aligned DEM, with the median and NMAD before and after alignment in each title. The segments are chosen on the DEM before alignment, so they are the same segments whether or not the alignment succeeds.
+- On the Moon and Mars, the **map** shows the differences before and after alignment side by side and the **histogram** overlays them.
+
+The ICESat-2 map shows the DEM before alignment only. When the alignment is turned off, is skipped or keeps no DEM, every figure shows the DEM before alignment.
 
 Disable with `--no-pc-align`. Automatically skipped when `--no-altimetry` is set. The step also skips itself, with a note on the alignment page, when fewer than 500 ICESat-2 points fall on the DEM (20 for LOLA/MOLA); `--pc-align-min-points N` lowers or raises that count, for example `--pc-align-min-points 150` on a DEM of about 1 km² that ICESat-2 crosses only a few times.
 
 ## ICESat-2 statistics by slope
 
-On Earth the report includes one page with the median and NMAD of the ICESat-2 minus DEM height differences by terrain slope class (0–5°, 5–10°, 10–20°, 20–30° and 30–90°). When `pc_align` succeeds, the page shows the NMAD before and after alignment and the median after it (an unaligned DEM is often offset by meters, which the land-cover histogram already shows) and sits with the other aligned-DEM pages. Otherwise it shows the unaligned DEM and closes the ICESat-2 pages.
+On Earth the report includes one page with the median and NMAD of the ICESat-2 minus DEM height differences by terrain slope class (0–5°, 5–10°, 10–20°, 20–30° and 30–90°). When `pc_align` succeeds, the page shows the NMAD before and after alignment and the median after it (an unaligned DEM is often offset by meters, which the land-cover histogram already shows). Otherwise it shows the unaligned DEM.
 
 ```{figure} ../figures/example_icesat2_by_slope.png
 :alt: Median of ICESat-2 minus the aligned DEM by slope class, above the NMAD before and after pc_align, with bootstrap intervals

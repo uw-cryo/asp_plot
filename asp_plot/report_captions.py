@@ -83,9 +83,8 @@ ICESAT2_PROFILE = (
     "between ICESat-2 and the DEM."
 )
 
-ICESAT2_SEGMENTS = (
-    "1 km segments along the ICESat-2 track with better "
-    "(left) and worse (right) agreement with the DEM. "
+# How the better/worse segments are scored; shared by both segment captions.
+_SEGMENT_SCORING = (
     "Segments are scored by 3·|median(dh)| + NMAD(dh), "
     "which weights the median bias three times more than "
     "the dispersion so that a segment with a large bias "
@@ -93,12 +92,16 @@ ICESAT2_SEGMENTS = (
     "its NMAD is small."
 )
 
+ICESAT2_SEGMENTS = (
+    "1 km segments along the ICESat-2 track with better "
+    "(left) and worse (right) agreement with the DEM. " + _SEGMENT_SCORING
+)
+
 ICESAT2_HISTOGRAM_ALIGNED = (
-    "Pre- (steelblue) and post-alignment (orange) "
-    "distributions of ICESat-2 minus DEM height "
-    "differences, with per-landcover statistics in "
-    "the two stacked text boxes. Box outline color "
-    "matches the bar color."
+    "Distributions of ICESat-2 ATL06-SR minus ASP DEM height differences "
+    "before (steelblue) and after (orange) pc_align, with per-landcover "
+    "statistics in two stacked text boxes whose outline colors match the "
+    "bars."
 )
 
 ICESAT2_SLOPE_ALIGNED = (
@@ -114,17 +117,20 @@ ICESAT2_SLOPE_ALIGNED = (
 )
 
 ICESAT2_PROFILE_ALIGNED = (
-    "Elevation profile along the ICESat-2 track after "
-    "pc_align. The aligned DEM is overlaid on the "
-    "profile and used to recompute the height "
-    "differences shown in the lower panel."
+    "Elevation profile along the ICESat-2 track with the most valid "
+    "points: ATL06-SR heights with the DEM before (gray) and after "
+    "(orange) pc_align (top), and the height differences against the "
+    "aligned DEM (bottom), whose legend also gives the median and NMAD "
+    "before alignment. A context hillshade map is on the right. "
+    "Blue/red highlights mark the 1 km segments with better and worse "
+    "agreement between ICESat-2 and the DEM before alignment."
 )
 
 ICESAT2_SEGMENTS_ALIGNED = (
-    "The same better- and worse-agreement segments "
-    "as above, now with the aligned DEM overlaid. "
-    "Segment selection is held fixed so Median/NMAD "
-    "can be compared directly."
+    "1 km segments along the ICESat-2 track with better (left) and worse "
+    "(right) agreement with the DEM, with the aligned DEM (orange) "
+    "overlaid and the median and NMAD before and after alignment in each "
+    "title. They are chosen on the DEM before alignment. " + _SEGMENT_SCORING
 )
 
 EARTH_ALIGNMENT_DESCRIPTION = (

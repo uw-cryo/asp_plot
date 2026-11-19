@@ -154,8 +154,15 @@ class AltimetryPlotter:
             clim = (-abs_max, abs_max)
 
         ncols = 2 if show_aligned else 1
+        height = 6
+        if show_aligned:
+            # The report shows only this two-panel map when the alignment
+            # succeeds (#236), so size it to the DEM's shape rather than a
+            # fixed strip that shrinks a square or tall DEM to thumbnails.
+            aspect = abs(extent[3] - extent[2]) / max(abs(extent[1] - extent[0]), 1e-9)
+            height = float(np.clip(6.5 * aspect + 1.5, 6, 12))
         fig, axes = plt.subplots(
-            1, ncols, figsize=(8 * ncols, 6), dpi=220, squeeze=False
+            1, ncols, figsize=(8 * ncols, height), dpi=220, squeeze=False
         )
         axes = axes[0]
 
@@ -1343,10 +1350,12 @@ class AltimetryPlotter:
         plt.setp(ax_elev.get_xticklabels(), visible=False)
 
     def _profile_dh_panel(self, ax_dh, track, dist, dh_vals, seg_info, plot_aligned):
-        """Bottom profile panel: the dh scatter (post-alignment when active)."""
-        # When plot_aligned is active, show the *post*-alignment dh and
-        # recompute Med/NMAD against the aligned DEM so the bottom panel
-        # reflects what the aligned-DEM page is actually evaluating.
+        """
+        Bottom profile panel: the dh scatter, against the aligned DEM when
+        ``plot_aligned``. The aligned version also prints the median and NMAD
+        before alignment, since the report shows only this version when the
+        alignment succeeds (#236).
+        """
         use_aligned_dh = (
             plot_aligned
             and self.alt.aligned_dem_fn
@@ -1354,10 +1363,22 @@ class AltimetryPlotter:
         )
         if use_aligned_dh:
             dh_plot = track["icesat_minus_aligned_dem"].dropna()
-            dh_label_suffix = " (Aligned DEM)"
+            dh_label_prefix = "Aligned DEM: "
+            if not dh_vals.empty:
+                # The unaligned dh is offset by the translation, often meters,
+                # so it is given as numbers rather than drawn on this axis.
+                ax_dh.plot(
+                    [],
+                    [],
+                    linestyle="none",
+                    label=(
+                        f"DEM: Med={np.nanmedian(dh_vals.values):+.2f} m, "
+                        f"NMAD={_nmad(dh_vals.values):.2f} m (not plotted)"
+                    ),
+                )
         else:
             dh_plot = dh_vals
-            dh_label_suffix = ""
+            dh_label_prefix = ""
 
         if not dh_plot.empty:
             med = np.nanmedian(dh_plot.values)
@@ -1369,7 +1390,7 @@ class AltimetryPlotter:
                 s=4,
                 alpha=0.6,
                 zorder=2,
-                label=f"Med={med:+.2f} m, NMAD={nmad_val:.2f} m{dh_label_suffix}",
+                label=f"{dh_label_prefix}Med={med:+.2f} m, NMAD={nmad_val:.2f} m",
             )
             ax_dh.axhline(0, color="black", linewidth=0.5, linestyle="--", zorder=1)
 
