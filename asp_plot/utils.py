@@ -690,14 +690,19 @@ class ColorBar:
         """
         if clim is None:
             clim = self.get_clim(input)
-        extend = "both"
-        if input.min() >= clim[0] and input.max() <= clim[1]:
-            extend = "neither"
-        elif input.min() >= clim[0] and input.max() > clim[1]:
-            extend = "max"
-        elif input.min() < clim[0] and input.max() <= clim[1]:
-            extend = "min"
-        return extend
+        # NaN and masked values are no data, not values beyond the limits
+        values = np.ma.masked_invalid(np.ma.asarray(input, dtype=float))
+        if values.count() == 0:
+            return "neither"
+        below = values.min() < clim[0]
+        above = values.max() > clim[1]
+        if below and above:
+            return "both"
+        if above:
+            return "max"
+        if below:
+            return "min"
+        return "neither"
 
     def get_norm(self, lognorm=False, clim=None):
         """
@@ -1460,10 +1465,31 @@ class Plotter:
         )
 
         if ctx_kwargs:
-            try:
-                ctx.add_basemap(ax=ax, **ctx_kwargs)
-            except Exception as e:
-                logger.warning("Basemap skipped: %r", e)
+            add_basemap(ax, **ctx_kwargs)
+
+
+def add_basemap(ax, **ctx_kwargs):
+    """
+    Add a contextily basemap to ``ax``, or log a warning and leave the map
+    without one when the tiles cannot be fetched (#151): a figure is still
+    useful without its basemap, and a failed download should not stop a
+    report.
+    """
+    try:
+        ctx.add_basemap(ax=ax, **ctx_kwargs)
+    except Exception as e:
+        logger.warning("Basemap skipped: %r", e)
+
+
+def two_panel_height(extent_width, extent_height, panel_width, low=4, high=12):
+    """
+    Height in inches of a figure of two map panels side by side, each
+    ``panel_width`` inches wide, for a map extent of the given width and
+    height: the map's aspect at about 80 % of the panel width (the rest is
+    its colorbar), plus room for titles, kept between ``low`` and ``high``.
+    """
+    aspect = abs(extent_height) / max(abs(extent_width), 1e-9)
+    return float(np.clip(0.8 * panel_width * aspect + 1.5, low, high))
 
 
 def plot_points_with_colorbar(

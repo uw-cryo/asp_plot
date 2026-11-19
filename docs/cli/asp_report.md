@@ -74,7 +74,7 @@ asp_report --directory ./ \
 
 Altimetry comparisons are on by default (skip with `--no-altimetry`). If the DEM is non-Earth but no `--altimetry-csv` is provided, the tool prints instructions and skips altimetry plots.
 
-## Automatic pc_align with ICESat-2
+## Automatic pc_align with the altimetry
 
 Unless `--no-altimetry` or `--no-pc-align` is passed, the report aligns the DEM to the altimetry with `pc_align` before it draws the altimetry figures (ICESat-2 on Earth, LOLA or MOLA on the Moon or Mars). The aligned DEM is only retained on disk when `pc_align` reduces the median absolute error (`p50`) toward 0 by more than 5% **and** the translation magnitude exceeds the minimum threshold relative to the DEM GSD; otherwise the intermediate DEM file is removed so its presence is a truthy signal that the alignment is worth using.
 

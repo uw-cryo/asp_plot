@@ -288,6 +288,24 @@ class TestBundleAdjustSection:
         assert "Basemap skipped" in caplog.text
         assert "Wrong number of arguments" in caplog.text
 
+    def test_residual_colors_stop_at_the_90th_percentile(self, tmp_path, monkeypatch):
+        """A tail of gross outliers in the initial residuals must not set the
+        color scale of the one residual page."""
+        limits = {}
+        real = rp.PlotBundleAdjustFiles.plot_n_gdfs
+
+        def record(self, column_name, **kwargs):
+            limits[column_name] = (
+                self.clim_perc,
+                self.lognorm,
+                kwargs.get("common_clim"),
+            )
+            return real(self, column_name=column_name, **kwargs)
+
+        monkeypatch.setattr(rp.PlotBundleAdjustFiles, "plot_n_gdfs", record)
+        rp._build_bundle_adjust(self._ba_ctx(tmp_path))
+        assert limits["mean_residual"] == ((2, 90), False, False)
+
 
 # ---------------------------------------------------------------------------
 # Bundle adjust camera-change figure (issues #95, #43)

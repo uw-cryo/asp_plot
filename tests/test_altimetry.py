@@ -134,20 +134,16 @@ class TestAltimetry:
         # Regression: with no contextily kwargs, the method must NOT fetch a
         # basemap (which would hit the network and hang offline / in CI). The
         # default map_crs must not silently enable it.
-        import asp_plot.altimetry_plots as ap
-
         calls = []
-        monkeypatch.setattr(ap.ctx, "add_basemap", lambda *a, **k: calls.append(k))
+        monkeypatch.setattr("contextily.add_basemap", lambda *a, **k: calls.append(k))
         icesat.plot_atl06sr_time_stamps()
         assert calls == []
 
     def test_plot_atl06sr_time_stamps_basemap_when_requested(self, icesat, monkeypatch):
         # When the caller passes contextily kwargs, a basemap is drawn and the
         # reprojection CRS is forwarded to contextily.
-        import asp_plot.altimetry_plots as ap
-
         calls = []
-        monkeypatch.setattr(ap.ctx, "add_basemap", lambda *a, **k: calls.append(k))
+        monkeypatch.setattr("contextily.add_basemap", lambda *a, **k: calls.append(k))
         icesat.plot_atl06sr_time_stamps(source="dummy_source")
         assert len(calls) >= 1
         assert all(c.get("crs") for c in calls)
@@ -334,6 +330,28 @@ class TestAltimetry:
         limits = [c.get_clim() for ax in (before, after) for c in ax.collections]
         assert limits[0] != limits[1]
         assert all(lo == pytest.approx(-hi) for lo, hi in limits)
+        plt.close("all")
+
+    def test_mapview_before_after_survives_a_failed_basemap(
+        self, icesat, monkeypatch, caplog
+    ):
+        """A basemap that cannot be fetched costs the basemap, not the map."""
+
+        def fail(*args, **kwargs):
+            raise ValueError("tile server down")
+
+        monkeypatch.setattr("contextily.add_basemap", fail)
+        icesat.atl06sr_to_dem_dh()
+        points = icesat.atl06sr_processing_levels_filtered["all"]
+        points["icesat_minus_aligned_dem"] = points["icesat_minus_dem"] - 5.0
+        icesat.aligned_dem_fn = icesat.dem_fn
+        plt.close("all")
+        with caplog.at_level("WARNING", logger="asp_plot.utils"):
+            icesat.mapview_plot_atl06sr_to_dem(
+                key="all", plot_aligned=True, source="dummy"
+            )
+        assert "tile server down" in caplog.text
+        assert len([ax for ax in plt.gcf().axes if ax.get_title()]) == 2
         plt.close("all")
 
     def test_plot_atl06sr_dem_profile_aligned_gives_both_stats(self, icesat):
@@ -756,7 +774,7 @@ class TestPlanetaryDh:
         alt_with_points.mapview_plot_planetary_to_dem(plot_aligned=True)
         width, height = plt.gcf().get_size_inches()
         assert width == 16
-        assert height == pytest.approx(np.clip(6.5 * aspect + 1.5, 6, 12), abs=0.05)
+        assert height == pytest.approx(np.clip(0.8 * 8 * aspect + 1.5, 4, 12), abs=0.05)
         plt.close("all")
 
     def test_histogram_planetary_to_dem(self, alt_with_points):

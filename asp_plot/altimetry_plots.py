@@ -15,7 +15,6 @@ dataframes themselves arrive as method arguments.
 
 import logging
 
-import contextily as ctx
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import numpy as np
@@ -33,12 +32,13 @@ from asp_plot.terrain import (
     slope_bin_labels,
     slope_source_label,
 )
-from asp_plot.utils import ColorBar, Raster
+from asp_plot.utils import ColorBar, Raster, add_basemap
 from asp_plot.utils import nmad as _nmad
 from asp_plot.utils import (
     paired_block_bootstrap,
     plot_points_with_colorbar,
     save_figure,
+    two_panel_height,
 )
 
 logger = logging.getLogger(__name__)
@@ -163,8 +163,9 @@ class AltimetryPlotter:
             # The report shows only this two-panel map when the alignment
             # succeeds (#236), so size it to the DEM's shape rather than a
             # fixed strip that shrinks a square or tall DEM to thumbnails.
-            aspect = abs(extent[3] - extent[2]) / max(abs(extent[1] - extent[0]), 1e-9)
-            height = float(np.clip(6.5 * aspect + 1.5, 6, 12))
+            height = two_panel_height(
+                extent[1] - extent[0], extent[3] - extent[2], panel_width=8
+            )
         fig, axes = plt.subplots(
             1, ncols, figsize=(8 * ncols, height), dpi=220, squeeze=False
         )
@@ -450,7 +451,7 @@ class AltimetryPlotter:
             )
             if ctx_kwargs:
                 ctx_kwargs.setdefault("crs", crs)
-                ctx.add_basemap(ax=ax, **ctx_kwargs)
+                add_basemap(ax, **ctx_kwargs)
 
         suptitle = f"{title}"
         if self._time_range_label:
@@ -583,7 +584,7 @@ class AltimetryPlotter:
             )
 
         if ctx_kwargs:
-            ctx.add_basemap(ax=ax, **ctx_kwargs)
+            add_basemap(ax, **ctx_kwargs)
 
         ax.set_xticks([])
         ax.set_yticks([])
@@ -700,8 +701,7 @@ class AltimetryPlotter:
         map_crs = self._map_crs(map_crs)
         points = atl06sr.to_crs(map_crs)
         minx, miny, maxx, maxy = points.total_bounds
-        aspect = (maxy - miny) / max(maxx - minx, 1e-9)
-        height = float(np.clip(5.2 * aspect + 1.4, 4, 10))
+        height = two_panel_height(maxx - minx, maxy - miny, panel_width=6)
         fig, axes = plt.subplots(1, 2, figsize=(12, height), dpi=220)
         panels = [
             ("icesat_minus_dem", "DEM"),
@@ -718,20 +718,18 @@ class AltimetryPlotter:
                 panel_clim, cbar_label = (-abs_max, abs_max), "[±3σ]"
             else:
                 panel_clim, cbar_label = clim, ""
-            cb = ColorBar(perc_range=(2, 98), symm=False)
-            cb.clim = panel_clim
             plot_points_with_colorbar(
                 ax,
                 pts,
                 column,
                 f"ICESat-2 minus {label} (m)\n{cbar_label}".rstrip(),
-                norm=cb.get_norm(lognorm=False),
+                norm=plt.Normalize(*panel_clim),
                 cmap="RdBu",
-                extend=cb.get_cbar_extend(dh, panel_clim),
+                extend=ColorBar().get_cbar_extend(dh, panel_clim),
                 s=1,
             )
             if ctx_kwargs:
-                ctx.add_basemap(ax=ax, **ctx_kwargs)
+                add_basemap(ax, **ctx_kwargs)
             ax.set_xticks([])
             ax.set_yticks([])
             ax.set_title(
