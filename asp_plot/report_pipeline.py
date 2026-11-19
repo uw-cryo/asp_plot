@@ -258,9 +258,13 @@ def _build_bundle_adjust(ctx: ReportContext) -> List[object]:
 
     try:
         # One linear-scale page: a log-scale copy of the same residuals was
-        # dropped as a repeat (#236).
+        # dropped as a repeat (#236). The color scale stops at the 90th
+        # percentile: initial residuals can have a tail of gross outliers
+        # (95th percentile 314 px against a median of 4 px at UCSD) that
+        # would otherwise set the scale and leave the rest one color.
         plotter = PlotBundleAdjustFiles(
             [resid_initial_gdf, resid_final_gdf],
+            clim_perc=(2, 90),
             lognorm=False,
             title="Bundle Adjust Initial and Final Residuals",
         )

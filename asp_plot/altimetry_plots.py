@@ -35,7 +35,11 @@ from asp_plot.terrain import (
 )
 from asp_plot.utils import ColorBar, Raster
 from asp_plot.utils import nmad as _nmad
-from asp_plot.utils import paired_block_bootstrap, save_figure
+from asp_plot.utils import (
+    paired_block_bootstrap,
+    plot_points_with_colorbar,
+    save_figure,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -179,15 +183,14 @@ class AltimetryPlotter:
 
             ax.imshow(hs, cmap="gray", extent=extent, alpha=0.7, interpolation="none")
             cbar_label = f"{instrument} - {label} (m)\n[±|max|]"
-            gdf.to_crs(dem_crs).plot(
-                ax=ax,
-                column=column,
+            plot_points_with_colorbar(
+                ax,
+                gdf.to_crs(dem_crs),
+                column,
+                cbar_label,
+                norm=plt.Normalize(vmin=clim[0], vmax=clim[1]),
                 cmap="RdBu",
-                vmin=clim[0],
-                vmax=clim[1],
                 markersize=2,
-                legend=True,
-                legend_kwds={"label": cbar_label},
             )
             stats_text = f"n={n}\nMedian={med:+.2f} m\nNMAD={nmad:.2f} m"
             ax.text(
@@ -575,14 +578,8 @@ class AltimetryPlotter:
 
             norm = cb.get_norm(lognorm=False)
 
-            atl06sr_sorted.plot(
-                ax=ax,
-                column=column_name,
-                cmap=cmap,
-                norm=norm,
-                s=1,
-                legend=True,
-                legend_kwds={"label": cbar_label},
+            plot_points_with_colorbar(
+                ax, atl06sr_sorted, column_name, cbar_label, norm=norm, cmap=cmap, s=1
             )
 
         if ctx_kwargs:
@@ -723,16 +720,15 @@ class AltimetryPlotter:
                 panel_clim, cbar_label = clim, ""
             cb = ColorBar(perc_range=(2, 98), symm=False)
             cb.clim = panel_clim
-            pts.plot(
-                ax=ax,
-                column=column,
-                cmap="RdBu",
+            plot_points_with_colorbar(
+                ax,
+                pts,
+                column,
+                f"ICESat-2 minus {label} (m)\n{cbar_label}".rstrip(),
                 norm=cb.get_norm(lognorm=False),
+                cmap="RdBu",
+                extend=cb.get_cbar_extend(dh, panel_clim),
                 s=1,
-                legend=True,
-                legend_kwds={
-                    "label": f"ICESat-2 minus {label} (m)\n{cbar_label}".rstrip()
-                },
             )
             if ctx_kwargs:
                 ctx.add_basemap(ax=ax, **ctx_kwargs)

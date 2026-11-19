@@ -21,7 +21,9 @@ MATCH_POINTS = "Interest point matches between left and right images (red), over
 
 BUNDLE_RESIDUALS = (
     "Initial and final bundle adjustment residuals (mean per point, in "
-    "pixels), each panel on its own linear color scale."
+    "pixels), each panel on its own linear color scale from the 2nd to "
+    "the 90th percentile, so that a tail of large residuals does not set "
+    "the scale; the box gives the 25th to 95th percentiles."
 )
 
 MAP_PROJECTED_RESIDUALS = "Midpoint distance between final interest points projected onto the reference DEM used in processing."

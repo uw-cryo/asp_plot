@@ -6,7 +6,7 @@ Submit a LOLA (Moon) or MOLA (Mars) altimetry data request for a planetary DEM. 
 :alt: LOLA altimetry points colored by their difference to an LRO NAC stereo DEM
 :width: 70%
 
-What the request feeds: the "LOLA Altimetry Map" page of the [LRO NAC example report](../examples/reports.md) — LOLA shots over the DEM hillshade, colored by LOLA minus DEM, with the point count, median, and NMAD — followed by a histogram, and both again after `pc_align`. The [Mars MOC reports](../examples/reports.md) show the MOLA equivalent, with and without mapprojection.
+What the request feeds: the LOLA altimetry map of the [LRO NAC example report](../examples/reports.md) — LOLA shots over the DEM hillshade, colored by LOLA minus DEM, with the point count, median, and NMAD — followed by a histogram. When `pc_align` succeeds, the report shows the map and the histogram before and after alignment in place of these. The [Mars MOC reports](../examples/reports.md) show the MOLA equivalent, with and without mapprojection.
 ```
 
 ## Workflow
