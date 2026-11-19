@@ -15,7 +15,6 @@ dataframes themselves arrive as method arguments.
 
 import logging
 
-import contextily as ctx
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import numpy as np
@@ -33,9 +32,14 @@ from asp_plot.terrain import (
     slope_bin_labels,
     slope_source_label,
 )
-from asp_plot.utils import ColorBar, Raster
+from asp_plot.utils import ColorBar, Raster, add_basemap
 from asp_plot.utils import nmad as _nmad
-from asp_plot.utils import paired_block_bootstrap, save_figure
+from asp_plot.utils import (
+    paired_block_bootstrap,
+    plot_points_with_colorbar,
+    save_figure,
+    two_panel_height,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -154,8 +158,16 @@ class AltimetryPlotter:
             clim = (-abs_max, abs_max)
 
         ncols = 2 if show_aligned else 1
+        height = 6
+        if show_aligned:
+            # The report shows only this two-panel map when the alignment
+            # succeeds (#236), so size it to the DEM's shape rather than a
+            # fixed strip that shrinks a square or tall DEM to thumbnails.
+            height = two_panel_height(
+                extent[1] - extent[0], extent[3] - extent[2], panel_width=8
+            )
         fig, axes = plt.subplots(
-            1, ncols, figsize=(8 * ncols, 6), dpi=220, squeeze=False
+            1, ncols, figsize=(8 * ncols, height), dpi=220, squeeze=False
         )
         axes = axes[0]
 
@@ -172,15 +184,14 @@ class AltimetryPlotter:
 
             ax.imshow(hs, cmap="gray", extent=extent, alpha=0.7, interpolation="none")
             cbar_label = f"{instrument} - {label} (m)\n[±|max|]"
-            gdf.to_crs(dem_crs).plot(
-                ax=ax,
-                column=column,
+            plot_points_with_colorbar(
+                ax,
+                gdf.to_crs(dem_crs),
+                column,
+                cbar_label,
+                norm=plt.Normalize(vmin=clim[0], vmax=clim[1]),
                 cmap="RdBu",
-                vmin=clim[0],
-                vmax=clim[1],
                 markersize=2,
-                legend=True,
-                legend_kwds={"label": cbar_label},
             )
             stats_text = f"n={n}\nMedian={med:+.2f} m\nNMAD={nmad:.2f} m"
             ax.text(
@@ -440,7 +451,7 @@ class AltimetryPlotter:
             )
             if ctx_kwargs:
                 ctx_kwargs.setdefault("crs", crs)
-                ctx.add_basemap(ax=ax, **ctx_kwargs)
+                add_basemap(ax, **ctx_kwargs)
 
         suptitle = f"{title}"
         if self._time_range_label:
@@ -568,18 +579,12 @@ class AltimetryPlotter:
 
             norm = cb.get_norm(lognorm=False)
 
-            atl06sr_sorted.plot(
-                ax=ax,
-                column=column_name,
-                cmap=cmap,
-                norm=norm,
-                s=1,
-                legend=True,
-                legend_kwds={"label": cbar_label},
+            plot_points_with_colorbar(
+                ax, atl06sr_sorted, column_name, cbar_label, norm=norm, cmap=cmap, s=1
             )
 
         if ctx_kwargs:
-            ctx.add_basemap(ax=ax, **ctx_kwargs)
+            add_basemap(ax, **ctx_kwargs)
 
         ax.set_xticks([])
         ax.set_yticks([])
@@ -632,15 +637,19 @@ class AltimetryPlotter:
         Notes
         -----
         The plot uses a divergent colormap (RdBu) to highlight
-        positive and negative differences.
+        positive and negative differences. With ``plot_aligned`` the map
+        has two panels, the differences before (left) and after (right)
+        alignment, each with its own color scale and with its n, median
+        and NMAD in its title.
         """
         if plot_aligned:
-            column_name = "icesat_minus_aligned_dem"
             if not self.alt.aligned_dem_fn:
                 print("\nAligned DEM not found.\n")
                 return
-        else:
-            column_name = "icesat_minus_dem"
+            return self._mapview_before_after(
+                atl06sr, key, clim, save_dir, fig_fn, map_crs, **ctx_kwargs
+            )
+        column_name = "icesat_minus_dem"
 
         if clim is None:
             # Symmetric ±3σ centered on 0 (data has already been filtered
@@ -654,10 +663,7 @@ class AltimetryPlotter:
         else:
             cbar_label = "ICESat-2 minus DEM (m)"
 
-        if not map_crs:
-            dem = rioxarray.open_rasterio(self.alt.dem_fn, masked=True).squeeze()
-            epsg = dem.rio.crs.to_epsg()
-            map_crs = f"EPSG:{epsg}"
+        map_crs = self._map_crs(map_crs)
 
         self.plot_atl06sr(
             atl06sr,
@@ -672,6 +678,72 @@ class AltimetryPlotter:
             fig_fn=fig_fn,
             **ctx_kwargs,
         )
+
+    def _map_crs(self, map_crs):
+        """``map_crs``, or the DEM's CRS as ``EPSG:XXXX`` when it is None."""
+        if map_crs:
+            return map_crs
+        dem = rioxarray.open_rasterio(self.alt.dem_fn, masked=True).squeeze()
+        return f"EPSG:{dem.rio.crs.to_epsg()}"
+
+    def _mapview_before_after(
+        self, atl06sr, key, clim, save_dir, fig_fn, map_crs, **ctx_kwargs
+    ):
+        """
+        The ICESat-2 minus DEM map before (left) and after (right) alignment.
+
+        The report shows only this map when the alignment succeeds (#236).
+        Each panel has its own color scale, symmetric about 0 (``clim`` for
+        both when given): before alignment a DEM is often offset by meters,
+        and one scale for both panels would wash out the differences that
+        remain after it.
+        """
+        map_crs = self._map_crs(map_crs)
+        points = atl06sr.to_crs(map_crs)
+        minx, miny, maxx, maxy = points.total_bounds
+        height = two_panel_height(maxx - minx, maxy - miny, panel_width=6)
+        fig, axes = plt.subplots(1, 2, figsize=(12, height), dpi=220)
+        panels = [
+            ("icesat_minus_dem", "DEM"),
+            ("icesat_minus_aligned_dem", "Aligned DEM"),
+        ]
+        for ax, (column, label) in zip(axes, panels):
+            pts = points.dropna(subset=[column]).sort_values(by=column)
+            dh = pts[column].to_numpy()
+            if dh.size == 0:
+                ax.set_axis_off()
+                continue
+            if clim is None:
+                abs_max = float(np.max(np.abs(dh)))
+                panel_clim, cbar_label = (-abs_max, abs_max), "[±3σ]"
+            else:
+                panel_clim, cbar_label = clim, ""
+            plot_points_with_colorbar(
+                ax,
+                pts,
+                column,
+                f"ICESat-2 minus {label} (m)\n{cbar_label}".rstrip(),
+                norm=plt.Normalize(*panel_clim),
+                cmap="RdBu",
+                extend=ColorBar().get_cbar_extend(dh, panel_clim),
+                s=1,
+            )
+            if ctx_kwargs:
+                add_basemap(ax, **ctx_kwargs)
+            ax.set_xticks([])
+            ax.set_yticks([])
+            ax.set_title(
+                f"{label}: n={dh.size}, Med={np.median(dh):+.2f} m, "
+                f"NMAD={_nmad(dh):.2f} m",
+                size=9,
+            )
+        suptitle = f"ICESat-2 ATL06-SR\n{key} (n={atl06sr.shape[0]})"
+        if self._time_range_label:
+            suptitle += f"\n{self._time_range_label}"
+        fig.suptitle(suptitle, size=10)
+        fig.tight_layout()
+        if save_dir and fig_fn:
+            save_figure(fig, save_dir, fig_fn)
 
     def histogram(
         self,
@@ -1343,10 +1415,12 @@ class AltimetryPlotter:
         plt.setp(ax_elev.get_xticklabels(), visible=False)
 
     def _profile_dh_panel(self, ax_dh, track, dist, dh_vals, seg_info, plot_aligned):
-        """Bottom profile panel: the dh scatter (post-alignment when active)."""
-        # When plot_aligned is active, show the *post*-alignment dh and
-        # recompute Med/NMAD against the aligned DEM so the bottom panel
-        # reflects what the aligned-DEM page is actually evaluating.
+        """
+        Bottom profile panel: the dh scatter, against the aligned DEM when
+        ``plot_aligned``. The aligned version also prints the median and NMAD
+        before alignment, since the report shows only this version when the
+        alignment succeeds (#236).
+        """
         use_aligned_dh = (
             plot_aligned
             and self.alt.aligned_dem_fn
@@ -1354,10 +1428,22 @@ class AltimetryPlotter:
         )
         if use_aligned_dh:
             dh_plot = track["icesat_minus_aligned_dem"].dropna()
-            dh_label_suffix = " (Aligned DEM)"
+            dh_label_prefix = "Aligned DEM: "
+            if not dh_vals.empty:
+                # The unaligned dh is offset by the translation, often meters,
+                # so it is given as numbers rather than drawn on this axis.
+                ax_dh.plot(
+                    [],
+                    [],
+                    linestyle="none",
+                    label=(
+                        f"DEM: Med={np.nanmedian(dh_vals.values):+.2f} m, "
+                        f"NMAD={_nmad(dh_vals.values):.2f} m (not plotted)"
+                    ),
+                )
         else:
             dh_plot = dh_vals
-            dh_label_suffix = ""
+            dh_label_prefix = ""
 
         if not dh_plot.empty:
             med = np.nanmedian(dh_plot.values)
@@ -1369,7 +1455,7 @@ class AltimetryPlotter:
                 s=4,
                 alpha=0.6,
                 zorder=2,
-                label=f"Med={med:+.2f} m, NMAD={nmad_val:.2f} m{dh_label_suffix}",
+                label=f"{dh_label_prefix}Med={med:+.2f} m, NMAD={nmad_val:.2f} m",
             )
             ax_dh.axhline(0, color="black", linewidth=0.5, linestyle="--", zorder=1)
 

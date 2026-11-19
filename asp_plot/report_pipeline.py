@@ -257,31 +257,17 @@ def _build_bundle_adjust(ctx: ReportContext) -> List[object]:
         return sections + _build_bundle_adjust_cameras(ctx)
 
     try:
+        # One linear-scale page: a log-scale copy of the same residuals was
+        # dropped as a repeat (#236). The color scale stops at the 90th
+        # percentile: initial residuals can have a tail of gross outliers
+        # (95th percentile 314 px against a median of 4 px at UCSD) that
+        # would otherwise set the scale and leave the rest one color.
         plotter = PlotBundleAdjustFiles(
             [resid_initial_gdf, resid_final_gdf],
-            lognorm=True,
-            title="Bundle Adjust Initial and Final Residuals (Log Scale)",
+            clim_perc=(2, 90),
+            lognorm=False,
+            title="Bundle Adjust Initial and Final Residuals",
         )
-
-        fig_fn = ctx.next_fig_fn()
-        plotter.plot_n_gdfs(
-            column_name="mean_residual",
-            cbar_label="Mean residual (px)",
-            map_crs=ctx.map_crs,
-            save_dir=ctx.plots_directory,
-            fig_fn=fig_fn,
-            **ctx.ctx_kwargs,
-        )
-        sections.append(
-            ReportSection(
-                title="Bundle Adjust Residuals (Log Scale)",
-                image_path=ctx.fig_path(fig_fn),
-                caption=captions.BUNDLE_RESIDUALS_LOG,
-            )
-        )
-
-        plotter.lognorm = False
-        plotter.title = "Bundle Adjust Initial and Final Residuals (Linear Scale)"
 
         fig_fn = ctx.next_fig_fn()
         plotter.plot_n_gdfs(
@@ -295,9 +281,9 @@ def _build_bundle_adjust(ctx: ReportContext) -> List[object]:
         )
         sections.append(
             ReportSection(
-                title="Bundle Adjust Residuals (Linear Scale)",
+                title="Bundle Adjust Residuals",
                 image_path=ctx.fig_path(fig_fn),
-                caption=captions.BUNDLE_RESIDUALS_LINEAR,
+                caption=captions.BUNDLE_RESIDUALS,
             )
         )
 
@@ -500,6 +486,21 @@ def _stats_row_from_result(align_result) -> dict:
     return stats_row
 
 
+def _alignment_page(align_result, title: str, description: str):
+    """The alignment page for an ``AlignmentResult``, with the statistics
+    table unless too few points left nothing to report."""
+    stats_row = {}
+    if align_result.status != "insufficient_points":
+        stats_row = _stats_row_from_result(align_result)
+    return AlignmentReportPage(
+        title=title,
+        parameters=align_result.parameters_used,
+        stats_row=stats_row,
+        description=description,
+        status_message=align_result.message,
+    )
+
+
 def _build_altimetry(ctx: ReportContext) -> List[object]:
     asp_dem = ctx.asp_dem
 
@@ -567,7 +568,6 @@ def _build_altimetry_earth(ctx: ReportContext, ctx_kwargs_altimetry: dict):
         atl06sr_time_kwargs["time_range"] = "buffered"
         atl06sr_time_kwargs["scene_date"] = atl06sr_time_range.strip()
 
-    # Existing ICESat-2 workflow (3 plots: map, histogram, profile)
     icesat = Altimetry(directory=cfg.directory, dem_fn=asp_dem)
 
     # Reuse the exact prior points from parquet when replaying a prior
@@ -600,8 +600,8 @@ def _build_altimetry_earth(ctx: ReportContext, ctx_kwargs_altimetry: dict):
     icesat.atl06sr_to_dem_dh()
 
     # Resolve the profile track + best/worst segments ONCE so the
-    # profile and segment figures (and their aligned variants) all show
-    # the same track/segments. When replaying, pin the prior run's
+    # profile and segment figures show the same track/segments whether or
+    # not the alignment succeeds. When replaying, pin the prior run's
     # choices; otherwise pin this run's auto-selection for self-
     # consistency (#121).
     auto_sel = icesat.get_altimetry_selections("all")
@@ -614,9 +614,31 @@ def _build_altimetry_earth(ctx: ReportContext, ctx_kwargs_altimetry: dict):
         icesat2_selections["segments"] = seg_kw
     ctx.icesat2_selections = icesat2_selections
 
+    # ---- pc_align + ICESat-2 alignment report (Earth only) ----
+    # The alignment runs before the other figures so that each is drawn
+    # once (#236): when it succeeds, every figure below carries both the
+    # unaligned and the aligned DEM; otherwise the unaligned DEM only.
+    aligned = False
+    if cfg.pc_align:
+        align_kwargs = {"processing_level": "all", "improvement_threshold_pct": 5.0}
+        if cfg.pc_align_min_points is not None:
+            align_kwargs["minimum_points"] = cfg.pc_align_min_points
+        align_result = icesat.align_and_evaluate(**align_kwargs)
+        sections.append(
+            _alignment_page(
+                align_result,
+                "DEM Alignment with ICESat-2",
+                captions.EARTH_ALIGNMENT_DESCRIPTION,
+            )
+        )
+        aligned = align_result.status == "success"
+
+    suffix = " (Aligned DEM)" if aligned else ""
+
     fig_fn = ctx.next_fig_fn()
     icesat.mapview_plot_atl06sr_to_dem(
         key="all",
+        plot_aligned=aligned,
         save_dir=ctx.plots_directory,
         fig_fn=fig_fn,
         map_crs=ctx.map_crs,
@@ -624,39 +646,51 @@ def _build_altimetry_earth(ctx: ReportContext, ctx_kwargs_altimetry: dict):
     )
     sections.append(
         ReportSection(
-            title="ICESat-2 ATL06-SR Map",
+            title="ICESat-2 ATL06-SR Map" + suffix,
             image_path=ctx.fig_path(fig_fn),
-            caption=captions.ICESAT2_MAP,
+            caption=captions.ICESAT2_MAP_ALIGNED if aligned else captions.ICESAT2_MAP,
         )
     )
 
     fig_fn = ctx.next_fig_fn()
     icesat.histogram_by_landcover(
         key="all",
+        plot_aligned=aligned,
         save_dir=ctx.plots_directory,
         fig_fn=fig_fn,
     )
     sections.append(
         ReportSection(
-            title="ICESat-2 ATL06-SR Histogram",
+            title="ICESat-2 ATL06-SR Histogram" + suffix,
             image_path=ctx.fig_path(fig_fn),
-            caption=captions.ICESAT2_HISTOGRAM,
+            caption=(
+                captions.ICESAT2_HISTOGRAM_ALIGNED
+                if aligned
+                else captions.ICESAT2_HISTOGRAM
+            ),
         )
     )
+
+    sections += _slope_section(ctx, icesat, plot_aligned=aligned)
 
     fig_fn = ctx.next_fig_fn()
     icesat.plot_atl06sr_dem_profile(
         key="all",
         segments=seg_kw,
+        plot_aligned=aligned,
         save_dir=ctx.plots_directory,
         fig_fn=fig_fn,
         **track_kw,
     )
     sections.append(
         ReportSection(
-            title="ICESat-2 ATL06-SR Profile",
+            title="ICESat-2 ATL06-SR Profile" + suffix,
             image_path=ctx.fig_path(fig_fn),
-            caption=captions.ICESAT2_PROFILE,
+            caption=(
+                captions.ICESAT2_PROFILE_ALIGNED
+                if aligned
+                else captions.ICESAT2_PROFILE
+            ),
         )
     )
 
@@ -664,124 +698,22 @@ def _build_altimetry_earth(ctx: ReportContext, ctx_kwargs_altimetry: dict):
     icesat.plot_best_worst_segments(
         key="all",
         segments=seg_kw,
+        plot_aligned=aligned,
         save_dir=ctx.plots_directory,
         fig_fn=fig_fn,
         **track_kw,
     )
     sections.append(
         ReportSection(
-            title="ICESat-2 ATL06-SR Agreement Segments",
+            title="ICESat-2 ATL06-SR Agreement Segments" + suffix,
             image_path=ctx.fig_path(fig_fn),
-            caption=captions.ICESAT2_SEGMENTS,
+            caption=(
+                captions.ICESAT2_SEGMENTS_ALIGNED
+                if aligned
+                else captions.ICESAT2_SEGMENTS
+            ),
         )
     )
-
-    # The slope figure is drawn once: with the aligned DEM's series when
-    # the alignment below succeeds, otherwise at the end of these pages.
-    slope_drawn = False
-
-    # ---- pc_align + ICESat-2 alignment report (Earth only) ----
-    if cfg.pc_align:
-        align_kwargs = {"processing_level": "all", "improvement_threshold_pct": 5.0}
-        if cfg.pc_align_min_points is not None:
-            align_kwargs["minimum_points"] = cfg.pc_align_min_points
-        align_result = icesat.align_and_evaluate(**align_kwargs)
-        stats_row = _stats_row_from_result(align_result)
-
-        align_title = "DEM Alignment with ICESat-2"
-        alignment_description = captions.EARTH_ALIGNMENT_DESCRIPTION
-
-        if align_result.status == "insufficient_points":
-            sections.append(
-                AlignmentReportPage(
-                    title=align_title,
-                    parameters=align_result.parameters_used,
-                    description=alignment_description,
-                    status_message=align_result.message,
-                )
-            )
-        elif align_result.status == "no_improvement":
-            sections.append(
-                AlignmentReportPage(
-                    title=align_title,
-                    parameters=align_result.parameters_used,
-                    stats_row=stats_row,
-                    description=alignment_description,
-                    status_message=align_result.message,
-                )
-            )
-        elif align_result.status == "success":
-            # Page A: alignment parameters + stats + description
-            # (the histogram gets its own full page below so the
-            # figure isn't squeezed into the remaining space)
-            sections.append(
-                AlignmentReportPage(
-                    title=align_title,
-                    parameters=align_result.parameters_used,
-                    stats_row=stats_row,
-                    description=alignment_description,
-                    status_message=align_result.message,
-                )
-            )
-
-            # Page B: pre/post landcover histogram
-            fig_fn = ctx.next_fig_fn()
-            icesat.histogram_by_landcover(
-                key="all",
-                plot_aligned=True,
-                save_dir=ctx.plots_directory,
-                fig_fn=fig_fn,
-            )
-            sections.append(
-                ReportSection(
-                    title="ICESat-2 ATL06-SR Histogram (Aligned DEM)",
-                    image_path=ctx.fig_path(fig_fn),
-                    caption=captions.ICESAT2_HISTOGRAM_ALIGNED,
-                )
-            )
-
-            # Statistics by slope class, before and after alignment
-            sections += _slope_section(ctx, icesat, plot_aligned=True)
-            slope_drawn = True
-
-            # Page C: profile with aligned DEM
-            fig_fn = ctx.next_fig_fn()
-            icesat.plot_atl06sr_dem_profile(
-                key="all",
-                segments=seg_kw,
-                plot_aligned=True,
-                save_dir=ctx.plots_directory,
-                fig_fn=fig_fn,
-                **track_kw,
-            )
-            sections.append(
-                ReportSection(
-                    title="ICESat-2 ATL06-SR Profile (Aligned DEM)",
-                    image_path=ctx.fig_path(fig_fn),
-                    caption=captions.ICESAT2_PROFILE_ALIGNED,
-                )
-            )
-
-            # Page D: best/worst segments with aligned DEM
-            fig_fn = ctx.next_fig_fn()
-            icesat.plot_best_worst_segments(
-                key="all",
-                segments=seg_kw,
-                plot_aligned=True,
-                save_dir=ctx.plots_directory,
-                fig_fn=fig_fn,
-                **track_kw,
-            )
-            sections.append(
-                ReportSection(
-                    title="ICESat-2 ATL06-SR Agreement Segments (Aligned DEM)",
-                    image_path=ctx.fig_path(fig_fn),
-                    caption=captions.ICESAT2_SEGMENTS_ALIGNED,
-                )
-            )
-
-    if not slope_drawn:
-        sections += _slope_section(ctx, icesat, plot_aligned=False)
 
     return sections
 
@@ -846,100 +778,61 @@ def _build_altimetry_planetary(ctx: ReportContext, body: str):
     alt.load_planetary_csv(cfg.altimetry_csv)
     alt.planetary_to_dem_dh()
 
-    fig_fn = ctx.next_fig_fn()
-    alt.mapview_plot_planetary_to_dem(
-        save_dir=ctx.plots_directory,
-        fig_fn=fig_fn,
-    )
-    sections.append(
-        ReportSection(
-            title=f"{instrument} Altimetry Map",
-            image_path=ctx.fig_path(fig_fn),
-            caption=captions.planetary_altimetry_map(instrument),
-        )
-    )
-
-    fig_fn = ctx.next_fig_fn()
-    alt.histogram_planetary_to_dem(
-        save_dir=ctx.plots_directory,
-        fig_fn=fig_fn,
-    )
-    sections.append(
-        ReportSection(
-            title=f"{instrument} Altimetry Histogram",
-            image_path=ctx.fig_path(fig_fn),
-            caption=captions.planetary_altimetry_histogram(instrument),
-        )
-    )
-
     # ---- pc_align + planetary alignment report (Moon/Mars) ----
+    # As for ICESat-2, the alignment runs first so that each figure is drawn
+    # once (#236): with both DEMs when it succeeds, otherwise unaligned.
+    aligned = False
     if cfg.pc_align:
         align_kwargs = {}
         if cfg.pc_align_min_points is not None:
             align_kwargs["minimum_points"] = cfg.pc_align_min_points
         align_result = alt.align_and_evaluate_planetary(**align_kwargs)
-        stats_row = _stats_row_from_result(align_result)
+        sections.append(
+            _alignment_page(
+                align_result,
+                f"DEM Alignment with {instrument}",
+                captions.planetary_alignment_description(instrument),
+            )
+        )
+        aligned = align_result.status == "success"
 
-        align_title = f"DEM Alignment with {instrument}"
-        alignment_description = captions.planetary_alignment_description(instrument)
+    suffix = " (Aligned DEM)" if aligned else ""
 
-        if align_result.status == "insufficient_points":
-            sections.append(
-                AlignmentReportPage(
-                    title=align_title,
-                    parameters=align_result.parameters_used,
-                    description=alignment_description,
-                    status_message=align_result.message,
-                )
-            )
-        elif align_result.status == "no_improvement":
-            sections.append(
-                AlignmentReportPage(
-                    title=align_title,
-                    parameters=align_result.parameters_used,
-                    stats_row=stats_row,
-                    description=alignment_description,
-                    status_message=align_result.message,
-                )
-            )
-        elif align_result.status == "success":
-            sections.append(
-                AlignmentReportPage(
-                    title=align_title,
-                    parameters=align_result.parameters_used,
-                    stats_row=stats_row,
-                    description=alignment_description,
-                    status_message=align_result.message,
-                )
-            )
+    fig_fn = ctx.next_fig_fn()
+    alt.mapview_plot_planetary_to_dem(
+        plot_aligned=aligned,
+        save_dir=ctx.plots_directory,
+        fig_fn=fig_fn,
+    )
+    sections.append(
+        ReportSection(
+            title=f"{instrument} Altimetry Map" + suffix,
+            image_path=ctx.fig_path(fig_fn),
+            caption=(
+                captions.planetary_altimetry_map_aligned(instrument)
+                if aligned
+                else captions.planetary_altimetry_map(instrument)
+            ),
+        )
+    )
 
-            fig_fn = ctx.next_fig_fn()
-            alt.mapview_plot_planetary_to_dem(
-                plot_aligned=True,
-                save_dir=ctx.plots_directory,
-                fig_fn=fig_fn,
-            )
-            sections.append(
-                ReportSection(
-                    title=f"{instrument} Altimetry Map (Aligned DEM)",
-                    image_path=ctx.fig_path(fig_fn),
-                    caption=captions.planetary_altimetry_map_aligned(instrument),
-                )
-            )
-
-            fig_fn = ctx.next_fig_fn()
-            alt.histogram_planetary_to_dem(
-                plot_aligned=True,
-                save_dir=ctx.plots_directory,
-                fig_fn=fig_fn,
-            )
-            sections.append(
-                ReportSection(
-                    title=f"{instrument} Altimetry Histogram (Aligned DEM)",
-                    image_path=ctx.fig_path(fig_fn),
-                    caption=captions.planetary_altimetry_histogram_aligned(instrument),
-                )
-            )
+    fig_fn = ctx.next_fig_fn()
+    alt.histogram_planetary_to_dem(
+        plot_aligned=aligned,
+        save_dir=ctx.plots_directory,
+        fig_fn=fig_fn,
+    )
+    sections.append(
+        ReportSection(
+            title=f"{instrument} Altimetry Histogram" + suffix,
+            image_path=ctx.fig_path(fig_fn),
+            caption=(
+                captions.planetary_altimetry_histogram_aligned(instrument)
+                if aligned
+                else captions.planetary_altimetry_histogram(instrument)
+            ),
+        )
+    )
 
     return sections
 

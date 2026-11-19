@@ -303,6 +303,18 @@ class TestColorBar:
         extend = cb.get_cbar_extend(data)
         assert extend in ["neither", "min", "max", "both"]
 
+    def test_get_cbar_extend_ignores_nan_and_masked(self):
+        """NaN or masked values are no data, not values beyond the limits."""
+        cb = ColorBar()
+        clim = (0.0, 10.0)
+        assert cb.get_cbar_extend(np.array([1.0, np.nan, 9.0]), clim) == "neither"
+        assert cb.get_cbar_extend(np.array([-1.0, np.nan, 9.0]), clim) == "min"
+        assert cb.get_cbar_extend(np.array([1.0, np.nan, 11.0]), clim) == "max"
+        assert cb.get_cbar_extend(np.array([-1.0, 11.0]), clim) == "both"
+        masked = np.ma.masked_array([1.0, 50.0], mask=[False, True])
+        assert cb.get_cbar_extend(masked, clim) == "neither"
+        assert cb.get_cbar_extend(np.array([np.nan]), clim) == "neither"
+
     def test_get_norm(self):
         """Test normalization."""
         cb = ColorBar()

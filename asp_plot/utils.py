@@ -690,14 +690,19 @@ class ColorBar:
         """
         if clim is None:
             clim = self.get_clim(input)
-        extend = "both"
-        if input.min() >= clim[0] and input.max() <= clim[1]:
-            extend = "neither"
-        elif input.min() >= clim[0] and input.max() > clim[1]:
-            extend = "max"
-        elif input.min() < clim[0] and input.max() <= clim[1]:
-            extend = "min"
-        return extend
+        # NaN and masked values are no data, not values beyond the limits
+        values = np.ma.masked_invalid(np.ma.asarray(input, dtype=float))
+        if values.count() == 0:
+            return "neither"
+        below = values.min() < clim[0]
+        above = values.max() > clim[1]
+        if below and above:
+            return "both"
+        if above:
+            return "max"
+        if below:
+            return "min"
+        return "neither"
 
     def get_norm(self, lognorm=False, clim=None):
         """
@@ -1448,21 +1453,92 @@ class Plotter:
             clim = self.cb.get_clim(gdf[column_name])
         norm = self.cb.get_norm(self.lognorm, clim=clim)
 
-        gdf.plot(
-            ax=ax,
-            column=column_name,
-            cmap=cmap,
+        plot_points_with_colorbar(
+            ax,
+            gdf,
+            column_name,
+            cbar_label,
             norm=norm,
+            cmap=cmap,
+            extend=self.cb.get_cbar_extend(gdf[column_name].to_numpy(), clim),
             s=1,
-            legend=True,
-            legend_kwds={"label": cbar_label},
         )
 
         if ctx_kwargs:
-            try:
-                ctx.add_basemap(ax=ax, **ctx_kwargs)
-            except Exception as e:
-                logger.warning("Basemap skipped: %r", e)
+            add_basemap(ax, **ctx_kwargs)
+
+
+def add_basemap(ax, **ctx_kwargs):
+    """
+    Add a contextily basemap to ``ax``, or log a warning and leave the map
+    without one when the tiles cannot be fetched (#151): a figure is still
+    useful without its basemap, and a failed download should not stop a
+    report.
+    """
+    try:
+        ctx.add_basemap(ax=ax, **ctx_kwargs)
+    except Exception as e:
+        logger.warning("Basemap skipped: %r", e)
+
+
+def two_panel_height(extent_width, extent_height, panel_width, low=4, high=12):
+    """
+    Height in inches of a figure of two map panels side by side, each
+    ``panel_width`` inches wide, for a map extent of the given width and
+    height: the map's aspect at about 80 % of the panel width (the rest is
+    its colorbar), plus room for titles, kept between ``low`` and ``high``.
+    """
+    aspect = abs(extent_height) / max(abs(extent_width), 1e-9)
+    return float(np.clip(0.8 * panel_width * aspect + 1.5, low, high))
+
+
+def plot_points_with_colorbar(
+    ax, gdf, column_name, cbar_label, norm, cmap, extend="neither", **plot_kwargs
+):
+    """
+    Plot points colored by ``column_name`` with a colorbar beside the map.
+
+    The colorbar is as tall as the map axes and narrow, as in
+    :meth:`Plotter.plot_array`, rather than geopandas' default colorbar,
+    which spans the figure height and leaves a wide gap.
+
+    Parameters
+    ----------
+    ax : matplotlib.axes.Axes
+        Map axes.
+    gdf : geopandas.GeoDataFrame
+        Points, already in the map CRS.
+    column_name : str
+        Column to color by.
+    cbar_label : str
+        Colorbar label.
+    norm : matplotlib.colors.Normalize
+        Color normalization.
+    cmap : str
+        Colormap.
+    extend : str, optional
+        Colorbar extension ('neither', 'min', 'max' or 'both'), default
+        'neither'.
+    **plot_kwargs
+        Passed to ``GeoDataFrame.plot`` (e.g. ``s`` or ``markersize``).
+
+    Returns
+    -------
+    matplotlib.axes.Axes
+        The colorbar axes.
+    """
+    cax = make_axes_locatable(ax).append_axes("right", size="4%", pad="2%")
+    gdf.plot(
+        ax=ax,
+        column=column_name,
+        cmap=cmap,
+        norm=norm,
+        legend=True,
+        cax=cax,
+        legend_kwds={"label": cbar_label, "extend": extend},
+        **plot_kwargs,
+    )
+    return cax
 
 
 # SATID prefixes for the DigitalGlobe -> Maxar -> Vantor satellite heritage, all

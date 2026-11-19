@@ -90,13 +90,13 @@ def _reconstruct_command():
     prompt=False,
     default=None,
     type=click.Path(exists=True),
-    help="Path to a LOLA/MOLA *_topo_csv.csv file from the ODE GDS API. Required for planetary altimetry plots. Obtain via: request_planetary_altimetry --dem <dem> --email <email>, then download and unzip the result.",
+    help="Path to the *_pts_csv.csv file of a LOLA/MOLA download from the ODE GDS API. Required for planetary altimetry plots. Obtain via: request_planetary_altimetry --dem <dem> --email <email>, then download and unzip the result. For Mars the *_topo_csv.csv in the same download is rejected: its heights are above the MOLA areoid, not the DEM's datum.",
 )
 @click.option(
     "--no-pc-align",
     is_flag=True,
     default=False,
-    help="Skip the pc_align step (run by default against the reference altimetry -- ICESat-2 for Earth, MOLA for Mars, LOLA for Moon -- appending the alignment-report pages; skipped automatically with --no-altimetry).",
+    help="Skip the pc_align step (run by default against the reference altimetry -- ICESat-2 for Earth, MOLA for Mars, LOLA for Moon -- which adds an alignment page and, when the alignment succeeds, draws the altimetry figures with the aligned DEM too; skipped automatically with --no-altimetry).",
 )
 @click.option(
     "--pc-align-min-points",
